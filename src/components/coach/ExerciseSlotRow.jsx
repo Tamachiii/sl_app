@@ -31,6 +31,7 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
           <button
             onClick={() => onMove(-1)}
             disabled={index === 0}
+            aria-label="Move up"
             className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -40,6 +41,7 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
           <button
             onClick={() => onMove(1)}
             disabled={index === total - 1}
+            aria-label="Move down"
             className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -48,6 +50,7 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
           </button>
           <button
             onClick={() => { if (confirm('Remove this exercise?')) onDelete(); }}
+            aria-label="Remove exercise"
             className="p-1 text-gray-400 hover:text-danger"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -59,8 +62,9 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
 
       <div className="flex gap-3">
         <div className="flex-1">
-          <label className="text-xs text-gray-500 block mb-0.5">Sets</label>
+          <label htmlFor={`sets-${slot.id}`} className="text-xs text-gray-500 block mb-0.5">Sets</label>
           <input
+            id={`sets-${slot.id}`}
             type="number"
             min={1}
             value={sets}
@@ -70,8 +74,9 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
           />
         </div>
         <div className="flex-1">
-          <label className="text-xs text-gray-500 block mb-0.5">Reps</label>
+          <label htmlFor={`reps-${slot.id}`} className="text-xs text-gray-500 block mb-0.5">Reps</label>
           <input
+            id={`reps-${slot.id}`}
             type="number"
             min={1}
             value={reps}
@@ -81,8 +86,9 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
           />
         </div>
         <div className="flex-1">
-          <label className="text-xs text-gray-500 block mb-0.5">Weight (kg)</label>
+          <label htmlFor={`weight-${slot.id}`} className="text-xs text-gray-500 block mb-0.5">Weight (kg)</label>
           <input
+            id={`weight-${slot.id}`}
             type="number"
             min={0}
             step={0.5}

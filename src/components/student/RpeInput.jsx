@@ -7,6 +7,8 @@ export default function RpeInput({ value, onChange }) {
           <button
             key={n}
             onClick={() => onChange(value === n ? null : n)}
+            aria-label={`RPE ${n}`}
+            aria-pressed={value === n}
             className={`w-6 h-6 rounded text-xs font-medium transition-colors ${
               value === n
                 ? n <= 3 ? 'bg-green-500 text-white'

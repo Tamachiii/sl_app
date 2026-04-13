@@ -40,11 +40,12 @@ export default function BottomNav() {
 
   if (role === 'coach') {
     return (
-      <nav className="sticky bottom-0 bg-white border-t border-gray-200 flex justify-around">
+      <nav aria-label="Main navigation" className="sticky bottom-0 bg-white border-t border-gray-200 flex justify-around">
         <NavItem to="/coach" label="Students" icon={HomeIcon} />
         <NavItem to="/coach/exercises" label="Library" icon={LibraryIcon} />
         <button
           onClick={signOut}
+          aria-label="Sign out"
           className="flex flex-col items-center gap-0.5 py-2 px-3 text-xs font-medium text-gray-400"
         >
           {ProfileIcon}
@@ -55,10 +56,11 @@ export default function BottomNav() {
   }
 
   return (
-    <nav className="sticky bottom-0 bg-white border-t border-gray-200 flex justify-around">
+    <nav aria-label="Main navigation" className="sticky bottom-0 bg-white border-t border-gray-200 flex justify-around">
       <NavItem to="/student" label="Home" icon={HomeIcon} />
       <button
         onClick={signOut}
+        aria-label="Sign out"
         className="flex flex-col items-center gap-0.5 py-2 px-3 text-xs font-medium text-gray-400"
       >
         {ProfileIcon}

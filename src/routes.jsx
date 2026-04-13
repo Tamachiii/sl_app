@@ -1,19 +1,30 @@
+import { lazy, Suspense } from 'react';
 import { Navigate } from 'react-router-dom';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import RoleGate from './components/auth/RoleGate';
-import LoginPage from './components/auth/LoginPage';
 import AppShell from './components/layout/AppShell';
-import CoachHome from './components/coach/CoachHome';
-import WeekView from './components/coach/WeekView';
-import SessionEditor from './components/coach/SessionEditor';
-import ExerciseLibrary from './components/coach/ExerciseLibrary';
-import StudentHome from './components/student/StudentHome';
-import SessionView from './components/student/SessionView';
+import Spinner from './components/ui/Spinner';
+
+const LoginPage = lazy(() => import('./components/auth/LoginPage'));
+const CoachHome = lazy(() => import('./components/coach/CoachHome'));
+const WeekView = lazy(() => import('./components/coach/WeekView'));
+const SessionEditor = lazy(() => import('./components/coach/SessionEditor'));
+const ExerciseLibrary = lazy(() => import('./components/coach/ExerciseLibrary'));
+const StudentHome = lazy(() => import('./components/student/StudentHome'));
+const SessionView = lazy(() => import('./components/student/SessionView'));
+
+function Lazy({ children }) {
+  return (
+    <Suspense fallback={<div className="flex justify-center py-12"><Spinner /></div>}>
+      {children}
+    </Suspense>
+  );
+}
 
 export const routes = [
   {
     path: '/login',
-    element: <LoginPage />,
+    element: <Lazy><LoginPage /></Lazy>,
   },
   {
     element: <ProtectedRoute />,
@@ -25,18 +36,18 @@ export const routes = [
           {
             element: <RoleGate allowed="coach" />,
             children: [
-              { path: '/coach', element: <CoachHome /> },
-              { path: '/coach/student/:studentId/week/:weekId', element: <WeekView /> },
-              { path: '/coach/student/:studentId/week/:weekId/session/:sessionId', element: <SessionEditor /> },
-              { path: '/coach/exercises', element: <ExerciseLibrary /> },
+              { path: '/coach', element: <Lazy><CoachHome /></Lazy> },
+              { path: '/coach/student/:studentId/week/:weekId', element: <Lazy><WeekView /></Lazy> },
+              { path: '/coach/student/:studentId/week/:weekId/session/:sessionId', element: <Lazy><SessionEditor /></Lazy> },
+              { path: '/coach/exercises', element: <Lazy><ExerciseLibrary /></Lazy> },
             ],
           },
           // Student routes
           {
             element: <RoleGate allowed="student" />,
             children: [
-              { path: '/student', element: <StudentHome /> },
-              { path: '/student/session/:sessionId', element: <SessionView /> },
+              { path: '/student', element: <Lazy><StudentHome /></Lazy> },
+              { path: '/student/session/:sessionId', element: <Lazy><SessionView /></Lazy> },
             ],
           },
         ],

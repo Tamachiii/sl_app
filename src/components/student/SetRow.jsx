@@ -11,6 +11,7 @@ export default function SetRow({ log }) {
     }`}>
       <button
         onClick={() => toggleDone.mutate({ logId: log.id, done: !log.done })}
+        aria-label={log.done ? 'Mark set undone' : 'Mark set done'}
         className={`w-8 h-8 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
           log.done
             ? 'bg-success border-success text-white'

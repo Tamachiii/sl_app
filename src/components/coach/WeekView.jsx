@@ -76,6 +76,7 @@ export default function WeekView() {
                   onClick={() => {
                     if (confirm('Delete this session?')) deleteSession.mutate(sess.id);
                   }}
+                  aria-label="Delete session"
                   className="text-gray-400 hover:text-danger text-sm p-1"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

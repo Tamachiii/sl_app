@@ -134,6 +134,7 @@ export default function ExerciseLibrary() {
                 <div className="flex gap-1">
                   <button
                     onClick={() => setEditingId(ex.id)}
+                    aria-label={`Edit ${ex.name}`}
                     className="text-gray-400 hover:text-primary p-1 text-sm"
                   >
                     Edit
@@ -142,6 +143,7 @@ export default function ExerciseLibrary() {
                     onClick={() => {
                       if (confirm(`Delete "${ex.name}"?`)) deleteExercise.mutate(ex.id);
                     }}
+                    aria-label={`Delete ${ex.name}`}
                     className="text-gray-400 hover:text-danger p-1 text-sm"
                   >
                     Del

@@ -14,11 +14,13 @@ export default function Dialog({ open, onClose, title, children }) {
     <dialog
       ref={ref}
       onClose={onClose}
+      aria-modal="true"
+      aria-labelledby={title ? 'dialog-title' : undefined}
       className="backdrop:bg-black/40 rounded-2xl p-0 w-[calc(100%-2rem)] max-w-md shadow-xl"
     >
       <div className="p-5">
         {title && (
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">{title}</h2>
+          <h2 id="dialog-title" className="text-lg font-semibold text-gray-900 mb-4">{title}</h2>
         )}
         {children}
       </div>
