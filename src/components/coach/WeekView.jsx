@@ -1,7 +1,8 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import Header from '../layout/Header';
-import { useWeek, useCreateSession, useDeleteSession, useUpdateWeek, useUpdateSession } from '../../hooks/useWeek';
+import { useWeek, useCreateSession, useDeleteSession, useUpdateWeek, useUpdateSession, useDeleteWeek, useMoveWeek } from '../../hooks/useWeek';
 import { useDuplicateWeek } from '../../hooks/useDuplicate';
+import { useProgram } from '../../hooks/useProgram';
 import { computeSessionVolume } from '../../lib/volume';
 import VolumeBar from './VolumeBar';
 import Spinner from '../ui/Spinner';
@@ -18,6 +19,9 @@ export default function WeekView() {
   const duplicateWeek = useDuplicateWeek();
   const updateWeek = useUpdateWeek();
   const updateSession = useUpdateSession();
+  const deleteWeek = useDeleteWeek();
+  const moveWeek = useMoveWeek();
+  const { data: program } = useProgram(studentId);
   const { data: confirmedIds } = useWeekConfirmedSessionIds(weekId);
 
   if (isLoading) {
@@ -45,6 +49,29 @@ export default function WeekView() {
     duplicateWeek.mutate({ weekId, newWeekNumber: maxWeek + 1 });
   }
 
+  const siblings = (program?.weeks || []).slice().sort((a, b) => a.week_number - b.week_number);
+  const currentIdx = siblings.findIndex((w) => w.id === week?.id);
+  const prevWeek = currentIdx > 0 ? siblings[currentIdx - 1] : null;
+  const nextWeek = currentIdx >= 0 && currentIdx < siblings.length - 1 ? siblings[currentIdx + 1] : null;
+
+  function handleMove(direction) {
+    const other = direction === -1 ? prevWeek : nextWeek;
+    if (!other || !week) return;
+    moveWeek.mutate({
+      aId: week.id,
+      aNumber: week.week_number,
+      bId: other.id,
+      bNumber: other.week_number,
+    });
+  }
+
+  function handleDeleteWeek() {
+    if (!confirm(`Delete Week ${week.week_number}? This will remove all its sessions.`)) return;
+    deleteWeek.mutate(weekId, {
+      onSuccess: () => navigate(-1),
+    });
+  }
+
   return (
     <>
       <Header
@@ -63,13 +90,45 @@ export default function WeekView() {
         }
         showBack
         actions={
-          <button
-            onClick={handleDuplicateWeek}
-            disabled={duplicateWeek.isPending}
-            className="text-xs bg-gray-100 text-gray-600 rounded-lg px-2.5 py-1.5 hover:bg-gray-200"
-          >
-            Duplicate
-          </button>
+          <>
+            <button
+              onClick={() => handleMove(-1)}
+              disabled={!prevWeek || moveWeek.isPending}
+              aria-label="Move week earlier"
+              title="Move earlier"
+              className="text-xs bg-gray-100 text-gray-600 rounded-lg px-2 py-1.5 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <button
+              onClick={() => handleMove(1)}
+              disabled={!nextWeek || moveWeek.isPending}
+              aria-label="Move week later"
+              title="Move later"
+              className="text-xs bg-gray-100 text-gray-600 rounded-lg px-2 py-1.5 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+            <button
+              onClick={handleDuplicateWeek}
+              disabled={duplicateWeek.isPending}
+              className="text-xs bg-gray-100 text-gray-600 rounded-lg px-2.5 py-1.5 hover:bg-gray-200"
+            >
+              Duplicate
+            </button>
+            <button
+              onClick={handleDeleteWeek}
+              disabled={deleteWeek.isPending}
+              aria-label="Delete week"
+              className="text-xs bg-gray-100 text-danger rounded-lg px-2.5 py-1.5 hover:bg-red-50"
+            >
+              Delete
+            </button>
+          </>
         }
       />
       <div className="p-4 space-y-3">

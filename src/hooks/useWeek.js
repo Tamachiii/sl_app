@@ -81,6 +81,51 @@ export function useUpdateWeek() {
   });
 }
 
+export function useDeleteWeek() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (weekId) => {
+      const { error } = await supabase.from('weeks').delete().eq('id', weekId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['program'] });
+      qc.invalidateQueries({ queryKey: ['week'] });
+    },
+  });
+}
+
+/**
+ * Swap two weeks' `week_number` within the same program.
+ * Three-step update to dodge the UNIQUE(program_id, week_number) constraint:
+ *   1. Park A at a temp number.
+ *   2. Move B into A's old slot.
+ *   3. Move A into B's old slot.
+ */
+export function useMoveWeek() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ aId, aNumber, bId, bNumber }) => {
+      const tmp = Math.max(aNumber, bNumber) + 10000;
+
+      const s1 = await supabase.from('weeks').update({ week_number: tmp }).eq('id', aId);
+      if (s1.error) throw s1.error;
+
+      const s2 = await supabase.from('weeks').update({ week_number: aNumber }).eq('id', bId);
+      if (s2.error) throw s2.error;
+
+      const s3 = await supabase.from('weeks').update({ week_number: bNumber }).eq('id', aId);
+      if (s3.error) throw s3.error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['program'] });
+      qc.invalidateQueries({ queryKey: ['week'] });
+    },
+  });
+}
+
 export function useUpdateSession() {
   const qc = useQueryClient();
 
