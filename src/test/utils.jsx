@@ -2,6 +2,7 @@ import { render } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { createContext } from 'react';
+import { ThemeProvider } from '../hooks/useTheme';
 
 // Re-create AuthContext so tests don't depend on the real provider
 const AuthContext = createContext(null);
@@ -29,13 +30,15 @@ export function renderWithProviders(ui, { auth = defaultAuth, route = '/', query
 
   function Wrapper({ children }) {
     return (
-      <QueryClientProvider client={qc}>
-        <AuthContext.Provider value={auth}>
-          <MemoryRouter initialEntries={[route]}>
-            {children}
-          </MemoryRouter>
-        </AuthContext.Provider>
-      </QueryClientProvider>
+      <ThemeProvider>
+        <QueryClientProvider client={qc}>
+          <AuthContext.Provider value={auth}>
+            <MemoryRouter initialEntries={[route]}>
+              {children}
+            </MemoryRouter>
+          </AuthContext.Provider>
+        </QueryClientProvider>
+      </ThemeProvider>
     );
   }
 

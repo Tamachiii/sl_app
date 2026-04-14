@@ -1,11 +1,12 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import Header from '../layout/Header';
-import { useWeek, useCreateSession, useDeleteSession } from '../../hooks/useWeek';
+import { useWeek, useCreateSession, useDeleteSession, useUpdateWeek, useUpdateSession } from '../../hooks/useWeek';
 import { useDuplicateWeek } from '../../hooks/useDuplicate';
 import { computeSessionVolume } from '../../lib/volume';
 import VolumeBar from './VolumeBar';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
+import EditableText from '../ui/EditableText';
 
 export default function WeekView() {
   const { studentId, weekId } = useParams();
@@ -14,6 +15,8 @@ export default function WeekView() {
   const createSession = useCreateSession();
   const deleteSession = useDeleteSession();
   const duplicateWeek = useDuplicateWeek();
+  const updateWeek = useUpdateWeek();
+  const updateSession = useUpdateSession();
 
   if (isLoading) {
     return (
@@ -43,7 +46,19 @@ export default function WeekView() {
   return (
     <>
       <Header
-        title={`Week ${week?.week_number ?? ''}${week?.label ? ` — ${week.label}` : ''}`}
+        title={
+          <span className="flex items-center gap-2">
+            <span>Week {week?.week_number ?? ''}</span>
+            <span className="text-gray-400">—</span>
+            <EditableText
+              value={week?.label || ''}
+              onSave={(label) => updateWeek.mutate({ id: weekId, label })}
+              placeholder="Label"
+              ariaLabel="Edit week label"
+              className="font-semibold"
+            />
+          </span>
+        }
         showBack
         actions={
           <button
@@ -63,14 +78,24 @@ export default function WeekView() {
           const vol = computeSessionVolume(sess.exercise_slots || []);
           return (
             <div key={sess.id} className="bg-white rounded-xl shadow-sm p-4 space-y-2">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
+                <EditableText
+                  value={sess.title || ''}
+                  onSave={(title) => updateSession.mutate({ id: sess.id, title })}
+                  placeholder={`Session ${sess.day_number}`}
+                  ariaLabel="Edit session title"
+                  className="font-medium text-gray-900 flex-1"
+                />
                 <button
                   onClick={() =>
                     navigate(`/coach/student/${studentId}/week/${weekId}/session/${sess.id}`)
                   }
-                  className="font-medium text-gray-900 text-left flex-1"
+                  aria-label="Open session"
+                  className="text-gray-400 hover:text-primary p-1"
                 >
-                  {sess.title || `Session ${sess.day_number}`}
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
                 </button>
                 <button
                   onClick={() => {

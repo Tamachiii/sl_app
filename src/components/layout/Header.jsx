@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import ThemeToggle from '../ui/ThemeToggle';
 
 export default function Header({ title, showBack = false, actions }) {
   const navigate = useNavigate();
@@ -17,7 +18,10 @@ export default function Header({ title, showBack = false, actions }) {
         </button>
       )}
       <h1 className="text-lg font-semibold text-gray-900 flex-1 truncate">{title}</h1>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      <div className="flex items-center gap-2">
+        {actions}
+        <ThemeToggle />
+      </div>
     </header>
   );
 }

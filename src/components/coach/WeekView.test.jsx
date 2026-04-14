@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import { ThemeProvider } from '../../hooks/useTheme';
 
 const mockNavigate = vi.fn();
 const mockCreateSession = { mutate: vi.fn(), isPending: false };
@@ -23,6 +24,8 @@ vi.mock('../../hooks/useWeek', () => ({
   useWeek: () => mockWeekData,
   useCreateSession: () => mockCreateSession,
   useDeleteSession: () => mockDeleteSession,
+  useUpdateWeek: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateSession: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock('../../hooks/useDuplicate', () => ({
@@ -33,9 +36,11 @@ import WeekView from './WeekView';
 
 function renderWeekView() {
   return render(
-    <MemoryRouter>
-      <WeekView />
-    </MemoryRouter>
+    <ThemeProvider>
+      <MemoryRouter>
+        <WeekView />
+      </MemoryRouter>
+    </ThemeProvider>
   );
 }
 
@@ -75,7 +80,7 @@ describe('WeekView', () => {
     expect(screen.getByText('Pull Day')).toBeInTheDocument();
   });
 
-  it('clicking session title navigates to session editor', async () => {
+  it('clicking open session chevron navigates to session editor', async () => {
     const user = userEvent.setup();
     mockWeekData = {
       data: {
@@ -86,7 +91,7 @@ describe('WeekView', () => {
     };
     renderWeekView();
 
-    await user.click(screen.getByText('Push Day'));
+    await user.click(screen.getByRole('button', { name: /open session/i }));
     expect(mockNavigate).toHaveBeenCalledWith('/coach/student/s-1/week/w-1/session/sess-1');
   });
 

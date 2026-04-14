@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import Header from './Header';
+import { ThemeProvider } from '../../hooks/useTheme';
 
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -12,9 +13,11 @@ vi.mock('react-router-dom', async () => {
 
 function renderHeader(props = {}) {
   return render(
-    <MemoryRouter>
-      <Header title="Test Title" {...props} />
-    </MemoryRouter>
+    <ThemeProvider>
+      <MemoryRouter>
+        <Header title="Test Title" {...props} />
+      </MemoryRouter>
+    </ThemeProvider>
   );
 }
 

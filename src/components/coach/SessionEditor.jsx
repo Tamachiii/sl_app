@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import Header from '../layout/Header';
 import { useSession, useAddSlot, useUpdateSlot, useDeleteSlot } from '../../hooks/useSession';
+import { useUpdateSession } from '../../hooks/useWeek';
 import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
 import { useDuplicateSession } from '../../hooks/useDuplicate';
 import { computeSessionVolume } from '../../lib/volume';
 import VolumeBar from './VolumeBar';
 import ExerciseSlotRow from './ExerciseSlotRow';
 import Spinner from '../ui/Spinner';
+import EditableText from '../ui/EditableText';
 
 export default function SessionEditor() {
   const { sessionId } = useParams();
@@ -17,6 +19,7 @@ export default function SessionEditor() {
   const updateSlot = useUpdateSlot();
   const deleteSlot = useDeleteSlot();
   const duplicateSession = useDuplicateSession();
+  const updateSession = useUpdateSession();
 
   const [showAdd, setShowAdd] = useState(false);
   const [selectedExercise, setSelectedExercise] = useState('');
@@ -58,7 +61,14 @@ export default function SessionEditor() {
   return (
     <>
       <Header
-        title={session?.title || 'Session'}
+        title={
+          <EditableText
+            value={session?.title || ''}
+            onSave={(title) => updateSession.mutate({ id: sessionId, title })}
+            placeholder="Session"
+            ariaLabel="Edit session title"
+          />
+        }
         showBack
         actions={
           <button

@@ -60,6 +60,48 @@ export function useCreateSession() {
   });
 }
 
+export function useUpdateWeek() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, ...updates }) => {
+      const { data, error } = await supabase
+        .from('weeks')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['week'] });
+      qc.invalidateQueries({ queryKey: ['program'] });
+    },
+  });
+}
+
+export function useUpdateSession() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, ...updates }) => {
+      const { data, error } = await supabase
+        .from('sessions')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['week'] });
+      qc.invalidateQueries({ queryKey: ['session'] });
+    },
+  });
+}
+
 export function useDeleteSession() {
   const qc = useQueryClient();
 

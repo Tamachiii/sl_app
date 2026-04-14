@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import { ThemeProvider } from '../../hooks/useTheme';
 
 const mockAddSlot = { mutate: vi.fn(), isPending: false };
 const mockUpdateSlot = { mutate: vi.fn() };
@@ -33,13 +34,19 @@ vi.mock('../../hooks/useDuplicate', () => ({
   useDuplicateSession: () => mockDuplicateSession,
 }));
 
+vi.mock('../../hooks/useWeek', () => ({
+  useUpdateSession: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 import SessionEditor from './SessionEditor';
 
 function renderEditor() {
   return render(
-    <MemoryRouter>
-      <SessionEditor />
-    </MemoryRouter>
+    <ThemeProvider>
+      <MemoryRouter>
+        <SessionEditor />
+      </MemoryRouter>
+    </ThemeProvider>
   );
 }
 

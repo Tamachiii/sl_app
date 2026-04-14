@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-primary: #2563eb;
   --color-primary-dark: #1d4ed8;
@@ -16,4 +18,45 @@ html, body, #root {
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* ---------- Dark theme ----------
+ * Overrides common Tailwind utility classes when `.dark` is on <html>.
+ * This avoids rewriting every component with `dark:` variants.
+ */
+.dark {
+  color-scheme: dark;
+}
+
+.dark body {
+  background-color: #0f172a;
+  color: #e5e7eb;
+}
+
+/* Backgrounds */
+.dark .bg-white { background-color: #1e293b !important; }
+.dark .bg-gray-50 { background-color: #0f172a !important; }
+.dark .bg-gray-100 { background-color: #334155 !important; }
+.dark .bg-gray-200 { background-color: #475569 !important; }
+.dark .bg-red-50 { background-color: #3f1d1d !important; }
+
+/* Text */
+.dark .text-gray-900 { color: #f1f5f9 !important; }
+.dark .text-gray-700 { color: #e2e8f0 !important; }
+.dark .text-gray-600 { color: #cbd5e1 !important; }
+.dark .text-gray-500 { color: #94a3b8 !important; }
+.dark .text-gray-400 { color: #94a3b8 !important; }
+.dark .text-red-700 { color: #fca5a5 !important; }
+
+/* Borders */
+.dark .border-gray-100 { border-color: #334155 !important; }
+.dark .border-gray-200 { border-color: #334155 !important; }
+.dark .border-gray-300 { border-color: #475569 !important; }
+
+/* Shadows look bad in dark mode — tone them down */
+.dark .shadow-sm,
+.dark .shadow,
+.dark .shadow-lg,
+.dark .shadow-xl {
+  --tw-shadow-color: rgba(0, 0, 0, 0.5);
 }
