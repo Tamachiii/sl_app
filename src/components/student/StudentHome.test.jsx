@@ -15,6 +15,10 @@ vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({ user: { id: 'user-1' } }),
 }));
 
+vi.mock('../../hooks/useSessionConfirmation', () => ({
+  useMyConfirmedSessionIds: () => ({ data: new Set(['sess-2']) }),
+}));
+
 // Mock supabase to return test data
 vi.mock('../../lib/supabase', () => ({
   supabase: {
@@ -85,5 +89,12 @@ describe('StudentHome', () => {
   it('renders week number', async () => {
     renderStudentHome();
     expect(await screen.findByText(/Week 1/)).toBeInTheDocument();
+  });
+
+  it('shows a Done badge next to confirmed sessions', async () => {
+    renderStudentHome();
+    // sess-2 ("Pull Day") is the confirmed one per the mock
+    await screen.findByText('Pull Day');
+    expect(screen.getByLabelText('Confirmed')).toBeInTheDocument();
   });
 });

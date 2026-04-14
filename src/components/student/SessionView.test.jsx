@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
 let mockSessionData = { data: null, isLoading: false };
@@ -21,6 +22,16 @@ vi.mock('../../hooks/useSetLogs', () => ({
   useSetRpe: () => ({ mutate: vi.fn() }),
 }));
 
+let mockConfirmation = { data: null, isLoading: false };
+const mockConfirm = { mutate: vi.fn(), isPending: false };
+const mockUnconfirm = { mutate: vi.fn(), isPending: false };
+
+vi.mock('../../hooks/useSessionConfirmation', () => ({
+  useSessionConfirmation: () => mockConfirmation,
+  useConfirmSession: () => mockConfirm,
+  useUnconfirmSession: () => mockUnconfirm,
+}));
+
 import SessionView from './SessionView';
 
 function renderSessionView() {
@@ -32,6 +43,11 @@ function renderSessionView() {
 }
 
 describe('SessionView', () => {
+  beforeEach(() => {
+    mockConfirmation = { data: null, isLoading: false };
+    vi.clearAllMocks();
+  });
+
   it('renders loading spinner', () => {
     mockSessionData = { data: null, isLoading: true };
     mockSetLogsData = { data: [], isLoading: false };
@@ -79,5 +95,52 @@ describe('SessionView', () => {
     mockSetLogsData = { data: [], isLoading: false };
     renderSessionView();
     expect(screen.getByText('Pull Day')).toBeInTheDocument();
+  });
+
+  it('shows "Confirm session" button when not yet confirmed', () => {
+    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
+    mockSetLogsData = { data: [], isLoading: false };
+    renderSessionView();
+    expect(screen.getByRole('button', { name: /confirm session/i })).toBeInTheDocument();
+  });
+
+  it('clicking Confirm session calls useConfirmSession with notes', async () => {
+    const user = userEvent.setup();
+    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
+    mockSetLogsData = { data: [], isLoading: false };
+    renderSessionView();
+
+    await user.type(screen.getByLabelText(/notes for your coach/i), 'felt strong');
+    await user.click(screen.getByRole('button', { name: /^confirm session$/i }));
+
+    expect(mockConfirm.mutate).toHaveBeenCalledWith(
+      { sessionId: 'sess-1', notes: 'felt strong' },
+      expect.any(Object)
+    );
+  });
+
+  it('shows confirmed banner and undo button when already confirmed', async () => {
+    const user = userEvent.setup();
+    mockConfirmation = {
+      data: {
+        id: 'c-1',
+        session_id: 'sess-1',
+        student_id: 'u-1',
+        confirmed_at: '2026-04-14T10:00:00Z',
+        notes: 'great session',
+      },
+      isLoading: false,
+    };
+    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
+    mockSetLogsData = { data: [], isLoading: false };
+    renderSessionView();
+
+    expect(screen.getByText(/session confirmed/i)).toBeInTheDocument();
+    expect(screen.getByText('great session')).toBeInTheDocument();
+
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await user.click(screen.getByRole('button', { name: /undo confirmation/i }));
+    expect(mockUnconfirm.mutate).toHaveBeenCalledWith({ sessionId: 'sess-1' });
+    window.confirm.mockRestore();
   });
 });

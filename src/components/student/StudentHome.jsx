@@ -5,10 +5,12 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
+import { useMyConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 
 export default function StudentHome() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { data: confirmedIds } = useMyConfirmedSessionIds();
 
   const { data, isLoading } = useQuery({
     queryKey: ['student-weeks', user?.id],
@@ -66,15 +68,29 @@ export default function StudentHome() {
               {week.label && <span className="text-gray-400 font-normal ml-2">{week.label}</span>}
             </h3>
             <div className="space-y-1">
-              {(week.sessions || []).map((sess) => (
-                <button
-                  key={sess.id}
-                  onClick={() => navigate(`/student/session/${sess.id}`)}
-                  className="w-full text-left bg-gray-50 rounded-lg px-3 py-2.5 text-sm text-gray-700 hover:bg-primary/5 transition-colors"
-                >
-                  {sess.title || `Session ${sess.sort_order + 1}`}
-                </button>
-              ))}
+              {(week.sessions || []).map((sess) => {
+                const confirmed = confirmedIds?.has(sess.id);
+                return (
+                  <button
+                    key={sess.id}
+                    onClick={() => navigate(`/student/session/${sess.id}`)}
+                    className="w-full flex items-center justify-between gap-2 text-left bg-gray-50 rounded-lg px-3 py-2.5 text-sm text-gray-700 hover:bg-primary/5 transition-colors"
+                  >
+                    <span>{sess.title || `Session ${sess.sort_order + 1}`}</span>
+                    {confirmed && (
+                      <span
+                        aria-label="Confirmed"
+                        className="flex items-center gap-1 text-xs font-medium text-green-700 bg-green-100 px-1.5 py-0.5 rounded"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Done
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
         ))}

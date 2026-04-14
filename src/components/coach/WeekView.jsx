@@ -7,6 +7,7 @@ import VolumeBar from './VolumeBar';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import EditableText from '../ui/EditableText';
+import { useWeekConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 
 export default function WeekView() {
   const { studentId, weekId } = useParams();
@@ -17,6 +18,7 @@ export default function WeekView() {
   const duplicateWeek = useDuplicateWeek();
   const updateWeek = useUpdateWeek();
   const updateSession = useUpdateSession();
+  const { data: confirmedIds } = useWeekConfirmedSessionIds(weekId);
 
   if (isLoading) {
     return (
@@ -86,6 +88,18 @@ export default function WeekView() {
                   ariaLabel="Edit session title"
                   className="font-medium text-gray-900 flex-1"
                 />
+                {confirmedIds?.has(sess.id) && (
+                  <span
+                    aria-label="Confirmed by student"
+                    title="Confirmed by student"
+                    className="flex items-center gap-1 text-xs font-medium text-green-700 bg-green-100 px-1.5 py-0.5 rounded"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Confirmed
+                  </span>
+                )}
                 <button
                   onClick={() =>
                     navigate(`/coach/student/${studentId}/week/${weekId}/session/${sess.id}`)

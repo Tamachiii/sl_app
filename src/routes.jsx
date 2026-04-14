@@ -10,6 +10,7 @@ const CoachHome = lazy(() => import('./components/coach/CoachHome'));
 const WeekView = lazy(() => import('./components/coach/WeekView'));
 const SessionEditor = lazy(() => import('./components/coach/SessionEditor'));
 const ExerciseLibrary = lazy(() => import('./components/coach/ExerciseLibrary'));
+const ConfirmedSessions = lazy(() => import('./components/coach/ConfirmedSessions'));
 const StudentHome = lazy(() => import('./components/student/StudentHome'));
 const SessionView = lazy(() => import('./components/student/SessionView'));
 
@@ -37,6 +38,7 @@ export const routes = [
             element: <RoleGate allowed="coach" />,
             children: [
               { path: '/coach', element: <Lazy><CoachHome /></Lazy> },
+              { path: '/coach/student/:studentId/confirmations', element: <Lazy><ConfirmedSessions /></Lazy> },
               { path: '/coach/student/:studentId/week/:weekId', element: <Lazy><WeekView /></Lazy> },
               { path: '/coach/student/:studentId/week/:weekId/session/:sessionId', element: <Lazy><SessionEditor /></Lazy> },
               { path: '/coach/exercises', element: <Lazy><ExerciseLibrary /></Lazy> },

@@ -1,8 +1,13 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import Header from '../layout/Header';
 import { useSession } from '../../hooks/useSession';
 import { useSetLogs, useEnsureSetLogs } from '../../hooks/useSetLogs';
+import {
+  useSessionConfirmation,
+  useConfirmSession,
+  useUnconfirmSession,
+} from '../../hooks/useSessionConfirmation';
 import SetRow from './SetRow';
 import Spinner from '../ui/Spinner';
 
@@ -12,6 +17,11 @@ export default function SessionView() {
   const slots = session?.exercise_slots || [];
   const { data: logs, isLoading: logsLoading } = useSetLogs(sessionId, slots);
   const ensureLogs = useEnsureSetLogs();
+  const { data: confirmation, isLoading: confLoading } = useSessionConfirmation(sessionId);
+  const confirmSession = useConfirmSession();
+  const unconfirmSession = useUnconfirmSession();
+
+  const [notes, setNotes] = useState('');
 
   // Auto-create set_log rows on first open
   useEffect(() => {
@@ -33,6 +43,20 @@ export default function SessionView() {
     return (logs || [])
       .filter((l) => l.exercise_slot_id === slotId)
       .sort((a, b) => a.set_number - b.set_number);
+  }
+
+  const isConfirmed = !!confirmation;
+
+  function handleConfirm() {
+    confirmSession.mutate({ sessionId, notes: notes.trim() || null }, {
+      onSuccess: () => setNotes(''),
+    });
+  }
+
+  function handleUnconfirm() {
+    if (confirm('Undo confirmation for this session?')) {
+      unconfirmSession.mutate({ sessionId });
+    }
   }
 
   return (
@@ -64,6 +88,80 @@ export default function SessionView() {
             </div>
           );
         })}
+
+        {!confLoading && (
+          <div
+            className={`rounded-xl shadow-sm p-4 space-y-3 ${
+              isConfirmed ? 'bg-green-50 border border-green-200' : 'bg-white'
+            }`}
+          >
+            {isConfirmed ? (
+              <>
+                <div className="flex items-start gap-2">
+                  <svg
+                    className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-green-800">Session confirmed</p>
+                    <p className="text-xs text-green-700">
+                      {new Date(confirmation.confirmed_at).toLocaleString()}
+                    </p>
+                    {confirmation.notes && (
+                      <p className="mt-2 text-sm text-gray-700 whitespace-pre-wrap">
+                        {confirmation.notes}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={handleUnconfirm}
+                  disabled={unconfirmSession.isPending}
+                  className="w-full text-xs text-gray-500 hover:text-danger underline"
+                >
+                  Undo confirmation
+                </button>
+              </>
+            ) : (
+              <>
+                <div>
+                  <h3 className="font-medium text-gray-900 text-sm">Confirm session</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Let your coach know you've completed this session.
+                  </p>
+                </div>
+                <label htmlFor="confirm-notes" className="sr-only">
+                  Notes for your coach
+                </label>
+                <textarea
+                  id="confirm-notes"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Optional notes for your coach…"
+                  rows={3}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+                <button
+                  onClick={handleConfirm}
+                  disabled={confirmSession.isPending}
+                  className="w-full bg-primary text-white rounded-lg py-2.5 text-sm font-semibold disabled:opacity-50"
+                >
+                  {confirmSession.isPending ? 'Confirming…' : 'Confirm session'}
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </>
   );

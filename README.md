@@ -116,14 +116,20 @@ programs (id, coach_id, student_id, title)
 weeks (id, program_id, week_number, label)
   ↓ 1:many
 sessions (id, week_id, title, day_number, sort_order)
+  ↓ 1:many                                ↓ 1:1
+exercise_slots (…)              session_confirmations (session_id UNIQUE, student_id, confirmed_at, notes)
+  → exercise_library (…)
   ↓ 1:many
-exercise_slots (id, session_id, exercise_id, sets, reps, weight_kg, sort_order)
-  → exercise_library (id, coach_id, name, type: 'pull'|'push'|'legs'|'core', difficulty, volume_weight)
-  ↓ 1:many
-set_logs (id, slot_id, student_id, set_number, weight_kg, reps, rpe, done, done_at)
+set_logs (…)
 ```
 
-RLS: coaches read/write their own rows; students read the program/weeks/sessions assigned to them and write their own `set_logs`.
+RLS:
+- Coaches read/write their own rows; students read the program/weeks/sessions assigned to them and write their own `set_logs`.
+- `session_confirmations`: students manage only their own confirmations for their own sessions; coaches have read-only access to confirmations for sessions in their students' programs.
+
+### Session confirmations
+
+Students tap **Confirm session** at the bottom of `SessionView` (with an optional note) to mark a session as completed. Coaches see a green "Confirmed" badge on the session card in `WeekView`, and can open **Confirmed sessions** from any student card for a chronological list with notes and timestamps. Students can undo a confirmation; coaches cannot edit confirmations (read-only).
 
 ---
 

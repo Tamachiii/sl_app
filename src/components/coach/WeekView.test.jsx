@@ -32,6 +32,10 @@ vi.mock('../../hooks/useDuplicate', () => ({
   useDuplicateWeek: () => mockDuplicateWeek,
 }));
 
+vi.mock('../../hooks/useSessionConfirmation', () => ({
+  useWeekConfirmedSessionIds: () => ({ data: new Set() }),
+}));
+
 import WeekView from './WeekView';
 
 function renderWeekView() {
