@@ -47,12 +47,13 @@ CREATE TABLE public.weeks (
 
 -- Sessions
 CREATE TABLE public.sessions (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  week_id     uuid NOT NULL REFERENCES public.weeks(id) ON DELETE CASCADE,
-  day_number  int  NOT NULL,
-  title       text,
-  sort_order  int  NOT NULL DEFAULT 0,
-  created_at  timestamptz NOT NULL DEFAULT now()
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  week_id        uuid NOT NULL REFERENCES public.weeks(id) ON DELETE CASCADE,
+  day_number     int  NOT NULL,
+  title          text,
+  sort_order     int  NOT NULL DEFAULT 0,
+  scheduled_date date,
+  created_at     timestamptz NOT NULL DEFAULT now()
 );
 
 -- Exercise library (shared per coach)
@@ -99,6 +100,7 @@ CREATE INDEX idx_students_profile_id ON public.students(profile_id);
 CREATE INDEX idx_programs_student_id ON public.programs(student_id);
 CREATE INDEX idx_weeks_program_id ON public.weeks(program_id);
 CREATE INDEX idx_sessions_week_id ON public.sessions(week_id);
+CREATE INDEX idx_sessions_scheduled_date ON public.sessions(scheduled_date);
 CREATE INDEX idx_exercise_slots_session_id ON public.exercise_slots(session_id);
 CREATE INDEX idx_set_logs_slot_id ON public.set_logs(exercise_slot_id);
 CREATE INDEX idx_exercise_library_coach_id ON public.exercise_library(coach_id);

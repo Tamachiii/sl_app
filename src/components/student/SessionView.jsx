@@ -63,6 +63,16 @@ export default function SessionView() {
     <>
       <Header title={session?.title || 'Session'} showBack />
       <div className="p-4 space-y-4">
+        {session?.scheduled_date && (
+          <p className="text-sm text-gray-500">
+            {new Date(session.scheduled_date).toLocaleDateString(undefined, {
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            })}
+          </p>
+        )}
         {slots.map((slot) => {
           const ex = slot.exercise;
           const slotLogs = getLogsForSlot(slot.id);

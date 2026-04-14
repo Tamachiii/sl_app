@@ -83,6 +83,21 @@ export default function SessionEditor() {
       <div className="p-4 space-y-4">
         <VolumeBar pull={vol.pull} push={vol.push} />
 
+        <div className="bg-white rounded-xl shadow-sm p-3 flex items-center gap-3">
+          <label htmlFor="session-date" className="text-sm text-gray-600 shrink-0">
+            Scheduled date
+          </label>
+          <input
+            id="session-date"
+            type="date"
+            value={session?.scheduled_date || ''}
+            onChange={(e) =>
+              updateSession.mutate({ id: sessionId, scheduled_date: e.target.value || null })
+            }
+            className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+          />
+        </div>
+
         {slots.map((slot, idx) => (
           <ExerciseSlotRow
             key={slot.id}

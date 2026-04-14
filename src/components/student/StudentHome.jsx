@@ -30,7 +30,7 @@ export default function StudentHome() {
           id, name,
           weeks(
             id, week_number, label,
-            sessions(id, title, sort_order)
+            sessions(id, title, sort_order, scheduled_date)
           )
         `)
         .eq('student_id', student.id)
@@ -76,7 +76,18 @@ export default function StudentHome() {
                     onClick={() => navigate(`/student/session/${sess.id}`)}
                     className="w-full flex items-center justify-between gap-2 text-left bg-gray-50 rounded-lg px-3 py-2.5 text-sm text-gray-700 hover:bg-primary/5 transition-colors"
                   >
-                    <span>{sess.title || `Session ${sess.sort_order + 1}`}</span>
+                    <span className="flex flex-col">
+                      <span>{sess.title || `Session ${sess.sort_order + 1}`}</span>
+                      {sess.scheduled_date && (
+                        <span className="text-xs text-gray-400">
+                          {new Date(sess.scheduled_date).toLocaleDateString(undefined, {
+                            weekday: 'short',
+                            month: 'short',
+                            day: 'numeric',
+                          })}
+                        </span>
+                      )}
+                    </span>
                     {confirmed && (
                       <span
                         aria-label="Confirmed"
