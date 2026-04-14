@@ -1,4 +1,4 @@
-import{u as g,j as e}from"./query-Cquvj1Ki.js";import{H as x}from"./Header-CfTMcsNO.js";import{u as y,S as h,s as l}from"./index-DM86t0Kt.js";import{E as b}from"./EmptyState-D4gXYW9o.js";import{d as j}from"./router-gifP7pfo.js";import"./supabase-k82gbVKr.js";function S(){const{user:t}=y(),c=j(),{data:o,isLoading:d}=g({queryKey:["student-weeks",t==null?void 0:t.id],queryFn:async()=>{const{data:s,error:r}=await l.from("students").select("id").eq("profile_id",t.id).single();if(r)throw r;const{data:u,error:m}=await l.from("programs").select(`
+import{u as g,j as e}from"./query-Cquvj1Ki.js";import{H as x}from"./Header-JVjsuaJt.js";import{u as y,S as h,s as l}from"./index-C-gTsmev.js";import{E as b}from"./EmptyState-D4gXYW9o.js";import{d as j}from"./router-gifP7pfo.js";import"./supabase-k82gbVKr.js";function S(){const{user:t}=y(),c=j(),{data:o,isLoading:d}=g({queryKey:["student-weeks",t==null?void 0:t.id],queryFn:async()=>{const{data:s,error:r}=await l.from("students").select("id").eq("profile_id",t.id).single();if(r)throw r;const{data:u,error:m}=await l.from("programs").select(`
           id, name,
           weeks(
             id, week_number, label,
