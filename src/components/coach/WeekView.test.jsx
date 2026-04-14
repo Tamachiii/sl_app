@@ -41,6 +41,15 @@ vi.mock('../../hooks/useProgram', () => ({
   useProgram: () => mockProgramData,
 }));
 
+vi.mock('../../hooks/useStudents', () => ({
+  useStudents: () => ({
+    data: [
+      { id: 's-1', profile: { full_name: 'Alice' } },
+      { id: 's-2', profile: { full_name: 'Bob' } },
+    ],
+  }),
+}));
+
 vi.mock('../../hooks/useSessionConfirmation', () => ({
   useWeekConfirmedSessionIds: () => ({ data: new Set() }),
 }));
@@ -66,6 +75,25 @@ describe('WeekView', () => {
     mockWeekData = { data: null, isLoading: true };
     renderWeekView();
     expect(screen.getByRole('status')).toBeInTheDocument();
+  });
+
+  it('copies the week to another student via the dialog', async () => {
+    const user = userEvent.setup();
+    mockWeekData = {
+      data: { id: 'w-1', week_number: 1, label: null, sessions: [] },
+      isLoading: false,
+    };
+    mockProgramData = { data: { id: 'prog-1', weeks: [{ id: 'w-1', week_number: 1 }] } };
+    renderWeekView();
+
+    await user.click(screen.getByText('Copy to…'));
+    await user.selectOptions(screen.getByRole('combobox'), 's-2');
+    await user.click(screen.getByRole('button', { name: 'Copy' }));
+
+    expect(mockDuplicateWeek.mutate).toHaveBeenCalledWith(
+      { weekId: 'w-1', programId: 'prog-1' },
+      expect.any(Object)
+    );
   });
 
   it('renders empty state when no sessions', () => {

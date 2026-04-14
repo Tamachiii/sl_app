@@ -5,7 +5,10 @@ export function useDuplicateWeek() {
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ weekId, newWeekNumber }) => {
+    // `programId` is optional — when provided, the week is copied into a
+    // different program (e.g. another student's). `newWeekNumber` is optional
+    // too; when omitted we pick max(week_number)+1 in the destination program.
+    mutationFn: async ({ weekId, newWeekNumber, programId }) => {
       // Fetch the source week with sessions and slots
       const { data: srcWeek, error: wErr } = await supabase
         .from('weeks')
@@ -14,12 +17,26 @@ export function useDuplicateWeek() {
         .single();
       if (wErr) throw wErr;
 
+      const destProgramId = programId || srcWeek.program_id;
+
+      let destWeekNumber = newWeekNumber;
+      if (destWeekNumber == null) {
+        const { data: existing, error: eErr } = await supabase
+          .from('weeks')
+          .select('week_number')
+          .eq('program_id', destProgramId)
+          .order('week_number', { ascending: false })
+          .limit(1);
+        if (eErr) throw eErr;
+        destWeekNumber = (existing?.[0]?.week_number ?? 0) + 1;
+      }
+
       // Create the new week
       const { data: newWeek, error: nwErr } = await supabase
         .from('weeks')
         .insert({
-          program_id: srcWeek.program_id,
-          week_number: newWeekNumber,
+          program_id: destProgramId,
+          week_number: destWeekNumber,
           label: srcWeek.label ? `${srcWeek.label} (copy)` : null,
         })
         .select()
@@ -70,6 +87,8 @@ export function useDuplicateWeek() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['program'] });
+      qc.invalidateQueries({ queryKey: ['week'] });
+      qc.invalidateQueries({ queryKey: ['student-weeks'] });
     },
   });
 }

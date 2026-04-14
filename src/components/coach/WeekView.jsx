@@ -1,13 +1,16 @@
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Header from '../layout/Header';
 import { useWeek, useCreateSession, useDeleteSession, useUpdateWeek, useUpdateSession, useDeleteWeek, useMoveWeek } from '../../hooks/useWeek';
 import { useDuplicateWeek } from '../../hooks/useDuplicate';
 import { useProgram } from '../../hooks/useProgram';
+import { useStudents } from '../../hooks/useStudents';
 import { computeSessionVolume } from '../../lib/volume';
 import VolumeBar from './VolumeBar';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import EditableText from '../ui/EditableText';
+import Dialog from '../ui/Dialog';
 import { useWeekConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 
 export default function WeekView() {
@@ -23,6 +26,11 @@ export default function WeekView() {
   const moveWeek = useMoveWeek();
   const { data: program } = useProgram(studentId);
   const { data: confirmedIds } = useWeekConfirmedSessionIds(weekId);
+  const { data: students } = useStudents();
+
+  const [showCopy, setShowCopy] = useState(false);
+  const [copyStudentId, setCopyStudentId] = useState('');
+  const { data: destProgram } = useProgram(copyStudentId);
 
   if (isLoading) {
     return (
@@ -63,6 +71,19 @@ export default function WeekView() {
       bId: other.id,
       bNumber: other.week_number,
     });
+  }
+
+  function handleCopyToStudent() {
+    if (!destProgram?.id) return;
+    duplicateWeek.mutate(
+      { weekId, programId: destProgram.id },
+      {
+        onSuccess: () => {
+          setShowCopy(false);
+          setCopyStudentId('');
+        },
+      }
+    );
   }
 
   function handleDeleteWeek() {
@@ -119,6 +140,12 @@ export default function WeekView() {
               className="text-xs bg-gray-100 text-gray-600 rounded-lg px-2.5 py-1.5 hover:bg-gray-200"
             >
               Duplicate
+            </button>
+            <button
+              onClick={() => setShowCopy(true)}
+              className="text-xs bg-gray-100 text-gray-600 rounded-lg px-2.5 py-1.5 hover:bg-gray-200"
+            >
+              Copy to…
             </button>
             <button
               onClick={handleDeleteWeek}
@@ -196,6 +223,51 @@ export default function WeekView() {
           + Add Session
         </button>
       </div>
+
+      <Dialog
+        open={showCopy}
+        onClose={() => setShowCopy(false)}
+        title="Copy week to another student"
+      >
+        <div className="space-y-3">
+          <p className="text-xs text-gray-500">
+            The week and all its sessions will be appended to the end of the destination student's program.
+          </p>
+          <label className="block">
+            <span className="text-xs text-gray-600 block mb-1">Student</span>
+            <select
+              value={copyStudentId}
+              onChange={(e) => setCopyStudentId(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            >
+              <option value="">Select student…</option>
+              {(students || [])
+                .filter((s) => s.id !== studentId)
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.profile?.full_name || 'Unnamed student'}
+                  </option>
+                ))}
+            </select>
+          </label>
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={handleCopyToStudent}
+              disabled={!destProgram?.id || duplicateWeek.isPending}
+              className="flex-1 bg-primary text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50"
+            >
+              {duplicateWeek.isPending ? 'Copying…' : 'Copy'}
+            </button>
+            <button
+              onClick={() => setShowCopy(false)}
+              className="flex-1 bg-gray-100 text-gray-600 rounded-lg py-2 text-sm font-medium"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </Dialog>
     </>
   );
 }
