@@ -82,7 +82,7 @@ export default function SessionView() {
               </p>
               <div className="space-y-1">
                 {slotLogs.map((log) => (
-                  <SetRow key={log.id} log={log} />
+                  <SetRow key={log.id} log={log} locked={isConfirmed} />
                 ))}
               </div>
             </div>

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete, onMove }) {
+export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete, onMove, children }) {
   const ex = slot.exercise;
   const [sets, setSets] = useState(slot.sets);
   const [reps, setReps] = useState(slot.reps);
@@ -100,6 +100,8 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
           />
         </div>
       </div>
+
+      {children}
     </div>
   );
 }
