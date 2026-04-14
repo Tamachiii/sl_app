@@ -5,14 +5,17 @@ import { useSession, useAddSlot, useUpdateSlot, useDeleteSlot } from '../../hook
 import { useUpdateSession } from '../../hooks/useWeek';
 import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
 import { useDuplicateSession } from '../../hooks/useDuplicate';
+import { useStudents } from '../../hooks/useStudents';
+import { useProgram } from '../../hooks/useProgram';
 import { computeSessionVolume } from '../../lib/volume';
 import VolumeBar from './VolumeBar';
 import ExerciseSlotRow from './ExerciseSlotRow';
 import Spinner from '../ui/Spinner';
 import EditableText from '../ui/EditableText';
+import Dialog from '../ui/Dialog';
 
 export default function SessionEditor() {
-  const { sessionId } = useParams();
+  const { sessionId, studentId } = useParams();
   const { data: session, isLoading } = useSession(sessionId);
   const { data: library } = useExerciseLibrary();
   const addSlot = useAddSlot();
@@ -20,9 +23,15 @@ export default function SessionEditor() {
   const deleteSlot = useDeleteSlot();
   const duplicateSession = useDuplicateSession();
   const updateSession = useUpdateSession();
+  const { data: students } = useStudents();
 
   const [showAdd, setShowAdd] = useState(false);
   const [selectedExercise, setSelectedExercise] = useState('');
+  const [showCopy, setShowCopy] = useState(false);
+  const [copyStudentId, setCopyStudentId] = useState('');
+  const [copyWeekId, setCopyWeekId] = useState('');
+  const { data: destProgram } = useProgram(copyStudentId);
+  const destWeeks = destProgram?.weeks || [];
 
   if (isLoading) {
     return (
@@ -49,6 +58,20 @@ export default function SessionEditor() {
     setShowAdd(false);
   }
 
+  function handleCopyToStudent() {
+    if (!copyWeekId) return;
+    duplicateSession.mutate(
+      { sessionId, weekId: copyWeekId },
+      {
+        onSuccess: () => {
+          setShowCopy(false);
+          setCopyStudentId('');
+          setCopyWeekId('');
+        },
+      }
+    );
+  }
+
   function handleMoveSlot(index, direction) {
     const target = index + direction;
     if (target < 0 || target >= slots.length) return;
@@ -71,13 +94,21 @@ export default function SessionEditor() {
         }
         showBack
         actions={
-          <button
-            onClick={() => duplicateSession.mutate({ sessionId })}
-            disabled={duplicateSession.isPending}
-            className="text-xs bg-gray-100 text-gray-600 rounded-lg px-2.5 py-1.5 hover:bg-gray-200"
-          >
-            Duplicate
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setShowCopy(true)}
+              className="text-xs bg-gray-100 text-gray-600 rounded-lg px-2.5 py-1.5 hover:bg-gray-200"
+            >
+              Copy to…
+            </button>
+            <button
+              onClick={() => duplicateSession.mutate({ sessionId })}
+              disabled={duplicateSession.isPending}
+              className="text-xs bg-gray-100 text-gray-600 rounded-lg px-2.5 py-1.5 hover:bg-gray-200"
+            >
+              Duplicate
+            </button>
+          </div>
         }
       />
       <div className="p-4 space-y-4">
@@ -149,6 +180,75 @@ export default function SessionEditor() {
           </button>
         )}
       </div>
+
+      <Dialog
+        open={showCopy}
+        onClose={() => setShowCopy(false)}
+        title="Copy session to another student"
+      >
+        <div className="space-y-3">
+          <label className="block">
+            <span className="text-xs text-gray-600 block mb-1">Student</span>
+            <select
+              value={copyStudentId}
+              onChange={(e) => {
+                setCopyStudentId(e.target.value);
+                setCopyWeekId('');
+              }}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            >
+              <option value="">Select student…</option>
+              {(students || [])
+                .filter((s) => s.id !== studentId)
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.profile?.full_name || 'Unnamed student'}
+                  </option>
+                ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="text-xs text-gray-600 block mb-1">Destination week</span>
+            <select
+              value={copyWeekId}
+              onChange={(e) => setCopyWeekId(e.target.value)}
+              disabled={!copyStudentId || destWeeks.length === 0}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-50"
+            >
+              <option value="">
+                {!copyStudentId
+                  ? 'Select a student first'
+                  : destWeeks.length === 0
+                    ? 'No weeks in this student\u2019s program'
+                    : 'Select week…'}
+              </option>
+              {destWeeks.map((w) => (
+                <option key={w.id} value={w.id}>
+                  Week {w.week_number}
+                  {w.label ? ` — ${w.label}` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={handleCopyToStudent}
+              disabled={!copyWeekId || duplicateSession.isPending}
+              className="flex-1 bg-primary text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50"
+            >
+              {duplicateSession.isPending ? 'Copying…' : 'Copy'}
+            </button>
+            <button
+              onClick={() => setShowCopy(false)}
+              className="flex-1 bg-gray-100 text-gray-600 rounded-lg py-2 text-sm font-medium"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </Dialog>
     </>
   );
 }

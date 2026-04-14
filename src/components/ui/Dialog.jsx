@@ -22,7 +22,7 @@ export default function Dialog({ open, onClose, title, children }) {
         {title && (
           <h2 id="dialog-title" className="text-lg font-semibold text-gray-900 mb-4">{title}</h2>
         )}
-        {children}
+        {open && children}
       </div>
     </dialog>
   );

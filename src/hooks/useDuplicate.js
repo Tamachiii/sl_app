@@ -120,6 +120,8 @@ export function useDuplicateSession() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['week'] });
       qc.invalidateQueries({ queryKey: ['session'] });
+      qc.invalidateQueries({ queryKey: ['program'] });
+      qc.invalidateQueries({ queryKey: ['student-weeks'] });
     },
   });
 }

@@ -15,9 +15,26 @@ vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return {
     ...actual,
-    useParams: () => ({ sessionId: 'sess-1' }),
+    useParams: () => ({ sessionId: 'sess-1', studentId: 'stu-1' }),
   };
 });
+
+vi.mock('../../hooks/useStudents', () => ({
+  useStudents: () => ({
+    data: [
+      { id: 'stu-1', profile: { full_name: 'Alice' } },
+      { id: 'stu-2', profile: { full_name: 'Bob' } },
+    ],
+  }),
+}));
+
+vi.mock('../../hooks/useProgram', () => ({
+  useProgram: (sid) => ({
+    data: sid
+      ? { id: 'prog-1', weeks: [{ id: 'w-10', week_number: 1, label: null }] }
+      : null,
+  }),
+}));
 
 vi.mock('../../hooks/useSession', () => ({
   useSession: () => mockSessionData,
@@ -135,6 +152,26 @@ describe('SessionEditor', () => {
 
     await user.click(screen.getByText('Duplicate'));
     expect(mockDuplicateSession.mutate).toHaveBeenCalledWith({ sessionId: 'sess-1' });
+  });
+
+  it('copies the session to another student via the dialog', async () => {
+    const user = userEvent.setup();
+    mockSessionData = {
+      data: { title: 'Day 1', exercise_slots: [] },
+      isLoading: false,
+    };
+    renderEditor();
+
+    await user.click(screen.getByText('Copy to…'));
+    const selects = screen.getAllByRole('combobox');
+    await user.selectOptions(selects[0], 'stu-2');
+    await user.selectOptions(selects[1], 'w-10');
+    await user.click(screen.getByText('Copy'));
+
+    expect(mockDuplicateSession.mutate).toHaveBeenCalledWith(
+      { sessionId: 'sess-1', weekId: 'w-10' },
+      expect.any(Object)
+    );
   });
 
   it('renders exercise slots', () => {
