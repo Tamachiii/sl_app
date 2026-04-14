@@ -11,12 +11,20 @@ export default function StudentCard({ student }) {
         <h3 className="font-semibold text-gray-900">
           {student.profile?.full_name || 'Student'}
         </h3>
-        <Link
-          to={`/coach/student/${student.id}/confirmations`}
-          className="text-xs bg-gray-100 text-gray-600 rounded-lg px-2.5 py-1 hover:bg-gray-200"
-        >
-          Confirmed sessions
-        </Link>
+        <div className="flex items-center gap-1.5">
+          <Link
+            to={`/coach/student/${student.id}/goals`}
+            className="text-xs bg-gray-100 text-gray-600 rounded-lg px-2.5 py-1 hover:bg-gray-200"
+          >
+            Goals
+          </Link>
+          <Link
+            to={`/coach/student/${student.id}/confirmations`}
+            className="text-xs bg-gray-100 text-gray-600 rounded-lg px-2.5 py-1 hover:bg-gray-200"
+          >
+            Confirmed sessions
+          </Link>
+        </div>
       </div>
       {program && (
         <WeekTimeline

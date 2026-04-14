@@ -12,8 +12,10 @@ const SessionEditor = lazy(() => import('./components/coach/SessionEditor'));
 const ExerciseLibrary = lazy(() => import('./components/coach/ExerciseLibrary'));
 const ConfirmedSessions = lazy(() => import('./components/coach/ConfirmedSessions'));
 const SessionReview = lazy(() => import('./components/coach/SessionReview'));
+const StudentGoals = lazy(() => import('./components/coach/StudentGoals'));
 const StudentHome = lazy(() => import('./components/student/StudentHome'));
 const SessionView = lazy(() => import('./components/student/SessionView'));
+const MyGoals = lazy(() => import('./components/student/MyGoals'));
 
 function Lazy({ children }) {
   return (
@@ -41,6 +43,7 @@ export const routes = [
               { path: '/coach', element: <Lazy><CoachHome /></Lazy> },
               { path: '/coach/student/:studentId/confirmations', element: <Lazy><ConfirmedSessions /></Lazy> },
               { path: '/coach/student/:studentId/session/:sessionId/review', element: <Lazy><SessionReview /></Lazy> },
+              { path: '/coach/student/:studentId/goals', element: <Lazy><StudentGoals /></Lazy> },
               { path: '/coach/student/:studentId/week/:weekId', element: <Lazy><WeekView /></Lazy> },
               { path: '/coach/student/:studentId/week/:weekId/session/:sessionId', element: <Lazy><SessionEditor /></Lazy> },
               { path: '/coach/exercises', element: <Lazy><ExerciseLibrary /></Lazy> },
@@ -52,6 +55,7 @@ export const routes = [
             children: [
               { path: '/student', element: <Lazy><StudentHome /></Lazy> },
               { path: '/student/session/:sessionId', element: <Lazy><SessionView /></Lazy> },
+              { path: '/student/goals', element: <Lazy><MyGoals /></Lazy> },
             ],
           },
         ],

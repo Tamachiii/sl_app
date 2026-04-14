@@ -35,6 +35,12 @@ const ProfileIcon = (
   </svg>
 );
 
+const GoalIcon = (
+  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v18M5 8h11l-2 3 2 3H5" />
+  </svg>
+);
+
 export default function BottomNav() {
   const { role, signOut } = useAuth();
 
@@ -58,6 +64,7 @@ export default function BottomNav() {
   return (
     <nav aria-label="Main navigation" className="sticky bottom-0 bg-white border-t border-gray-200 flex justify-around">
       <NavItem to="/student" label="Home" icon={HomeIcon} />
+      <NavItem to="/student/goals" label="Goals" icon={GoalIcon} />
       <button
         onClick={signOut}
         aria-label="Sign out"

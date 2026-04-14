@@ -60,7 +60,8 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 | Coach exercise library | `coach/ExerciseLibrary`, `hooks/useExerciseLibrary` | `ui/Dialog` |
 | Student program | `student/StudentHome`, `hooks/useSessionConfirmation` (for badges) | `layout/Header`, `lib/supabase` |
 | Student session logging | `student/SessionView`, `student/SetRow`, `student/RpeInput`, `hooks/useSession`, `hooks/useSetLogs` | — |
-| Session confirmations | `hooks/useSessionConfirmation`, `student/SessionView`, `coach/WeekView` (badge), `coach/ConfirmedSessions` | — |
+| Session confirmations | `hooks/useSessionConfirmation`, `student/SessionView`, `coach/WeekView` (badge), `coach/ConfirmedSessions`, `coach/SessionReview` | — |
+| Goals & progress | `hooks/useGoals`, `coach/StudentGoals`, `student/MyGoals` | `hooks/useExerciseLibrary`, `layout/BottomNav` (Goals tab) |
 | Theming | `hooks/useTheme`, `ui/ThemeToggle`, `index.css` | `layout/Header` |
 
 ---
