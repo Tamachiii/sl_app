@@ -60,5 +60,7 @@ describe('ConfirmedSessions', () => {
     expect(screen.getByText('Push Day')).toBeInTheDocument();
     expect(screen.getByText(/Week 2 — Volume block · Day 1/)).toBeInTheDocument();
     expect(screen.getByText('Felt strong today')).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: /Push Day/ });
+    expect(link).toHaveAttribute('href', '/coach/student/s-1/session/sess-1/review');
   });
 });

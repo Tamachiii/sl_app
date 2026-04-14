@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import Header from '../layout/Header';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
@@ -25,7 +25,11 @@ export default function ConfirmedSessions() {
           <EmptyState message="No confirmed sessions yet" />
         )}
         {confirmations?.map((c) => (
-          <div key={c.id} className="bg-white rounded-xl shadow-sm p-4 space-y-1">
+          <Link
+            key={c.id}
+            to={`/coach/student/${studentId}/session/${c.session_id}/review`}
+            className="block bg-white rounded-xl shadow-sm p-4 space-y-1 hover:shadow-md transition-shadow"
+          >
             <div className="flex items-center justify-between gap-2">
               <h3 className="font-medium text-gray-900">
                 {c.session_title || `Session ${c.day_number}`}
@@ -47,7 +51,7 @@ export default function ConfirmedSessions() {
             {c.notes && (
               <p className="mt-2 text-sm text-gray-700 whitespace-pre-wrap">{c.notes}</p>
             )}
-          </div>
+          </Link>
         ))}
       </div>
     </>

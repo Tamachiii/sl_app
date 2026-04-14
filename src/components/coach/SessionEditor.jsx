@@ -5,12 +5,9 @@ import { useSession, useAddSlot, useUpdateSlot, useDeleteSlot } from '../../hook
 import { useUpdateSession } from '../../hooks/useWeek';
 import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
 import { useDuplicateSession } from '../../hooks/useDuplicate';
-import { useSetLogs } from '../../hooks/useSetLogs';
-import { useSessionConfirmation } from '../../hooks/useSessionConfirmation';
 import { computeSessionVolume } from '../../lib/volume';
 import VolumeBar from './VolumeBar';
 import ExerciseSlotRow from './ExerciseSlotRow';
-import SlotProgress from './SlotProgress';
 import Spinner from '../ui/Spinner';
 import EditableText from '../ui/EditableText';
 
@@ -23,9 +20,6 @@ export default function SessionEditor() {
   const deleteSlot = useDeleteSlot();
   const duplicateSession = useDuplicateSession();
   const updateSession = useUpdateSession();
-  const slotsForLogs = session?.exercise_slots || [];
-  const { data: setLogs } = useSetLogs(sessionId, slotsForLogs);
-  const { data: confirmation } = useSessionConfirmation(sessionId);
 
   const [showAdd, setShowAdd] = useState(false);
   const [selectedExercise, setSelectedExercise] = useState('');
@@ -89,39 +83,17 @@ export default function SessionEditor() {
       <div className="p-4 space-y-4">
         <VolumeBar pull={vol.pull} push={vol.push} />
 
-        {confirmation && (
-          <div className="rounded-xl border border-green-200 bg-green-50 p-3 text-sm text-green-800">
-            <div className="flex items-center gap-2 font-medium">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-              </svg>
-              Confirmed by student
-            </div>
-            <p className="text-xs text-green-700 mt-0.5">
-              {new Date(confirmation.confirmed_at).toLocaleString()}
-            </p>
-            {confirmation.notes && (
-              <p className="mt-1 text-sm text-gray-700 whitespace-pre-wrap">{confirmation.notes}</p>
-            )}
-          </div>
-        )}
-
-        {slots.map((slot, idx) => {
-          const slotLogs = (setLogs || []).filter((l) => l.exercise_slot_id === slot.id);
-          return (
-            <ExerciseSlotRow
-              key={slot.id}
-              slot={slot}
-              index={idx}
-              total={slots.length}
-              onUpdate={(updates) => updateSlot.mutate({ id: slot.id, sessionId, ...updates })}
-              onDelete={() => deleteSlot.mutate({ id: slot.id })}
-              onMove={(dir) => handleMoveSlot(idx, dir)}
-            >
-              <SlotProgress logs={slotLogs} plannedSets={slot.sets} />
-            </ExerciseSlotRow>
-          );
-        })}
+        {slots.map((slot, idx) => (
+          <ExerciseSlotRow
+            key={slot.id}
+            slot={slot}
+            index={idx}
+            total={slots.length}
+            onUpdate={(updates) => updateSlot.mutate({ id: slot.id, sessionId, ...updates })}
+            onDelete={() => deleteSlot.mutate({ id: slot.id })}
+            onMove={(dir) => handleMoveSlot(idx, dir)}
+          />
+        ))}
 
         {showAdd ? (
           <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">

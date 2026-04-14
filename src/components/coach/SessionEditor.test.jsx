@@ -38,14 +38,6 @@ vi.mock('../../hooks/useWeek', () => ({
   useUpdateSession: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
-vi.mock('../../hooks/useSetLogs', () => ({
-  useSetLogs: () => ({ data: [] }),
-}));
-
-vi.mock('../../hooks/useSessionConfirmation', () => ({
-  useSessionConfirmation: () => ({ data: null }),
-}));
-
 import SessionEditor from './SessionEditor';
 
 function renderEditor() {
