@@ -44,7 +44,7 @@ Apply `supabase/schema.sql` to a fresh Supabase project (creates tables, RLS pol
 npm run dev       # dev server
 npm run build     # production build → dist/
 npm run preview   # serve dist/
-npm test          # run vitest (83 tests)
+npm test          # run vitest (103 tests)
 npm run deploy    # publishes dist/ to gh-pages branch
 ```
 
@@ -95,6 +95,9 @@ src/
       EditableText.jsx         # Click-to-edit text (Enter/blur commit, Esc cancel)
       ThemeToggle.jsx          # Sun/moon button
       Dialog.jsx, Spinner.jsx, EmptyState.jsx
+      CopyDialog.jsx           # Shared dialog for copying weeks/sessions
+      ConfirmDialog.jsx        # Shared confirmation dialog
+      ErrorBoundary.jsx        # React ErrorBoundary wrapper
   test/
     setup.js                   # jest-dom + matchMedia polyfill
     utils.jsx                  # renderWithProviders() — wraps Theme + Query + Auth + Router
@@ -171,7 +174,7 @@ Both mutations invalidate `['week']`, `['program']`, and/or `['session']` so lis
 - Tests live alongside components as `*.test.jsx` / `*.test.js`.
 - `src/test/utils.jsx` exports `renderWithProviders(ui, { auth, route, queryClient })` which wraps with `ThemeProvider` + `QueryClientProvider` + `AuthContext` + `MemoryRouter`.
 - Mocks: child hooks are stubbed with `vi.mock('../../hooks/useX', () => ({ ... }))` per file.
-- 83 tests across 19 files cover every interactive button, the volume helper, and auth/nav flows.
+- 103 tests across 22 files cover every interactive button, the volume helper, hook layers, and auth/nav flows.
 
 Run:
 ```bash
@@ -183,6 +186,9 @@ npm test -- --run        # single run (CI)
 
 ## Performance & Accessibility (Lighthouse)
 
+- Aggressive rendering optimization using `React.memo` and `useMemo` on high-frequency components (e.g., SetRow, VolumeBar, RpeInput).
+- Optimistic updates to UI state on mutations (like toggling sets complete) via TanStack query manipulation for instant feedback.
+- Precise query invalidation scoping to prevent over-fetching on related views.
 - Route-level code splitting via `React.lazy` + `Suspense` (`src/routes.jsx`).
 - Vite manual chunks for `router`, `query`, `supabase` (`vite.config.js`) — vendor caching.
 - `index.html`: meta description, theme-color, manifest, favicon, Supabase `preconnect`.

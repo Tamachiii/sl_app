@@ -36,7 +36,7 @@ src/
                  SessionEditor  ExerciseSlotRow  ExerciseLibrary
                  VolumeBar  ConfirmedSessions
     student/     StudentHome  SessionView  SetRow  RpeInput
-    ui/          EditableText  ThemeToggle  Dialog  Spinner  EmptyState
+    ui/          EditableText  ThemeToggle  Dialog  Spinner  EmptyState  CopyDialog  ConfirmDialog  ErrorBoundary
   test/          setup.js  utils.jsx (renderWithProviders)
 supabase/
   schema.sql
@@ -76,6 +76,7 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 - **Test wrapper adds `ThemeProvider`.** Use `renderWithProviders` from `src/test/utils.jsx`; it wraps `ThemeProvider` + `QueryClientProvider` + `AuthContext` + `MemoryRouter`.
 - **matchMedia polyfill** is in `src/test/setup.js` — needed by `ThemeProvider` under jsdom.
 - **Vite `base` is `/sl_app/`** and there's a manual-chunks split (`router`, `query`, `supabase`). Pages are lazy-loaded in `routes.jsx`.
+- **React Rules of Hooks:** Never call `useMemo` or any other hook after an early return like `if (isLoading) return <Spinner/>`. Always put hooks at the top of the component.
 - **RLS is strict.** When adding tables, add both student- and coach-side policies. Walk session → profile via `student_profile_for_session()` / `coach_profile_for_session()` helpers (defined in `schema.sql`).
 - **Swapping `week_number` requires a 3-step update** because of the `UNIQUE(program_id, week_number)` constraint: bump A to a temp value, move B, then move A.
 
