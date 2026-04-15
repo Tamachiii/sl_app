@@ -1,1 +1,0 @@
-function r(e){return e.duration_seconds!=null?`${e.sets} × ${e.duration_seconds}s`:`${e.sets} × ${e.reps}`}function u(e){const t={pull:0,push:0};for(const s of e){if(s.reps==null)continue;const n=s.exercise,o=n.difficulty*s.sets*s.reps*Number(n.volume_weight);t[n.type]+=o}return t}export{u as c,r as f};
