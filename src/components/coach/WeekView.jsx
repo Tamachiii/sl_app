@@ -31,6 +31,14 @@ export default function WeekView() {
   const [deleteWeekConfirm, setDeleteWeekConfirm] = useState(false);
   const [deleteSessionConfirm, setDeleteSessionConfirm] = useState(null);
 
+  const siblings = useMemo(
+    () => (program?.weeks || []).slice().sort((a, b) => a.week_number - b.week_number),
+    [program?.weeks]
+  );
+  const currentIdx = siblings.findIndex((w) => w.id === week?.id);
+  const prevWeek = currentIdx > 0 ? siblings[currentIdx - 1] : null;
+  const nextWeek = currentIdx >= 0 && currentIdx < siblings.length - 1 ? siblings[currentIdx + 1] : null;
+
   if (isLoading) {
     return (
       <>
@@ -52,17 +60,9 @@ export default function WeekView() {
   }
 
   function handleDuplicateWeek() {
-    const maxWeek = week.week_number;
+    const maxWeek = week?.week_number ?? 1;
     duplicateWeek.mutate({ weekId, newWeekNumber: maxWeek + 1 });
   }
-
-  const siblings = useMemo(
-    () => (program?.weeks || []).slice().sort((a, b) => a.week_number - b.week_number),
-    [program?.weeks]
-  );
-  const currentIdx = siblings.findIndex((w) => w.id === week?.id);
-  const prevWeek = currentIdx > 0 ? siblings[currentIdx - 1] : null;
-  const nextWeek = currentIdx >= 0 && currentIdx < siblings.length - 1 ? siblings[currentIdx + 1] : null;
 
   function handleMove(direction) {
     const other = direction === -1 ? prevWeek : nextWeek;

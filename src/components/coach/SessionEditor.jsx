@@ -28,6 +28,10 @@ export default function SessionEditor() {
   const [pairAsSuperset, setPairAsSuperset] = useState(false);
   const [showCopy, setShowCopy] = useState(false);
 
+  const slots = session?.exercise_slots || [];
+  const vol = computeSessionVolume(slots);
+  const slotGroups = useMemo(() => groupSlotsBySuperset(slots), [slots]);
+
   if (isLoading) {
     return (
       <>
@@ -36,10 +40,6 @@ export default function SessionEditor() {
       </>
     );
   }
-
-  const slots = session?.exercise_slots || [];
-  const vol = computeSessionVolume(slots);
-  const slotGroups = useMemo(() => groupSlotsBySuperset(slots), [slots]);
 
   function handleAddExercise() {
     if (!selectedExercise) return;
