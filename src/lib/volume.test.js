@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeSessionVolume } from './volume';
+import { computeSessionVolume, groupSlotsBySuperset } from './volume';
 
 describe('computeSessionVolume', () => {
   it('returns zero for empty slots', () => {
@@ -18,6 +18,23 @@ describe('computeSessionVolume', () => {
       { sets: 4, reps: 8, exercise: { difficulty: 3, type: 'push', volume_weight: 1.5 } },
     ];
     expect(computeSessionVolume(slots)).toEqual({ pull: 0, push: 144 });
+  });
+
+  it('groupSlotsBySuperset groups consecutive shared groups', () => {
+    const slots = [
+      { id: 'a', superset_group: null },
+      { id: 'b', superset_group: 'g1' },
+      { id: 'c', superset_group: 'g1' },
+      { id: 'd', superset_group: null },
+      { id: 'e', superset_group: 'g2' },
+    ];
+    const groups = groupSlotsBySuperset(slots);
+    expect(groups).toHaveLength(4);
+    expect(groups[0].slots.map((s) => s.id)).toEqual(['a']);
+    expect(groups[1].key).toBe('g1');
+    expect(groups[1].slots.map((s) => s.id)).toEqual(['b', 'c']);
+    expect(groups[2].slots.map((s) => s.id)).toEqual(['d']);
+    expect(groups[3].slots.map((s) => s.id)).toEqual(['e']);
   });
 
   it('sums multiple slots of mixed types', () => {

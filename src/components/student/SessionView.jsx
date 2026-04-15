@@ -10,7 +10,7 @@ import {
 } from '../../hooks/useSessionConfirmation';
 import SetRow from './SetRow';
 import Spinner from '../ui/Spinner';
-import { formatSlotPrescription } from '../../lib/volume';
+import { formatSlotPrescription, groupSlotsBySuperset } from '../../lib/volume';
 
 export default function SessionView() {
   const { sessionId } = useParams();
@@ -74,30 +74,51 @@ export default function SessionView() {
             })}
           </p>
         )}
-        {slots.map((slot) => {
-          const ex = slot.exercise;
-          const slotLogs = getLogsForSlot(slot.id);
-          return (
-            <div key={slot.id} className="bg-white rounded-xl shadow-sm p-4 space-y-2">
-              <div>
-                <span className="font-medium text-gray-900 text-sm">{ex.name}</span>
-                <span className={`ml-2 text-xs font-medium px-1.5 py-0.5 rounded ${
-                  ex.type === 'pull' ? 'bg-pull/10 text-pull' : 'bg-push/10 text-push'
-                }`}>
-                  {ex.type}
-                </span>
+        {groupSlotsBySuperset(slots).map((group) => {
+          const renderSlot = (slot) => {
+            const ex = slot.exercise;
+            const slotLogs = getLogsForSlot(slot.id);
+            return (
+              <div key={slot.id} className="bg-white rounded-xl shadow-sm p-4 space-y-2">
+                <div>
+                  <span className="font-medium text-gray-900 text-sm">{ex.name}</span>
+                  <span className={`ml-2 text-xs font-medium px-1.5 py-0.5 rounded ${
+                    ex.type === 'pull' ? 'bg-pull/10 text-pull' : 'bg-push/10 text-push'
+                  }`}>
+                    {ex.type}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400">
+                  {formatSlotPrescription(slot)}
+                  {slot.weight_kg ? ` @ ${slot.weight_kg}kg` : ' (BW)'}
+                </p>
+                <div className="space-y-1">
+                  {slotLogs.map((log) => (
+                    <SetRow key={log.id} log={log} locked={isConfirmed} />
+                  ))}
+                </div>
               </div>
-              <p className="text-xs text-gray-400">
-                {formatSlotPrescription(slot)}
-                {slot.weight_kg ? ` @ ${slot.weight_kg}kg` : ' (BW)'}
-              </p>
-              <div className="space-y-1">
-                {slotLogs.map((log) => (
-                  <SetRow key={log.id} log={log} locked={isConfirmed} />
-                ))}
+            );
+          };
+          if (group.slots.length > 1) {
+            return (
+              <div
+                key={group.key}
+                className="rounded-xl border-2 border-primary/30 bg-primary/5 p-2 space-y-2"
+              >
+                <div className="px-2 pt-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-primary">
+                    Superset
+                  </span>
+                  <span className="ml-2 text-xs text-gray-500">
+                    Alternate between exercises each set
+                  </span>
+                </div>
+                {group.slots.map(renderSlot)}
               </div>
-            </div>
-          );
+            );
+          }
+          return renderSlot(group.slots[0]);
         })}
 
         {!confLoading && (

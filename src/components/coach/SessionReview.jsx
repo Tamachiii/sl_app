@@ -5,7 +5,7 @@ import { useSession } from '../../hooks/useSession';
 import { useSetLogs } from '../../hooks/useSetLogs';
 import { useSessionConfirmation } from '../../hooks/useSessionConfirmation';
 import SlotProgress from './SlotProgress';
-import { formatSlotPrescription } from '../../lib/volume';
+import { formatSlotPrescription, groupSlotsBySuperset } from '../../lib/volume';
 
 /**
  * Coach-facing read-only view of a session the student has completed.
@@ -53,29 +53,47 @@ export default function SessionReview() {
           </div>
         )}
 
-        {slots.map((slot) => {
-          const ex = slot.exercise;
-          const slotLogs = (setLogs || []).filter((l) => l.exercise_slot_id === slot.id);
-          return (
-            <div key={slot.id} className="bg-white rounded-xl shadow-sm p-4 space-y-2">
-              <div>
-                <span className="font-medium text-gray-900 text-sm">{ex.name}</span>
-                <span
-                  className={`ml-2 text-xs font-medium px-1.5 py-0.5 rounded ${
-                    ex.type === 'pull' ? 'bg-pull/10 text-pull' : 'bg-push/10 text-push'
-                  }`}
-                >
-                  {ex.type}
-                </span>
-                <span className="ml-1 text-xs text-gray-400">D{ex.difficulty}</span>
+        {groupSlotsBySuperset(slots).map((group) => {
+          const renderSlot = (slot) => {
+            const ex = slot.exercise;
+            const slotLogs = (setLogs || []).filter((l) => l.exercise_slot_id === slot.id);
+            return (
+              <div key={slot.id} className="bg-white rounded-xl shadow-sm p-4 space-y-2">
+                <div>
+                  <span className="font-medium text-gray-900 text-sm">{ex.name}</span>
+                  <span
+                    className={`ml-2 text-xs font-medium px-1.5 py-0.5 rounded ${
+                      ex.type === 'pull' ? 'bg-pull/10 text-pull' : 'bg-push/10 text-push'
+                    }`}
+                  >
+                    {ex.type}
+                  </span>
+                  <span className="ml-1 text-xs text-gray-400">D{ex.difficulty}</span>
+                </div>
+                <p className="text-xs text-gray-400">
+                  Planned: {formatSlotPrescription(slot)}
+                  {slot.weight_kg ? ` @ ${slot.weight_kg}kg` : ' (BW)'}
+                </p>
+                <SlotProgress logs={slotLogs} plannedSets={slot.sets} />
               </div>
-              <p className="text-xs text-gray-400">
-                Planned: {formatSlotPrescription(slot)}
-                {slot.weight_kg ? ` @ ${slot.weight_kg}kg` : ' (BW)'}
-              </p>
-              <SlotProgress logs={slotLogs} plannedSets={slot.sets} />
-            </div>
-          );
+            );
+          };
+          if (group.slots.length > 1) {
+            return (
+              <div
+                key={group.key}
+                className="rounded-xl border-2 border-primary/30 bg-primary/5 p-2 space-y-2"
+              >
+                <div className="px-2 pt-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-primary">
+                    Superset
+                  </span>
+                </div>
+                {group.slots.map(renderSlot)}
+              </div>
+            );
+          }
+          return renderSlot(group.slots[0]);
         })}
       </div>
     </>

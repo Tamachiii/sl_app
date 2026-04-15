@@ -12,6 +12,30 @@ export function formatSlotPrescription(slot) {
 }
 
 /**
+ * Group consecutive slots that share a superset_group into a single rendering
+ * unit. Slots without a group, or with a group that doesn't match the previous
+ * slot, start a fresh group of one. Order is preserved.
+ *
+ * Returns: [{ key, slots: [...] }]
+ *   - key: superset_group uuid for grouped slots, or the slot's id otherwise
+ *   - slots: 1+ slots; >1 means it's a real superset.
+ */
+export function groupSlotsBySuperset(slots) {
+  const groups = [];
+  for (const slot of slots) {
+    const last = groups[groups.length - 1];
+    if (slot.superset_group && last && last.key === slot.superset_group) {
+      last.slots.push(slot);
+    } else if (slot.superset_group) {
+      groups.push({ key: slot.superset_group, slots: [slot] });
+    } else {
+      groups.push({ key: slot.id, slots: [slot] });
+    }
+  }
+  return groups;
+}
+
+/**
  * Compute pull/push volume for a session.
  * Each slot must have slot.exercise joined (with difficulty, type, volume_weight).
  * Formula: difficulty × sets × reps × volume_weight, summed per type.

@@ -77,6 +77,7 @@ CREATE TABLE public.exercise_slots (
   duration_seconds int  CHECK (duration_seconds IS NULL OR duration_seconds > 0),
   weight_kg        numeric(6,2),
   sort_order       int  NOT NULL DEFAULT 0,
+  superset_group   uuid,
   notes            text,
   created_at       timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT exercise_slots_unit_one_of CHECK ((reps IS NOT NULL) <> (duration_seconds IS NOT NULL))
@@ -104,6 +105,7 @@ CREATE INDEX idx_weeks_program_id ON public.weeks(program_id);
 CREATE INDEX idx_sessions_week_id ON public.sessions(week_id);
 CREATE INDEX idx_sessions_scheduled_date ON public.sessions(scheduled_date);
 CREATE INDEX idx_exercise_slots_session_id ON public.exercise_slots(session_id);
+CREATE INDEX idx_exercise_slots_superset_group ON public.exercise_slots(superset_group);
 CREATE INDEX idx_set_logs_slot_id ON public.set_logs(exercise_slot_id);
 CREATE INDEX idx_exercise_library_coach_id ON public.exercise_library(coach_id);
 

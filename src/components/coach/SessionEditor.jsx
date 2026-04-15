@@ -7,7 +7,7 @@ import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
 import { useDuplicateSession } from '../../hooks/useDuplicate';
 import { useStudents } from '../../hooks/useStudents';
 import { useProgram } from '../../hooks/useProgram';
-import { computeSessionVolume } from '../../lib/volume';
+import { computeSessionVolume, groupSlotsBySuperset } from '../../lib/volume';
 import VolumeBar from './VolumeBar';
 import ExerciseSlotRow from './ExerciseSlotRow';
 import Spinner from '../ui/Spinner';
@@ -28,6 +28,7 @@ export default function SessionEditor() {
   const [showAdd, setShowAdd] = useState(false);
   const [selectedExercise, setSelectedExercise] = useState('');
   const [addUnit, setAddUnit] = useState('reps');
+  const [pairAsSuperset, setPairAsSuperset] = useState(false);
   const [showCopy, setShowCopy] = useState(false);
   const [copyStudentId, setCopyStudentId] = useState('');
   const [copyWeekId, setCopyWeekId] = useState('');
@@ -48,16 +49,34 @@ export default function SessionEditor() {
 
   function handleAddExercise() {
     if (!selectedExercise) return;
+    let supersetGroup;
+    if (pairAsSuperset && slots.length > 0) {
+      const prev = slots[slots.length - 1];
+      supersetGroup = prev.superset_group || crypto.randomUUID();
+      if (!prev.superset_group) {
+        updateSlot.mutate({ id: prev.id, sessionId, superset_group: supersetGroup });
+      }
+    }
     addSlot.mutate({
       sessionId,
       exerciseId: selectedExercise,
       sets: 3,
       ...(addUnit === 'seconds' ? { durationSeconds: 30 } : { reps: 10 }),
       sortOrder: slots.length,
+      supersetGroup,
     });
     setSelectedExercise('');
     setAddUnit('reps');
+    setPairAsSuperset(false);
     setShowAdd(false);
+  }
+
+  function handleUnlinkSuperset(groupId) {
+    for (const slot of slots) {
+      if (slot.superset_group === groupId) {
+        updateSlot.mutate({ id: slot.id, sessionId, superset_group: null });
+      }
+    }
   }
 
   function handleCopyToStudent() {
@@ -131,17 +150,47 @@ export default function SessionEditor() {
           />
         </div>
 
-        {slots.map((slot, idx) => (
-          <ExerciseSlotRow
-            key={slot.id}
-            slot={slot}
-            index={idx}
-            total={slots.length}
-            onUpdate={(updates) => updateSlot.mutate({ id: slot.id, sessionId, ...updates })}
-            onDelete={() => deleteSlot.mutate({ id: slot.id })}
-            onMove={(dir) => handleMoveSlot(idx, dir)}
-          />
-        ))}
+        {(() => {
+          const groups = groupSlotsBySuperset(slots);
+          let flatIdx = 0;
+          return groups.map((group) => {
+            const startIdx = flatIdx;
+            flatIdx += group.slots.length;
+            const renderRow = (slot, j) => (
+              <ExerciseSlotRow
+                key={slot.id}
+                slot={slot}
+                index={startIdx + j}
+                total={slots.length}
+                onUpdate={(updates) => updateSlot.mutate({ id: slot.id, sessionId, ...updates })}
+                onDelete={() => deleteSlot.mutate({ id: slot.id })}
+                onMove={(dir) => handleMoveSlot(startIdx + j, dir)}
+              />
+            );
+            if (group.slots.length > 1) {
+              return (
+                <div
+                  key={group.key}
+                  className="rounded-xl border-2 border-primary/30 bg-primary/5 p-2 space-y-2"
+                >
+                  <div className="flex items-center justify-between px-2 pt-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-primary">
+                      Superset
+                    </span>
+                    <button
+                      onClick={() => handleUnlinkSuperset(group.key)}
+                      className="text-xs text-gray-500 hover:text-danger"
+                    >
+                      Unlink superset
+                    </button>
+                  </div>
+                  {group.slots.map(renderRow)}
+                </div>
+              );
+            }
+            return renderRow(group.slots[0], 0);
+          });
+        })()}
 
         {showAdd ? (
           <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
@@ -179,6 +228,16 @@ export default function SessionEditor() {
                 Seconds (time under tension)
               </label>
             </fieldset>
+            {slots.length > 0 && (
+              <label className="flex items-center gap-2 text-sm text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={pairAsSuperset}
+                  onChange={(e) => setPairAsSuperset(e.target.checked)}
+                />
+                Pair with previous exercise as superset
+              </label>
+            )}
             <div className="flex gap-2">
               <button
                 onClick={handleAddExercise}
