@@ -27,6 +27,7 @@ export default function SessionEditor() {
 
   const [showAdd, setShowAdd] = useState(false);
   const [selectedExercise, setSelectedExercise] = useState('');
+  const [addUnit, setAddUnit] = useState('reps');
   const [showCopy, setShowCopy] = useState(false);
   const [copyStudentId, setCopyStudentId] = useState('');
   const [copyWeekId, setCopyWeekId] = useState('');
@@ -51,10 +52,11 @@ export default function SessionEditor() {
       sessionId,
       exerciseId: selectedExercise,
       sets: 3,
-      reps: 10,
+      ...(addUnit === 'seconds' ? { durationSeconds: 30 } : { reps: 10 }),
       sortOrder: slots.length,
     });
     setSelectedExercise('');
+    setAddUnit('reps');
     setShowAdd(false);
   }
 
@@ -155,6 +157,28 @@ export default function SessionEditor() {
                 </option>
               ))}
             </select>
+            <fieldset className="flex gap-3 text-sm text-gray-600">
+              <label className="flex items-center gap-1.5">
+                <input
+                  type="radio"
+                  name="add-unit"
+                  value="reps"
+                  checked={addUnit === 'reps'}
+                  onChange={(e) => setAddUnit(e.target.value)}
+                />
+                Reps
+              </label>
+              <label className="flex items-center gap-1.5">
+                <input
+                  type="radio"
+                  name="add-unit"
+                  value="seconds"
+                  checked={addUnit === 'seconds'}
+                  onChange={(e) => setAddUnit(e.target.value)}
+                />
+                Seconds (time under tension)
+              </label>
+            </fieldset>
             <div className="flex gap-2">
               <button
                 onClick={handleAddExercise}

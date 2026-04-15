@@ -5,6 +5,7 @@ import { useSession } from '../../hooks/useSession';
 import { useSetLogs } from '../../hooks/useSetLogs';
 import { useSessionConfirmation } from '../../hooks/useSessionConfirmation';
 import SlotProgress from './SlotProgress';
+import { formatSlotPrescription } from '../../lib/volume';
 
 /**
  * Coach-facing read-only view of a session the student has completed.
@@ -69,7 +70,7 @@ export default function SessionReview() {
                 <span className="ml-1 text-xs text-gray-400">D{ex.difficulty}</span>
               </div>
               <p className="text-xs text-gray-400">
-                Planned: {slot.sets} × {slot.reps}
+                Planned: {formatSlotPrescription(slot)}
                 {slot.weight_kg ? ` @ ${slot.weight_kg}kg` : ' (BW)'}
               </p>
               <SlotProgress logs={slotLogs} plannedSets={slot.sets} />

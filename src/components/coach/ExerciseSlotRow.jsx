@@ -2,14 +2,22 @@ import { useState } from 'react';
 
 export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete, onMove, children }) {
   const ex = slot.exercise;
+  const isTimeBased = slot.duration_seconds != null;
   const [sets, setSets] = useState(slot.sets);
-  const [reps, setReps] = useState(slot.reps);
+  const [reps, setReps] = useState(slot.reps ?? '');
+  const [seconds, setSeconds] = useState(slot.duration_seconds ?? '');
   const [weight, setWeight] = useState(slot.weight_kg ?? '');
 
   function handleBlur() {
     const updates = {};
     if (sets !== slot.sets) updates.sets = sets;
-    if (reps !== slot.reps) updates.reps = reps;
+    if (isTimeBased) {
+      const s = seconds === '' ? null : Number(seconds);
+      if (s !== slot.duration_seconds) updates.duration_seconds = s;
+    } else {
+      const r = reps === '' ? null : Number(reps);
+      if (r !== slot.reps) updates.reps = r;
+    }
     const w = weight === '' ? null : Number(weight);
     if (w !== slot.weight_kg) updates.weight_kg = w;
     if (Object.keys(updates).length > 0) onUpdate(updates);
@@ -73,18 +81,33 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
             className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-center"
           />
         </div>
-        <div className="flex-1">
-          <label htmlFor={`reps-${slot.id}`} className="text-xs text-gray-500 block mb-0.5">Reps</label>
-          <input
-            id={`reps-${slot.id}`}
-            type="number"
-            min={1}
-            value={reps}
-            onChange={(e) => setReps(Number(e.target.value))}
-            onBlur={handleBlur}
-            className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-center"
-          />
-        </div>
+        {isTimeBased ? (
+          <div className="flex-1">
+            <label htmlFor={`seconds-${slot.id}`} className="text-xs text-gray-500 block mb-0.5">Seconds</label>
+            <input
+              id={`seconds-${slot.id}`}
+              type="number"
+              min={1}
+              value={seconds}
+              onChange={(e) => setSeconds(e.target.value)}
+              onBlur={handleBlur}
+              className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-center"
+            />
+          </div>
+        ) : (
+          <div className="flex-1">
+            <label htmlFor={`reps-${slot.id}`} className="text-xs text-gray-500 block mb-0.5">Reps</label>
+            <input
+              id={`reps-${slot.id}`}
+              type="number"
+              min={1}
+              value={reps}
+              onChange={(e) => setReps(e.target.value)}
+              onBlur={handleBlur}
+              className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-center"
+            />
+          </div>
+        )}
         <div className="flex-1">
           <label htmlFor={`weight-${slot.id}`} className="text-xs text-gray-500 block mb-0.5">Weight (kg)</label>
           <input

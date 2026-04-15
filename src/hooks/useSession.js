@@ -30,14 +30,15 @@ export function useAddSlot() {
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ sessionId, exerciseId, sets, reps, weightKg, sortOrder }) => {
+    mutationFn: async ({ sessionId, exerciseId, sets, reps, durationSeconds, weightKg, sortOrder }) => {
       const { data, error } = await supabase
         .from('exercise_slots')
         .insert({
           session_id: sessionId,
           exercise_id: exerciseId,
           sets,
-          reps,
+          reps: durationSeconds ? null : reps,
+          duration_seconds: durationSeconds || null,
           weight_kg: weightKg || null,
           sort_order: sortOrder || 0,
         })

@@ -69,15 +69,17 @@ CREATE TABLE public.exercise_library (
 
 -- Exercise slots (exercise placed in a session)
 CREATE TABLE public.exercise_slots (
-  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id    uuid NOT NULL REFERENCES public.sessions(id) ON DELETE CASCADE,
-  exercise_id   uuid NOT NULL REFERENCES public.exercise_library(id) ON DELETE RESTRICT,
-  sets          int  NOT NULL CHECK (sets > 0),
-  reps          int  NOT NULL CHECK (reps > 0),
-  weight_kg     numeric(6,2),
-  sort_order    int  NOT NULL DEFAULT 0,
-  notes         text,
-  created_at    timestamptz NOT NULL DEFAULT now()
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id       uuid NOT NULL REFERENCES public.sessions(id) ON DELETE CASCADE,
+  exercise_id      uuid NOT NULL REFERENCES public.exercise_library(id) ON DELETE RESTRICT,
+  sets             int  NOT NULL CHECK (sets > 0),
+  reps             int  CHECK (reps IS NULL OR reps > 0),
+  duration_seconds int  CHECK (duration_seconds IS NULL OR duration_seconds > 0),
+  weight_kg        numeric(6,2),
+  sort_order       int  NOT NULL DEFAULT 0,
+  notes            text,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT exercise_slots_unit_one_of CHECK ((reps IS NOT NULL) <> (duration_seconds IS NOT NULL))
 );
 
 -- Set logs (student fills these in)

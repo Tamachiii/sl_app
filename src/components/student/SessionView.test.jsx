@@ -82,7 +82,7 @@ describe('SessionView', () => {
     renderSessionView();
 
     expect(screen.getByText('Dip')).toBeInTheDocument();
-    expect(screen.getByText('3 x 10 @ 20kg')).toBeInTheDocument();
+    expect(screen.getByText('3 × 10 @ 20kg')).toBeInTheDocument();
     expect(screen.getByText('Set 1')).toBeInTheDocument();
     expect(screen.getByText('Set 2')).toBeInTheDocument();
   });

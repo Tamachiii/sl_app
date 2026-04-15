@@ -10,6 +10,7 @@ import {
 } from '../../hooks/useSessionConfirmation';
 import SetRow from './SetRow';
 import Spinner from '../ui/Spinner';
+import { formatSlotPrescription } from '../../lib/volume';
 
 export default function SessionView() {
   const { sessionId } = useParams();
@@ -87,7 +88,7 @@ export default function SessionView() {
                 </span>
               </div>
               <p className="text-xs text-gray-400">
-                {slot.sets} x {slot.reps}
+                {formatSlotPrescription(slot)}
                 {slot.weight_kg ? ` @ ${slot.weight_kg}kg` : ' (BW)'}
               </p>
               <div className="space-y-1">
