@@ -24,7 +24,7 @@ export function useStudentWeeks(userId) {
           id, name,
           weeks(
             id, week_number, label,
-            sessions(id, title, sort_order, scheduled_date)
+            sessions(id, title, sort_order, scheduled_date, archived_at)
           )
         `)
         .eq('student_id', student.id)
