@@ -1,4 +1,4 @@
-import{c as f,u as m,b as y}from"./query-BR4_tDY9.js";import{u as l,s as o}from"./index-F4vBqMx3.js";function q(e){return f({queryKey:["session-confirmation",e],queryFn:async()=>{const{data:n,error:s}=await o.from("session_confirmations").select("*").eq("session_id",e).maybeSingle();if(s)throw s;return n},enabled:!!e})}function h(e){return f({queryKey:["student-confirmations",e],queryFn:async()=>{const{data:n,error:s}=await o.from("programs").select(`
+import{c as f,u as m,b as y}from"./query-BR4_tDY9.js";import{u as l,s as o}from"./index-B0TFXdhc.js";function q(e){return f({queryKey:["session-confirmation",e],queryFn:async()=>{const{data:n,error:s}=await o.from("session_confirmations").select("*").eq("session_id",e).maybeSingle();if(s)throw s;return n},enabled:!!e})}function h(e){return f({queryKey:["student-confirmations",e],queryFn:async()=>{const{data:n,error:s}=await o.from("programs").select(`
           id,
           weeks(
             id, week_number, label,
