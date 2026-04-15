@@ -108,4 +108,53 @@ describe('ExerciseLibrary', () => {
     expect(mockDelete.mutate).toHaveBeenCalledWith('ex-1');
     window.confirm.mockRestore();
   });
+
+  it('shows search bar and type filter pills when exercises exist', () => {
+    renderLibrary();
+    expect(screen.getByRole('searchbox', { name: /search exercises/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^all$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^pull$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^push$/i })).toBeInTheDocument();
+  });
+
+  it('search filters the list by name', async () => {
+    const user = userEvent.setup();
+    renderLibrary();
+
+    await user.type(screen.getByRole('searchbox', { name: /search exercises/i }), 'pull');
+    expect(screen.getByText('Pull Up')).toBeInTheDocument();
+    expect(screen.queryByText('Dip')).not.toBeInTheDocument();
+  });
+
+  it('shows empty state when search has no matches', async () => {
+    const user = userEvent.setup();
+    renderLibrary();
+
+    await user.type(screen.getByRole('searchbox', { name: /search exercises/i }), 'zzz');
+    expect(screen.getByText(/no exercises match/i)).toBeInTheDocument();
+  });
+
+  it('type filter pill filters the list', async () => {
+    const user = userEvent.setup();
+    renderLibrary();
+
+    await user.click(screen.getByRole('button', { name: /^push$/i }));
+    expect(screen.queryByText('Pull Up')).not.toBeInTheDocument();
+    expect(screen.getByText('Dip')).toBeInTheDocument();
+  });
+
+  it('active filter pill has aria-pressed=true', async () => {
+    const user = userEvent.setup();
+    renderLibrary();
+
+    const pullBtn = screen.getByRole('button', { name: /^pull$/i });
+    await user.click(pullBtn);
+    expect(pullBtn).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('does not show search bar when library is empty', () => {
+    mockExercises = { data: [], isLoading: false };
+    renderLibrary();
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+  });
 });

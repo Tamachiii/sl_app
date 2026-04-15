@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Header from '../layout/Header';
 import {
   useExerciseLibrary,
@@ -8,6 +8,24 @@ import {
 } from '../../hooks/useExerciseLibrary';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
+
+const TYPE_FILTERS = ['all', 'pull', 'push'];
+
+function FilterPill({ label, active, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+        active
+          ? 'bg-primary text-white'
+          : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
 
 function ExerciseForm({ initial, onSubmit, onCancel, submitLabel }) {
   const [name, setName] = useState(initial?.name || '');
@@ -89,6 +107,18 @@ export default function ExerciseLibrary() {
 
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
+
+  const filtered = useMemo(() => {
+    if (!exercises) return [];
+    const q = search.trim().toLowerCase();
+    return exercises.filter((ex) => {
+      const matchesSearch = !q || ex.name.toLowerCase().includes(q);
+      const matchesType = typeFilter === 'all' || ex.type === typeFilter;
+      return matchesSearch && matchesType;
+    });
+  }, [exercises, search, typeFilter]);
 
   function handleCreate(values) {
     createExercise.mutate(values, { onSuccess: () => setShowAdd(false) });
@@ -98,6 +128,8 @@ export default function ExerciseLibrary() {
     updateExercise.mutate({ id, ...values }, { onSuccess: () => setEditingId(null) });
   }
 
+  const hasExercises = exercises && exercises.length > 0;
+
   return (
     <>
       <Header title="Exercise Library" />
@@ -105,11 +137,53 @@ export default function ExerciseLibrary() {
         {isLoading && (
           <div className="flex justify-center py-12"><Spinner /></div>
         )}
-        {!isLoading && (!exercises || exercises.length === 0) && !showAdd && (
+
+        {!isLoading && hasExercises && (
+          <div className="space-y-2">
+            {/* Search */}
+            <div className="relative">
+              <svg
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z" />
+              </svg>
+              <input
+                type="search"
+                aria-label="Search exercises"
+                placeholder="Search exercises…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full rounded-xl border border-gray-200 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+
+            {/* Type filter pills */}
+            <div className="flex gap-2" role="group" aria-label="Filter by type">
+              {TYPE_FILTERS.map((t) => (
+                <FilterPill
+                  key={t}
+                  label={t === 'all' ? 'All' : t.charAt(0).toUpperCase() + t.slice(1)}
+                  active={typeFilter === t}
+                  onClick={() => setTypeFilter(t)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!isLoading && !hasExercises && !showAdd && (
           <EmptyState message="No exercises yet" />
         )}
 
-        {exercises?.map((ex) => (
+        {!isLoading && hasExercises && filtered.length === 0 && (
+          <EmptyState message="No exercises match your search" />
+        )}
+
+        {filtered.map((ex) => (
           <div key={ex.id} className="bg-white rounded-xl shadow-sm p-4">
             {editingId === ex.id ? (
               <ExerciseForm

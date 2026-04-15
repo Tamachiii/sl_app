@@ -134,6 +134,10 @@ RLS:
 
 Students tap **Confirm session** at the bottom of `SessionView` (with an optional note) to mark a session as completed. Coaches see a green "Confirmed" badge on the session card in `WeekView`, and can open **Confirmed sessions** from any student card for a chronological list with notes and timestamps. Students can undo a confirmation; coaches cannot edit confirmations (read-only).
 
+### Exercise Library search & filter
+
+The Library tab (`ExerciseLibrary`) shows a **search bar** and **type filter pills** (All / Pull / Push) whenever the library has at least one exercise. Both filters are applied client-side via `useMemo` — no extra queries. When no exercises match, an "No exercises match your search" empty state is shown. The search bar and pills are hidden on an empty library to keep the add-first flow clean.
+
 ### Coach exercise notes
 
 Coaches can add a free-text note to any exercise slot while planning a session (via `ExerciseSlotRow` in `SessionEditor`). Notes are stored in `exercise_slots.notes`. Students see the note as a blue info callout above their `SlotCommentBox` when executing the session in `SessionView`. No migration needed — the column already existed in the schema.
