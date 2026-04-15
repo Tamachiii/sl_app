@@ -120,7 +120,7 @@ weeks (id, program_id, week_number, label)
   ↓ 1:many
 sessions (id, week_id, title, day_number, sort_order)
   ↓ 1:many                                ↓ 1:1
-exercise_slots (…)              session_confirmations (session_id UNIQUE, student_id, confirmed_at, notes)
+exercise_slots (…, notes)       session_confirmations (session_id UNIQUE, student_id, confirmed_at, notes)
   → exercise_library (…)
   ↓ 1:many
 set_logs (…)
@@ -133,6 +133,10 @@ RLS:
 ### Session confirmations
 
 Students tap **Confirm session** at the bottom of `SessionView` (with an optional note) to mark a session as completed. Coaches see a green "Confirmed" badge on the session card in `WeekView`, and can open **Confirmed sessions** from any student card for a chronological list with notes and timestamps. Students can undo a confirmation; coaches cannot edit confirmations (read-only).
+
+### Coach exercise notes
+
+Coaches can add a free-text note to any exercise slot while planning a session (via `ExerciseSlotRow` in `SessionEditor`). Notes are stored in `exercise_slots.notes`. Students see the note as a blue info callout above their `SlotCommentBox` when executing the session in `SessionView`. No migration needed — the column already existed in the schema.
 
 ---
 

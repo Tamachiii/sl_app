@@ -57,6 +57,7 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 | Coach student list | `coach/CoachHome`, `coach/StudentCard`, `coach/WeekTimeline`, `hooks/useStudents`, `hooks/useProgram` | `layout/Header` |
 | Coach week view | `coach/WeekView`, `hooks/useWeek`, `hooks/useDuplicate`, `coach/VolumeBar`, `lib/volume` | `ui/EditableText`, `layout/Header` |
 | Coach session editor | `coach/SessionEditor`, `coach/ExerciseSlotRow`, `hooks/useSession`, `hooks/useExerciseLibrary`, `hooks/useDuplicate` | `coach/VolumeBar`, `ui/EditableText` |
+| Coach exercise slot notes | `coach/ExerciseSlotRow` (notes textarea), `student/SessionView` (note display) | `hooks/useSession` (`useUpdateSlot`) |
 | Coach exercise library | `coach/ExerciseLibrary`, `hooks/useExerciseLibrary` | `ui/Dialog` |
 | Student program | `student/StudentHome`, `hooks/useSessionConfirmation` (for badges) | `layout/Header`, `lib/supabase` |
 | Student session logging | `student/SessionView`, `student/SetRow`, `student/RpeInput`, `hooks/useSession`, `hooks/useSetLogs` | — |
@@ -104,3 +105,4 @@ Test runs are via WSL: `wsl -d Ubuntu -- bash -lc "cd /home/tamachi/sl_app && np
 3. Add tests next to components; stub hooks with `vi.mock(...)`; use `renderWithProviders` when rendering anything with `Header`.
 4. Update this file's feature table only if you introduced a new feature area.
 5. Run `npm test -- --run` and `npm run build` before committing.
+6. Update `README.md` and `CLAUDE.md` to reflect the new feature (domain model, feature table, gotchas, etc.) before pushing.
