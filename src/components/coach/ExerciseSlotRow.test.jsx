@@ -96,4 +96,33 @@ describe('ExerciseSlotRow', () => {
 
     expect(props.onUpdate).toHaveBeenCalledWith(expect.objectContaining({ sets: 5 }));
   });
+
+  it('shows "+ Add coach note" button when slot has no notes', () => {
+    renderSlotRow();
+    expect(screen.getByRole('button', { name: /add coach note/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/coach note for student/i)).not.toBeInTheDocument();
+  });
+
+  it('reveals notes textarea when "+ Add coach note" is clicked', async () => {
+    const user = userEvent.setup();
+    renderSlotRow();
+    await user.click(screen.getByRole('button', { name: /add coach note/i }));
+    expect(screen.getByLabelText(/coach note for student/i)).toBeInTheDocument();
+  });
+
+  it('shows notes textarea pre-expanded when slot already has a note', () => {
+    renderSlotRow({ slot: { ...defaultSlot, notes: 'Keep elbows tucked' } });
+    expect(screen.getByLabelText(/coach note for student/i)).toHaveValue('Keep elbows tucked');
+    expect(screen.queryByRole('button', { name: /add coach note/i })).not.toBeInTheDocument();
+  });
+
+  it('calls onUpdate with notes on blur when notes change', async () => {
+    const user = userEvent.setup();
+    const { props } = renderSlotRow();
+    await user.click(screen.getByRole('button', { name: /add coach note/i }));
+    const textarea = screen.getByLabelText(/coach note for student/i);
+    await user.type(textarea, 'Focus on the negative');
+    fireEvent.blur(textarea);
+    expect(props.onUpdate).toHaveBeenCalledWith({ notes: 'Focus on the negative' });
+  });
 });

@@ -124,6 +124,29 @@ describe('SessionView', () => {
     );
   });
 
+  it('displays coach note when slot has notes', () => {
+    mockSessionData = {
+      data: {
+        title: 'Push Day',
+        exercise_slots: [
+          {
+            id: 'slot-1',
+            sets: 3,
+            reps: 10,
+            weight_kg: 20,
+            sort_order: 0,
+            notes: 'Keep elbows tucked throughout',
+            exercise: { name: 'Dip', type: 'push', difficulty: 2, volume_weight: 1 },
+          },
+        ],
+      },
+      isLoading: false,
+    };
+    mockSetLogsData = { data: [], isLoading: false };
+    renderSessionView();
+    expect(screen.getByText('Keep elbows tucked throughout')).toBeInTheDocument();
+  });
+
   it('shows confirmed banner and undo button when already confirmed', async () => {
     const user = userEvent.setup();
     mockConfirmation = {

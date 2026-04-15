@@ -8,6 +8,8 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
   const [seconds, setSeconds] = useState(slot.duration_seconds ?? '');
   const [weight, setWeight] = useState(slot.weight_kg ?? '');
   const [rest, setRest] = useState(slot.rest_seconds ?? '');
+  const [notes, setNotes] = useState(slot.notes ?? '');
+  const [showNotes, setShowNotes] = useState(!!slot.notes);
 
   // Sync local state when server data changes (e.g. after mutation refetch)
   useEffect(() => {
@@ -16,7 +18,8 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
     setSeconds(slot.duration_seconds ?? '');
     setWeight(slot.weight_kg ?? '');
     setRest(slot.rest_seconds ?? '');
-  }, [slot.id, slot.sets, slot.reps, slot.duration_seconds, slot.weight_kg, slot.rest_seconds]);
+    setNotes(slot.notes ?? '');
+  }, [slot.id, slot.sets, slot.reps, slot.duration_seconds, slot.weight_kg, slot.rest_seconds, slot.notes]);
 
   function handleBlur() {
     const updates = {};
@@ -33,6 +36,11 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
     const rs = rest === '' ? null : Number(rest);
     if (rs !== (slot.rest_seconds ?? null)) updates.rest_seconds = rs;
     if (Object.keys(updates).length > 0) onUpdate(updates);
+  }
+
+  function handleNotesBlur() {
+    const n = notes.trim() || null;
+    if (n !== (slot.notes ?? null)) onUpdate({ notes: n });
   }
 
   return (
@@ -149,6 +157,30 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
           />
         </div>
       </div>
+
+      {showNotes ? (
+        <div className="space-y-1">
+          <label htmlFor={`notes-${slot.id}`} className="text-xs text-gray-500 block">
+            Coach note for student
+          </label>
+          <textarea
+            id={`notes-${slot.id}`}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            onBlur={handleNotesBlur}
+            placeholder="e.g. keep elbows tucked, focus on the negative…"
+            rows={2}
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary"
+          />
+        </div>
+      ) : (
+        <button
+          onClick={() => setShowNotes(true)}
+          className="text-xs text-gray-400 hover:text-primary"
+        >
+          + Add coach note
+        </button>
+      )}
 
       {children}
     </div>
