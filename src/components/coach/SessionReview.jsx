@@ -4,6 +4,7 @@ import Header from '../layout/Header';
 import Spinner from '../ui/Spinner';
 import { useSession } from '../../hooks/useSession';
 import { useSetLogs } from '../../hooks/useSetLogs';
+import { useSlotComments } from '../../hooks/useSlotComments';
 import { useArchiveSession } from '../../hooks/useWeek';
 import { useSessionConfirmation } from '../../hooks/useSessionConfirmation';
 import SlotProgress from './SlotProgress';
@@ -19,6 +20,7 @@ export default function SessionReview() {
   const { data: session, isLoading } = useSession(sessionId);
   const slots = session?.exercise_slots || [];
   const { data: setLogs } = useSetLogs(sessionId, slots);
+  const { data: slotComments } = useSlotComments(sessionId, slots);
   const { data: confirmation } = useSessionConfirmation(sessionId);
   const archiveSession = useArchiveSession();
   const slotGroups = useMemo(() => groupSlotsBySuperset(slots), [slots]);
@@ -106,6 +108,18 @@ export default function SessionReview() {
                   )}
                 </p>
                 <SlotProgress logs={slotLogs} plannedSets={slot.sets} />
+                {(() => {
+                  const c = (slotComments || []).find(
+                    (x) => x.exercise_slot_id === slot.id
+                  );
+                  if (!c) return null;
+                  return (
+                    <div className="text-xs text-gray-700 bg-blue-50 border border-blue-100 rounded-lg px-2 py-1.5 whitespace-pre-wrap">
+                      <span className="font-medium text-blue-700">Student note:</span>{' '}
+                      {c.body}
+                    </div>
+                  );
+                })()}
               </div>
             );
           };

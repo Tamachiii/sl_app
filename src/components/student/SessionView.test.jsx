@@ -26,6 +26,11 @@ let mockConfirmation = { data: null, isLoading: false };
 const mockConfirm = { mutate: vi.fn(), isPending: false };
 const mockUnconfirm = { mutate: vi.fn(), isPending: false };
 
+vi.mock('../../hooks/useSlotComments', () => ({
+  useSlotComments: () => ({ data: [], isLoading: false }),
+  useSaveSlotComment: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 vi.mock('../../hooks/useSessionConfirmation', () => ({
   useSessionConfirmation: () => mockConfirmation,
   useConfirmSession: () => mockConfirm,
