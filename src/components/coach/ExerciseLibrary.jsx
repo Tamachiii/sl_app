@@ -132,10 +132,32 @@ export default function ExerciseLibrary() {
 
   return (
     <>
-      <Header title="Exercise Library" />
+      <Header
+        title="Exercise Library"
+        actions={
+          !showAdd && (
+            <button
+              onClick={() => setShowAdd(true)}
+              className="text-xs bg-primary text-white rounded-lg px-3 py-1.5 font-medium"
+            >
+              + Add
+            </button>
+          )
+        }
+      />
       <div className="p-4 space-y-3">
         {isLoading && (
           <div className="flex justify-center py-12"><Spinner /></div>
+        )}
+
+        {showAdd && (
+          <div className="bg-white rounded-xl shadow-sm p-4">
+            <ExerciseForm
+              onSubmit={handleCreate}
+              onCancel={() => setShowAdd(false)}
+              submitLabel="Create"
+            />
+          </div>
         )}
 
         {!isLoading && hasExercises && (
@@ -228,22 +250,6 @@ export default function ExerciseLibrary() {
           </div>
         ))}
 
-        {showAdd ? (
-          <div className="bg-white rounded-xl shadow-sm p-4">
-            <ExerciseForm
-              onSubmit={handleCreate}
-              onCancel={() => setShowAdd(false)}
-              submitLabel="Create"
-            />
-          </div>
-        ) : (
-          <button
-            onClick={() => setShowAdd(true)}
-            className="w-full border-2 border-dashed border-gray-300 text-gray-400 rounded-xl py-3 text-sm font-medium hover:border-primary hover:text-primary transition-colors"
-          >
-            + Add Exercise
-          </button>
-        )}
       </div>
     </>
   );
