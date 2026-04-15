@@ -80,6 +80,7 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 - **React Rules of Hooks:** Never call `useMemo` or any other hook after an early return like `if (isLoading) return <Spinner/>`. Always put hooks at the top of the component.
 - **RLS is strict.** When adding tables, add both student- and coach-side policies. Walk session → profile via `student_profile_for_session()` / `coach_profile_for_session()` helpers (defined in `schema.sql`).
 - **Swapping `week_number` requires a 3-step update** because of the `UNIQUE(program_id, week_number)` constraint: bump A to a temp value, move B, then move A.
+- **`NavLink` `end` prop on root tabs.** `BottomNav`'s "Students" (`/coach`) and "Home" (`/student`) links use `end` so they only highlight on exact route matches — without it they stay active on all child routes.
 
 ---
 

@@ -1,10 +1,11 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 
-function NavItem({ to, label, icon }) {
+function NavItem({ to, label, icon, end = false }) {
   return (
     <NavLink
       to={to}
+      end={end}
       className={({ isActive }) =>
         `flex flex-col items-center gap-0.5 py-2 px-3 text-xs font-medium transition-colors ${
           isActive ? 'text-primary' : 'text-gray-400'
@@ -47,7 +48,7 @@ export default function BottomNav() {
   if (role === 'coach') {
     return (
       <nav aria-label="Main navigation" className="sticky bottom-0 bg-white border-t border-gray-200 flex justify-around">
-        <NavItem to="/coach" label="Students" icon={HomeIcon} />
+        <NavItem to="/coach" label="Students" icon={HomeIcon} end />
         <NavItem to="/coach/exercises" label="Library" icon={LibraryIcon} />
         <button
           onClick={signOut}
@@ -63,7 +64,7 @@ export default function BottomNav() {
 
   return (
     <nav aria-label="Main navigation" className="sticky bottom-0 bg-white border-t border-gray-200 flex justify-around">
-      <NavItem to="/student" label="Home" icon={HomeIcon} />
+      <NavItem to="/student" label="Home" icon={HomeIcon} end />
       <NavItem to="/student/goals" label="Goals" icon={GoalIcon} />
       <button
         onClick={signOut}

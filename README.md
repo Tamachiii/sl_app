@@ -212,6 +212,14 @@ Supabase env vars are passed in at build time — ensure the GitHub Actions secr
 
 ---
 
+## Bug Fixes
+
+### Tab highlight stays active on sub-routes (fixed)
+
+`BottomNav` uses React Router `NavLink`. By default, a `NavLink` is active when the URL **starts with** its `to` path, so `/coach` stayed highlighted on `/coach/week/123` and `/student` stayed highlighted on `/student/session/abc`. Fixed by passing the `end` prop to the "Students" and "Home" nav items, which requires an exact path match for the active state.
+
+---
+
 ## Notes for Future Agents
 
 - **Tailwind 4**: config is in CSS (`@theme` / `@custom-variant` in `src/index.css`), not a `tailwind.config.js`.

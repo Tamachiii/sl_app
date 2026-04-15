@@ -65,4 +65,17 @@ describe('BottomNav', () => {
     await user.click(logoutBtn);
     expect(mockSignOut).toHaveBeenCalledTimes(1);
   });
+
+  it('Students tab is not active when on a sub-route like /coach/week/1', () => {
+    renderBottomNav('/coach/week/1');
+    const studentsLink = screen.getByRole('link', { name: /students/i });
+    expect(studentsLink).not.toHaveClass('text-primary');
+  });
+
+  it('Home tab is not active when student is on a sub-route like /student/session/1', () => {
+    mockRole = 'student';
+    renderBottomNav('/student/session/1');
+    const homeLink = screen.getByRole('link', { name: /home/i });
+    expect(homeLink).not.toHaveClass('text-primary');
+  });
 });
