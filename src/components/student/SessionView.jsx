@@ -10,7 +10,7 @@ import {
 } from '../../hooks/useSessionConfirmation';
 import SetRow from './SetRow';
 import Spinner from '../ui/Spinner';
-import { formatSlotPrescription, groupSlotsBySuperset } from '../../lib/volume';
+import { formatSlotPrescription, formatRestSeconds, groupSlotsBySuperset } from '../../lib/volume';
 
 export default function SessionView() {
   const { sessionId } = useParams();
@@ -91,10 +91,18 @@ export default function SessionView() {
                 <p className="text-xs text-gray-400">
                   {formatSlotPrescription(slot)}
                   {slot.weight_kg ? ` @ ${slot.weight_kg}kg` : ' (BW)'}
+                  {slot.rest_seconds != null && (
+                    <span className="ml-2">· Rest {formatRestSeconds(slot.rest_seconds)}</span>
+                  )}
                 </p>
                 <div className="space-y-1">
                   {slotLogs.map((log) => (
-                    <SetRow key={log.id} log={log} locked={isConfirmed} />
+                    <SetRow
+                      key={log.id}
+                      log={log}
+                      locked={isConfirmed}
+                      restSeconds={slot.rest_seconds}
+                    />
                   ))}
                 </div>
               </div>

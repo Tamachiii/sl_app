@@ -77,6 +77,7 @@ CREATE TABLE public.exercise_slots (
   duration_seconds int  CHECK (duration_seconds IS NULL OR duration_seconds > 0),
   weight_kg        numeric(6,2),
   sort_order       int  NOT NULL DEFAULT 0,
+  rest_seconds     int  CHECK (rest_seconds IS NULL OR rest_seconds >= 0),
   superset_group   uuid,
   notes            text,
   created_at       timestamptz NOT NULL DEFAULT now(),

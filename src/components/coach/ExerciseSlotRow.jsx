@@ -7,6 +7,7 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
   const [reps, setReps] = useState(slot.reps ?? '');
   const [seconds, setSeconds] = useState(slot.duration_seconds ?? '');
   const [weight, setWeight] = useState(slot.weight_kg ?? '');
+  const [rest, setRest] = useState(slot.rest_seconds ?? '');
 
   function handleBlur() {
     const updates = {};
@@ -20,6 +21,8 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
     }
     const w = weight === '' ? null : Number(weight);
     if (w !== slot.weight_kg) updates.weight_kg = w;
+    const rs = rest === '' ? null : Number(rest);
+    if (rs !== (slot.rest_seconds ?? null)) updates.rest_seconds = rs;
     if (Object.keys(updates).length > 0) onUpdate(updates);
   }
 
@@ -119,6 +122,20 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
             onChange={(e) => setWeight(e.target.value)}
             onBlur={handleBlur}
             placeholder="BW"
+            className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-center"
+          />
+        </div>
+        <div className="flex-1">
+          <label htmlFor={`rest-${slot.id}`} className="text-xs text-gray-500 block mb-0.5">Rest (s)</label>
+          <input
+            id={`rest-${slot.id}`}
+            type="number"
+            min={0}
+            step={15}
+            value={rest}
+            onChange={(e) => setRest(e.target.value)}
+            onBlur={handleBlur}
+            placeholder="—"
             className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-center"
           />
         </div>

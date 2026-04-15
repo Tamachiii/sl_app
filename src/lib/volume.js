@@ -12,6 +12,17 @@ export function formatSlotPrescription(slot) {
 }
 
 /**
+ * Format a rest period as "1:30" (mm:ss) when >= 60s, otherwise "45s".
+ */
+export function formatRestSeconds(seconds) {
+  if (seconds == null) return null;
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+/**
  * Group consecutive slots that share a superset_group into a single rendering
  * unit. Slots without a group, or with a group that doesn't match the previous
  * slot, start a fresh group of one. Order is preserved.

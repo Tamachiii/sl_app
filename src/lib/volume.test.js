@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeSessionVolume, groupSlotsBySuperset } from './volume';
+import { computeSessionVolume, groupSlotsBySuperset, formatRestSeconds } from './volume';
 
 describe('computeSessionVolume', () => {
   it('returns zero for empty slots', () => {
@@ -18,6 +18,14 @@ describe('computeSessionVolume', () => {
       { sets: 4, reps: 8, exercise: { difficulty: 3, type: 'push', volume_weight: 1.5 } },
     ];
     expect(computeSessionVolume(slots)).toEqual({ pull: 0, push: 144 });
+  });
+
+  it('formatRestSeconds formats seconds and minutes', () => {
+    expect(formatRestSeconds(null)).toBe(null);
+    expect(formatRestSeconds(45)).toBe('45s');
+    expect(formatRestSeconds(60)).toBe('1:00');
+    expect(formatRestSeconds(90)).toBe('1:30');
+    expect(formatRestSeconds(125)).toBe('2:05');
   });
 
   it('groupSlotsBySuperset groups consecutive shared groups', () => {

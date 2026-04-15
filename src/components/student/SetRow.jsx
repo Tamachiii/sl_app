@@ -1,9 +1,42 @@
+import { useEffect, useRef, useState } from 'react';
 import { useToggleSetDone, useSetRpe } from '../../hooks/useSetLogs';
 import RpeInput from './RpeInput';
 
-export default function SetRow({ log, locked = false }) {
+function formatMMSS(sec) {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+export default function SetRow({ log, locked = false, restSeconds = null }) {
   const toggleDone = useToggleSetDone();
   const setRpe = useSetRpe();
+
+  // Local countdown — starts when the set is toggled done (this session only).
+  // It's intentionally ephemeral: not persisted, resets on reload or unmount.
+  const [remaining, setRemaining] = useState(null);
+  const prevDone = useRef(log.done);
+
+  useEffect(() => {
+    if (!prevDone.current && log.done && restSeconds && restSeconds > 0) {
+      setRemaining(restSeconds);
+    }
+    if (prevDone.current && !log.done) {
+      setRemaining(null);
+    }
+    prevDone.current = log.done;
+  }, [log.done, restSeconds]);
+
+  useEffect(() => {
+    if (remaining == null || remaining <= 0) return;
+    const t = setInterval(() => {
+      setRemaining((r) => (r != null && r > 0 ? r - 1 : 0));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [remaining]);
+
+  const showTimer = remaining != null && remaining > 0;
+  const timerDone = remaining === 0;
 
   return (
     <div
@@ -30,6 +63,18 @@ export default function SetRow({ log, locked = false }) {
         <span className="text-sm text-gray-600 font-medium w-12">
           Set {log.set_number}
         </span>
+
+        {showTimer && (
+          <span
+            className="text-xs font-mono tabular-nums text-primary bg-primary/10 rounded px-1.5 py-0.5"
+            aria-label={`Rest remaining ${remaining} seconds`}
+          >
+            {formatMMSS(remaining)}
+          </span>
+        )}
+        {timerDone && (
+          <span className="text-xs font-medium text-success">Rest done</span>
+        )}
       </div>
 
       <div className="flex-1 min-w-0">
