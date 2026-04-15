@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext(null);
@@ -9,11 +9,16 @@ export function AuthProvider({ children }) {
   const [isLoading, setIsLoading] = useState(true);
 
   async function fetchProfile(userId) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
       .single();
+    if (error) {
+      console.error('Failed to fetch profile:', error.message);
+      setProfile(null);
+      return;
+    }
     setProfile(data);
   }
 
@@ -43,21 +48,26 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  async function signIn(email, password) {
+  const signIn = useCallback(async (email, password) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error };
-  }
+  }, []);
 
-  async function signOut() {
+  const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
-  }
+  }, []);
 
   const role = profile?.role ?? null;
 
+  const value = useMemo(
+    () => ({ user, profile, role, isLoading, signIn, signOut }),
+    [user, profile, role, isLoading, signIn, signOut]
+  );
+
   return (
-    <AuthContext.Provider value={{ user, profile, role, isLoading, signIn, signOut }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

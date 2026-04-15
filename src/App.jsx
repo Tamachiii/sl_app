@@ -4,6 +4,7 @@ import { AuthProvider } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
 import { queryClient } from './lib/queryClient';
 import { routes } from './routes';
+import ErrorBoundary from './components/ui/ErrorBoundary';
 
 function AppRoutes() {
   return useRoutes(routes);
@@ -15,7 +16,9 @@ export default function App() {
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <HashRouter>
-            <AppRoutes />
+            <ErrorBoundary>
+              <AppRoutes />
+            </ErrorBoundary>
           </HashRouter>
         </AuthProvider>
       </QueryClientProvider>

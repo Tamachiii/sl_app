@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import Header from '../layout/Header';
 import { useSession } from '../../hooks/useSession';
@@ -17,6 +17,7 @@ export default function SessionView() {
   const { data: session, isLoading: sessLoading } = useSession(sessionId);
   const slots = session?.exercise_slots || [];
   const { data: logs, isLoading: logsLoading } = useSetLogs(sessionId, slots);
+  const slotGroups = useMemo(() => groupSlotsBySuperset(slots), [slots]);
   const ensureLogs = useEnsureSetLogs();
   const { data: confirmation, isLoading: confLoading } = useSessionConfirmation(sessionId);
   const confirmSession = useConfirmSession();
@@ -74,7 +75,7 @@ export default function SessionView() {
             })}
           </p>
         )}
-        {groupSlotsBySuperset(slots).map((group) => {
+        {slotGroups.map((group) => {
           const renderSlot = (slot) => {
             const ex = slot.exercise;
             const slotLogs = getLogsForSlot(slot.id);

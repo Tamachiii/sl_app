@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { useToggleSetDone, useSetRpe } from '../../hooks/useSetLogs';
 import RpeInput from './RpeInput';
 
@@ -8,7 +8,7 @@ function formatMMSS(sec) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-export default function SetRow({ log, locked = false, restSeconds = null }) {
+const SetRow = memo(function SetRow({ log, locked = false, restSeconds = null }) {
   const toggleDone = useToggleSetDone();
   const setRpe = useSetRpe();
 
@@ -86,4 +86,6 @@ export default function SetRow({ log, locked = false, restSeconds = null }) {
       </div>
     </div>
   );
-}
+});
+
+export default SetRow;

@@ -8,8 +8,10 @@ vi.mock('../../hooks/useProgram', () => ({
       id: 'prog-1',
       weeks: [{ id: 'w-1', week_number: 1, label: null }],
     },
+    isSuccess: true,
   }),
   useCreateWeek: () => ({ mutate: vi.fn(), isPending: false }),
+  useEnsureProgram: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 import StudentCard from './StudentCard';

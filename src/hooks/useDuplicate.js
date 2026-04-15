@@ -51,36 +51,48 @@ export function useDuplicateWeek() {
         .order('sort_order');
       if (sErr) throw sErr;
 
-      // Duplicate each session and its slots
+      // Batch-insert all sessions at once
+      if (sessions.length === 0) return newWeek;
+
+      const sessionRows = sessions.map((sess) => ({
+        week_id: newWeek.id,
+        day_number: sess.day_number,
+        title: sess.title,
+        sort_order: sess.sort_order,
+      }));
+      const { data: newSessions, error: nsErr } = await supabase
+        .from('sessions')
+        .insert(sessionRows)
+        .select();
+      if (nsErr) throw nsErr;
+
+      // Map old session IDs to new session IDs via sort_order
+      const newBySort = new Map(newSessions.map((ns) => [ns.sort_order, ns.id]));
+
+      // Batch-insert all slots across all sessions
+      const allSlots = [];
       for (const sess of sessions) {
-        const { data: newSess, error: nsErr } = await supabase
-          .from('sessions')
-          .insert({
-            week_id: newWeek.id,
-            day_number: sess.day_number,
-            title: sess.title,
-            sort_order: sess.sort_order,
-          })
-          .select()
-          .single();
-        if (nsErr) throw nsErr;
-
-        const slots = (sess.exercise_slots || []).map((sl) => ({
-          session_id: newSess.id,
-          exercise_id: sl.exercise_id,
-          sets: sl.sets,
-          reps: sl.reps,
-          weight_kg: sl.weight_kg,
-          sort_order: sl.sort_order,
-          notes: sl.notes,
-        }));
-
-        if (slots.length > 0) {
-          const { error: slErr } = await supabase
-            .from('exercise_slots')
-            .insert(slots);
-          if (slErr) throw slErr;
+        const newSessId = newBySort.get(sess.sort_order);
+        for (const sl of sess.exercise_slots || []) {
+          allSlots.push({
+            session_id: newSessId,
+            exercise_id: sl.exercise_id,
+            sets: sl.sets,
+            reps: sl.reps,
+            weight_kg: sl.weight_kg,
+            sort_order: sl.sort_order,
+            notes: sl.notes,
+            duration_seconds: sl.duration_seconds,
+            superset_group: sl.superset_group,
+            rest_seconds: sl.rest_seconds,
+          });
         }
+      }
+      if (allSlots.length > 0) {
+        const { error: slErr } = await supabase
+          .from('exercise_slots')
+          .insert(allSlots);
+        if (slErr) throw slErr;
       }
 
       return newWeek;
@@ -125,6 +137,9 @@ export function useDuplicateSession() {
         weight_kg: sl.weight_kg,
         sort_order: sl.sort_order,
         notes: sl.notes,
+        duration_seconds: sl.duration_seconds,
+        superset_group: sl.superset_group,
+        rest_seconds: sl.rest_seconds,
       }));
 
       if (slots.length > 0) {

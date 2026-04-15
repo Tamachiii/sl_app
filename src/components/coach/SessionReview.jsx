@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import Header from '../layout/Header';
 import Spinner from '../ui/Spinner';
@@ -18,6 +19,7 @@ export default function SessionReview() {
   const slots = session?.exercise_slots || [];
   const { data: setLogs } = useSetLogs(sessionId, slots);
   const { data: confirmation } = useSessionConfirmation(sessionId);
+  const slotGroups = useMemo(() => groupSlotsBySuperset(slots), [slots]);
 
   if (isLoading) {
     return (
@@ -53,7 +55,7 @@ export default function SessionReview() {
           </div>
         )}
 
-        {groupSlotsBySuperset(slots).map((group) => {
+        {slotGroups.map((group) => {
           const renderSlot = (slot) => {
             const ex = slot.exercise;
             const slotLogs = (setLogs || []).filter((l) => l.exercise_slot_id === slot.id);

@@ -1,8 +1,10 @@
+import { memo } from 'react';
+
 /**
  * Coach-facing per-slot read-out of the student's logged sets and RPE values.
  * Renders nothing when there are no logs yet (student hasn't started the set).
  */
-export default function SlotProgress({ logs, plannedSets }) {
+const SlotProgress = memo(function SlotProgress({ logs, plannedSets }) {
   if (!logs || logs.length === 0) return null;
 
   const sorted = [...logs].sort((a, b) => a.set_number - b.set_number);
@@ -55,4 +57,6 @@ export default function SlotProgress({ logs, plannedSets }) {
       </div>
     </div>
   );
-}
+});
+
+export default SlotProgress;

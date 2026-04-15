@@ -9,8 +9,9 @@ vi.mock('../../hooks/useStudents', () => ({
 }));
 
 vi.mock('../../hooks/useProgram', () => ({
-  useProgram: () => ({ data: null }),
+  useProgram: () => ({ data: null, isSuccess: true }),
   useCreateWeek: () => ({ mutate: vi.fn(), isPending: false }),
+  useEnsureProgram: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 import CoachHome from './CoachHome';

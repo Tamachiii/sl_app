@@ -1,8 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import Header from '../layout/Header';
 import { useAuth } from '../../hooks/useAuth';
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '../../lib/supabase';
+import { useStudentWeeks } from '../../hooks/useStudentWeeks';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import { useMyConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
@@ -11,45 +10,7 @@ export default function StudentHome() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { data: confirmedIds } = useMyConfirmedSessionIds();
-
-  const { data, isLoading } = useQuery({
-    queryKey: ['student-weeks', user?.id],
-    queryFn: async () => {
-      // Get the student row for this user
-      const { data: student, error: sErr } = await supabase
-        .from('students')
-        .select('id')
-        .eq('profile_id', user.id)
-        .single();
-      if (sErr) throw sErr;
-
-      // Get program with weeks and sessions
-      const { data: programs, error: pErr } = await supabase
-        .from('programs')
-        .select(`
-          id, name,
-          weeks(
-            id, week_number, label,
-            sessions(id, title, sort_order, scheduled_date)
-          )
-        `)
-        .eq('student_id', student.id)
-        .order('created_at', { ascending: true });
-      if (pErr) throw pErr;
-
-      // Flatten weeks from all programs, sorted
-      const weeks = [];
-      for (const prog of programs) {
-        for (const w of prog.weeks || []) {
-          w.sessions = (w.sessions || []).sort((a, b) => a.sort_order - b.sort_order);
-          weeks.push(w);
-        }
-      }
-      weeks.sort((a, b) => a.week_number - b.week_number);
-      return weeks;
-    },
-    enabled: !!user,
-  });
+  const { data, isLoading } = useStudentWeeks(user?.id);
 
   return (
     <>

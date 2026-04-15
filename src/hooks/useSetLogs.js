@@ -2,12 +2,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 
 export function useSetLogs(sessionId, slots) {
+  const slotIds = (slots || []).map((s) => s.id).sort();
   return useQuery({
-    queryKey: ['set-logs', sessionId],
+    queryKey: ['set-logs', sessionId, slotIds],
     queryFn: async () => {
-      if (!slots || slots.length === 0) return [];
+      if (slotIds.length === 0) return [];
 
-      const slotIds = slots.map((s) => s.id);
       const { data, error } = await supabase
         .from('set_logs')
         .select('*')
@@ -16,7 +16,7 @@ export function useSetLogs(sessionId, slots) {
       if (error) throw error;
       return data;
     },
-    enabled: !!sessionId && !!slots && slots.length > 0,
+    enabled: !!sessionId && slotIds.length > 0,
   });
 }
 
@@ -27,10 +27,11 @@ export function useEnsureSetLogs() {
     mutationFn: async ({ sessionId, slots }) => {
       // For each slot, check if set_logs exist; if not, create them
       const slotIds = slots.map((s) => s.id);
-      const { data: existing } = await supabase
+      const { data: existing, error: existErr } = await supabase
         .from('set_logs')
         .select('exercise_slot_id, set_number')
         .in('exercise_slot_id', slotIds);
+      if (existErr) throw existErr;
 
       const existingSet = new Set(
         (existing || []).map((l) => `${l.exercise_slot_id}-${l.set_number}`)
@@ -77,7 +78,31 @@ export function useToggleSetDone() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['set-logs'] }),
+    onMutate: async ({ logId, done }) => {
+      // Cancel any outgoing refetches so they don't overwrite optimistic update
+      await qc.cancelQueries({ queryKey: ['set-logs'] });
+      
+      // We don't have the exact query key (which includes sessionId and slotIds),
+      // so we iterate over all matching caches.
+      const previousQueries = qc.getQueriesData({ queryKey: ['set-logs'] });
+      
+      qc.setQueriesData({ queryKey: ['set-logs'] }, (old) => {
+        if (!old) return old;
+        return old.map((log) => 
+          log.id === logId ? { ...log, done, logged_at: done ? new Date().toISOString() : null } : log
+        );
+      });
+      
+      return { previousQueries };
+    },
+    onError: (err, newLog, context) => {
+      context.previousQueries.forEach(([queryKey, oldData]) => {
+        qc.setQueryData(queryKey, oldData);
+      });
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['set-logs'] });
+    },
   });
 }
 

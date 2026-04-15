@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete, onMove, children }) {
   const ex = slot.exercise;
@@ -8,6 +8,15 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
   const [seconds, setSeconds] = useState(slot.duration_seconds ?? '');
   const [weight, setWeight] = useState(slot.weight_kg ?? '');
   const [rest, setRest] = useState(slot.rest_seconds ?? '');
+
+  // Sync local state when server data changes (e.g. after mutation refetch)
+  useEffect(() => {
+    setSets(slot.sets);
+    setReps(slot.reps ?? '');
+    setSeconds(slot.duration_seconds ?? '');
+    setWeight(slot.weight_kg ?? '');
+    setRest(slot.rest_seconds ?? '');
+  }, [slot.id, slot.sets, slot.reps, slot.duration_seconds, slot.weight_kg, slot.rest_seconds]);
 
   function handleBlur() {
     const updates = {};

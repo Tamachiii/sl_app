@@ -1,4 +1,6 @@
-export default function RpeInput({ value, onChange, disabled = false }) {
+import { memo } from 'react';
+
+const RpeInput = memo(function RpeInput({ value, onChange, disabled = false }) {
   return (
     <div className="flex items-center gap-1 flex-wrap">
       <span className="text-xs text-gray-400 mr-1">RPE</span>
@@ -25,4 +27,6 @@ export default function RpeInput({ value, onChange, disabled = false }) {
       </div>
     </div>
   );
-}
+});
+
+export default RpeInput;

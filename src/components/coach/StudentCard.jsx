@@ -1,9 +1,20 @@
+import { memo, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import WeekTimeline from './WeekTimeline';
-import { useProgram } from '../../hooks/useProgram';
+import { useProgram, useEnsureProgram } from '../../hooks/useProgram';
 
-export default function StudentCard({ student }) {
-  const { data: program } = useProgram(student.id);
+const StudentCard = memo(function StudentCard({ student }) {
+  const { data: program, isSuccess } = useProgram(student.id);
+  const ensureProgram = useEnsureProgram();
+  const ensuredRef = useRef(false);
+
+  // Auto-create a default program if none exists (one-time side effect)
+  useEffect(() => {
+    if (isSuccess && program === null && !ensuredRef.current && !ensureProgram.isPending) {
+      ensuredRef.current = true;
+      ensureProgram.mutate({ studentId: student.id });
+    }
+  }, [isSuccess, program, student.id, ensureProgram]);
 
   return (
     <div className="bg-white rounded-xl shadow-sm p-4">
@@ -34,4 +45,6 @@ export default function StudentCard({ student }) {
       )}
     </div>
   );
-}
+});
+
+export default StudentCard;

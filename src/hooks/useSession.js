@@ -68,10 +68,10 @@ export function useUpdateSlot() {
         .select('*, exercise:exercise_library(*)')
         .single();
       if (error) throw error;
-      return data;
+      return { data, sessionId };
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['session'] });
+    onSuccess: ({ sessionId }) => {
+      qc.invalidateQueries({ queryKey: ['session', sessionId] });
       qc.invalidateQueries({ queryKey: ['week'] });
     },
   });
@@ -81,15 +81,20 @@ export function useDeleteSlot() {
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ id }) => {
+    mutationFn: async ({ id, sessionId }) => {
       const { error } = await supabase
         .from('exercise_slots')
         .delete()
         .eq('id', id);
       if (error) throw error;
+      return { sessionId };
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['session'] });
+    onSuccess: ({ sessionId }) => {
+      if (sessionId) {
+        qc.invalidateQueries({ queryKey: ['session', sessionId] });
+      } else {
+        qc.invalidateQueries({ queryKey: ['session'] });
+      }
       qc.invalidateQueries({ queryKey: ['week'] });
     },
   });

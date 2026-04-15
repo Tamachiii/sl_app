@@ -54,9 +54,12 @@ export function useCreateSession() {
         .select()
         .single();
       if (error) throw error;
-      return data;
+      return { data, weekId };
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['week'] }),
+    onSuccess: ({ weekId }) => {
+      qc.invalidateQueries({ queryKey: ['week', weekId] });
+      qc.invalidateQueries({ queryKey: ['program'] });
+    },
   });
 }
 
@@ -72,10 +75,10 @@ export function useUpdateWeek() {
         .select()
         .single();
       if (error) throw error;
-      return data;
+      return { data, id };
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['week'] });
+    onSuccess: ({ id }) => {
+      qc.invalidateQueries({ queryKey: ['week', id] });
       qc.invalidateQueries({ queryKey: ['program'] });
     },
   });
@@ -88,10 +91,11 @@ export function useDeleteWeek() {
     mutationFn: async (weekId) => {
       const { error } = await supabase.from('weeks').delete().eq('id', weekId);
       if (error) throw error;
+      return weekId;
     },
-    onSuccess: () => {
+    onSuccess: (weekId) => {
       qc.invalidateQueries({ queryKey: ['program'] });
-      qc.invalidateQueries({ queryKey: ['week'] });
+      qc.invalidateQueries({ queryKey: ['week', weekId] });
     },
   });
 }
@@ -118,10 +122,13 @@ export function useMoveWeek() {
 
       const s3 = await supabase.from('weeks').update({ week_number: bNumber }).eq('id', aId);
       if (s3.error) throw s3.error;
+      
+      return { aId, bId };
     },
-    onSuccess: () => {
+    onSuccess: ({ aId, bId }) => {
       qc.invalidateQueries({ queryKey: ['program'] });
-      qc.invalidateQueries({ queryKey: ['week'] });
+      qc.invalidateQueries({ queryKey: ['week', aId] });
+      qc.invalidateQueries({ queryKey: ['week', bId] });
     },
   });
 }
@@ -138,11 +145,11 @@ export function useUpdateSession() {
         .select()
         .single();
       if (error) throw error;
-      return data;
+      return { data, id, weekId: data.week_id };
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['week'] });
-      qc.invalidateQueries({ queryKey: ['session'] });
+    onSuccess: ({ id, weekId }) => {
+      qc.invalidateQueries({ queryKey: ['week', weekId] });
+      qc.invalidateQueries({ queryKey: ['session', id] });
     },
   });
 }
@@ -152,12 +159,20 @@ export function useDeleteSession() {
 
   return useMutation({
     mutationFn: async (sessionId) => {
+      // Need week_id to invalidate properly
+      const { data } = await supabase.from('sessions').select('week_id').eq('id', sessionId).single();
+      const weekId = data?.week_id;
+      
       const { error } = await supabase
         .from('sessions')
         .delete()
         .eq('id', sessionId);
       if (error) throw error;
+      return weekId;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['week'] }),
+    onSuccess: (weekId) => {
+      if (weekId) qc.invalidateQueries({ queryKey: ['week', weekId] });
+      else qc.invalidateQueries({ queryKey: ['week'] });
+    },
   });
 }

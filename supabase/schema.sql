@@ -441,3 +441,28 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW
   EXECUTE FUNCTION public.handle_new_user();
+
+-- ============================================================
+-- TRIGGER: restrict student goal updates to achieved/achieved_at only
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.restrict_student_goal_update()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF auth.uid() = NEW.student_id AND auth.uid() != OLD.coach_id THEN
+    NEW.exercise_id      := OLD.exercise_id;
+    NEW.kind             := OLD.kind;
+    NEW.target_weight_kg := OLD.target_weight_kg;
+    NEW.target_sets      := OLD.target_sets;
+    NEW.target_reps      := OLD.target_reps;
+    NEW.notes            := OLD.notes;
+    NEW.coach_id         := OLD.coach_id;
+    NEW.student_id       := OLD.student_id;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_restrict_student_goal_update ON public.goals;
+CREATE TRIGGER trg_restrict_student_goal_update
+  BEFORE UPDATE ON public.goals
+  FOR EACH ROW EXECUTE FUNCTION public.restrict_student_goal_update();

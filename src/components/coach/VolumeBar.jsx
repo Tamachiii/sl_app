@@ -1,4 +1,6 @@
-export default function VolumeBar({ pull, push }) {
+import { memo } from 'react';
+
+export default memo(function VolumeBar({ pull, push }) {
   const total = pull + push;
   if (total === 0) return null;
 
@@ -33,4 +35,4 @@ export default function VolumeBar({ pull, push }) {
       </div>
     </div>
   );
-}
+});
