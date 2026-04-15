@@ -30,6 +30,7 @@ export default function WeekView() {
   const [showCopy, setShowCopy] = useState(false);
   const [deleteWeekConfirm, setDeleteWeekConfirm] = useState(false);
   const [deleteSessionConfirm, setDeleteSessionConfirm] = useState(null);
+  const [showArchived, setShowArchived] = useState(false);
 
   const siblings = useMemo(
     () => (program?.weeks || []).slice().sort((a, b) => a.week_number - b.week_number),
@@ -48,7 +49,9 @@ export default function WeekView() {
     );
   }
 
-  const sessions = week?.sessions || [];
+  const allSessions = week?.sessions || [];
+  const sessions = allSessions.filter((s) => !s.archived_at);
+  const archivedSessions = allSessions.filter((s) => s.archived_at);
 
   function handleAddSession() {
     createSession.mutate({
@@ -208,6 +211,48 @@ export default function WeekView() {
             </div>
           );
         })}
+
+        {archivedSessions.length > 0 && (
+          <button
+            onClick={() => setShowArchived((v) => !v)}
+            className="w-full text-xs text-gray-500 hover:text-gray-700 py-2"
+          >
+            {showArchived
+              ? `Hide ${archivedSessions.length} archived`
+              : `Show ${archivedSessions.length} archived`}
+          </button>
+        )}
+
+        {showArchived &&
+          archivedSessions.map((sess) => (
+            <div
+              key={sess.id}
+              className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-1 opacity-75"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium text-gray-600 flex-1 truncate">
+                  {sess.title || `Session ${sess.day_number}`}
+                </span>
+                <span className="text-xs font-medium text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
+                  Archived
+                </span>
+                <button
+                  onClick={() =>
+                    navigate(`/coach/student/${studentId}/session/${sess.id}/review`)
+                  }
+                  aria-label="Open archived session"
+                  className="text-gray-400 hover:text-primary p-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </div>
+              <p className="text-xs text-gray-400">
+                Archived {new Date(sess.archived_at).toLocaleDateString()}
+              </p>
+            </div>
+          ))}
 
         <button
           onClick={handleAddSession}

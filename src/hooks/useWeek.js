@@ -154,6 +154,33 @@ export function useUpdateSession() {
   });
 }
 
+/**
+ * Archive or unarchive a session. Archived sessions are hidden from the
+ * coach's default week view and from the Confirmed-sessions list so the
+ * coach can keep the active worklist clean after reviewing.
+ */
+export function useArchiveSession() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ sessionId, archived }) => {
+      const { data, error } = await supabase
+        .from('sessions')
+        .update({ archived_at: archived ? new Date().toISOString() : null })
+        .eq('id', sessionId)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['week', data.week_id] });
+      qc.invalidateQueries({ queryKey: ['session', data.id] });
+      qc.invalidateQueries({ queryKey: ['student-confirmations'] });
+    },
+  });
+}
+
 export function useDeleteSession() {
   const qc = useQueryClient();
 

@@ -53,6 +53,7 @@ CREATE TABLE public.sessions (
   title          text,
   sort_order     int  NOT NULL DEFAULT 0,
   scheduled_date date,
+  archived_at    timestamptz,
   created_at     timestamptz NOT NULL DEFAULT now()
 );
 
@@ -105,6 +106,7 @@ CREATE INDEX idx_programs_student_id ON public.programs(student_id);
 CREATE INDEX idx_weeks_program_id ON public.weeks(program_id);
 CREATE INDEX idx_sessions_week_id ON public.sessions(week_id);
 CREATE INDEX idx_sessions_scheduled_date ON public.sessions(scheduled_date);
+CREATE INDEX idx_sessions_archived_at ON public.sessions(archived_at);
 CREATE INDEX idx_exercise_slots_session_id ON public.exercise_slots(session_id);
 CREATE INDEX idx_exercise_slots_superset_group ON public.exercise_slots(superset_group);
 CREATE INDEX idx_set_logs_slot_id ON public.set_logs(exercise_slot_id);

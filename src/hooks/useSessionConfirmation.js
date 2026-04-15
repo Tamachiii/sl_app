@@ -38,7 +38,7 @@ export function useStudentConfirmations(studentId) {
           id,
           weeks(
             id, week_number, label,
-            sessions(id, title, day_number)
+            sessions(id, title, day_number, archived_at)
           )
         `)
         .eq('student_id', studentId);
@@ -49,6 +49,9 @@ export function useStudentConfirmations(studentId) {
       for (const prog of programs || []) {
         for (const w of prog.weeks || []) {
           for (const s of w.sessions || []) {
+            // Archived sessions have been reviewed and shelved by the coach;
+            // drop them from the review worklist.
+            if (s.archived_at) continue;
             sessionIds.push(s.id);
             sessionMeta[s.id] = {
               session_id: s.id,

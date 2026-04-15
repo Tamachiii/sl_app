@@ -4,6 +4,7 @@ import Header from '../layout/Header';
 import Spinner from '../ui/Spinner';
 import { useSession } from '../../hooks/useSession';
 import { useSetLogs } from '../../hooks/useSetLogs';
+import { useArchiveSession } from '../../hooks/useWeek';
 import { useSessionConfirmation } from '../../hooks/useSessionConfirmation';
 import SlotProgress from './SlotProgress';
 import { formatSlotPrescription, formatRestSeconds, groupSlotsBySuperset } from '../../lib/volume';
@@ -19,7 +20,9 @@ export default function SessionReview() {
   const slots = session?.exercise_slots || [];
   const { data: setLogs } = useSetLogs(sessionId, slots);
   const { data: confirmation } = useSessionConfirmation(sessionId);
+  const archiveSession = useArchiveSession();
   const slotGroups = useMemo(() => groupSlotsBySuperset(slots), [slots]);
+  const isArchived = !!session?.archived_at;
 
   if (isLoading) {
     return (
@@ -32,8 +35,31 @@ export default function SessionReview() {
 
   return (
     <>
-      <Header title={session?.title || 'Session review'} showBack />
+      <Header
+        title={session?.title || 'Session review'}
+        showBack
+        actions={
+          <button
+            onClick={() =>
+              archiveSession.mutate({ sessionId, archived: !isArchived })
+            }
+            disabled={archiveSession.isPending}
+            className={`text-xs rounded-lg px-2.5 py-1.5 ${
+              isArchived
+                ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {isArchived ? 'Unarchive' : 'Archive'}
+          </button>
+        }
+      />
       <div className="p-4 space-y-4">
+        {isArchived && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            Archived on {new Date(session.archived_at).toLocaleString()}
+          </div>
+        )}
         {confirmation ? (
           <div className="rounded-xl border border-green-200 bg-green-50 p-3 text-sm text-green-800">
             <div className="flex items-center gap-2 font-medium">
