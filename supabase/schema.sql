@@ -323,10 +323,18 @@ CREATE POLICY "Students manage own session confirmations"
   USING (
     student_id = auth.uid()
     AND public.student_profile_for_session(session_id) = auth.uid()
+    AND NOT EXISTS (
+      SELECT 1 FROM public.sessions s
+      WHERE s.id = session_confirmations.session_id AND s.archived_at IS NOT NULL
+    )
   )
   WITH CHECK (
     student_id = auth.uid()
     AND public.student_profile_for_session(session_id) = auth.uid()
+    AND NOT EXISTS (
+      SELECT 1 FROM public.sessions s
+      WHERE s.id = session_confirmations.session_id AND s.archived_at IS NOT NULL
+    )
   );
 
 CREATE POLICY "Coaches read confirmations for their students"

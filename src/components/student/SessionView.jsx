@@ -48,6 +48,7 @@ export default function SessionView() {
   }
 
   const isConfirmed = !!confirmation;
+  const isArchived = !!session?.archived_at;
 
   function handleConfirm() {
     confirmSession.mutate({ sessionId, notes: notes.trim() || null }, {
@@ -165,13 +166,19 @@ export default function SessionView() {
                     )}
                   </div>
                 </div>
-                <button
-                  onClick={handleUnconfirm}
-                  disabled={unconfirmSession.isPending}
-                  className="w-full text-xs text-gray-500 hover:text-danger underline"
-                >
-                  Undo confirmation
-                </button>
+                {isArchived ? (
+                  <p className="text-xs text-gray-500 text-center">
+                    Archived by your coach — confirmation is locked.
+                  </p>
+                ) : (
+                  <button
+                    onClick={handleUnconfirm}
+                    disabled={unconfirmSession.isPending}
+                    className="w-full text-xs text-gray-500 hover:text-danger underline"
+                  >
+                    Undo confirmation
+                  </button>
+                )}
               </>
             ) : (
               <>
