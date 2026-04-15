@@ -1,7 +1,0 @@
-import{u as y,b as a,c as u}from"./query-DLupbHl_.js";import{s as n}from"./index-CNRtzqw4.js";function q(e){return y({queryKey:["session",e],queryFn:async()=>{const{data:s,error:r}=await n.from("sessions").select(`
-          *,
-          exercise_slots(
-            *,
-            exercise:exercise_library(*)
-          )
-        `).eq("id",e).single();if(r)throw r;return s.exercise_slots=(s.exercise_slots||[]).sort((i,t)=>i.sort_order-t.sort_order),s},enabled:!!e})}function x(){const e=a();return u({mutationFn:async({sessionId:s,exerciseId:r,sets:i,reps:t,weightKg:o,sortOrder:l})=>{const{data:d,error:c}=await n.from("exercise_slots").insert({session_id:s,exercise_id:r,sets:i,reps:t,weight_kg:o||null,sort_order:l||0}).select("*, exercise:exercise_library(*)").single();if(c)throw c;return d},onSuccess:(s,r)=>{e.invalidateQueries({queryKey:["session",r.sessionId]}),e.invalidateQueries({queryKey:["week"]})}})}function w(){const e=a();return u({mutationFn:async({id:s,sessionId:r,...i})=>{const{data:t,error:o}=await n.from("exercise_slots").update(i).eq("id",s).select("*, exercise:exercise_library(*)").single();if(o)throw o;return t},onSuccess:()=>{e.invalidateQueries({queryKey:["session"]}),e.invalidateQueries({queryKey:["week"]})}})}function m(){const e=a();return u({mutationFn:async({id:s})=>{const{error:r}=await n.from("exercise_slots").delete().eq("id",s);if(r)throw r},onSuccess:()=>{e.invalidateQueries({queryKey:["session"]}),e.invalidateQueries({queryKey:["week"]})}})}export{x as a,w as b,m as c,q as u};
