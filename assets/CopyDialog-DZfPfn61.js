@@ -1,4 +1,4 @@
-import{u as S,b as h,c as k,j as o}from"./query-DLupbHl_.js";import{s as u}from"./index-Bpw4Cq2M.js";import{r as x}from"./router-DibblyQR.js";import{c as N,a as E}from"./useProgram-B1Ila-J9.js";function W(s){return S({queryKey:["week",s],queryFn:async()=>{const{data:e,error:r}=await u.from("weeks").select("*").eq("id",s).single();if(r)throw r;const{data:i,error:t}=await u.from("sessions").select(`
+import{u as S,b as h,c as k,j as o}from"./query-DLupbHl_.js";import{s as u}from"./index-I_3wCFYw.js";import{r as x}from"./router-DibblyQR.js";import{c as N,a as E}from"./useProgram-B7pKKY2M.js";function W(s){return S({queryKey:["week",s],queryFn:async()=>{const{data:e,error:r}=await u.from("weeks").select("*").eq("id",s).single();if(r)throw r;const{data:i,error:t}=await u.from("sessions").select(`
           *,
           exercise_slots(
             *,
