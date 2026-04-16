@@ -92,6 +92,7 @@ CREATE TABLE public.set_logs (
   set_number       int  NOT NULL CHECK (set_number > 0),
   done             boolean NOT NULL DEFAULT false,
   rpe              int CHECK (rpe IS NULL OR (rpe BETWEEN 1 AND 10)),
+  weight_kg        numeric(6,2),
   logged_at        timestamptz,
   created_at       timestamptz NOT NULL DEFAULT now(),
   UNIQUE(exercise_slot_id, set_number)

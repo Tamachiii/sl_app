@@ -63,6 +63,7 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 | Coach exercise library | `coach/ExerciseLibrary`, `hooks/useExerciseLibrary` | `ui/Dialog`, `ui/EmptyState` |
 | Student program | `student/StudentHome`, `hooks/useSessionConfirmation` (for badges) | `layout/Header`, `lib/supabase` |
 | Student dashboard | `student/StudentDashboard`, `hooks/useStudentProgressStats` | `lib/volume` (volume maths), `layout/Header`, `ui/EmptyState` |
+| Student weight logging | `student/SetRow` (weight input), `hooks/useSetLogs` (`useSetWeight`) | `student/SessionView` (passes `prescribedWeightKg`) |
 | Student session logging | `student/SessionView`, `student/SetRow`, `student/RpeInput`, `hooks/useSession`, `hooks/useSetLogs` | — |
 | Session confirmations | `hooks/useSessionConfirmation`, `student/SessionView`, `coach/WeekView` (badge), `coach/ConfirmedSessions`, `coach/SessionReview` | — |
 | Goals & progress | `hooks/useGoals`, `coach/StudentGoals`, `student/MyGoals` | `hooks/useExerciseLibrary`, `layout/BottomNav` (Goals tab) |
@@ -85,6 +86,8 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 - **Swapping `week_number` requires a 3-step update** because of the `UNIQUE(program_id, week_number)` constraint: bump A to a temp value, move B, then move A.
 - **Exercise Library filtering is client-side.** Search and type-filter state live in `ExerciseLibrary` and are applied with `useMemo` over the already-fetched list — no extra Supabase queries.
 - **`NavLink` `end` prop on root tabs.** `BottomNav`'s "Students" (`/coach`) and "Home" (`/student`) links use `end` so they only highlight on exact route matches — without it they stay active on all child routes.
+- **`set_logs.weight_kg` is nullable.** Bodyweight and time-based sets leave it NULL. The weight input in `SetRow` shows the prescribed `slot.weight_kg` as a placeholder ("BW" when none is set). `useStudentProgressStats` skips NULL-weight logs when building `weightHistory`.
+- **`SessionView.test.jsx` must mock `useSetWeight`.** When mocking `useSetLogs`, include `useSetWeight: () => ({ mutate: vi.fn() })` or `SetRow` will throw.
 
 ---
 
