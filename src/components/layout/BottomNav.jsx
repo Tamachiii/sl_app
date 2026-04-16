@@ -71,6 +71,7 @@ export default function BottomNav() {
   return (
     <nav aria-label="Main navigation" className="sticky bottom-0 bg-white border-t border-gray-200 flex justify-around">
       <NavItem to="/student" label="Home" icon={HomeIcon} end />
+      <NavItem to="/student/dashboard" label="Dashboard" icon={DashboardIcon} />
       <NavItem to="/student/goals" label="Goals" icon={GoalIcon} />
     </nav>
   );

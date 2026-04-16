@@ -28,14 +28,14 @@ src/
   lib/           supabase.js  queryClient.js  volume.js
   hooks/         useAuth  useTheme  useProgram  useWeek  useSession
                  useExerciseLibrary  useDuplicate  useStudents
-                 useSetLogs  useSessionConfirmation
+                 useSetLogs  useSessionConfirmation  useStudentProgressStats
   components/
     auth/        LoginPage  ProtectedRoute  RoleGate
     layout/      Header  BottomNav  AppShell
     coach/       CoachDashboard  CoachHome  StudentCard  WeekTimeline  WeekView
                  SessionEditor  ExerciseSlotRow  ExerciseLibrary
                  VolumeBar  ConfirmedSessions  SessionsFeed
-    student/     StudentHome  SessionView  SetRow  RpeInput
+    student/     StudentHome  StudentDashboard  SessionView  SetRow  RpeInput
     ui/          EditableText  ThemeToggle  Dialog  Spinner  EmptyState  CopyDialog  ConfirmDialog  ErrorBoundary
   test/          setup.js  utils.jsx (renderWithProviders)
 supabase/
@@ -62,6 +62,7 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 | Coach exercise slot notes | `coach/ExerciseSlotRow` (notes textarea), `student/SessionView` (note display) | `hooks/useSession` (`useUpdateSlot`) |
 | Coach exercise library | `coach/ExerciseLibrary`, `hooks/useExerciseLibrary` | `ui/Dialog`, `ui/EmptyState` |
 | Student program | `student/StudentHome`, `hooks/useSessionConfirmation` (for badges) | `layout/Header`, `lib/supabase` |
+| Student dashboard | `student/StudentDashboard`, `hooks/useStudentProgressStats` | `lib/volume` (volume maths), `layout/Header`, `ui/EmptyState` |
 | Student session logging | `student/SessionView`, `student/SetRow`, `student/RpeInput`, `hooks/useSession`, `hooks/useSetLogs` | — |
 | Session confirmations | `hooks/useSessionConfirmation`, `student/SessionView`, `coach/WeekView` (badge), `coach/ConfirmedSessions`, `coach/SessionReview` | — |
 | Goals & progress | `hooks/useGoals`, `coach/StudentGoals`, `student/MyGoals` | `hooks/useExerciseLibrary`, `layout/BottomNav` (Goals tab) |

@@ -72,6 +72,8 @@ src/
     useDuplicate.js            # Duplicate week / duplicate session server-side logic
     useStudents.js             # Coach's student list
     useSetLogs.js              # Student set-logging mutations
+    useSessionConfirmation.js  # Confirmations (student + coach hooks incl. useAllConfirmations)
+    useStudentProgressStats.js # Aggregated stats for the Student Dashboard
   components/
     auth/LoginPage.jsx
     layout/
@@ -88,6 +90,7 @@ src/
       VolumeBar.jsx            # Stacked pull/push volume bar
     student/
       StudentHome.jsx          # Today's/upcoming sessions
+      StudentDashboard.jsx     # Stats + weekly progress/volume/activity
       SessionView.jsx          # Runs through the session (SetRow per set)
       SetRow.jsx               # Weight/reps/RPE/done per set
       RpeInput.jsx             # 1-10 RPE picker
@@ -152,6 +155,17 @@ Students tap **Confirm session** at the bottom of `SessionView` (with an optiona
 
 The Library tab (`ExerciseLibrary`) shows a **search bar** and **type filter pills** (All / Pull / Push) whenever the library has at least one exercise. Both filters are applied client-side via `useMemo` — no extra queries. When no exercises match, an "No exercises match your search" empty state is shown. The search bar and pills are hidden on an empty library to keep the add-first flow clean.
 
+### Student Dashboard
+
+`StudentDashboard` (`/student/dashboard`) gives the student a one-page view of their own progress, fed by a single `useStudentProgressStats` hook that joins programs → weeks → sessions → slots → exercise library with their set logs and confirmations:
+
+- **Summary cards**: sessions confirmed / total (with %), sets done / prescribed, weeks active / total, average RPE across logged sets.
+- **Weekly progress**: per-week bar (sessions confirmed / total). Rows turn green when a week is fully confirmed.
+- **Weekly volume**: per-week stacked pull/push bar scaled to the busiest week. Uses `computeSessionVolume` from `lib/volume`.
+- **Recent activity**: last 5 confirmations, each linking back to the session.
+
+An "Empty state" is shown when no program is assigned yet. The tab lives alongside Home and Goals on the student bottom nav.
+
 ### Coach exercise notes
 
 Coaches can add a free-text note to any exercise slot while planning a session (via `ExerciseSlotRow` in `SessionEditor`). Notes are stored in `exercise_slots.notes`. Students see the note as a blue info callout above their `SlotCommentBox` when executing the session in `SessionView`. No migration needed — the column already existed in the schema.
@@ -167,8 +181,10 @@ Coaches can add a free-text note to any exercise slot while planning a session (
 4. **Library tab** — exercise CRUD with search + type filter
 
 **Student**
-1. Logs in → `StudentHome` shows today's & upcoming sessions
-2. Opens `SessionView` → ticks each `SetRow` (weight / reps / RPE / done)
+1. Logs in → `StudentHome` (Home tab) shows the program weeks & sessions
+2. **Dashboard tab** (`/student/dashboard`) — stats, weekly progress, weekly volume, recent confirmations
+3. Opens `SessionView` → ticks each `SetRow` (weight / reps / RPE / done)
+4. **Goals tab** — `MyGoals`
 
 ---
 
