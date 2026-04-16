@@ -29,12 +29,6 @@ const StudentCard = memo(function StudentCard({ student }) {
           >
             Goals
           </Link>
-          <Link
-            to={`/coach/student/${student.id}/confirmations`}
-            className="text-xs bg-gray-100 text-gray-600 rounded-lg px-2.5 py-1 hover:bg-gray-200"
-          >
-            Confirmed sessions
-          </Link>
         </div>
       </div>
       {program && (

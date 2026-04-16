@@ -32,9 +32,9 @@ src/
   components/
     auth/        LoginPage  ProtectedRoute  RoleGate
     layout/      Header  BottomNav  AppShell
-    coach/       CoachHome  StudentCard  WeekTimeline  WeekView
+    coach/       CoachDashboard  CoachHome  StudentCard  WeekTimeline  WeekView
                  SessionEditor  ExerciseSlotRow  ExerciseLibrary
-                 VolumeBar  ConfirmedSessions
+                 VolumeBar  ConfirmedSessions  SessionsFeed
     student/     StudentHome  SessionView  SetRow  RpeInput
     ui/          EditableText  ThemeToggle  Dialog  Spinner  EmptyState  CopyDialog  ConfirmDialog  ErrorBoundary
   test/          setup.js  utils.jsx (renderWithProviders)
@@ -54,7 +54,9 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 | Feature area | Primary files | Shared deps |
 |---|---|---|
 | Auth / login | `auth/LoginPage`, `hooks/useAuth`, `routes.jsx` | `lib/supabase` |
+| Coach dashboard | `coach/CoachDashboard`, `hooks/useStudents`, `hooks/useSessionConfirmation` (`useAllConfirmations`) | `layout/Header` |
 | Coach student list | `coach/CoachHome`, `coach/StudentCard`, `coach/WeekTimeline`, `hooks/useStudents`, `hooks/useProgram` | `layout/Header` |
+| Coach sessions feed | `coach/SessionsFeed`, `hooks/useSessionConfirmation` (`useAllConfirmations`) | `layout/Header`, `ui/EmptyState` |
 | Coach week view | `coach/WeekView`, `hooks/useWeek`, `hooks/useDuplicate`, `coach/VolumeBar`, `lib/volume` | `ui/EditableText`, `layout/Header` |
 | Coach session editor | `coach/SessionEditor`, `coach/ExerciseSlotRow`, `hooks/useSession`, `hooks/useExerciseLibrary`, `hooks/useDuplicate` | `coach/VolumeBar`, `ui/EditableText` |
 | Coach exercise slot notes | `coach/ExerciseSlotRow` (notes textarea), `student/SessionView` (note display) | `hooks/useSession` (`useUpdateSlot`) |

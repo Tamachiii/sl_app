@@ -111,6 +111,20 @@ public/
 
 ## Domain Model
 
+### Coach Dashboard
+
+`CoachDashboard` is the coach's landing page (`/coach/dashboard`). It shows:
+- **Students** — compact list; each row links to the per-student confirmation history.
+- **Recent Activity** — the 5 most recent non-archived confirmed sessions across all students, linking directly to `SessionReview`.
+
+### Sessions feed
+
+`SessionsFeed` (`/coach/sessions`) aggregates confirmed sessions from all students in a single reverse-chronological list. Each card shows the student's name, session title, week/day context, timestamp and optional notes. Archived sessions are hidden behind a toggle. Data comes from `useAllConfirmations` (three Supabase round-trips, RLS-scoped to the coach).
+
+---
+
+## Domain Model
+
 ```
 profiles (id, role: 'coach'|'student', full_name)
   ↓ 1:many (coach_id)
@@ -147,10 +161,10 @@ Coaches can add a free-text note to any exercise slot while planning a session (
 ## Roles & Flows
 
 **Coach**
-1. Logs in → `CoachHome` lists students
-2. Expands a student's `WeekTimeline` → jumps into `WeekView`
-3. Creates/duplicates sessions, edits labels/titles inline, opens `SessionEditor`
-4. Adds/orders/tunes exercise slots; manages the `ExerciseLibrary`
+1. Logs in → redirected to `CoachDashboard` (student list + recent confirmations feed)
+2. **Students tab** (`/coach/students`) — student cards with `WeekTimeline`; tap a week → `WeekView`; create/duplicate sessions; open `SessionEditor` to manage exercise slots; manage `ExerciseLibrary`
+3. **Sessions tab** (`/coach/sessions`) — all students' confirmed sessions in one feed (`SessionsFeed`), newest first; tap any card to open `SessionReview`
+4. **Library tab** — exercise CRUD with search + type filter
 
 **Student**
 1. Logs in → `StudentHome` shows today's & upcoming sessions

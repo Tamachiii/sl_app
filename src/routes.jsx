@@ -6,7 +6,9 @@ import AppShell from './components/layout/AppShell';
 import Spinner from './components/ui/Spinner';
 
 const LoginPage = lazy(() => import('./components/auth/LoginPage'));
+const CoachDashboard = lazy(() => import('./components/coach/CoachDashboard'));
 const CoachHome = lazy(() => import('./components/coach/CoachHome'));
+const SessionsFeed = lazy(() => import('./components/coach/SessionsFeed'));
 const WeekView = lazy(() => import('./components/coach/WeekView'));
 const SessionEditor = lazy(() => import('./components/coach/SessionEditor'));
 const ExerciseLibrary = lazy(() => import('./components/coach/ExerciseLibrary'));
@@ -40,7 +42,10 @@ export const routes = [
           {
             element: <RoleGate allowed="coach" />,
             children: [
-              { path: '/coach', element: <Lazy><CoachHome /></Lazy> },
+              { path: '/coach', element: <Navigate to="/coach/dashboard" replace /> },
+              { path: '/coach/dashboard', element: <Lazy><CoachDashboard /></Lazy> },
+              { path: '/coach/students', element: <Lazy><CoachHome /></Lazy> },
+              { path: '/coach/sessions', element: <Lazy><SessionsFeed /></Lazy> },
               { path: '/coach/student/:studentId/confirmations', element: <Lazy><ConfirmedSessions /></Lazy> },
               { path: '/coach/student/:studentId/session/:sessionId/review', element: <Lazy><SessionReview /></Lazy> },
               { path: '/coach/student/:studentId/goals', element: <Lazy><StudentGoals /></Lazy> },

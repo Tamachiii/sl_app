@@ -15,7 +15,7 @@ vi.mock('../../hooks/useAuth', () => ({
 
 import BottomNav from './BottomNav';
 
-function renderBottomNav(route = '/coach') {
+function renderBottomNav(route = '/coach/dashboard') {
   return render(
     <MemoryRouter initialEntries={[route]}>
       <BottomNav />
@@ -29,9 +29,11 @@ describe('BottomNav', () => {
     mockRole = 'coach';
   });
 
-  it('renders coach nav links: Students and Library', () => {
+  it('renders all 4 coach nav tabs', () => {
     renderBottomNav();
+    expect(screen.getByText('Dashboard')).toBeInTheDocument();
     expect(screen.getByText('Students')).toBeInTheDocument();
+    expect(screen.getByText('Sessions')).toBeInTheDocument();
     expect(screen.getByText('Library')).toBeInTheDocument();
   });
 
@@ -49,11 +51,12 @@ describe('BottomNav', () => {
     expect(mockSignOut).toHaveBeenCalledTimes(1);
   });
 
-  it('renders student nav with Home link', () => {
+  it('renders student nav with Home and Goals links', () => {
     mockRole = 'student';
     renderBottomNav('/student');
     expect(screen.getByText('Home')).toBeInTheDocument();
-    expect(screen.queryByText('Library')).not.toBeInTheDocument();
+    expect(screen.getByText('Goals')).toBeInTheDocument();
+    expect(screen.queryByText('Dashboard')).not.toBeInTheDocument();
   });
 
   it('student view also has logout button', async () => {
@@ -66,8 +69,8 @@ describe('BottomNav', () => {
     expect(mockSignOut).toHaveBeenCalledTimes(1);
   });
 
-  it('Students tab is not active when on a sub-route like /coach/week/1', () => {
-    renderBottomNav('/coach/week/1');
+  it('Students tab is not active when on a sub-route', () => {
+    renderBottomNav('/coach/student/s-1/week/w-1');
     const studentsLink = screen.getByRole('link', { name: /students/i });
     expect(studentsLink).not.toHaveClass('text-primary');
   });
