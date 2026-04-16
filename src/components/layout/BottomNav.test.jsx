@@ -3,14 +3,10 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
-const mockSignOut = vi.fn();
 let mockRole = 'coach';
 
 vi.mock('../../hooks/useAuth', () => ({
-  useAuth: () => ({
-    role: mockRole,
-    signOut: mockSignOut,
-  }),
+  useAuth: () => ({ role: mockRole }),
 }));
 
 import BottomNav from './BottomNav';
@@ -37,36 +33,18 @@ describe('BottomNav', () => {
     expect(screen.getByText('Library')).toBeInTheDocument();
   });
 
-  it('renders logout button with aria-label', () => {
+  it('does not render a logout button in the nav', () => {
     renderBottomNav();
-    const logoutBtn = screen.getByRole('button', { name: /sign out/i });
-    expect(logoutBtn).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument();
   });
 
-  it('clicking logout calls signOut', async () => {
-    const user = userEvent.setup();
-    renderBottomNav();
-
-    await user.click(screen.getByRole('button', { name: /sign out/i }));
-    expect(mockSignOut).toHaveBeenCalledTimes(1);
-  });
-
-  it('renders student nav with Home and Goals links', () => {
+  it('renders student nav with Home and Goals links only', () => {
     mockRole = 'student';
     renderBottomNav('/student');
     expect(screen.getByText('Home')).toBeInTheDocument();
     expect(screen.getByText('Goals')).toBeInTheDocument();
     expect(screen.queryByText('Dashboard')).not.toBeInTheDocument();
-  });
-
-  it('student view also has logout button', async () => {
-    const user = userEvent.setup();
-    mockRole = 'student';
-    renderBottomNav('/student');
-
-    const logoutBtn = screen.getByRole('button', { name: /sign out/i });
-    await user.click(logoutBtn);
-    expect(mockSignOut).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument();
   });
 
   it('Students tab is not active when on a sub-route', () => {

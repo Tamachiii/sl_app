@@ -48,12 +48,6 @@ const LibraryIcon = (
   </svg>
 );
 
-const ProfileIcon = (
-  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-  </svg>
-);
-
 const GoalIcon = (
   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v18M5 8h11l-2 3 2 3H5" />
@@ -61,7 +55,7 @@ const GoalIcon = (
 );
 
 export default function BottomNav() {
-  const { role, signOut } = useAuth();
+  const { role } = useAuth();
 
   if (role === 'coach') {
     return (
@@ -70,14 +64,6 @@ export default function BottomNav() {
         <NavItem to="/coach/students" label="Students" icon={StudentsIcon} end />
         <NavItem to="/coach/sessions" label="Sessions" icon={SessionsIcon} end />
         <NavItem to="/coach/exercises" label="Library" icon={LibraryIcon} end />
-        <button
-          onClick={signOut}
-          aria-label="Sign out"
-          className="flex flex-col items-center gap-0.5 py-2 px-3 text-xs font-medium text-gray-400"
-        >
-          {ProfileIcon}
-          <span>Logout</span>
-        </button>
       </nav>
     );
   }
@@ -86,14 +72,6 @@ export default function BottomNav() {
     <nav aria-label="Main navigation" className="sticky bottom-0 bg-white border-t border-gray-200 flex justify-around">
       <NavItem to="/student" label="Home" icon={HomeIcon} end />
       <NavItem to="/student/goals" label="Goals" icon={GoalIcon} />
-      <button
-        onClick={signOut}
-        aria-label="Sign out"
-        className="flex flex-col items-center gap-0.5 py-2 px-3 text-xs font-medium text-gray-400"
-      >
-        {ProfileIcon}
-        <span>Logout</span>
-      </button>
     </nav>
   );
 }

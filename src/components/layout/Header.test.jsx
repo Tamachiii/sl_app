@@ -6,10 +6,16 @@ import Header from './Header';
 import { ThemeProvider } from '../../hooks/useTheme';
 
 const mockNavigate = vi.fn();
+const mockSignOut = vi.fn();
+
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return { ...actual, useNavigate: () => mockNavigate };
 });
+
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({ signOut: mockSignOut }),
+}));
 
 function renderHeader(props = {}) {
   return render(
@@ -45,5 +51,14 @@ describe('Header', () => {
   it('renders action buttons', () => {
     renderHeader({ actions: <button>Action</button> });
     expect(screen.getByText('Action')).toBeInTheDocument();
+  });
+
+  it('renders sign-out button and calls signOut on click', async () => {
+    const user = userEvent.setup();
+    renderHeader();
+    const signOutBtn = screen.getByLabelText('Sign out');
+    expect(signOutBtn).toBeInTheDocument();
+    await user.click(signOutBtn);
+    expect(mockSignOut).toHaveBeenCalledTimes(1);
   });
 });
