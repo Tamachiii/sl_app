@@ -1,4 +1,4 @@
-import{c as y,u as a,b as u}from"./query-BR4_tDY9.js";import{s as n}from"./index-BO1iiDCL.js";function q(r){return y({queryKey:["week",r],queryFn:async()=>{const{data:e,error:s}=await n.from("weeks").select("*").eq("id",r).single();if(s)throw s;const{data:i,error:t}=await n.from("sessions").select(`
+import{c as y,u as a,b as u}from"./query-BR4_tDY9.js";import{s as n}from"./index-D2VU42T_.js";function q(r){return y({queryKey:["week",r],queryFn:async()=>{const{data:e,error:s}=await n.from("weeks").select("*").eq("id",r).single();if(s)throw s;const{data:i,error:t}=await n.from("sessions").select(`
           *,
           exercise_slots(
             *,
