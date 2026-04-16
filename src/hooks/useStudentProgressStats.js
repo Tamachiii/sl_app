@@ -61,9 +61,16 @@ export function useStudentProgressStats() {
 
       for (const prog of programs || []) {
         for (const w of prog.weeks || []) {
-          const weekSessions = (w.sessions || []).filter((s) => !s.archived_at);
-          weeks.push({ ...w, sessions: weekSessions });
-          for (const s of weekSessions) {
+          // activeSessions: non-archived — used for progress bars, set-log
+          // queries, and confirmation counts.
+          // volumeSessions: ALL sessions (incl. archived) — used for weekly
+          // volume so that archiving a session doesn't make volume disappear.
+          const activeSessions = (w.sessions || []).filter((s) => !s.archived_at);
+          const volumeSessions = w.sessions || [];
+
+          weeks.push({ ...w, sessions: activeSessions, volumeSessions });
+
+          for (const s of activeSessions) {
             allSessions.push(s);
             for (const slot of s.exercise_slots || []) {
               allSlotIds.push(slot.id);
@@ -130,15 +137,20 @@ export function useStudentProgressStats() {
         : null;
 
       // Weekly volume + confirmation counts.
+      // Volume uses volumeSessions (all sessions incl. archived) so archiving a
+      // session doesn't make its prescribed load vanish from the chart.
+      // Progress counts use sessions (non-archived only).
       const weeklyVolume = weeks.map((w) => {
         let pull = 0;
         let push = 0;
-        let sessionsConfirmed = 0;
-        for (const s of w.sessions || []) {
-          if (confirmedIds.has(s.id)) sessionsConfirmed += 1;
+        for (const s of w.volumeSessions || []) {
           const v = computeSessionVolume(s.exercise_slots || []);
           pull += v.pull;
           push += v.push;
+        }
+        let sessionsConfirmed = 0;
+        for (const s of w.sessions || []) {
+          if (confirmedIds.has(s.id)) sessionsConfirmed += 1;
         }
         return {
           week_id: w.id,
