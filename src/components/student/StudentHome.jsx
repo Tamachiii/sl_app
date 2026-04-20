@@ -17,6 +17,16 @@ function todayDayNumber() {
   return d === 0 ? 7 : d;
 }
 
+/** Weekday slot for a session. Prefer scheduled_date (actual calendar day) over day_number. */
+function sessionDayNumber(s) {
+  if (s?.scheduled_date) {
+    const [y, m, d] = s.scheduled_date.split('-').map(Number);
+    const jsDay = new Date(y, m - 1, d).getDay();
+    return jsDay === 0 ? 7 : jsDay;
+  }
+  return s?.day_number;
+}
+
 /** First week that still has at least one unconfirmed non-archived session. */
 function findActiveWeek(weeks, confirmedIds) {
   for (const w of weeks) {
@@ -72,8 +82,9 @@ function DayCell({ dayLabel, session, confirmed, isToday, onClick }) {
 // ─── Session list item ─────────────────────────────────────────────────────
 
 function SessionItem({ session, confirmed, onClick }) {
-  const dayName = session.day_number >= 1 && session.day_number <= 7
-    ? DAY_FULL[session.day_number - 1]
+  const dn = sessionDayNumber(session);
+  const dayName = dn >= 1 && dn <= 7
+    ? DAY_FULL[dn - 1]
     : `Day ${session.day_number || session.sort_order + 1}`;
 
   return (
@@ -121,11 +132,11 @@ export default function StudentHome() {
     [activeWeek]
   );
 
-  // Build 7-slot day strip keyed by day_number 1–7.
+  // Build 7-slot day strip keyed by weekday (from scheduled_date when set, else day_number).
   const daySlots = useMemo(() => {
     const byDay = {};
     for (const s of activeSessions) {
-      const d = s.day_number;
+      const d = sessionDayNumber(s);
       if (d >= 1 && d <= 7) byDay[d] = s;
     }
     return Array.from({ length: 7 }, (_, i) => ({
@@ -139,7 +150,7 @@ export default function StudentHome() {
     () =>
       activeSessions
         .filter((s) => !confirmedIds.has(s.id))
-        .sort((a, b) => (a.day_number ?? a.sort_order) - (b.day_number ?? b.sort_order)),
+        .sort((a, b) => (sessionDayNumber(a) ?? a.sort_order) - (sessionDayNumber(b) ?? b.sort_order)),
     [activeSessions, confirmedIds]
   );
 
@@ -147,7 +158,7 @@ export default function StudentHome() {
     () =>
       activeSessions
         .filter((s) => confirmedIds.has(s.id))
-        .sort((a, b) => (a.day_number ?? a.sort_order) - (b.day_number ?? b.sort_order)),
+        .sort((a, b) => (sessionDayNumber(a) ?? a.sort_order) - (sessionDayNumber(b) ?? b.sort_order)),
     [activeSessions, confirmedIds]
   );
 
