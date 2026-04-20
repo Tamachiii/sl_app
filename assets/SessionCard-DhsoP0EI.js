@@ -1,4 +1,4 @@
-import{c as p,j as e}from"./query-BBurVEW5.js";import{s as x}from"./index-bzyYAjAB.js";import{r as u}from"./router-4lZ62M_W.js";import{f as h}from"./volume-BZ-GBXEz.js";function _(s){return p({queryKey:["student-program-details",s],queryFn:async()=>{const{data:r,error:a}=await x.from("students").select("id").eq("profile_id",s).single();if(a)throw a;const{data:c,error:d}=await x.from("programs").select(`
+import{c as p,j as e}from"./query-BBurVEW5.js";import{s as x}from"./index-PdDDPSND.js";import{r as u}from"./router-4lZ62M_W.js";import{f as h}from"./volume-BZ-GBXEz.js";function _(s){return p({queryKey:["student-program-details",s],queryFn:async()=>{const{data:r,error:a}=await x.from("students").select("id").eq("profile_id",s).single();if(a)throw a;const{data:c,error:d}=await x.from("programs").select(`
           id,
           weeks(
             id, week_number, label,
@@ -6,6 +6,7 @@ import{c as p,j as e}from"./query-BBurVEW5.js";import{s as x}from"./index-bzyYAj
               id, title, day_number, sort_order, scheduled_date, archived_at,
               exercise_slots(
                 id, sets, reps, duration_seconds, weight_kg, sort_order,
+                record_video_set_numbers,
                 exercise:exercise_library(id, name, type)
               )
             )
