@@ -83,9 +83,9 @@ describe('StudentDashboard', () => {
     mockStats = { data: null, isLoading: true };
   });
 
-  it('renders the Dashboard header', () => {
+  it('renders the Stats header', () => {
     renderDashboard();
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    expect(screen.getByText('Stats')).toBeInTheDocument();
   });
 
   it('shows a spinner while loading', () => {

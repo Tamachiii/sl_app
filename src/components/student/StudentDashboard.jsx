@@ -169,7 +169,7 @@ export default function StudentDashboard() {
   if (isLoading) {
     return (
       <>
-        <Header title="Dashboard" />
+        <Header title="Stats" />
         <div className="flex justify-center py-12"><Spinner /></div>
       </>
     );
@@ -195,7 +195,7 @@ export default function StudentDashboard() {
 
   return (
     <>
-      <Header title="Dashboard" />
+      <Header title="Stats" />
       <div className="p-4 space-y-6">
         {!hasProgram && <EmptyState message="No program assigned yet" />}
 

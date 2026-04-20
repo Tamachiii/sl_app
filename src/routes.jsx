@@ -16,7 +16,8 @@ const ConfirmedSessions = lazy(() => import('./components/coach/ConfirmedSession
 const SessionReview = lazy(() => import('./components/coach/SessionReview'));
 const StudentGoals = lazy(() => import('./components/coach/StudentGoals'));
 const StudentHome = lazy(() => import('./components/student/StudentHome'));
-const StudentDashboard = lazy(() => import('./components/student/StudentDashboard'));
+const StudentSessions = lazy(() => import('./components/student/StudentSessions'));
+const StudentStats = lazy(() => import('./components/student/StudentDashboard'));
 const SessionView = lazy(() => import('./components/student/SessionView'));
 const MyGoals = lazy(() => import('./components/student/MyGoals'));
 
@@ -60,7 +61,9 @@ export const routes = [
             element: <RoleGate allowed="student" />,
             children: [
               { path: '/student', element: <Lazy><StudentHome /></Lazy> },
-              { path: '/student/dashboard', element: <Lazy><StudentDashboard /></Lazy> },
+              { path: '/student/sessions', element: <Lazy><StudentSessions /></Lazy> },
+              { path: '/student/stats', element: <Lazy><StudentStats /></Lazy> },
+              { path: '/student/dashboard', element: <Navigate to="/student/stats" replace /> },
               { path: '/student/session/:sessionId', element: <Lazy><SessionView /></Lazy> },
               { path: '/student/goals', element: <Lazy><MyGoals /></Lazy> },
             ],

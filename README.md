@@ -89,8 +89,9 @@ src/
       ExerciseLibrary.jsx      # Coach's exercise CRUD
       VolumeBar.jsx            # Stacked pull/push volume bar
     student/
-      StudentHome.jsx          # Today's/upcoming sessions
-      StudentDashboard.jsx     # Stats + weekly progress/volume/activity
+      StudentHome.jsx          # Home tab: 7-day week strip + upcoming + completed
+      StudentSessions.jsx      # Sessions tab: full program session picker
+      StudentDashboard.jsx     # Stats tab (/student/stats): progress + sparklines
       SessionView.jsx          # Runs through the session (SetRow per set)
       SetRow.jsx               # Weight/reps/RPE/done per set
       RpeInput.jsx             # 1-10 RPE picker
@@ -186,10 +187,10 @@ Coaches can add a free-text note to any exercise slot while planning a session (
 4. **Library tab** — exercise CRUD with search + type filter
 
 **Student**
-1. Logs in → `StudentHome` (Home tab) shows the program weeks & sessions
-2. **Dashboard tab** (`/student/dashboard`) — stats, weekly progress, weekly volume, recent confirmations
-3. Opens `SessionView` → ticks each `SetRow` (weight / reps / RPE / done)
-4. **Goals tab** — `MyGoals`
+1. Logs in → **Home tab** (`/student`) — current training week: 7-day strip (session or rest day per slot), upcoming sessions, completed sessions this week
+2. **Sessions tab** (`/student/sessions`) — full program by week; each session card is expandable to show all exercises (name, sets, reps, prescribed weight); tap "Start session" to open `SessionView`
+3. **Stats tab** (`/student/stats`) — progress stats: sessions confirmed, sets done, weekly volume bars, lift-progression sparklines, recent activity
+4. **Goals tab** (`/student/goals`) — `MyGoals`
 
 ---
 

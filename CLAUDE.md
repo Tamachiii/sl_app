@@ -29,13 +29,14 @@ src/
   hooks/         useAuth  useTheme  useProgram  useWeek  useSession
                  useExerciseLibrary  useDuplicate  useStudents
                  useSetLogs  useSessionConfirmation  useStudentProgressStats
+                 useStudentWeeks  useStudentProgramDetails
   components/
     auth/        LoginPage  ProtectedRoute  RoleGate
     layout/      Header  BottomNav  AppShell
     coach/       CoachDashboard  CoachHome  StudentCard  WeekTimeline  WeekView
                  SessionEditor  ExerciseSlotRow  ExerciseLibrary
                  VolumeBar  ConfirmedSessions  SessionsFeed
-    student/     StudentHome  StudentDashboard  SessionView  SetRow  RpeInput
+    student/     StudentHome  StudentSessions  StudentDashboard(Stats)  SessionView  SetRow  RpeInput
     ui/          EditableText  ThemeToggle  Dialog  Spinner  EmptyState  CopyDialog  ConfirmDialog  ErrorBoundary
   test/          setup.js  utils.jsx (renderWithProviders)
 supabase/
@@ -61,8 +62,9 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 | Coach session editor | `coach/SessionEditor`, `coach/ExerciseSlotRow`, `hooks/useSession`, `hooks/useExerciseLibrary`, `hooks/useDuplicate` | `coach/VolumeBar`, `ui/EditableText` |
 | Coach exercise slot notes | `coach/ExerciseSlotRow` (notes textarea), `student/SessionView` (note display) | `hooks/useSession` (`useUpdateSlot`) |
 | Coach exercise library | `coach/ExerciseLibrary`, `hooks/useExerciseLibrary` | `ui/Dialog`, `ui/EmptyState` |
-| Student program | `student/StudentHome`, `hooks/useSessionConfirmation` (for badges) | `layout/Header`, `lib/supabase` |
-| Student dashboard | `student/StudentDashboard`, `hooks/useStudentProgressStats` | `lib/volume` (volume maths), `layout/Header`, `ui/EmptyState` |
+| Student home | `student/StudentHome`, `hooks/useStudentWeeks`, `hooks/useSessionConfirmation` | `layout/Header` |
+| Student sessions list | `student/StudentSessions`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation` | `layout/Header`, `lib/volume` |
+| Student stats | `student/StudentDashboard` (route: /student/stats), `hooks/useStudentProgressStats` | `lib/volume`, `layout/Header`, `ui/EmptyState` |
 | Student weight logging | `student/SetRow` (weight input), `hooks/useSetLogs` (`useSetWeight`) | `student/SessionView` (passes `prescribedWeightKg`) |
 | Student session logging | `student/SessionView`, `student/SetRow`, `student/RpeInput`, `hooks/useSession`, `hooks/useSetLogs` | — |
 | Session confirmations | `hooks/useSessionConfirmation`, `student/SessionView`, `coach/WeekView` (badge), `coach/ConfirmedSessions`, `coach/SessionReview` | — |
@@ -85,7 +87,10 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 - **RLS is strict.** When adding tables, add both student- and coach-side policies. Walk session → profile via `student_profile_for_session()` / `coach_profile_for_session()` helpers (defined in `schema.sql`).
 - **Swapping `week_number` requires a 3-step update** because of the `UNIQUE(program_id, week_number)` constraint: bump A to a temp value, move B, then move A.
 - **Exercise Library filtering is client-side.** Search and type-filter state live in `ExerciseLibrary` and are applied with `useMemo` over the already-fetched list — no extra Supabase queries.
-- **`NavLink` `end` prop on root tabs.** `BottomNav`'s "Students" (`/coach`) and "Home" (`/student`) links use `end` so they only highlight on exact route matches — without it they stay active on all child routes.
+- **`NavLink` `end` prop on root tabs.** `BottomNav`'s "Students" (`/coach/students`) and "Home" (`/student`) links use `end` so they only highlight on exact route matches — without it they stay active on all child routes.
+- **`StudentDashboard.jsx` is the Stats page.** The file is named `StudentDashboard` but rendered at `/student/stats` (imported as `StudentStats` in routes). The old `/student/dashboard` redirects to `/student/stats`. Don't rename the file — just be aware of the mismatch.
+- **`useStudentProgramDetails`** fetches weeks → sessions → exercise_slots → exercise library for the Sessions page. Lighter than `useStudentProgressStats` (no set_log or confirmation queries). Use it whenever you need full slot structure without aggregation.
+- **`day_number` on sessions**: 1=Monday … 7=Sunday. `StudentHome` maps these to the 7-day week strip. Sessions with `day_number` outside 1–7 don't appear in the strip but still show in the Upcoming/Completed lists.
 - **`set_logs.weight_kg` is nullable.** Bodyweight and time-based sets leave it NULL. The weight input in `SetRow` shows the prescribed `slot.weight_kg` as a placeholder ("BW" when none is set). `useStudentProgressStats` skips NULL-weight logs when building `weightHistory`.
 - **`SessionView.test.jsx` must mock `useSetWeight`.** When mocking `useSetLogs`, include `useSetWeight: () => ({ mutate: vi.fn() })` or `SetRow` will throw.
 
