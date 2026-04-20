@@ -66,7 +66,7 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 | Coach exercise library | `coach/ExerciseLibrary`, `hooks/useExerciseLibrary` | `ui/Dialog`, `ui/EmptyState` |
 | Student home | `student/StudentHome` (greeting card with role+name tooltip + today status), `student/SessionCard`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation`, `hooks/useAuth` | `layout/Header` |
 | Student sessions list | `student/StudentSessions`, `student/SessionCard`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation` | `layout/Header`, `lib/volume` |
-| Student stats | `student/StudentDashboard` (route: /student/stats), `student/SessionCalendar`, `hooks/useStudentProgressStats` | `lib/volume`, `layout/Header`, `ui/EmptyState` |
+| Student stats | `student/StudentDashboard` (route: /student/stats), `student/SessionCalendar`, `student/ExerciseProgressChart` (per-exercise weekly tonnage), `hooks/useStudentProgressStats` | `lib/volume`, `layout/Header`, `ui/EmptyState` |
 | Student session logging | `student/SessionView`, `student/SetRow`, `student/RpeInput`, `hooks/useSession`, `hooks/useSetLogs` | — |
 | Session confirmations | `hooks/useSessionConfirmation`, `student/SessionView`, `coach/WeekView` (badge), `coach/SessionsFeed`, `coach/SessionReview` | — |
 | Goals & progress | `hooks/useGoals`, `coach/StudentGoals`, `student/MyGoals` | `hooks/useExerciseLibrary`, `layout/BottomNav` (Goals tab) |

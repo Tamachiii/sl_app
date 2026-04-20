@@ -1,0 +1,187 @@
+import { useEffect, useMemo, useState } from 'react';
+
+/**
+ * Line + bar chart of weekly tonnage (Σ sets × reps × weight_kg) for a
+ * single selected exercise. Rendered inline as SVG — no external chart dep.
+ *
+ * Props:
+ *   exercises:  [{ id, name, type }]             — selectable exercises
+ *   byExercise: { [id]: [{ week_number, label, tonnage }] }
+ */
+export default function ExerciseProgressChart({ exercises, byExercise }) {
+  const [selectedId, setSelectedId] = useState(exercises[0]?.id ?? '');
+
+  // Keep selection valid when the exercise list changes.
+  useEffect(() => {
+    if (exercises.length === 0) {
+      setSelectedId('');
+    } else if (!exercises.some((e) => e.id === selectedId)) {
+      setSelectedId(exercises[0].id);
+    }
+  }, [exercises, selectedId]);
+
+  const points = useMemo(() => {
+    const raw = byExercise[selectedId] || [];
+    return [...raw].sort((a, b) => a.week_number - b.week_number);
+  }, [byExercise, selectedId]);
+
+  const maxTonnage = points.reduce((m, p) => Math.max(m, p.tonnage), 0);
+
+  if (exercises.length === 0) {
+    return (
+      <div className="bg-white rounded-xl shadow-sm p-4">
+        <p className="text-xs text-gray-400">
+          No weighted exercises in your program yet.
+        </p>
+      </div>
+    );
+  }
+
+  // SVG geometry
+  const W = 320;
+  const H = 140;
+  const PAD_L = 32;
+  const PAD_R = 8;
+  const PAD_T = 8;
+  const PAD_B = 24;
+  const plotW = W - PAD_L - PAD_R;
+  const plotH = H - PAD_T - PAD_B;
+
+  const xFor = (i) =>
+    points.length === 1
+      ? PAD_L + plotW / 2
+      : PAD_L + (i * plotW) / (points.length - 1);
+  const yFor = (v) =>
+    maxTonnage === 0 ? PAD_T + plotH : PAD_T + plotH - (v / maxTonnage) * plotH;
+
+  const linePath = points
+    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xFor(i)} ${yFor(p.tonnage)}`)
+    .join(' ');
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
+      <label className="block">
+        <span className="sr-only">Select exercise</span>
+        <select
+          value={selectedId}
+          onChange={(e) => setSelectedId(e.target.value)}
+          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+        >
+          {exercises.map((ex) => (
+            <option key={ex.id} value={ex.id}>
+              {ex.name}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {points.length === 0 ? (
+        <p className="text-xs text-gray-400">No data for this exercise yet.</p>
+      ) : (
+        <>
+          <svg
+            viewBox={`0 0 ${W} ${H}`}
+            className="w-full h-auto"
+            role="img"
+            aria-label="Weekly tonnage chart"
+          >
+            {/* Y-axis gridlines */}
+            {[0, 0.5, 1].map((frac) => {
+              const y = PAD_T + plotH - frac * plotH;
+              const label = Math.round(maxTonnage * frac);
+              return (
+                <g key={frac}>
+                  <line
+                    x1={PAD_L}
+                    x2={W - PAD_R}
+                    y1={y}
+                    y2={y}
+                    stroke="#e5e7eb"
+                    strokeWidth="1"
+                  />
+                  <text
+                    x={PAD_L - 4}
+                    y={y + 3}
+                    textAnchor="end"
+                    className="fill-gray-400"
+                    fontSize="9"
+                  >
+                    {label}
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* Bars */}
+            {points.map((p, i) => {
+              const cx = xFor(i);
+              const top = yFor(p.tonnage);
+              const barW = Math.min(18, (plotW / Math.max(points.length, 1)) * 0.45);
+              return (
+                <rect
+                  key={p.week_number}
+                  x={cx - barW / 2}
+                  y={top}
+                  width={barW}
+                  height={PAD_T + plotH - top}
+                  rx="2"
+                  className="fill-primary/20"
+                />
+              );
+            })}
+
+            {/* Line */}
+            {points.length > 1 && (
+              <path
+                d={linePath}
+                fill="none"
+                stroke="currentColor"
+                className="text-primary"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            )}
+
+            {/* Points */}
+            {points.map((p, i) => (
+              <circle
+                key={p.week_number}
+                cx={xFor(i)}
+                cy={yFor(p.tonnage)}
+                r="3"
+                className="fill-primary"
+              >
+                <title>
+                  Week {p.week_number}
+                  {p.label ? ` — ${p.label}` : ''}: {Math.round(p.tonnage)} kg
+                </title>
+              </circle>
+            ))}
+
+            {/* X-axis labels (week numbers) */}
+            {points.map((p, i) => (
+              <text
+                key={p.week_number}
+                x={xFor(i)}
+                y={H - 8}
+                textAnchor="middle"
+                className="fill-gray-500"
+                fontSize="10"
+              >
+                W{p.week_number}
+              </text>
+            ))}
+          </svg>
+
+          <p className="text-xs text-gray-400">
+            Weekly tonnage = Σ (sets × reps × weight). Peak:{' '}
+            <span className="font-medium text-gray-600">
+              {Math.round(maxTonnage)} kg
+            </span>
+          </p>
+        </>
+      )}
+    </div>
+  );
+}

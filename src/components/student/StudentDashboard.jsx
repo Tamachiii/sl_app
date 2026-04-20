@@ -5,6 +5,7 @@ import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import { useStudentProgressStats } from '../../hooks/useStudentProgressStats';
 import SessionCalendar from './SessionCalendar';
+import ExerciseProgressChart from './ExerciseProgressChart';
 
 function StatCard({ label, value, sub }) {
   return (
@@ -78,6 +79,7 @@ export default function StudentDashboard() {
     weeklyVolume: [],
     recentConfirmations: [],
     sessionCalendar: [],
+    exerciseProgress: { exercises: [], byExercise: {} },
   };
 
   const hasProgram = stats.totalSessions > 0;
@@ -168,6 +170,20 @@ export default function StudentDashboard() {
                   </div>
                 )}
               </div>
+            </section>
+
+            {/* Exercise progression */}
+            <section aria-labelledby="progress-heading">
+              <h2
+                id="progress-heading"
+                className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2"
+              >
+                Exercise progression
+              </h2>
+              <ExerciseProgressChart
+                exercises={stats.exerciseProgress?.exercises ?? []}
+                byExercise={stats.exerciseProgress?.byExercise ?? {}}
+              />
             </section>
 
             {/* Recent activity */}

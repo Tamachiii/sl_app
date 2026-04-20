@@ -148,6 +148,41 @@ export function useStudentProgressStats() {
 
       const weeksActive = weeklyVolume.filter((w) => w.sessions_confirmed > 0).length;
 
+      // ─── Per-exercise weekly tonnage ─────────────────────────────────────
+      // For each exercise used anywhere in the program, build a point per
+      // week: tonnage = Σ(sets × reps × weight_kg) across every slot using
+      // that exercise in that week. Uses prescribed numbers so the curve
+      // shows the programmed progression even before sets are logged.
+      const exerciseMeta = {};   // id → { id, name, type }
+      const byExercise = {};     // id → [{ week_number, label, tonnage }]
+      for (const w of weeks) {
+        const perExerciseTonnage = {};
+        for (const s of w.sessions || []) {
+          for (const slot of s.exercise_slots || []) {
+            const ex = slot.exercise;
+            if (!ex) continue;
+            const reps = slot.reps || 0;
+            const weight = slot.weight_kg || 0;
+            const tonnage = (slot.sets || 0) * reps * weight;
+            if (tonnage <= 0) continue;
+            exerciseMeta[ex.id] = { id: ex.id, name: ex.name, type: ex.type };
+            perExerciseTonnage[ex.id] = (perExerciseTonnage[ex.id] || 0) + tonnage;
+          }
+        }
+        for (const exId of Object.keys(perExerciseTonnage)) {
+          if (!byExercise[exId]) byExercise[exId] = [];
+          byExercise[exId].push({
+            week_number: w.week_number,
+            label: w.label,
+            tonnage: perExerciseTonnage[exId],
+          });
+        }
+      }
+      const exerciseProgress = {
+        exercises: Object.values(exerciseMeta).sort((a, b) => a.name.localeCompare(b.name)),
+        byExercise,
+      };
+
       // Recent confirmations with session metadata.
       const sessionMeta = {};
       for (const w of weeks) {
@@ -189,6 +224,7 @@ export function useStudentProgressStats() {
         weeklyVolume,
         recentConfirmations,
         sessionCalendar,
+        exerciseProgress,
       };
     },
     enabled: !!user?.id,

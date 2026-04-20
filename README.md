@@ -92,7 +92,8 @@ src/
       StudentHome.jsx          # Home tab: greeting card (role+name tooltip, today status) + 7-day strip + next session preview + upcoming/completed
       SessionCard.jsx          # Expandable session card (used by Home & Sessions)
       StudentSessions.jsx      # Sessions tab: full program session picker
-      StudentDashboard.jsx     # Stats tab (/student/stats): progress + sparklines
+      StudentDashboard.jsx     # Stats tab (/student/stats): progress + per-exercise weekly tonnage chart
+      ExerciseProgressChart.jsx # SVG line/bar chart of Σ(sets×reps×weight) per week for a selected exercise
       SessionView.jsx          # Runs through the session (SetRow per set)
       SetRow.jsx               # Weight/reps/RPE/done per set
       RpeInput.jsx             # 1-10 RPE picker
