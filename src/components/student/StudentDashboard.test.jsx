@@ -119,36 +119,15 @@ describe('StudentDashboard', () => {
     expect(screen.getByText(/42% complete/i)).toBeInTheDocument();
     expect(screen.getByText('42')).toBeInTheDocument();
     expect(screen.getByText(/of 100 prescribed/i)).toBeInTheDocument();
-    expect(screen.getByText('2')).toBeInTheDocument();
+    expect(screen.getByText('Full weeks')).toBeInTheDocument();
     expect(screen.getByText('7.3')).toBeInTheDocument();
   });
 
-  it('renders weekly progress rows', () => {
+  it('does not render lift progression or weekly progress sections', () => {
     mockStats = { data: sampleData, isLoading: false };
     renderDashboard();
-    expect(screen.getByText('3/3')).toBeInTheDocument();
-    expect(screen.getByText('2/3')).toBeInTheDocument();
-  });
-
-  it('renders lift progression section with exercise name', () => {
-    mockStats = { data: sampleData, isLoading: false };
-    renderDashboard();
-    expect(screen.getByText('Lift progression')).toBeInTheDocument();
-    expect(screen.getByText('Muscle-up')).toBeInTheDocument();
-    // latest weight (appears in both the header value and the footer label)
-    expect(screen.getAllByText('15 kg').length).toBeGreaterThanOrEqual(1);
-  });
-
-  it('shows +50% change on the sparkline when weight grew from 10 to 15', () => {
-    mockStats = { data: sampleData, isLoading: false };
-    renderDashboard();
-    expect(screen.getByText('+50%')).toBeInTheDocument();
-  });
-
-  it('shows empty lift progression hint when no weights logged', () => {
-    mockStats = { data: { ...sampleData, weightHistory: [] }, isLoading: false };
-    renderDashboard();
-    expect(screen.getByText(/log weights during your sessions/i)).toBeInTheDocument();
+    expect(screen.queryByText('Lift progression')).not.toBeInTheDocument();
+    expect(screen.queryByText('Weekly progress')).not.toBeInTheDocument();
   });
 
   it('renders recent activity entries', () => {

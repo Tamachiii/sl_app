@@ -20,37 +20,7 @@ function StatCard({ label, value, sub }) {
 }
 
 /**
- * Horizontal bar showing sessions confirmed vs total for one week.
- */
-function WeekProgressRow({ week }) {
-  const { week_number, label, sessions_confirmed, sessions_total } = week;
-  const pct = sessions_total === 0 ? 0 : (sessions_confirmed / sessions_total) * 100;
-  const complete = sessions_total > 0 && sessions_confirmed === sessions_total;
-
-  return (
-    <div className="space-y-1">
-      <div className="flex items-baseline justify-between text-xs">
-        <span className="font-medium text-gray-700">
-          Week {week_number}
-          {label && <span className="text-gray-400 font-normal ml-1">· {label}</span>}
-        </span>
-        <span className="text-gray-500 tabular-nums">
-          {sessions_confirmed}/{sessions_total}
-        </span>
-      </div>
-      <div className="h-2 rounded-full bg-gray-100 overflow-hidden" aria-hidden="true">
-        <div
-          className={`h-full transition-all ${complete ? 'bg-green-500' : 'bg-primary'}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-/**
- * Stacked pull/push bar scaled against the max weekly total so the user
- * can eyeball which weeks were heaviest.
+ * Stacked pull/push bar scaled against the max weekly total.
  */
 function VolumeWeekRow({ week, maxTotal }) {
   const { week_number, label, pull, push } = week;
@@ -76,84 +46,6 @@ function VolumeWeekRow({ week, maxTotal }) {
           </div>
         ) : null}
       </div>
-    </div>
-  );
-}
-
-/**
- * Sparkline for one exercise's weight history.
- * Shows a row of bars (each = one confirmed session), the first and latest
- * values, and a % change badge.
- */
-function WeightSparkline({ exercise }) {
-  const { exercise_name, exercise_type, entries } = exercise;
-  const maxWeight = Math.max(...entries.map((e) => e.weight_kg));
-  const first = entries[0].weight_kg;
-  const latest = entries[entries.length - 1].weight_kg;
-  const pctChange = first === 0 ? null : ((latest - first) / first) * 100;
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className="text-sm font-medium text-gray-900 truncate">{exercise_name}</span>
-          <span
-            className={`text-xs font-medium px-1.5 py-0.5 rounded shrink-0 ${
-              exercise_type === 'pull' ? 'bg-pull/10 text-pull' : 'bg-push/10 text-push'
-            }`}
-          >
-            {exercise_type}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-sm font-semibold text-gray-900 tabular-nums">
-            {latest} kg
-          </span>
-          {pctChange != null && (
-            <span
-              className={`text-xs font-medium ${
-                pctChange > 0
-                  ? 'text-green-600'
-                  : pctChange < 0
-                  ? 'text-red-500'
-                  : 'text-gray-400'
-              }`}
-            >
-              {pctChange > 0 ? '+' : ''}
-              {pctChange.toFixed(0)}%
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Sparkline bars */}
-      <div
-        className="flex items-end gap-1 h-10"
-        aria-label={`Weight history for ${exercise_name}`}
-        role="img"
-      >
-        {entries.map((entry, i) => {
-          const heightPct = maxWeight === 0 ? 0 : (entry.weight_kg / maxWeight) * 100;
-          const isLatest = i === entries.length - 1;
-          return (
-            <div
-              key={i}
-              title={`${entry.weight_kg} kg — ${entry.session_title || `Session`} (Wk ${entry.week_number})`}
-              className={`flex-1 rounded-t transition-all ${
-                isLatest ? 'bg-primary' : 'bg-primary/30'
-              }`}
-              style={{ height: `${Math.max(heightPct, 8)}%` }}
-            />
-          );
-        })}
-      </div>
-
-      {entries.length > 1 && (
-        <div className="flex justify-between text-xs text-gray-400 tabular-nums">
-          <span>{first} kg</span>
-          <span>{latest} kg</span>
-        </div>
-      )}
     </div>
   );
 }
@@ -221,53 +113,17 @@ export default function StudentDashboard() {
                   sub={`of ${stats.totalSets} prescribed`}
                 />
                 <StatCard
-                  label="Weeks active"
-                  value={stats.weeksActive}
-                  sub={`of ${stats.weeklyVolume.length}`}
+                  label="Full weeks"
+                  value={stats.weeklyVolume.filter(
+                    (w) => w.sessions_total > 0 && w.sessions_confirmed === w.sessions_total
+                  ).length}
+                  sub={`of ${stats.weeklyVolume.length} weeks`}
                 />
                 <StatCard
                   label="Avg RPE"
                   value={stats.avgRpe != null ? stats.avgRpe.toFixed(1) : '—'}
                   sub={stats.avgRpe != null ? 'across logged sets' : 'log sets to see'}
                 />
-              </div>
-            </section>
-
-            {/* Lift progression */}
-            <section aria-labelledby="lifts-heading">
-              <h2
-                id="lifts-heading"
-                className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2"
-              >
-                Lift progression
-              </h2>
-              {stats.weightHistory.length === 0 ? (
-                <div className="bg-white rounded-xl shadow-sm p-4">
-                  <p className="text-xs text-gray-400">
-                    Log weights during your sessions to track progression here.
-                  </p>
-                </div>
-              ) : (
-                <div className="bg-white rounded-xl shadow-sm p-4 space-y-5">
-                  {stats.weightHistory.map((ex) => (
-                    <WeightSparkline key={ex.exercise_id} exercise={ex} />
-                  ))}
-                </div>
-              )}
-            </section>
-
-            {/* Weekly progress */}
-            <section aria-labelledby="progress-heading">
-              <h2
-                id="progress-heading"
-                className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2"
-              >
-                Weekly progress
-              </h2>
-              <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
-                {stats.weeklyVolume.map((w) => (
-                  <WeekProgressRow key={w.week_id} week={w} />
-                ))}
               </div>
             </section>
 

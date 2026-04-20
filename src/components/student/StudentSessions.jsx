@@ -29,7 +29,7 @@ function SlotSummary({ slot }) {
 }
 
 /** Expandable session card showing the full exercise list. */
-function SessionCard({ session, confirmed, onStart }) {
+function SessionCard({ session, confirmed, archived, onStart }) {
   const [open, setOpen] = useState(false);
   const slots = session.exercise_slots || [];
 
@@ -42,14 +42,13 @@ function SessionCard({ session, confirmed, onStart }) {
         aria-expanded={open}
       >
         <div className="min-w-0">
-          <p className="text-sm font-medium text-gray-900 truncate">
+          <p className={`text-sm font-medium truncate ${archived ? 'text-gray-400' : 'text-gray-900'}`}>
             {session.title || `Session ${session.sort_order + 1}`}
           </p>
           <p className="text-xs text-gray-400 mt-0.5">
             {slots.length} exercise{slots.length !== 1 ? 's' : ''}
-            {confirmed && (
-              <span className="ml-2 text-green-600 font-medium">· Done</span>
-            )}
+            {confirmed && <span className="ml-2 text-green-600 font-medium">· Done</span>}
+            {archived && <span className="ml-2 text-amber-600 font-medium">· Archived</span>}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -57,6 +56,10 @@ function SessionCard({ session, confirmed, onStart }) {
             <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
             </svg>
+          ) : archived ? (
+            <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+              Archived
+            </span>
           ) : (
             <span className="text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
               Start
@@ -85,14 +88,16 @@ function SessionCard({ session, confirmed, onStart }) {
               ))}
             </div>
           )}
-          <div className="px-4 pb-3">
-            <button
-              onClick={onStart}
-              className="w-full bg-primary text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition-opacity"
-            >
-              {confirmed ? 'Review session' : 'Start session'}
-            </button>
-          </div>
+          {!archived && (
+            <div className="px-4 pb-3">
+              <button
+                onClick={onStart}
+                className="w-full bg-primary text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition-opacity"
+              >
+                {confirmed ? 'Review session' : 'Start session'}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -158,6 +163,7 @@ export default function StudentSessions() {
                   key={session.id}
                   session={session}
                   confirmed={confirmedIds.has(session.id)}
+                  archived={!!session.archived_at}
                   onStart={() => navigate(`/student/session/${session.id}`)}
                 />
               ))}
