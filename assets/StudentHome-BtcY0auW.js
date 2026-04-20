@@ -1,4 +1,4 @@
-import{c as w,j as e}from"./query-BR4_tDY9.js";import{d as N,r as p}from"./router-DibblyQR.js";import{H as f}from"./Header-B1noKDKO.js";import{s as y,u as _,S as k}from"./index-CX0w_yG3.js";import{d as v}from"./useSessionConfirmation-DdUI8faz.js";import{E as j}from"./EmptyState-CN3__xdY.js";import"./supabase-k82gbVKr.js";function S(s){return w({queryKey:["student-weeks",s],queryFn:async()=>{const{data:d,error:r}=await y.from("students").select("id").eq("profile_id",s).single();if(r)throw r;const{data:i,error:n}=await y.from("programs").select(`
+import{c as w,j as e}from"./query-IY3PWAwZ.js";import{d as N,r as p}from"./router-QPrNqfwh.js";import{H as f}from"./Header-XetROFYi.js";import{s as y,u as _,S as k}from"./index-DgS_jFjH.js";import{c as v}from"./useSessionConfirmation-gc-6SvOW.js";import{E as j}from"./EmptyState-B5kL0KxI.js";import"./supabase-k82gbVKr.js";function S(s){return w({queryKey:["student-weeks",s],queryFn:async()=>{const{data:d,error:r}=await y.from("students").select("id").eq("profile_id",s).single();if(r)throw r;const{data:i,error:n}=await y.from("programs").select(`
           id, name,
           weeks(
             id, week_number, label,
