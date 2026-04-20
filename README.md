@@ -139,7 +139,7 @@ weeks (id, program_id, week_number, label)
   ↓ 1:many
 sessions (id, week_id, title, day_number, sort_order)
   ↓ 1:many                                ↓ 1:1
-exercise_slots (…, notes)       session_confirmations (session_id UNIQUE, student_id, confirmed_at, notes)
+exercise_slots (…, notes, record_video_set_numbers)  session_confirmations (session_id UNIQUE, student_id, confirmed_at, notes)
   → exercise_library (…)
   ↓ 1:many
 set_logs (…)
@@ -175,6 +175,10 @@ Each week pill in `WeekTimeline` has a drag handle (6-dot grip). Coaches can dra
 ### Coach exercise notes
 
 Coaches can add a free-text note to any exercise slot while planning a session (via `ExerciseSlotRow` in `SessionEditor`). Notes are stored in `exercise_slots.notes`. Students see the note as a blue info callout above their `SlotCommentBox` when executing the session in `SessionView`. No migration needed — the column already existed in the schema.
+
+### Record-video set flag
+
+For any exercise, the coach can pick **any number** of sets to record on video via per-set chips in `ExerciseSlotRow` (tap a chip to toggle; "All" / "None" shortcut toggles every set at once). The selection is stored as an `int[]` in `exercise_slots.record_video_set_numbers` (migration `2026_04_20_record_video_set_numbers.sql`, defaults to `{}`). Students see an amber "Record" badge on each matching `SetRow` in `SessionView`, so it's obvious which sets they should film for coach review.
 
 ---
 

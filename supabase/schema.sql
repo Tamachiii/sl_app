@@ -81,6 +81,7 @@ CREATE TABLE public.exercise_slots (
   rest_seconds     int  CHECK (rest_seconds IS NULL OR rest_seconds >= 0),
   superset_group   uuid,
   notes            text,
+  record_video_set_numbers int[] NOT NULL DEFAULT '{}',
   created_at       timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT exercise_slots_unit_one_of CHECK ((reps IS NOT NULL) <> (duration_seconds IS NOT NULL))
 );

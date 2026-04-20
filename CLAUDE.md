@@ -62,6 +62,7 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 | Coach week view | `coach/WeekView`, `hooks/useWeek`, `hooks/useDuplicate`, `coach/VolumeBar`, `lib/volume` | `ui/EditableText`, `layout/Header` |
 | Coach session editor | `coach/SessionEditor`, `coach/ExerciseSlotRow`, `hooks/useSession`, `hooks/useExerciseLibrary`, `hooks/useDuplicate` | `coach/VolumeBar`, `ui/EditableText` |
 | Coach exercise slot notes | `coach/ExerciseSlotRow` (notes textarea), `student/SessionView` (note display) | `hooks/useSession` (`useUpdateSlot`) |
+| Record-video set flag | `coach/ExerciseSlotRow` (set chips → `record_video_set_numbers` int[]), `student/SetRow` (camera badge), `student/SessionView` (passes prop) | `hooks/useSession`, `hooks/useStudentProgramDetails` |
 | Coach exercise library | `coach/ExerciseLibrary`, `hooks/useExerciseLibrary` | `ui/Dialog`, `ui/EmptyState` |
 | Student home | `student/StudentHome` (shows "Student - {name}" heading), `student/SessionCard`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation`, `hooks/useAuth` | `layout/Header` |
 | Student sessions list | `student/StudentSessions`, `student/SessionCard`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation` | `layout/Header`, `lib/volume` |
@@ -92,6 +93,7 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 - **`StudentDashboard.jsx` is the Stats page.** The file is named `StudentDashboard` but rendered at `/student/stats` (imported as `StudentStats` in routes). The old `/student/dashboard` redirects to `/student/stats`. Don't rename the file — just be aware of the mismatch.
 - **`useStudentProgramDetails`** fetches weeks → sessions → exercise_slots → exercise library for the Sessions page. Lighter than `useStudentProgressStats` (no set_log or confirmation queries). Use it whenever you need full slot structure without aggregation.
 - **`day_number` on sessions**: 1=Monday … 7=Sunday. `StudentHome` maps these to the 7-day week strip. Sessions with `day_number` outside 1–7 don't appear in the strip but still show in the Upcoming/Completed lists.
+- **`record_video_set_numbers` on `exercise_slots`** (`int[]`, defaults to `{}`): coach flags any subset of sets of an exercise for video recording. Student sees an amber "Record" badge on each matching `SetRow`. If the coach reduces `sets` below a picked number, stale entries just don't match any row (no crash). `commitVideoSets` in `ExerciseSlotRow` sorts + dedupes + filters before persisting.
 
 ---
 

@@ -107,6 +107,7 @@ export default function SessionView() {
                       log={log}
                       locked={isConfirmed}
                       restSeconds={slot.rest_seconds}
+                      recordVideo={(slot.record_video_set_numbers || []).includes(log.set_number)}
                     />
                   ))}
                 </div>
