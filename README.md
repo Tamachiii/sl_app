@@ -80,7 +80,7 @@ src/
       Header.jsx               # Sticky top bar (back button, title, actions, ThemeToggle)
       BottomNav.jsx            # Role-aware bottom tabs + sign out
     coach/
-      CoachHome.jsx            # Student list (with "Coach - {name}" heading)
+      CoachHome.jsx            # Student list (greeting card with role+name tooltip)
       StudentCard.jsx          # Student card with WeekTimeline
       WeekTimeline.jsx         # W1/W2/... pills + "+ Week" (drag-and-drop reordering via @dnd-kit)
       WeekView.jsx             # Sessions list (inline-editable labels & titles)
@@ -89,7 +89,7 @@ src/
       ExerciseLibrary.jsx      # Coach's exercise CRUD
       VolumeBar.jsx            # Stacked pull/push volume bar
     student/
-      StudentHome.jsx          # Home tab: "Student - {name}" heading + 7-day strip + next session preview + upcoming/completed
+      StudentHome.jsx          # Home tab: greeting card (role+name tooltip, today status) + 7-day strip + next session preview + upcoming/completed
       SessionCard.jsx          # Expandable session card (used by Home & Sessions)
       StudentSessions.jsx      # Sessions tab: full program session picker
       StudentDashboard.jsx     # Stats tab (/student/stats): progress + sparklines

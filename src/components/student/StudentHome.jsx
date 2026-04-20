@@ -163,6 +163,22 @@ export default function StudentHome() {
     [activeSessions, confirmedIds]
   );
 
+  // Today's status — feeds the greeting card.
+  const todaysSession = useMemo(
+    () => activeSessions.find((s) => sessionDayNumber(s) === todayDN) ?? null,
+    [activeSessions, todayDN]
+  );
+  const todayConfirmed = todaysSession ? confirmedIds.has(todaysSession.id) : false;
+
+  let todaysMessage;
+  if (!todaysSession) {
+    todaysMessage = 'Today is a day off — rest up!';
+  } else if (todayConfirmed) {
+    todaysMessage = "Today's session is done — great work!";
+  } else {
+    todaysMessage = 'You have a session to finish today!';
+  }
+
   if (isLoading) {
     return (
       <>
@@ -187,7 +203,17 @@ export default function StudentHome() {
       <div className="p-4 space-y-6">
 
         {profile?.full_name && (
-          <h1 className="text-xl font-semibold text-gray-900">Student - {profile.full_name}</h1>
+          <div
+            title={`Student - ${profile.full_name}`}
+            className="rounded-xl bg-white shadow-sm px-4 py-3 cursor-help"
+          >
+            <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+              Today · {DAY_FULL[todayDN - 1]}
+            </p>
+            <p className="text-base font-semibold text-gray-900 mt-1">
+              {todaysMessage}
+            </p>
+          </div>
         )}
 
         {/* Week overview */}
