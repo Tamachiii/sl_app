@@ -14,6 +14,10 @@ vi.mock('../../hooks/useProgram', () => ({
   useEnsureProgram: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
+vi.mock('../../hooks/useWeek', () => ({
+  useReorderWeeks: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 import StudentCard from './StudentCard';
 
 describe('StudentCard', () => {

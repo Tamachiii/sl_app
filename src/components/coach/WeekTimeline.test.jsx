@@ -15,6 +15,10 @@ vi.mock('../../hooks/useProgram', () => ({
   useCreateWeek: () => mockCreateWeek,
 }));
 
+vi.mock('../../hooks/useWeek', () => ({
+  useReorderWeeks: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 import WeekTimeline from './WeekTimeline';
 
 const program = {

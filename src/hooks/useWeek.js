@@ -133,6 +133,66 @@ export function useMoveWeek() {
   });
 }
 
+/**
+ * Rewrite week_number for an ordered list of weeks within the same program.
+ * Two-pass update to dodge the UNIQUE(program_id, week_number) constraint:
+ *   1. Park every week at a temp number (base + idx, far above normal range).
+ *   2. Assign each its final week_number (idx + 1).
+ * `orderedIds` is the desired order; index 0 becomes week 1.
+ */
+export function useReorderWeeks() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ programId, orderedIds }) => {
+      const TMP_BASE = 100000;
+
+      for (let i = 0; i < orderedIds.length; i++) {
+        const { error } = await supabase
+          .from('weeks')
+          .update({ week_number: TMP_BASE + i })
+          .eq('id', orderedIds[i]);
+        if (error) throw error;
+      }
+
+      for (let i = 0; i < orderedIds.length; i++) {
+        const { error } = await supabase
+          .from('weeks')
+          .update({ week_number: i + 1 })
+          .eq('id', orderedIds[i]);
+        if (error) throw error;
+      }
+
+      return { programId };
+    },
+    onMutate: async ({ programId, orderedIds }) => {
+      await qc.cancelQueries({ queryKey: ['program'] });
+      const snapshots = qc.getQueriesData({ queryKey: ['program'] });
+      for (const [key, prog] of snapshots) {
+        if (!prog || prog.id !== programId) continue;
+        const byId = new Map((prog.weeks || []).map((w) => [w.id, w]));
+        const reordered = orderedIds
+          .map((id, idx) => {
+            const w = byId.get(id);
+            return w ? { ...w, week_number: idx + 1 } : null;
+          })
+          .filter(Boolean);
+        qc.setQueryData(key, { ...prog, weeks: reordered });
+      }
+      return { snapshots };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (!ctx) return;
+      for (const [key, data] of ctx.snapshots) {
+        qc.setQueryData(key, data);
+      }
+    },
+    onSettled: (_d, _e, { programId }) => {
+      qc.invalidateQueries({ queryKey: ['program'] });
+    },
+  });
+}
+
 export function useUpdateSession() {
   const qc = useQueryClient();
 

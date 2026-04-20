@@ -82,7 +82,7 @@ src/
     coach/
       CoachHome.jsx            # Student list
       StudentCard.jsx          # Student card with WeekTimeline
-      WeekTimeline.jsx         # W1/W2/... pills + "+ Week"
+      WeekTimeline.jsx         # W1/W2/... pills + "+ Week" (drag-and-drop reordering via @dnd-kit)
       WeekView.jsx             # Sessions list (inline-editable labels & titles)
       SessionEditor.jsx        # Exercise slots + add/duplicate (inline-editable title)
       ExerciseSlotRow.jsx      # Per-slot sets/reps/weight + reorder/delete
@@ -171,6 +171,10 @@ An "Empty state" is shown when no program is assigned yet. The tab lives alongsi
 ### Weight logging in sessions
 
 Students can log the actual weight lifted per set directly on the `SetRow` inside `SessionView`. A small numeric input sits between the done-button and the RPE picker; it pre-fills from the log on load and shows the coach-prescribed weight as a placeholder when empty. Weights are saved to `set_logs.weight_kg` (new column, migration `20260416_set_logs_weight_kg.sql`). When a session is confirmed the input becomes read-only. Bodyweight slots show `BW` as the placeholder.
+
+### Week reordering
+
+Each week pill in `WeekTimeline` has a drag handle (6-dot grip). Coaches can drag weeks into any order; dropping commits via `useReorderWeeks`, which rewrites `week_number` in two passes (park all at temp numbers, then assign finals) to dodge the `UNIQUE(program_id, week_number)` constraint. The pill's label area still navigates to the week view — only the grip triggers drag. On touch, drag activates after a 200ms press so taps aren't captured. The local order updates optimistically for instant feedback.
 
 ### Coach exercise notes
 

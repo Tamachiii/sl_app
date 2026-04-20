@@ -57,6 +57,7 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 | Auth / login | `auth/LoginPage`, `hooks/useAuth`, `routes.jsx` | `lib/supabase` |
 | Coach dashboard | `coach/CoachDashboard`, `hooks/useStudents`, `hooks/useSessionConfirmation` (`useAllConfirmations`) | `layout/Header` |
 | Coach student list | `coach/CoachHome`, `coach/StudentCard`, `coach/WeekTimeline`, `hooks/useStudents`, `hooks/useProgram` | `layout/Header` |
+| Coach week reordering | `coach/WeekTimeline` (dnd-kit sortable), `hooks/useWeek` (`useReorderWeeks`) | `@dnd-kit/core`, `@dnd-kit/sortable` |
 | Coach sessions feed | `coach/SessionsFeed` (with `?student=:id` filter), `hooks/useSessionConfirmation` (`useAllConfirmations`) | `layout/Header`, `ui/EmptyState` |
 | Coach week view | `coach/WeekView`, `hooks/useWeek`, `hooks/useDuplicate`, `coach/VolumeBar`, `lib/volume` | `ui/EditableText`, `layout/Header` |
 | Coach session editor | `coach/SessionEditor`, `coach/ExerciseSlotRow`, `hooks/useSession`, `hooks/useExerciseLibrary`, `hooks/useDuplicate` | `coach/VolumeBar`, `ui/EditableText` |
@@ -85,7 +86,8 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 - **Vite `base` is `/sl_app/`** and there's a manual-chunks split (`router`, `query`, `supabase`). Pages are lazy-loaded in `routes.jsx`.
 - **React Rules of Hooks:** Never call `useMemo` or any other hook after an early return like `if (isLoading) return <Spinner/>`. Always put hooks at the top of the component.
 - **RLS is strict.** When adding tables, add both student- and coach-side policies. Walk session → profile via `student_profile_for_session()` / `coach_profile_for_session()` helpers (defined in `schema.sql`).
-- **Swapping `week_number` requires a 3-step update** because of the `UNIQUE(program_id, week_number)` constraint: bump A to a temp value, move B, then move A.
+- **Swapping `week_number` requires a 3-step update** because of the `UNIQUE(program_id, week_number)` constraint: bump A to a temp value, move B, then move A. For arbitrary reorders (drag-and-drop), `useReorderWeeks` does a two-pass version: park all weeks at `100000+idx`, then assign `idx+1`.
+- **WeekTimeline is dnd-kit sortable.** Each week pill has a separate drag handle (6-dot grip) — the label area still navigates on click. Touch drag needs a 200ms press delay (`TouchSensor` activation) so taps don't trigger drags. Tests that render `WeekTimeline` (directly or via `StudentCard`) must mock `useReorderWeeks` from `hooks/useWeek`.
 - **Exercise Library filtering is client-side.** Search and type-filter state live in `ExerciseLibrary` and are applied with `useMemo` over the already-fetched list — no extra Supabase queries.
 - **`NavLink` `end` prop on root tabs.** `BottomNav`'s "Students" (`/coach/students`) and "Home" (`/student`) links use `end` so they only highlight on exact route matches — without it they stay active on all child routes.
 - **`StudentDashboard.jsx` is the Stats page.** The file is named `StudentDashboard` but rendered at `/student/stats` (imported as `StudentStats` in routes). The old `/student/dashboard` redirects to `/student/stats`. Don't rename the file — just be aware of the mismatch.
