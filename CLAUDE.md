@@ -83,6 +83,7 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 - **`useTheme()` has a no-op fallback** when no provider is mounted — convenient for isolated tests. Don't rely on it in production paths.
 - **Test wrapper adds `ThemeProvider`.** Use `renderWithProviders` from `src/test/utils.jsx`; it wraps `ThemeProvider` + `QueryClientProvider` + `AuthContext` + `MemoryRouter`.
 - **matchMedia polyfill** is in `src/test/setup.js` — needed by `ThemeProvider` under jsdom.
+- **Outer page must not scroll.** `html, body, #root` have `overflow: hidden` (in `src/index.css`). `AppShell` is `h-dvh flex-col` with `main` as the only scroll container. Don't touch this — it prevents mobile keyboard focus (e.g. the Confirm-session textarea) from pushing the sticky `BottomNav` mid-page.
 - **Vite `base` is `/sl_app/`** and there's a manual-chunks split (`router`, `query`, `supabase`). Pages are lazy-loaded in `routes.jsx`.
 - **React Rules of Hooks:** Never call `useMemo` or any other hook after an early return like `if (isLoading) return <Spinner/>`. Always put hooks at the top of the component.
 - **RLS is strict.** When adding tables, add both student- and coach-side policies. Walk session → profile via `student_profile_for_session()` / `coach_profile_for_session()` helpers (defined in `schema.sql`).
