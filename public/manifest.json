@@ -3,7 +3,7 @@
   "short_name": "SL Coach",
   "start_url": "/sl_app/",
   "display": "standalone",
-  "theme_color": "#2563eb",
+  "theme_color": "#f97316",
   "background_color": "#f9fafb",
   "icons": [
     {
