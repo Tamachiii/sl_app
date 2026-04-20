@@ -61,16 +61,13 @@ export function useStudentProgressStats() {
 
       for (const prog of programs || []) {
         for (const w of prog.weeks || []) {
-          // activeSessions: non-archived — used for progress bars, set-log
-          // queries, and confirmation counts.
-          // volumeSessions: ALL sessions (incl. archived) — used for weekly
-          // volume so that archiving a session doesn't make volume disappear.
-          const activeSessions = (w.sessions || []).filter((s) => !s.archived_at);
-          const volumeSessions = w.sessions || [];
+          // Include archived sessions in every aggregate — completed work
+          // shouldn't vanish from stats if the coach later archives the session.
+          const allWeekSessions = w.sessions || [];
 
-          weeks.push({ ...w, sessions: activeSessions, volumeSessions });
+          weeks.push({ ...w, sessions: allWeekSessions, volumeSessions: allWeekSessions });
 
-          for (const s of activeSessions) {
+          for (const s of allWeekSessions) {
             allSessions.push(s);
             for (const slot of s.exercise_slots || []) {
               allSlotIds.push(slot.id);
