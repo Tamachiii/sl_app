@@ -20,7 +20,6 @@ vi.mock('../../hooks/useSetLogs', () => ({
   useEnsureSetLogs: () => ({ mutate: vi.fn() }),
   useToggleSetDone: () => ({ mutate: vi.fn() }),
   useSetRpe: () => ({ mutate: vi.fn() }),
-  useSetWeight: () => ({ mutate: vi.fn() }),
 }));
 
 let mockConfirmation = { data: null, isLoading: false };

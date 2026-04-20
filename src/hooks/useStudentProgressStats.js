@@ -16,8 +16,7 @@ import { computeSessionVolume } from '../lib/volume';
  *   - avgRpe            (across sets with rpe logged)
  *   - recentConfirmations[] (last 5, newest first)
  *   - weeklyVolume[]    [{ week_number, label, pull, push, sessions_confirmed, sessions_total }]
- *   - weightHistory[]   [{ exercise_id, exercise_name, exercise_type, entries[] }]
- *     entries: [{ date, weight_kg, session_title }] — max weight per confirmed session, asc date
+ *   - sessionCalendar[] [{ session_id, title, date, completed }] — sessions w/ scheduled_date
  */
 export function useStudentProgressStats() {
   const { user } = useAuth();
@@ -56,8 +55,6 @@ export function useStudentProgressStats() {
       const weeks = [];
       const allSessions = [];
       const allSlotIds = [];
-      // slot metadata keyed by slot id — needed for weight history
-      const slotMeta = {};
 
       for (const prog of programs || []) {
         for (const w of prog.weeks || []) {
@@ -71,15 +68,6 @@ export function useStudentProgressStats() {
             allSessions.push(s);
             for (const slot of s.exercise_slots || []) {
               allSlotIds.push(slot.id);
-              slotMeta[slot.id] = {
-                exercise_id: slot.exercise.id,
-                exercise_name: slot.exercise.name,
-                exercise_type: slot.exercise.type,
-                session_id: s.id,
-                session_title: s.title,
-                day_number: s.day_number,
-                week_number: w.week_number,
-              };
             }
           }
         }
@@ -99,18 +87,11 @@ export function useStudentProgressStats() {
         : [];
       const confirmedIds = new Set(confirmations.map((c) => c.session_id));
 
-      // Build confirmed_at lookup per session_id for weight history dating.
-      const confirmedAtBySession = {};
-      for (const c of confirmations) {
-        confirmedAtBySession[c.session_id] = c.confirmed_at;
-      }
-
-      // 4. Fetch set logs (including weight_kg now).
       const setLogs = allSlotIds.length
         ? (
             await supabase
               .from('set_logs')
-              .select('id, exercise_slot_id, done, rpe, weight_kg, logged_at')
+              .select('id, exercise_slot_id, done, rpe, logged_at')
               .in('exercise_slot_id', allSlotIds)
           ).data || []
         : [];
@@ -183,60 +164,6 @@ export function useStudentProgressStats() {
         .slice(0, 5)
         .map((c) => ({ ...c, ...sessionMeta[c.session_id] }));
 
-      // ─── Weight history per exercise ──────────────────────────────────────
-      // Only include sets that:
-      //   • have weight_kg logged
-      //   • belong to a confirmed session (so we have a reliable date)
-      //
-      // For each exercise, group by session_id and take the MAX weight per
-      // session. Return entries sorted ascending by confirmed_at date.
-
-      // exerciseMap: exercise_id → { name, type, bySession: { session_id → { weight_kg, date, session_title } } }
-      const exerciseMap = {};
-
-      for (const log of setLogs) {
-        const weight = log.weight_kg != null ? Number(log.weight_kg) : null;
-        if (weight == null) continue;
-
-        const meta = slotMeta[log.exercise_slot_id];
-        if (!meta) continue;
-
-        const confirmedAt = confirmedAtBySession[meta.session_id];
-        if (!confirmedAt) continue; // not yet confirmed — skip
-
-        if (!exerciseMap[meta.exercise_id]) {
-          exerciseMap[meta.exercise_id] = {
-            name: meta.exercise_name,
-            type: meta.exercise_type,
-            bySession: {},
-          };
-        }
-
-        const existing = exerciseMap[meta.exercise_id].bySession[meta.session_id];
-        if (!existing || weight > existing.weight_kg) {
-          exerciseMap[meta.exercise_id].bySession[meta.session_id] = {
-            weight_kg: weight,
-            date: confirmedAt,
-            session_title: meta.session_title,
-            day_number: meta.day_number,
-            week_number: meta.week_number,
-          };
-        }
-      }
-
-      const weightHistory = Object.entries(exerciseMap)
-        .map(([exercise_id, data]) => ({
-          exercise_id,
-          exercise_name: data.name,
-          exercise_type: data.type,
-          entries: Object.values(data.bySession).sort(
-            (a, b) => new Date(a.date) - new Date(b.date)
-          ),
-        }))
-        .filter((e) => e.entries.length > 0)
-        // Sort by exercise name for stable ordering
-        .sort((a, b) => a.exercise_name.localeCompare(b.exercise_name));
-
       // ─── Session calendar ────────────────────────────────────────────────
       // Flatten scheduled sessions for the month calendar. Each entry is
       // keyed by its scheduled_date (YYYY-MM-DD) and flagged completed or
@@ -261,7 +188,6 @@ export function useStudentProgressStats() {
         avgRpe,
         weeklyVolume,
         recentConfirmations,
-        weightHistory,
         sessionCalendar,
       };
     },

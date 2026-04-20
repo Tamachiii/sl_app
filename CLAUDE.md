@@ -66,7 +66,6 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 | Student home | `student/StudentHome`, `hooks/useStudentWeeks`, `hooks/useSessionConfirmation` | `layout/Header` |
 | Student sessions list | `student/StudentSessions`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation` | `layout/Header`, `lib/volume` |
 | Student stats | `student/StudentDashboard` (route: /student/stats), `student/SessionCalendar`, `hooks/useStudentProgressStats` | `lib/volume`, `layout/Header`, `ui/EmptyState` |
-| Student weight logging | `student/SetRow` (weight input), `hooks/useSetLogs` (`useSetWeight`) | `student/SessionView` (passes `prescribedWeightKg`) |
 | Student session logging | `student/SessionView`, `student/SetRow`, `student/RpeInput`, `hooks/useSession`, `hooks/useSetLogs` | — |
 | Session confirmations | `hooks/useSessionConfirmation`, `student/SessionView`, `coach/WeekView` (badge), `coach/SessionsFeed`, `coach/SessionReview` | — |
 | Goals & progress | `hooks/useGoals`, `coach/StudentGoals`, `student/MyGoals` | `hooks/useExerciseLibrary`, `layout/BottomNav` (Goals tab) |
@@ -93,8 +92,6 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 - **`StudentDashboard.jsx` is the Stats page.** The file is named `StudentDashboard` but rendered at `/student/stats` (imported as `StudentStats` in routes). The old `/student/dashboard` redirects to `/student/stats`. Don't rename the file — just be aware of the mismatch.
 - **`useStudentProgramDetails`** fetches weeks → sessions → exercise_slots → exercise library for the Sessions page. Lighter than `useStudentProgressStats` (no set_log or confirmation queries). Use it whenever you need full slot structure without aggregation.
 - **`day_number` on sessions**: 1=Monday … 7=Sunday. `StudentHome` maps these to the 7-day week strip. Sessions with `day_number` outside 1–7 don't appear in the strip but still show in the Upcoming/Completed lists.
-- **`set_logs.weight_kg` is nullable.** Bodyweight and time-based sets leave it NULL. The weight input in `SetRow` shows the prescribed `slot.weight_kg` as a placeholder ("BW" when none is set). `useStudentProgressStats` skips NULL-weight logs when building `weightHistory`.
-- **`SessionView.test.jsx` must mock `useSetWeight`.** When mocking `useSetLogs`, include `useSetWeight: () => ({ mutate: vi.fn() })` or `SetRow` will throw.
 
 ---
 

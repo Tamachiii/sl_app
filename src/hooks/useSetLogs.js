@@ -124,23 +124,3 @@ export function useSetRpe() {
   });
 }
 
-export function useSetWeight() {
-  const qc = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({ logId, weightKg }) => {
-      const { data, error } = await supabase
-        .from('set_logs')
-        .update({ weight_kg: weightKg ?? null })
-        .eq('id', logId)
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['set-logs'] });
-      qc.invalidateQueries({ queryKey: ['student-progress-stats'] });
-    },
-  });
-}

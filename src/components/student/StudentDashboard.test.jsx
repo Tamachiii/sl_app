@@ -63,18 +63,6 @@ const sampleData = {
       confirmed_at: '2026-04-16T10:00:00Z',
     },
   ],
-  weightHistory: [
-    {
-      exercise_id: 'ex-1',
-      exercise_name: 'Muscle-up',
-      exercise_type: 'pull',
-      entries: [
-        { weight_kg: 10, date: '2026-04-01T10:00:00Z', session_title: 'Pull A', week_number: 1 },
-        { weight_kg: 12.5, date: '2026-04-08T10:00:00Z', session_title: 'Pull A', week_number: 2 },
-        { weight_kg: 15, date: '2026-04-15T10:00:00Z', session_title: 'Pull A', week_number: 3 },
-      ],
-    },
-  ],
 };
 
 describe('StudentDashboard', () => {
@@ -104,7 +92,6 @@ describe('StudentDashboard', () => {
         avgRpe: null,
         weeklyVolume: [],
         recentConfirmations: [],
-        weightHistory: [],
       },
       isLoading: false,
     };

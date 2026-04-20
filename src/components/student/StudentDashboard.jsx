@@ -77,7 +77,6 @@ export default function StudentDashboard() {
     avgRpe: null,
     weeklyVolume: [],
     recentConfirmations: [],
-    weightHistory: [],
     sessionCalendar: [],
   };
 

@@ -162,16 +162,10 @@ The Library tab (`ExerciseLibrary`) shows a **search bar** and **type filter pil
 
 - **Summary cards**: sessions confirmed / total (with %), sets done / prescribed, weeks active / total, average RPE across logged sets.
 - **Calendar**: month grid (Monday-first) with prev/next arrows, green dot for completed sessions and orange dot for upcoming on days with a `scheduled_date`. Tapping a day opens its first session.
-- **Lift progression**: per-exercise sparkline showing the max weight lifted each confirmed session, with first-vs-latest % change badge. Only exercises with at least one `weight_kg` entry appear.
-- **Weekly progress**: per-week bar (sessions confirmed / total). Rows turn green when a week is fully confirmed.
 - **Weekly volume**: per-week stacked pull/push bar scaled to the busiest week. Uses `computeSessionVolume` from `lib/volume`.
 - **Recent activity**: last 5 confirmations, each linking back to the session.
 
 An "Empty state" is shown when no program is assigned yet. The tab lives alongside Home and Goals on the student bottom nav.
-
-### Weight logging in sessions
-
-Students can log the actual weight lifted per set directly on the `SetRow` inside `SessionView`. A small numeric input sits between the done-button and the RPE picker; it pre-fills from the log on load and shows the coach-prescribed weight as a placeholder when empty. Weights are saved to `set_logs.weight_kg` (new column, migration `20260416_set_logs_weight_kg.sql`). When a session is confirmed the input becomes read-only. Bodyweight slots show `BW` as the placeholder.
 
 ### Week reordering
 

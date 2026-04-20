@@ -107,7 +107,6 @@ export default function SessionView() {
                       log={log}
                       locked={isConfirmed}
                       restSeconds={slot.rest_seconds}
-                      prescribedWeightKg={slot.weight_kg ?? null}
                     />
                   ))}
                 </div>
