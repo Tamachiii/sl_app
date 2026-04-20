@@ -1,4 +1,4 @@
-import{c as q,u,b as a}from"./query-BBurVEW5.js";import{s as o}from"./index-CXNFy9Iu.js";function m(s){return q({queryKey:["session",s],queryFn:async()=>{const{data:e,error:r}=await o.from("sessions").select(`
+import{c as q,u,b as a}from"./query-BBurVEW5.js";import{s as o}from"./index-DYyoNg5e.js";function m(s){return q({queryKey:["session",s],queryFn:async()=>{const{data:e,error:r}=await o.from("sessions").select(`
           *,
           exercise_slots(
             *,
