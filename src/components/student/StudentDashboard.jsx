@@ -55,10 +55,17 @@ function VolumeWeekRow({ week, maxTotal }) {
 export default function StudentDashboard() {
   const { data, isLoading } = useStudentProgressStats();
 
+  // Only show the last 4 weeks in the Weekly volume section to keep the
+  // chart readable as programs get long.
+  const recentWeeklyVolume = useMemo(
+    () => (data?.weeklyVolume || []).slice(-4),
+    [data]
+  );
+
   const maxWeeklyTotal = useMemo(() => {
-    if (!data?.weeklyVolume?.length) return 0;
-    return Math.max(...data.weeklyVolume.map((w) => w.pull + w.push));
-  }, [data]);
+    if (!recentWeeklyVolume.length) return 0;
+    return Math.max(...recentWeeklyVolume.map((w) => w.pull + w.push));
+  }, [recentWeeklyVolume]);
 
   if (isLoading) {
     return (
@@ -153,7 +160,7 @@ export default function StudentDashboard() {
                 {maxWeeklyTotal === 0 ? (
                   <p className="text-xs text-gray-400">No volume assigned yet.</p>
                 ) : (
-                  stats.weeklyVolume.map((w) => (
+                  recentWeeklyVolume.map((w) => (
                     <VolumeWeekRow key={w.week_id} week={w} maxTotal={maxWeeklyTotal} />
                   ))
                 )}

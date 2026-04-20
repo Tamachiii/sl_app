@@ -175,7 +175,7 @@ export default function ExerciseProgressChart({ exercises, byExercise }) {
           </svg>
 
           <p className="text-xs text-gray-400">
-            Weekly tonnage = Σ (sets × reps × weight). Peak:{' '}
+            Weekly tonnage = Σ (sets × reps × weight; BW = 1 kg). Peak:{' '}
             <span className="font-medium text-gray-600">
               {Math.round(maxTonnage)} kg
             </span>

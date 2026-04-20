@@ -162,7 +162,9 @@ export function useStudentProgressStats() {
             const ex = slot.exercise;
             if (!ex) continue;
             const reps = slot.reps || 0;
-            const weight = slot.weight_kg || 0;
+            // Bodyweight exercises (null/0 weight) count as 1 kg so they
+            // still produce a visible progression curve.
+            const weight = slot.weight_kg && slot.weight_kg > 0 ? slot.weight_kg : 1;
             const tonnage = (slot.sets || 0) * reps * weight;
             if (tonnage <= 0) continue;
             exerciseMeta[ex.id] = { id: ex.id, name: ex.name, type: ex.type };
