@@ -9,8 +9,6 @@ const mockCreateSession = { mutate: vi.fn(), isPending: false };
 const mockDeleteSession = { mutate: vi.fn() };
 const mockDuplicateWeek = { mutate: vi.fn(), isPending: false };
 const mockDeleteWeek = { mutate: vi.fn(), isPending: false };
-const mockMoveWeek = { mutate: vi.fn(), isPending: false };
-
 let mockWeekData = { data: null, isLoading: false };
 let mockProgramData = { data: { id: 'prog-1', weeks: [] } };
 
@@ -30,7 +28,6 @@ vi.mock('../../hooks/useWeek', () => ({
   useUpdateWeek: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateSession: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteWeek: () => mockDeleteWeek,
-  useMoveWeek: () => mockMoveWeek,
 }));
 
 vi.mock('../../hooks/useDuplicate', () => ({
@@ -212,77 +209,4 @@ describe('WeekView', () => {
     window.confirm.mockRestore();
   });
 
-  it('Move earlier button is disabled when this is the first week', () => {
-    mockWeekData = {
-      data: { id: 'w-1', week_number: 1, sessions: [] },
-      isLoading: false,
-    };
-    mockProgramData = {
-      data: {
-        id: 'prog-1',
-        weeks: [
-          { id: 'w-1', week_number: 1 },
-          { id: 'w-2', week_number: 2 },
-        ],
-      },
-    };
-    renderWeekView();
-
-    expect(screen.getByRole('button', { name: /move week earlier/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /move week later/i })).not.toBeDisabled();
-  });
-
-  it('clicking Move earlier calls moveWeek with the previous sibling', async () => {
-    const user = userEvent.setup();
-    mockWeekData = {
-      data: { id: 'w-2', week_number: 2, sessions: [] },
-      isLoading: false,
-    };
-    mockProgramData = {
-      data: {
-        id: 'prog-1',
-        weeks: [
-          { id: 'w-1', week_number: 1 },
-          { id: 'w-2', week_number: 2 },
-          { id: 'w-3', week_number: 3 },
-        ],
-      },
-    };
-    renderWeekView();
-
-    await user.click(screen.getByRole('button', { name: /move week earlier/i }));
-    expect(mockMoveWeek.mutate).toHaveBeenCalledWith({
-      aId: 'w-2',
-      aNumber: 2,
-      bId: 'w-1',
-      bNumber: 1,
-    });
-  });
-
-  it('clicking Move later calls moveWeek with the next sibling', async () => {
-    const user = userEvent.setup();
-    mockWeekData = {
-      data: { id: 'w-2', week_number: 2, sessions: [] },
-      isLoading: false,
-    };
-    mockProgramData = {
-      data: {
-        id: 'prog-1',
-        weeks: [
-          { id: 'w-1', week_number: 1 },
-          { id: 'w-2', week_number: 2 },
-          { id: 'w-3', week_number: 3 },
-        ],
-      },
-    };
-    renderWeekView();
-
-    await user.click(screen.getByRole('button', { name: /move week later/i }));
-    expect(mockMoveWeek.mutate).toHaveBeenCalledWith({
-      aId: 'w-2',
-      aNumber: 2,
-      bId: 'w-3',
-      bNumber: 3,
-    });
-  });
 });

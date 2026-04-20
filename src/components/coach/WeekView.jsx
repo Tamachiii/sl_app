@@ -1,9 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Header from '../layout/Header';
-import { useWeek, useCreateSession, useDeleteSession, useUpdateWeek, useUpdateSession, useDeleteWeek, useMoveWeek } from '../../hooks/useWeek';
+import { useWeek, useCreateSession, useDeleteSession, useUpdateWeek, useUpdateSession, useDeleteWeek } from '../../hooks/useWeek';
 import { useDuplicateWeek } from '../../hooks/useDuplicate';
-import { useProgram } from '../../hooks/useProgram';
 import { computeSessionVolume } from '../../lib/volume';
 import VolumeBar from './VolumeBar';
 import Spinner from '../ui/Spinner';
@@ -23,22 +22,12 @@ export default function WeekView() {
   const updateWeek = useUpdateWeek();
   const updateSession = useUpdateSession();
   const deleteWeek = useDeleteWeek();
-  const moveWeek = useMoveWeek();
-  const { data: program } = useProgram(studentId);
   const { data: confirmedIds } = useWeekConfirmedSessionIds(weekId);
 
   const [showCopy, setShowCopy] = useState(false);
   const [deleteWeekConfirm, setDeleteWeekConfirm] = useState(false);
   const [deleteSessionConfirm, setDeleteSessionConfirm] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
-
-  const siblings = useMemo(
-    () => (program?.weeks || []).slice().sort((a, b) => a.week_number - b.week_number),
-    [program?.weeks]
-  );
-  const currentIdx = siblings.findIndex((w) => w.id === week?.id);
-  const prevWeek = currentIdx > 0 ? siblings[currentIdx - 1] : null;
-  const nextWeek = currentIdx >= 0 && currentIdx < siblings.length - 1 ? siblings[currentIdx + 1] : null;
 
   if (isLoading) {
     return (
@@ -65,17 +54,6 @@ export default function WeekView() {
   function handleDuplicateWeek() {
     const maxWeek = week?.week_number ?? 1;
     duplicateWeek.mutate({ weekId, newWeekNumber: maxWeek + 1 });
-  }
-
-  function handleMove(direction) {
-    const other = direction === -1 ? prevWeek : nextWeek;
-    if (!other || !week) return;
-    moveWeek.mutate({
-      aId: week.id,
-      aNumber: week.week_number,
-      bId: other.id,
-      bNumber: other.week_number,
-    });
   }
 
   function handleCopyToStudent({ programId }) {
@@ -111,28 +89,6 @@ export default function WeekView() {
         showBack
         actions={
           <>
-            <button
-              onClick={() => handleMove(-1)}
-              disabled={!prevWeek || moveWeek.isPending}
-              aria-label="Move week earlier"
-              title="Move earlier"
-              className="text-xs bg-gray-100 text-gray-600 rounded-lg px-2 py-1.5 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <button
-              onClick={() => handleMove(1)}
-              disabled={!nextWeek || moveWeek.isPending}
-              aria-label="Move week later"
-              title="Move later"
-              className="text-xs bg-gray-100 text-gray-600 rounded-lg px-2 py-1.5 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
             <button
               onClick={handleDuplicateWeek}
               disabled={duplicateWeek.isPending}
