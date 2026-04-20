@@ -117,8 +117,13 @@ export function useStudentProgressStats() {
 
       // ─── Derived aggregates ───────────────────────────────────────────────
 
+      // A session counts as "completed" if it's confirmed OR archived (archiving
+      // happens after the coach reviews a confirmed session, and legacy sessions
+      // may have been archived without ever getting a confirmation row).
+      const isCompleted = (s) => confirmedIds.has(s.id) || !!s.archived_at;
+
       const totalSessions = allSessions.length;
-      const totalSessionsConfirmed = allSessions.filter((s) => confirmedIds.has(s.id)).length;
+      const totalSessionsConfirmed = allSessions.filter(isCompleted).length;
       const totalSetsDone = setLogs.filter((l) => l.done).length;
 
       let totalSets = 0;
@@ -147,7 +152,7 @@ export function useStudentProgressStats() {
         }
         let sessionsConfirmed = 0;
         for (const s of w.sessions || []) {
-          if (confirmedIds.has(s.id)) sessionsConfirmed += 1;
+          if (isCompleted(s)) sessionsConfirmed += 1;
         }
         return {
           week_id: w.id,
