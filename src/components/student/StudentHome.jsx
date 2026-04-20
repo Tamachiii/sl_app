@@ -2,10 +2,11 @@ import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../layout/Header';
 import { useAuth } from '../../hooks/useAuth';
-import { useStudentWeeks } from '../../hooks/useStudentWeeks';
+import { useStudentProgramDetails } from '../../hooks/useStudentProgramDetails';
 import { useMyConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
+import SessionCard from './SessionCard';
 
 // day_number 1 = Monday … 7 = Sunday
 const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -117,7 +118,7 @@ function SessionItem({ session, confirmed, onClick }) {
 export default function StudentHome() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { data: weeks, isLoading } = useStudentWeeks(user?.id);
+  const { data: weeks, isLoading } = useStudentProgramDetails(user?.id);
   const { data: confirmedIds = new Set() } = useMyConfirmedSessionIds();
 
   const todayDN = todayDayNumber();
@@ -209,14 +210,34 @@ export default function StudentHome() {
           </div>
         </section>
 
-        {/* Upcoming sessions */}
+        {/* Next session preview */}
         {upcoming.length > 0 && (
+          <section aria-labelledby="next-heading">
+            <h2 id="next-heading" className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+              Next session
+            </h2>
+            <SessionCard
+              session={upcoming[0]}
+              confirmed={false}
+              archived={false}
+              defaultOpen
+              subtitle={(() => {
+                const dn = sessionDayNumber(upcoming[0]);
+                return dn >= 1 && dn <= 7 ? DAY_FULL[dn - 1] : null;
+              })()}
+              onStart={() => navigate(`/student/session/${upcoming[0].id}`)}
+            />
+          </section>
+        )}
+
+        {/* Upcoming sessions */}
+        {upcoming.length > 1 && (
           <section aria-labelledby="upcoming-heading">
             <h2 id="upcoming-heading" className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
               Upcoming
             </h2>
             <div className="space-y-2">
-              {upcoming.map((s) => (
+              {upcoming.slice(1).map((s) => (
                 <SessionItem
                   key={s.id}
                   session={s}

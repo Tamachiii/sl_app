@@ -29,7 +29,7 @@ src/
   hooks/         useAuth  useTheme  useProgram  useWeek  useSession
                  useExerciseLibrary  useDuplicate  useStudents
                  useSetLogs  useSessionConfirmation  useStudentProgressStats
-                 useStudentWeeks  useStudentProgramDetails
+                 useStudentProgramDetails
   components/
     auth/        LoginPage  ProtectedRoute  RoleGate
     layout/      Header  BottomNav  AppShell
@@ -63,8 +63,8 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 | Coach session editor | `coach/SessionEditor`, `coach/ExerciseSlotRow`, `hooks/useSession`, `hooks/useExerciseLibrary`, `hooks/useDuplicate` | `coach/VolumeBar`, `ui/EditableText` |
 | Coach exercise slot notes | `coach/ExerciseSlotRow` (notes textarea), `student/SessionView` (note display) | `hooks/useSession` (`useUpdateSlot`) |
 | Coach exercise library | `coach/ExerciseLibrary`, `hooks/useExerciseLibrary` | `ui/Dialog`, `ui/EmptyState` |
-| Student home | `student/StudentHome`, `hooks/useStudentWeeks`, `hooks/useSessionConfirmation` | `layout/Header` |
-| Student sessions list | `student/StudentSessions`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation` | `layout/Header`, `lib/volume` |
+| Student home | `student/StudentHome`, `student/SessionCard`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation` | `layout/Header` |
+| Student sessions list | `student/StudentSessions`, `student/SessionCard`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation` | `layout/Header`, `lib/volume` |
 | Student stats | `student/StudentDashboard` (route: /student/stats), `student/SessionCalendar`, `hooks/useStudentProgressStats` | `lib/volume`, `layout/Header`, `ui/EmptyState` |
 | Student session logging | `student/SessionView`, `student/SetRow`, `student/RpeInput`, `hooks/useSession`, `hooks/useSetLogs` | — |
 | Session confirmations | `hooks/useSessionConfirmation`, `student/SessionView`, `coach/WeekView` (badge), `coach/SessionsFeed`, `coach/SessionReview` | — |

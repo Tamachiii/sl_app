@@ -26,7 +26,7 @@ export function useStudentProgramDetails(userId) {
           weeks(
             id, week_number, label,
             sessions(
-              id, title, day_number, sort_order, archived_at,
+              id, title, day_number, sort_order, scheduled_date, archived_at,
               exercise_slots(
                 id, sets, reps, duration_seconds, weight_kg, sort_order,
                 exercise:exercise_library(id, name, type)

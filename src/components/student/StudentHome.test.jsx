@@ -18,8 +18,8 @@ vi.mock('../../hooks/useAuth', () => ({
 let mockWeeks = { data: null, isLoading: true };
 let mockConfirmedIds = { data: new Set() };
 
-vi.mock('../../hooks/useStudentWeeks', () => ({
-  useStudentWeeks: () => mockWeeks,
+vi.mock('../../hooks/useStudentProgramDetails', () => ({
+  useStudentProgramDetails: () => mockWeeks,
 }));
 
 vi.mock('../../hooks/useSessionConfirmation', () => ({
@@ -100,16 +100,17 @@ describe('StudentHome', () => {
     mockConfirmedIds = { data: new Set(['sess-1']) };
     renderHome();
     expect(screen.getByText('Completed this week')).toBeInTheDocument();
-    expect(screen.getByText('Upcoming')).toBeInTheDocument();
+    // The remaining upcoming session now lives in the Next session preview.
+    expect(screen.getByText('Next session')).toBeInTheDocument();
+    expect(screen.getByText('Pull Day')).toBeInTheDocument();
   });
 
-  it('clicking an upcoming session navigates to SessionView', async () => {
+  it('clicking a later upcoming session navigates to SessionView', async () => {
     const user = userEvent.setup();
     mockWeeks = { data: sampleWeeks, isLoading: false };
     renderHome();
-    // The upcoming section shows the session; click the card button
-    const cards = screen.getAllByText('Push Day');
-    await user.click(cards[0]);
-    expect(mockNavigate).toHaveBeenCalledWith('/student/session/sess-1');
+    // upcoming[0] lives in the Next session card; upcoming[1] is a plain item.
+    await user.click(screen.getByText('Pull Day'));
+    expect(mockNavigate).toHaveBeenCalledWith('/student/session/sess-2');
   });
 });
