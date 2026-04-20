@@ -116,7 +116,7 @@ function SessionItem({ session, confirmed, onClick }) {
 // ─── Main component ────────────────────────────────────────────────────────
 
 export default function StudentHome() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
   const { data: weeks, isLoading } = useStudentProgramDetails(user?.id);
   const { data: confirmedIds = new Set() } = useMyConfirmedSessionIds();
@@ -185,6 +185,10 @@ export default function StudentHome() {
     <>
       <Header title="Home" />
       <div className="p-4 space-y-6">
+
+        {profile?.full_name && (
+          <h1 className="text-xl font-semibold text-gray-900">Student - {profile.full_name}</h1>
+        )}
 
         {/* Week overview */}
         <section aria-labelledby="week-heading">

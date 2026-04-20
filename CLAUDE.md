@@ -56,14 +56,14 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 |---|---|---|
 | Auth / login | `auth/LoginPage`, `hooks/useAuth`, `routes.jsx` | `lib/supabase` |
 | Coach dashboard | `coach/CoachDashboard`, `hooks/useStudents`, `hooks/useSessionConfirmation` (`useAllConfirmations`) | `layout/Header` |
-| Coach student list | `coach/CoachHome`, `coach/StudentCard`, `coach/WeekTimeline`, `hooks/useStudents`, `hooks/useProgram` | `layout/Header` |
+| Coach student list | `coach/CoachHome` (shows "Coach - {name}" heading), `coach/StudentCard`, `coach/WeekTimeline`, `hooks/useStudents`, `hooks/useProgram`, `hooks/useAuth` | `layout/Header` |
 | Coach week reordering | `coach/WeekTimeline` (dnd-kit sortable), `hooks/useWeek` (`useReorderWeeks`) | `@dnd-kit/core`, `@dnd-kit/sortable` |
 | Coach sessions feed | `coach/SessionsFeed` (with `?student=:id` filter), `hooks/useSessionConfirmation` (`useAllConfirmations`) | `layout/Header`, `ui/EmptyState` |
 | Coach week view | `coach/WeekView`, `hooks/useWeek`, `hooks/useDuplicate`, `coach/VolumeBar`, `lib/volume` | `ui/EditableText`, `layout/Header` |
 | Coach session editor | `coach/SessionEditor`, `coach/ExerciseSlotRow`, `hooks/useSession`, `hooks/useExerciseLibrary`, `hooks/useDuplicate` | `coach/VolumeBar`, `ui/EditableText` |
 | Coach exercise slot notes | `coach/ExerciseSlotRow` (notes textarea), `student/SessionView` (note display) | `hooks/useSession` (`useUpdateSlot`) |
 | Coach exercise library | `coach/ExerciseLibrary`, `hooks/useExerciseLibrary` | `ui/Dialog`, `ui/EmptyState` |
-| Student home | `student/StudentHome`, `student/SessionCard`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation` | `layout/Header` |
+| Student home | `student/StudentHome` (shows "Student - {name}" heading), `student/SessionCard`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation`, `hooks/useAuth` | `layout/Header` |
 | Student sessions list | `student/StudentSessions`, `student/SessionCard`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation` | `layout/Header`, `lib/volume` |
 | Student stats | `student/StudentDashboard` (route: /student/stats), `student/SessionCalendar`, `hooks/useStudentProgressStats` | `lib/volume`, `layout/Header`, `ui/EmptyState` |
 | Student session logging | `student/SessionView`, `student/SetRow`, `student/RpeInput`, `hooks/useSession`, `hooks/useSetLogs` | — |
