@@ -65,7 +65,7 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 | Coach exercise library | `coach/ExerciseLibrary`, `hooks/useExerciseLibrary` | `ui/Dialog`, `ui/EmptyState` |
 | Student home | `student/StudentHome`, `hooks/useStudentWeeks`, `hooks/useSessionConfirmation` | `layout/Header` |
 | Student sessions list | `student/StudentSessions`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation` | `layout/Header`, `lib/volume` |
-| Student stats | `student/StudentDashboard` (route: /student/stats), `hooks/useStudentProgressStats` | `lib/volume`, `layout/Header`, `ui/EmptyState` |
+| Student stats | `student/StudentDashboard` (route: /student/stats), `student/SessionCalendar`, `hooks/useStudentProgressStats` | `lib/volume`, `layout/Header`, `ui/EmptyState` |
 | Student weight logging | `student/SetRow` (weight input), `hooks/useSetLogs` (`useSetWeight`) | `student/SessionView` (passes `prescribedWeightKg`) |
 | Student session logging | `student/SessionView`, `student/SetRow`, `student/RpeInput`, `hooks/useSession`, `hooks/useSetLogs` | — |
 | Session confirmations | `hooks/useSessionConfirmation`, `student/SessionView`, `coach/WeekView` (badge), `coach/SessionsFeed`, `coach/SessionReview` | — |

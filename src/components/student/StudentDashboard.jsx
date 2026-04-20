@@ -4,6 +4,7 @@ import Header from '../layout/Header';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import { useStudentProgressStats } from '../../hooks/useStudentProgressStats';
+import SessionCalendar from './SessionCalendar';
 
 function StatCard({ label, value, sub }) {
   return (
@@ -77,6 +78,7 @@ export default function StudentDashboard() {
     weeklyVolume: [],
     recentConfirmations: [],
     weightHistory: [],
+    sessionCalendar: [],
   };
 
   const hasProgram = stats.totalSessions > 0;
@@ -125,6 +127,17 @@ export default function StudentDashboard() {
                   sub={stats.avgRpe != null ? 'across logged sets' : 'log sets to see'}
                 />
               </div>
+            </section>
+
+            {/* Session calendar */}
+            <section aria-labelledby="calendar-heading">
+              <h2
+                id="calendar-heading"
+                className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2"
+              >
+                Calendar
+              </h2>
+              <SessionCalendar sessions={stats.sessionCalendar} />
             </section>
 
             {/* Weekly volume */}

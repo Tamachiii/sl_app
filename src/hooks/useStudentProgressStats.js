@@ -237,6 +237,21 @@ export function useStudentProgressStats() {
         // Sort by exercise name for stable ordering
         .sort((a, b) => a.exercise_name.localeCompare(b.exercise_name));
 
+      // ─── Session calendar ────────────────────────────────────────────────
+      // Flatten scheduled sessions for the month calendar. Each entry is
+      // keyed by its scheduled_date (YYYY-MM-DD) and flagged completed or
+      // upcoming. Sessions without scheduled_date are omitted.
+      const sessionCalendar = [];
+      for (const s of allSessions) {
+        if (!s.scheduled_date) continue;
+        sessionCalendar.push({
+          session_id: s.id,
+          title: s.title,
+          date: s.scheduled_date,
+          completed: isCompleted(s),
+        });
+      }
+
       return {
         totalSessions,
         totalSessionsConfirmed,
@@ -247,6 +262,7 @@ export function useStudentProgressStats() {
         weeklyVolume,
         recentConfirmations,
         weightHistory,
+        sessionCalendar,
       };
     },
     enabled: !!user?.id,

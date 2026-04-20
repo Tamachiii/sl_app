@@ -161,6 +161,7 @@ The Library tab (`ExerciseLibrary`) shows a **search bar** and **type filter pil
 `StudentDashboard` (`/student/dashboard`) gives the student a one-page view of their own progress, fed by a single `useStudentProgressStats` hook that joins programs → weeks → sessions → slots → exercise library with their set logs and confirmations:
 
 - **Summary cards**: sessions confirmed / total (with %), sets done / prescribed, weeks active / total, average RPE across logged sets.
+- **Calendar**: month grid (Monday-first) with prev/next arrows, green dot for completed sessions and orange dot for upcoming on days with a `scheduled_date`. Tapping a day opens its first session.
 - **Lift progression**: per-exercise sparkline showing the max weight lifted each confirmed session, with first-vs-latest % change badge. Only exercises with at least one `weight_kg` entry appear.
 - **Weekly progress**: per-week bar (sessions confirmed / total). Rows turn green when a week is fully confirmed.
 - **Weekly volume**: per-week stacked pull/push bar scaled to the busiest week. Uses `computeSessionVolume` from `lib/volume`.
