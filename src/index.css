@@ -55,6 +55,9 @@ body {
 .dark .text-orange-700 { color: #fdba74 !important; }
 .dark .text-yellow-600,
 .dark .text-yellow-700 { color: #fde047 !important; }
+.dark .text-blue-500,
+.dark .text-blue-600,
+.dark .text-blue-700 { color: #93c5fd !important; }
 
 /* Text */
 .dark .text-gray-900 { color: #fafafa !important; }
