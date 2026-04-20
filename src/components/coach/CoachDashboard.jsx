@@ -44,7 +44,7 @@ export default function CoachDashboard() {
             {students?.map((s) => (
               <Link
                 key={s.id}
-                to={`/coach/student/${s.id}/confirmations`}
+                to={`/coach/sessions?student=${s.id}`}
                 className="flex items-center justify-between bg-white rounded-xl shadow-sm p-3 hover:shadow-md transition-shadow"
               >
                 <span className="font-medium text-gray-900 text-sm">

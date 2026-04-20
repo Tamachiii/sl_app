@@ -12,7 +12,6 @@ const SessionsFeed = lazy(() => import('./components/coach/SessionsFeed'));
 const WeekView = lazy(() => import('./components/coach/WeekView'));
 const SessionEditor = lazy(() => import('./components/coach/SessionEditor'));
 const ExerciseLibrary = lazy(() => import('./components/coach/ExerciseLibrary'));
-const ConfirmedSessions = lazy(() => import('./components/coach/ConfirmedSessions'));
 const SessionReview = lazy(() => import('./components/coach/SessionReview'));
 const StudentGoals = lazy(() => import('./components/coach/StudentGoals'));
 const StudentHome = lazy(() => import('./components/student/StudentHome'));
@@ -48,7 +47,6 @@ export const routes = [
               { path: '/coach/dashboard', element: <Lazy><CoachDashboard /></Lazy> },
               { path: '/coach/students', element: <Lazy><CoachHome /></Lazy> },
               { path: '/coach/sessions', element: <Lazy><SessionsFeed /></Lazy> },
-              { path: '/coach/student/:studentId/confirmations', element: <Lazy><ConfirmedSessions /></Lazy> },
               { path: '/coach/student/:studentId/session/:sessionId/review', element: <Lazy><SessionReview /></Lazy> },
               { path: '/coach/student/:studentId/goals', element: <Lazy><StudentGoals /></Lazy> },
               { path: '/coach/student/:studentId/week/:weekId', element: <Lazy><WeekView /></Lazy> },

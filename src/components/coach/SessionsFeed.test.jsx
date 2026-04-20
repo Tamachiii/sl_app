@@ -54,7 +54,7 @@ describe('SessionsFeed', () => {
   it('renders a confirmation card with student name and session title', () => {
     mockConfirmations = { data: [makeConfirmation()], isLoading: false };
     renderFeed();
-    expect(screen.getByText('Alice')).toBeInTheDocument();
+    expect(screen.getAllByText('Alice').length).toBeGreaterThan(0);
     expect(screen.getByText('Push Day')).toBeInTheDocument();
   });
 
@@ -72,6 +72,24 @@ describe('SessionsFeed', () => {
 
     await user.click(screen.getByRole('button', { name: /show.*archived/i }));
     expect(screen.getByText('Archived Session')).toBeInTheDocument();
+  });
+
+  it('filters cards by selected student', async () => {
+    const user = userEvent.setup();
+    mockConfirmations = {
+      data: [
+        makeConfirmation({ id: 'c-1', session_id: 's-a', student_id: 's-1', student_name: 'Alice', session_title: 'Alice Push' }),
+        makeConfirmation({ id: 'c-2', session_id: 's-b', student_id: 's-2', student_name: 'Bob', session_title: 'Bob Pull' }),
+      ],
+      isLoading: false,
+    };
+    renderFeed();
+    expect(screen.getByText('Alice Push')).toBeInTheDocument();
+    expect(screen.getByText('Bob Pull')).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByRole('combobox'), 's-1');
+    expect(screen.getByText('Alice Push')).toBeInTheDocument();
+    expect(screen.queryByText('Bob Pull')).not.toBeInTheDocument();
   });
 
   it('displays student notes on the card', () => {

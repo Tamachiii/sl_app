@@ -35,7 +35,7 @@ src/
     layout/      Header  BottomNav  AppShell
     coach/       CoachDashboard  CoachHome  StudentCard  WeekTimeline  WeekView
                  SessionEditor  ExerciseSlotRow  ExerciseLibrary
-                 VolumeBar  ConfirmedSessions  SessionsFeed
+                 VolumeBar  SessionsFeed
     student/     StudentHome  StudentSessions  StudentDashboard(Stats)  SessionView  SetRow  RpeInput
     ui/          EditableText  ThemeToggle  Dialog  Spinner  EmptyState  CopyDialog  ConfirmDialog  ErrorBoundary
   test/          setup.js  utils.jsx (renderWithProviders)
@@ -57,7 +57,7 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 | Auth / login | `auth/LoginPage`, `hooks/useAuth`, `routes.jsx` | `lib/supabase` |
 | Coach dashboard | `coach/CoachDashboard`, `hooks/useStudents`, `hooks/useSessionConfirmation` (`useAllConfirmations`) | `layout/Header` |
 | Coach student list | `coach/CoachHome`, `coach/StudentCard`, `coach/WeekTimeline`, `hooks/useStudents`, `hooks/useProgram` | `layout/Header` |
-| Coach sessions feed | `coach/SessionsFeed`, `hooks/useSessionConfirmation` (`useAllConfirmations`) | `layout/Header`, `ui/EmptyState` |
+| Coach sessions feed | `coach/SessionsFeed` (with `?student=:id` filter), `hooks/useSessionConfirmation` (`useAllConfirmations`) | `layout/Header`, `ui/EmptyState` |
 | Coach week view | `coach/WeekView`, `hooks/useWeek`, `hooks/useDuplicate`, `coach/VolumeBar`, `lib/volume` | `ui/EditableText`, `layout/Header` |
 | Coach session editor | `coach/SessionEditor`, `coach/ExerciseSlotRow`, `hooks/useSession`, `hooks/useExerciseLibrary`, `hooks/useDuplicate` | `coach/VolumeBar`, `ui/EditableText` |
 | Coach exercise slot notes | `coach/ExerciseSlotRow` (notes textarea), `student/SessionView` (note display) | `hooks/useSession` (`useUpdateSlot`) |
@@ -67,7 +67,7 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 | Student stats | `student/StudentDashboard` (route: /student/stats), `hooks/useStudentProgressStats` | `lib/volume`, `layout/Header`, `ui/EmptyState` |
 | Student weight logging | `student/SetRow` (weight input), `hooks/useSetLogs` (`useSetWeight`) | `student/SessionView` (passes `prescribedWeightKg`) |
 | Student session logging | `student/SessionView`, `student/SetRow`, `student/RpeInput`, `hooks/useSession`, `hooks/useSetLogs` | — |
-| Session confirmations | `hooks/useSessionConfirmation`, `student/SessionView`, `coach/WeekView` (badge), `coach/ConfirmedSessions`, `coach/SessionReview` | — |
+| Session confirmations | `hooks/useSessionConfirmation`, `student/SessionView`, `coach/WeekView` (badge), `coach/SessionsFeed`, `coach/SessionReview` | — |
 | Goals & progress | `hooks/useGoals`, `coach/StudentGoals`, `student/MyGoals` | `hooks/useExerciseLibrary`, `layout/BottomNav` (Goals tab) |
 | Theming | `hooks/useTheme`, `ui/ThemeToggle`, `index.css` | `layout/Header` |
 

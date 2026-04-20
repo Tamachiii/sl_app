@@ -12,7 +12,10 @@
       "Bash(npm install:*)",
       "Bash(wsl -d Ubuntu -- bash -lc \"which npm && npm --version\")",
       "Bash(cmd.exe /c \"where npm\")",
-      "Bash(wsl -d Ubuntu -- bash -lc \"cd /home/tamachi/sl_app && npm install -D vitest @testing-library/react @testing-library/jest-dom @testing-library/user-event jsdom 2>&1\")"
+      "Bash(wsl -d Ubuntu -- bash -lc \"cd /home/tamachi/sl_app && npm install -D vitest @testing-library/react @testing-library/jest-dom @testing-library/user-event jsdom 2>&1\")",
+      "Bash(wsl -d Ubuntu -- bash -lc \"mkdir -p /home/tamachi/sl_app/.claude\")",
+      "Bash(wsl -d:*)",
+      "mcp__Claude_Preview__preview_start"
     ]
   }
 }

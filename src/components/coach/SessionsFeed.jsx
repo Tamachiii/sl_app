@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import Header from '../layout/Header';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
@@ -8,15 +8,39 @@ import { useAllConfirmations } from '../../hooks/useSessionConfirmation';
 export default function SessionsFeed() {
   const { data: confirmations, isLoading } = useAllConfirmations();
   const [showArchived, setShowArchived] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const studentFilter = searchParams.get('student') || '';
+
+  // Unique student list for the filter dropdown, derived from confirmations.
+  const studentOptions = useMemo(() => {
+    const map = new Map();
+    for (const c of confirmations || []) {
+      if (c.student_id && !map.has(c.student_id)) {
+        map.set(c.student_id, c.student_name || 'Student');
+      }
+    }
+    return Array.from(map, ([id, name]) => ({ id, name })).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+  }, [confirmations]);
 
   const { active, archived } = useMemo(() => {
     const a = [];
     const b = [];
     for (const c of confirmations || []) {
+      if (studentFilter && c.student_id !== studentFilter) continue;
       (c.archived_at ? b : a).push(c);
     }
     return { active: a, archived: b };
-  }, [confirmations]);
+  }, [confirmations, studentFilter]);
+
+  function handleFilterChange(e) {
+    const value = e.target.value;
+    const next = new URLSearchParams(searchParams);
+    if (value) next.set('student', value);
+    else next.delete('student');
+    setSearchParams(next, { replace: true });
+  }
 
   if (isLoading) {
     return (
@@ -76,8 +100,24 @@ export default function SessionsFeed() {
     <>
       <Header title="Sessions" />
       <div className="p-4 space-y-3">
+        {studentOptions.length > 0 && (
+          <label className="flex items-center gap-2 text-xs text-gray-500">
+            <span className="font-semibold uppercase tracking-wide">Student</span>
+            <select
+              value={studentFilter}
+              onChange={handleFilterChange}
+              className="flex-1 bg-white border border-gray-200 rounded-md px-2 py-1 text-sm text-gray-900"
+            >
+              <option value="">All students</option>
+              {studentOptions.map((o) => (
+                <option key={o.id} value={o.id}>{o.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
+
         {active.length === 0 && archived.length === 0 && (
-          <EmptyState message="No confirmed sessions yet" />
+          <EmptyState message={studentFilter ? 'No confirmed sessions for this student' : 'No confirmed sessions yet'} />
         )}
         {active.length === 0 && archived.length > 0 && !showArchived && (
           <EmptyState message="No sessions to review — all confirmed sessions are archived." />
