@@ -51,7 +51,7 @@ function DayCell({ dayLabel, session, confirmed, isToday, onClick }) {
     cellClass = 'bg-accent text-ink-900 border border-transparent';
   } else if (hasSession) {
     // Both confirmed and pending use the surface card; confirmed gets a corner dot.
-    cellClass = 'bg-white border border-ink-100 text-ink-900';
+    cellClass = 'bg-white border border-ink-100 text-gray-900';
   } else {
     cellClass = 'bg-ink-50 text-ink-400 border border-transparent';
   }
