@@ -276,7 +276,8 @@ export default function SessionView() {
               <button
                 onClick={handleConfirm}
                 disabled={confirmSession.isPending}
-                className="sl-btn-primary w-full disabled:opacity-50"
+                className="sl-btn-primary w-full text-[13px] disabled:opacity-50"
+                style={{ padding: '10px 16px' }}
               >
                 {confirmSession.isPending ? 'Confirming…' : 'Confirm session'}
               </button>
