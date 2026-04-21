@@ -120,7 +120,8 @@ export default function SessionCard({
             <div className="px-4 pb-3">
               <button
                 onClick={onStart}
-                className="sl-btn-primary w-full"
+                className="sl-btn-primary w-full text-[13px]"
+                style={{ padding: '10px 16px' }}
               >
                 {confirmed ? 'Review session' : 'Start session'}
               </button>
