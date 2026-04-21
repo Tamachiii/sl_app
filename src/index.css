@@ -190,6 +190,23 @@ body {
 .dark .border-gray-200 { border-color: var(--color-ink-700) !important; }
 .dark .border-gray-300 { border-color: var(--color-ink-600) !important; }
 
+/* ink-* surfaces — flip light cream shades to dark ends of the same scale */
+.dark .bg-ink-50   { background-color: var(--color-ink-900) !important; }
+.dark .bg-ink-100  { background-color: var(--color-ink-800) !important; }
+.dark .bg-ink-200  { background-color: var(--color-ink-700) !important; }
+.dark .hover\:bg-ink-50:hover   { background-color: var(--color-ink-850) !important; }
+.dark .hover\:bg-ink-100:hover  { background-color: var(--color-ink-800) !important; }
+.dark .hover\:bg-ink-200:hover  { background-color: var(--color-ink-700) !important; }
+.dark .border-ink-100 { border-color: var(--color-ink-800) !important; }
+.dark .border-ink-200 { border-color: var(--color-ink-700) !important; }
+
+/* ink-* text — flip dark-end values used for "muted" ui copy to light-end values */
+.dark .text-ink-500 { color: var(--color-ink-300) !important; }
+.dark .text-ink-600 { color: var(--color-ink-200) !important; }
+.dark .text-ink-700 { color: var(--color-ink-100) !important; }
+.dark .text-ink-800 { color: var(--color-ink-50) !important; }
+.dark .text-ink-900 { color: var(--color-ink-0) !important; }
+
 /* Shadows look bad in dark mode — tone them down */
 .dark .shadow-sm,
 .dark .shadow,
