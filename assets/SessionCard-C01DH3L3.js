@@ -1,4 +1,4 @@
-import{c as m,j as e}from"./query-CsXJXDY5.js";import{s as x}from"./index-C0G0pLWO.js";import{r as u}from"./router-Cpm4BeQw.js";import{f as h}from"./volume-BZ-GBXEz.js";function w(s){return m({queryKey:["student-program-details",s],queryFn:async()=>{const{data:r,error:a}=await x.from("students").select("id").eq("profile_id",s).single();if(a)throw a;const{data:d,error:c}=await x.from("programs").select(`
+import{c as m,j as e}from"./query-CsXJXDY5.js";import{s as x}from"./index-6zJ1er5d.js";import{r as u}from"./router-Cpm4BeQw.js";import{f as h}from"./volume-BZ-GBXEz.js";function w(s){return m({queryKey:["student-program-details",s],queryFn:async()=>{const{data:r,error:a}=await x.from("students").select("id").eq("profile_id",s).single();if(a)throw a;const{data:d,error:c}=await x.from("programs").select(`
           id,
           weeks(
             id, week_number, label,
