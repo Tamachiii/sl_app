@@ -7,13 +7,6 @@ function SlotSummary({ slot }) {
   if (!ex) return null;
   return (
     <div className="flex items-center gap-2.5">
-      <span
-        className={`sl-pill shrink-0 ${
-          ex.type === 'pull' ? 'bg-pull/15 text-pull' : 'bg-push/15 text-push'
-        }`}
-      >
-        {ex.type}
-      </span>
       <span className="sl-display text-[14px] text-gray-900 truncate">{ex.name}</span>
       <span className="sl-mono text-[11px] text-ink-400 shrink-0 ml-auto">
         {formatSlotPrescription(slot)}
