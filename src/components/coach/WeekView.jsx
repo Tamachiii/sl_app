@@ -2,8 +2,6 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useWeek, useCreateSession, useDeleteSession, useUpdateWeek, useUpdateSession, useDeleteWeek } from '../../hooks/useWeek';
 import { useDuplicateWeek } from '../../hooks/useDuplicate';
-import { computeSessionVolume } from '../../lib/volume';
-import VolumeBar from './VolumeBar';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import EditableText from '../ui/EditableText';
@@ -112,61 +110,59 @@ export default function WeekView() {
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         {sessions.length === 0 && <EmptyState message="No sessions yet" />}
         {sessions.map((sess) => {
-          const vol = computeSessionVolume(sess.exercise_slots || []);
+          const exCount = (sess.exercise_slots || []).length;
           return (
-            <div key={sess.id} className="sl-card p-4 space-y-2">
-              <div className="flex items-center justify-between gap-2">
+            <div key={sess.id} className="sl-card px-4 py-3 flex items-center gap-2">
+              <div className="flex-1 min-w-0 flex items-baseline gap-2">
                 <EditableText
                   value={sess.title || ''}
                   onSave={(title) => updateSession.mutate({ id: sess.id, title })}
                   placeholder={`Session ${sess.day_number}`}
                   ariaLabel="Edit session title"
-                  className="sl-display text-[16px] text-gray-900 flex-1"
+                  className="sl-display text-[16px] text-gray-900"
                 />
-                {confirmedIds?.has(sess.id) && (
-                  <span
-                    aria-label="Confirmed by student"
-                    title="Confirmed by student"
-                    className="sl-pill inline-flex items-center gap-1"
-                    style={{
-                      background: 'color-mix(in srgb, var(--color-success) 15%, transparent)',
-                      color: 'var(--color-success)',
-                    }}
-                  >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                    </svg>
-                    confirmed
-                  </span>
-                )}
-                <button
-                  onClick={() =>
-                    navigate(`/coach/student/${studentId}/week/${weekId}/session/${sess.id}`)
-                  }
-                  aria-label="Open session"
-                  className="text-ink-400 hover:text-[var(--color-accent)] p-1"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </button>
-                <button
-                  onClick={() => setDeleteSessionConfirm(sess.id)}
-                  aria-label="Delete session"
-                  className="text-ink-400 hover:text-danger p-1"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
+                <span className="sl-mono text-[11px] text-ink-400 shrink-0">
+                  {exCount} ex
+                </span>
               </div>
-              <p className="sl-mono text-[11px] text-ink-400">
-                {(sess.exercise_slots || []).length} EXERCISES
-              </p>
-              <VolumeBar pull={vol.pull} push={vol.push} />
+              {confirmedIds?.has(sess.id) && (
+                <span
+                  aria-label="Confirmed by student"
+                  title="Confirmed by student"
+                  className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
+                  style={{
+                    background: 'var(--color-success)',
+                    color: 'var(--color-ink-900)',
+                  }}
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                </span>
+              )}
+              <button
+                onClick={() =>
+                  navigate(`/coach/student/${studentId}/week/${weekId}/session/${sess.id}`)
+                }
+                aria-label="Open session"
+                className="text-ink-400 hover:text-[var(--color-accent)] p-1"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setDeleteSessionConfirm(sess.id)}
+                aria-label="Delete session"
+                className="text-ink-400 hover:text-danger p-1"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
             </div>
           );
         })}
