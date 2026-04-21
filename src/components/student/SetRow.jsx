@@ -15,6 +15,7 @@ const SetRow = memo(function SetRow({ log, locked = false, restSeconds = null, r
   const toggleDone = useToggleSetDone();
   const setRpe = useSetRpe();
 
+  const [rpeOpen, setRpeOpen] = useState(false);
   const [remaining, setRemaining] = useState(null);
   const prevDone = useRef(log.done);
 
@@ -48,7 +49,7 @@ const SetRow = memo(function SetRow({ log, locked = false, restSeconds = null, r
 
   return (
     <div
-      className={`rounded-xl px-3 py-2.5 flex flex-col gap-2 transition-colors ${rowBg} ${
+      className={`rounded-xl px-3 py-2 transition-colors ${rowBg} ${
         log.done ? 'opacity-75' : ''
       }`}
       style={ringStyle}
@@ -104,13 +105,36 @@ const SetRow = memo(function SetRow({ log, locked = false, restSeconds = null, r
             Rest done
           </span>
         )}
+
+        <button
+          type="button"
+          onClick={() => !locked && setRpeOpen((v) => !v)}
+          disabled={locked}
+          aria-expanded={rpeOpen}
+          aria-label={log.rpe != null ? `RPE ${log.rpe}, tap to change` : 'Set RPE'}
+          className={`sl-pill shrink-0 ${
+            log.rpe != null
+              ? 'bg-accent/15 text-accent'
+              : 'bg-ink-100 text-ink-500'
+          } ${locked ? 'opacity-60 cursor-not-allowed' : 'hover:brightness-95'}`}
+          style={log.rpe != null ? { color: 'var(--color-accent)' } : undefined}
+        >
+          {log.rpe != null ? `RPE ${log.rpe}` : 'RPE'}
+        </button>
       </div>
 
-      <RpeInput
-        value={log.rpe}
-        disabled={locked}
-        onChange={(rpe) => setRpe.mutate({ logId: log.id, rpe })}
-      />
+      {rpeOpen && (
+        <div className="pt-2">
+          <RpeInput
+            value={log.rpe}
+            disabled={locked}
+            onChange={(rpe) => {
+              setRpe.mutate({ logId: log.id, rpe });
+              if (rpe != null) setRpeOpen(false);
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 });
