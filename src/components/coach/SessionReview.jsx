@@ -134,11 +134,10 @@ export default function SessionReview() {
                 <SlotProgress logs={slotLogs} plannedSets={slot.sets} />
                 {comment && (
                   <div
-                    className="text-[13px] rounded-lg px-2.5 py-1.5 whitespace-pre-wrap"
+                    className="text-[13px] text-gray-900 rounded-lg px-2.5 py-1.5 whitespace-pre-wrap"
                     style={{
                       background: 'color-mix(in srgb, var(--color-accent) 10%, transparent)',
                       border: '1px solid color-mix(in srgb, var(--color-accent) 30%, transparent)',
-                      color: 'var(--color-ink-800, var(--color-ink-900))',
                     }}
                   >
                     <span
