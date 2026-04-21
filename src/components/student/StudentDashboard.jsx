@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { Link } from 'react-router-dom';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import { useStudentProgressStats } from '../../hooks/useStudentProgressStats';
@@ -110,7 +109,7 @@ export default function StudentDashboard() {
         <>
           <section aria-labelledby="summary-heading">
             <SectionHeading id="summary-heading">{t('student.stats.summary')}</SectionHeading>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <StatCard
                 label={t('student.stats.sessions')}
                 value={`${stats.totalSessionsConfirmed}/${stats.totalSessions}`}
@@ -120,13 +119,6 @@ export default function StudentDashboard() {
                 label={t('student.stats.setsDone')}
                 value={stats.totalSetsDone}
                 sub={t('student.stats.ofPrescribed', { n: stats.totalSets })}
-              />
-              <StatCard
-                label={t('student.stats.fullWeeks')}
-                value={stats.weeklyVolume.filter(
-                  (w) => w.sessions_total > 0 && w.sessions_confirmed === w.sessions_total
-                ).length}
-                sub={t('student.stats.ofWeeks', { n: stats.weeklyVolume.length })}
               />
               <StatCard
                 label={t('student.stats.avgRpe')}
@@ -172,36 +164,6 @@ export default function StudentDashboard() {
               exercises={stats.exerciseProgress?.exercises ?? []}
               byExercise={stats.exerciseProgress?.byExercise ?? {}}
             />
-          </section>
-
-          <section aria-labelledby="activity-heading">
-            <SectionHeading id="activity-heading">{t('student.stats.recentActivity')}</SectionHeading>
-            {stats.recentConfirmations.length === 0 ? (
-              <EmptyState message={t('student.stats.noConfirmed')} />
-            ) : (
-              <div className="space-y-2">
-                {stats.recentConfirmations.map((c) => (
-                  <Link
-                    key={c.id}
-                    to={`/student/session/${c.session_id}`}
-                    className="block sl-card p-3.5 hover:bg-ink-50 transition-colors"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="sl-display text-[15px] text-gray-900 truncate">
-                        {c.session_title || `Session ${c.day_number}`}
-                      </span>
-                      <span className="sl-mono text-[11px] text-ink-400 shrink-0">
-                        {new Date(c.confirmed_at).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <p className="sl-mono text-[11px] text-ink-400 mt-1">
-                      W{c.week_number}
-                      {c.week_label ? ` · ${c.week_label}` : ''} · Day {c.day_number}
-                    </p>
-                  </Link>
-                ))}
-              </div>
-            )}
           </section>
         </>
       )}

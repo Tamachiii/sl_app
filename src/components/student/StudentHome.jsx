@@ -95,44 +95,6 @@ function DayCell({ dayLabel, session, confirmed, isToday, onClick }) {
   );
 }
 
-// ─── Session list item ─────────────────────────────────────────────────────
-
-function SessionItem({ session, confirmed, onClick }) {
-  const dn = sessionDayNumber(session);
-  const dayName = dn >= 1 && dn <= 7
-    ? DAY_FULL[dn - 1].toUpperCase()
-    : `D${session.day_number || session.sort_order + 1}`;
-
-  return (
-    <button
-      onClick={onClick}
-      className="w-full flex items-center gap-3 text-left bg-white rounded-2xl shadow-sm px-4 py-3.5 hover:shadow-md transition-shadow"
-    >
-      <div className="w-11 text-center">
-        <div className="sl-mono text-[10px] font-semibold text-ink-400 tracking-widest">{dayName}</div>
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-[15px] font-semibold text-gray-900 truncate">
-          {session.title || `Session ${session.sort_order + 1}`}
-        </p>
-        <p className="sl-mono text-[11px] text-ink-400 mt-0.5">
-          {(session.exercise_slots || []).length} exercises
-          {confirmed ? ' · Done' : ''}
-        </p>
-      </div>
-      {confirmed ? (
-        <svg className="w-4 h-4 text-accent shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-        </svg>
-      ) : (
-        <svg className="w-4 h-4 text-ink-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-        </svg>
-      )}
-    </button>
-  );
-}
-
 // ─── Greeting block ────────────────────────────────────────────────────────
 
 function Greeting({ fullName, todayDN, todaysMessage, activeWeek, onSignOut }) {
@@ -291,9 +253,6 @@ export default function StudentHome() {
     todaysMessage = t('student.home.todayPending');
   }
 
-  const doneCount = completed.length;
-  const totalCount = activeSessions.length;
-
   if (isLoading) {
     return (
       <>
@@ -327,23 +286,7 @@ export default function StudentHome() {
           />
         )}
 
-        {/* Week overview */}
-        <section aria-labelledby="week-heading">
-          <div className="flex items-baseline justify-between mb-3">
-            <h2 id="week-heading" className="sl-label">
-              {t('student.home.week')} {activeWeek?.week_number}
-              {activeWeek?.label && (
-                <span className="ml-1 normal-case tracking-normal font-normal text-ink-500">
-                  — {activeWeek.label}
-                </span>
-              )}
-            </h2>
-            {totalCount > 0 && (
-              <span className="sl-label" style={{ color: 'var(--color-accent)' }}>
-                {doneCount} / {totalCount} {t('common.done')}
-              </span>
-            )}
-          </div>
+        <section aria-label="Week overview">
           <div className="grid grid-cols-7 gap-1.5">
             {daySlots.map(({ dayNumber, label, session }) => (
               <DayCell
@@ -358,11 +301,9 @@ export default function StudentHome() {
           </div>
         </section>
 
-        {/* Next session preview */}
         {upcoming.length > 0 && (
           <section aria-labelledby="next-heading" className="relative">
             <h2 id="next-heading" className="sl-label mb-3">{t('student.home.nextSession')}</h2>
-            {/* Left accent bar, sits inside the rounded card via overflow clipping. */}
             <div className="relative overflow-hidden rounded-2xl">
               <div
                 className="absolute top-0 left-0 bottom-0 w-1 z-10"
@@ -372,47 +313,12 @@ export default function StudentHome() {
                 session={upcoming[0]}
                 confirmed={false}
                 archived={false}
-                defaultOpen
                 subtitle={(() => {
                   const dn = sessionDayNumber(upcoming[0]);
                   return dn >= 1 && dn <= 7 ? DAY_FULL[dn - 1] : null;
                 })()}
                 onStart={() => navigate(`/student/session/${upcoming[0].id}`)}
               />
-            </div>
-          </section>
-        )}
-
-        {/* Upcoming sessions */}
-        {upcoming.length > 1 && (
-          <section aria-labelledby="upcoming-heading">
-            <h2 id="upcoming-heading" className="sl-label mb-3">{t('student.home.upcoming')}</h2>
-            <div className="space-y-2">
-              {upcoming.slice(1).map((s) => (
-                <SessionItem
-                  key={s.id}
-                  session={s}
-                  confirmed={false}
-                  onClick={() => navigate(`/student/session/${s.id}`)}
-                />
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Completed this week */}
-        {completed.length > 0 && (
-          <section aria-labelledby="completed-heading">
-            <h2 id="completed-heading" className="sl-label mb-3">{t('student.home.completedThisWeek')}</h2>
-            <div className="space-y-2">
-              {completed.map((s) => (
-                <SessionItem
-                  key={s.id}
-                  session={s}
-                  confirmed={true}
-                  onClick={() => navigate(`/student/session/${s.id}`)}
-                />
-              ))}
             </div>
           </section>
         )}

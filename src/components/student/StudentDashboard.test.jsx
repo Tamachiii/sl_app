@@ -106,8 +106,14 @@ describe('StudentDashboard', () => {
     expect(screen.getByText(/42% complete/i)).toBeInTheDocument();
     expect(screen.getByText('42')).toBeInTheDocument();
     expect(screen.getByText(/of 100 prescribed/i)).toBeInTheDocument();
-    expect(screen.getByText('Full weeks')).toBeInTheDocument();
     expect(screen.getByText('7.3')).toBeInTheDocument();
+  });
+
+  it('does not render full-weeks stat or recent-activity section', () => {
+    mockStats = { data: sampleData, isLoading: false };
+    renderDashboard();
+    expect(screen.queryByText('Full weeks')).not.toBeInTheDocument();
+    expect(screen.queryByText('Recent activity')).not.toBeInTheDocument();
   });
 
   it('does not render lift progression or weekly progress sections', () => {
@@ -115,21 +121,6 @@ describe('StudentDashboard', () => {
     renderDashboard();
     expect(screen.queryByText('Lift progression')).not.toBeInTheDocument();
     expect(screen.queryByText('Weekly progress')).not.toBeInTheDocument();
-  });
-
-  it('renders recent activity entries', () => {
-    mockStats = { data: sampleData, isLoading: false };
-    renderDashboard();
-    expect(screen.getByText('Push Day')).toBeInTheDocument();
-  });
-
-  it('shows empty recent activity state when none', () => {
-    mockStats = {
-      data: { ...sampleData, recentConfirmations: [] },
-      isLoading: false,
-    };
-    renderDashboard();
-    expect(screen.getByText(/no confirmed sessions yet/i)).toBeInTheDocument();
   });
 
   it('shows RPE dash when no samples', () => {

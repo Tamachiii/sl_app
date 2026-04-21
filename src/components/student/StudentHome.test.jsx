@@ -12,7 +12,11 @@ vi.mock('react-router-dom', async () => {
 });
 
 vi.mock('../../hooks/useAuth', () => ({
-  useAuth: () => ({ user: { id: 'user-1' } }),
+  useAuth: () => ({
+    user: { id: 'user-1' },
+    profile: { full_name: 'Ada Lovelace' },
+    signOut: vi.fn(),
+  }),
 }));
 
 let mockWeeks = { data: null, isLoading: true };
@@ -87,30 +91,29 @@ describe('StudentHome', () => {
     expect(mCells.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('shows upcoming section with unconfirmed sessions', () => {
+  it('shows the next unconfirmed session card', () => {
     mockWeeks = { data: sampleWeeks, isLoading: false };
     renderHome();
-    expect(screen.getByText('Upcoming')).toBeInTheDocument();
+    expect(screen.getByText('Next session')).toBeInTheDocument();
+    // Earliest unconfirmed session (by weekday) becomes the Next session card.
     expect(screen.getByText('Push Day')).toBeInTheDocument();
-    expect(screen.getByText('Pull Day')).toBeInTheDocument();
   });
 
-  it('moves confirmed sessions into completed section', () => {
+  it('surfaces the next unconfirmed session when the first is confirmed', () => {
     mockWeeks = { data: sampleWeeks, isLoading: false };
     mockConfirmedIds = { data: new Set(['sess-1']) };
     renderHome();
-    expect(screen.getByText('Completed this week')).toBeInTheDocument();
-    // The remaining upcoming session now lives in the Next session preview.
+    // Remaining unconfirmed session becomes the Next session card.
     expect(screen.getByText('Next session')).toBeInTheDocument();
     expect(screen.getByText('Pull Day')).toBeInTheDocument();
   });
 
-  it('clicking a later upcoming session navigates to SessionView', async () => {
+  it('clicking a day-strip cell navigates to that session', async () => {
     const user = userEvent.setup();
     mockWeeks = { data: sampleWeeks, isLoading: false };
     renderHome();
-    // upcoming[0] lives in the Next session card; upcoming[1] is a plain item.
-    await user.click(screen.getByText('Pull Day'));
+    // The Wednesday cell links to sess-2 (day_number 3). Its aria-label exposes the title.
+    await user.click(screen.getByLabelText(/Pull Day/));
     expect(mockNavigate).toHaveBeenCalledWith('/student/session/sess-2');
   });
 });
