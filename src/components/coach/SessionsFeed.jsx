@@ -75,17 +75,8 @@ export default function SessionsFeed() {
                 {t('common.archived')}
               </span>
             )}
-            <span
-              className="sl-pill inline-flex items-center gap-1"
-              style={{
-                background: 'color-mix(in srgb, var(--color-success) 15%, transparent)',
-                color: 'var(--color-success)',
-              }}
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-              </svg>
-              {t('common.confirmed')}
+            <span className="sl-mono text-[11px] text-ink-400">
+              {new Date(c.confirmed_at).toLocaleDateString()}
             </span>
           </div>
         </div>
@@ -95,9 +86,6 @@ export default function SessionsFeed() {
         <p className="sl-mono text-[11px] text-ink-400">
           W{c.week_number}
           {c.week_label ? ` · ${c.week_label}` : ''} · D{c.day_number}
-        </p>
-        <p className="sl-mono text-[11px] text-ink-400">
-          {new Date(c.confirmed_at).toLocaleString()}
         </p>
         {c.notes && (
           <p className="mt-2 text-[13px] text-ink-700 whitespace-pre-wrap">{c.notes}</p>

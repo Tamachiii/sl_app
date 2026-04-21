@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
-import { useStudents } from '../../hooks/useStudents';
 import { useAllConfirmations } from '../../hooks/useSessionConfirmation';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
@@ -86,7 +85,6 @@ function UserMenu({ fullName, onSignOut }) {
 export default function CoachDashboard() {
   const { t } = useI18n();
   const { profile, signOut } = useAuth();
-  const { data: students, isLoading: studentsLoading } = useStudents();
   const { data: confirmations, isLoading: confsLoading } = useAllConfirmations();
 
   const recentActivity = (confirmations || [])
@@ -102,52 +100,10 @@ export default function CoachDashboard() {
             <p className="sl-display text-[28px] text-gray-900 leading-none mt-1">
               {t('coach.dashboard.title')}
             </p>
-            <p className="sl-mono text-[11px] text-ink-400 mt-2">
-              {students ? `${students.length} ${students.length === 1 ? t('coach.dashboard.athlete') : t('coach.dashboard.athletes_plural')}` : '—'}
-              {' · '}
-              {recentActivity.length} {t('coach.dashboard.recent')}
-            </p>
           </div>
           <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
         </div>
       </div>
-
-      <section aria-labelledby="students-heading" className="space-y-2">
-        <h2 id="students-heading" className="sl-label text-ink-400">
-          {t('coach.dashboard.athletes')}
-        </h2>
-
-        {studentsLoading && (
-          <div className="flex justify-center py-6"><Spinner /></div>
-        )}
-
-        {!studentsLoading && (!students || students.length === 0) && (
-          <EmptyState message={t('coach.dashboard.noStudents')} />
-        )}
-
-        <div className="space-y-2">
-          {students?.map((s) => (
-            <Link
-              key={s.id}
-              to={`/coach/sessions?student=${s.id}`}
-              className="flex items-center justify-between sl-card p-3 hover:bg-ink-50 transition-colors"
-            >
-              <span className="sl-display text-[15px] text-gray-900">
-                {s.profile?.full_name || 'Student'}
-              </span>
-              <svg
-                className="w-4 h-4 text-ink-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </Link>
-          ))}
-        </div>
-      </section>
 
       <section aria-labelledby="activity-heading" className="space-y-2">
         <h2 id="activity-heading" className="sl-label text-ink-400">
@@ -182,10 +138,6 @@ export default function CoachDashboard() {
               </div>
               <p className="sl-display text-[15px] text-gray-900 mt-0.5">
                 {c.session_title || `Session ${c.day_number}`}
-              </p>
-              <p className="sl-mono text-[11px] text-ink-400 mt-0.5">
-                W{c.week_number}
-                {c.week_label ? ` · ${c.week_label}` : ''} · D{c.day_number}
               </p>
             </Link>
           ))}

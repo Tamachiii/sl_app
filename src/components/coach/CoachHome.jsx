@@ -34,8 +34,6 @@ export default function CoachHome() {
         </div>
       )}
 
-      <div className="sl-label text-ink-400">{t('coach.home.athletes')}</div>
-
       {isLoading && (
         <div className="flex justify-center py-12"><Spinner /></div>
       )}

@@ -2,15 +2,26 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-let mockStudents = { data: [], isLoading: false };
 let mockConfirmations = { data: [], isLoading: false };
-
-vi.mock('../../hooks/useStudents', () => ({
-  useStudents: () => mockStudents,
-}));
 
 vi.mock('../../hooks/useSessionConfirmation', () => ({
   useAllConfirmations: () => mockConfirmations,
+}));
+
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({ profile: null, signOut: vi.fn() }),
+}));
+
+vi.mock('../../hooks/useI18n', () => ({
+  useI18n: () => ({ t: (k) => {
+    const map = {
+      'coach.dashboard.kicker': 'COACH',
+      'coach.dashboard.title': 'Dashboard.',
+      'coach.dashboard.recentActivity': 'Recent activity',
+      'coach.dashboard.noConfirmations': 'No recent confirmations',
+    };
+    return map[k] || k;
+  } }),
 }));
 
 import CoachDashboard from './CoachDashboard';
@@ -26,7 +37,6 @@ function renderDashboard() {
 describe('CoachDashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockStudents = { data: [], isLoading: false };
     mockConfirmations = { data: [], isLoading: false };
   });
 
@@ -35,22 +45,10 @@ describe('CoachDashboard', () => {
     expect(screen.getByText('Dashboard.')).toBeInTheDocument();
   });
 
-  it('renders student names in the students section', () => {
-    mockStudents = {
-      data: [
-        { id: 's-1', profile: { full_name: 'Alice' } },
-        { id: 's-2', profile: { full_name: 'Bob' } },
-      ],
-      isLoading: false,
-    };
+  it('does not render a redundant athletes section (covered by Students tab)', () => {
     renderDashboard();
-    expect(screen.getByText('Alice')).toBeInTheDocument();
-    expect(screen.getByText('Bob')).toBeInTheDocument();
-  });
-
-  it('shows empty state when no students', () => {
-    renderDashboard();
-    expect(screen.getByText(/no students yet/i)).toBeInTheDocument();
+    // Any student-list section heading would use this wording; it should be gone.
+    expect(screen.queryByText(/^Athletes$/i)).not.toBeInTheDocument();
   });
 
   it('renders recent activity confirmations', () => {
