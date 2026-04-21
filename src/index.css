@@ -58,7 +58,7 @@ body {
     font-family: var(--font-display);
     font-weight: 800;
     letter-spacing: -0.03em;
-    line-height: 0.92;
+    line-height: 1.05;
   }
   .sl-condensed {
     font-family: "Archivo Narrow", var(--font-display);
