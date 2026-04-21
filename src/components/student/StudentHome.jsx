@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useStudentProgramDetails } from '../../hooks/useStudentProgramDetails';
@@ -142,26 +142,30 @@ function Greeting({ fullName, todayDN, todaysMessage, activeWeek, onSignOut }) {
   if (activeWeek?.label) metaBits.push(activeWeek.label);
   metaBits.push(DAY_FULL[todayDN - 1]);
 
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    function handle(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+    }
+    function handleKey(e) {
+      if (e.key === 'Escape') setMenuOpen(false);
+    }
+    document.addEventListener('mousedown', handle);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handle);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [menuOpen]);
+
   return (
     <div
       title={fullName ? `Student · ${fullName}` : undefined}
       className="pt-2 pb-1"
     >
-      {/* Top actions — theme toggle + sign out, right-aligned */}
-      <div className="flex items-center justify-end gap-1 -mr-1 -mt-1 mb-2">
-        <ThemeToggle />
-        {onSignOut && (
-          <button
-            onClick={onSignOut}
-            aria-label="Sign out"
-            className="p-1 text-ink-400 hover:text-ink-200"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-          </button>
-        )}
-      </div>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="sl-label mb-1.5 truncate">{metaBits.join(' · ')}</div>
@@ -169,11 +173,41 @@ function Greeting({ fullName, todayDN, todaysMessage, activeWeek, onSignOut }) {
           <p className="sl-mono text-[11px] text-ink-400 mt-2">{todaysMessage}</p>
         </div>
         {initials && (
-          <div
-            className="w-10 h-10 rounded-full bg-ink-100 flex items-center justify-center sl-display text-[13px] text-ink-900 shrink-0"
-            style={{ border: '1.5px solid var(--color-accent)' }}
-          >
-            {initials}
+          <div ref={menuRef} className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-label="Open user menu"
+              className="w-10 h-10 rounded-full bg-ink-100 flex items-center justify-center sl-display text-[13px] text-ink-900 cursor-pointer hover:brightness-95 active:scale-95 transition-transform"
+              style={{ border: '1.5px solid var(--color-accent)' }}
+            >
+              {initials}
+            </button>
+            {menuOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 top-12 z-20 min-w-[168px] rounded-xl bg-white shadow-lg border border-ink-100 overflow-hidden"
+              >
+                <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-ink-100">
+                  <span className="sl-label">Theme</span>
+                  <ThemeToggle />
+                </div>
+                {onSignOut && (
+                  <button
+                    role="menuitem"
+                    onClick={() => { setMenuOpen(false); onSignOut(); }}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-900 hover:bg-gray-50 text-left"
+                  >
+                    <svg className="w-4 h-4 text-ink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                    </svg>
+                    Sign out
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
