@@ -1,11 +1,11 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Header from '../layout/Header';
 import { useAuth } from '../../hooks/useAuth';
 import { useStudentProgramDetails } from '../../hooks/useStudentProgramDetails';
 import { useMyConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
+import ThemeToggle from '../ui/ThemeToggle';
 import SessionCard from './SessionCard';
 
 // day_number 1 = Monday … 7 = Sunday
@@ -48,42 +48,42 @@ function DayCell({ dayLabel, session, confirmed, isToday, onClick }) {
   // Background / text color logic — editorial dark-first treatment.
   let cellClass;
   if (isToday && hasSession && !confirmed) {
-    cellClass = 'bg-accent text-ink-900';
-  } else if (confirmed) {
-    cellClass = 'bg-white border border-ink-100 text-ink-900';
+    cellClass = 'bg-accent text-ink-900 border border-transparent';
   } else if (hasSession) {
+    // Both confirmed and pending use the surface card; confirmed gets a corner dot.
     cellClass = 'bg-white border border-ink-100 text-ink-900';
   } else {
-    cellClass = 'bg-ink-50 text-ink-400';
+    cellClass = 'bg-ink-50 text-ink-400 border border-transparent';
   }
 
-  const title = session?.title || (isRest ? 'REST' : '');
-  const label5 = (title || '').slice(0, 5).toUpperCase();
+  const shortTitle = (session?.title || (isRest ? 'Rest' : '')).toUpperCase();
 
   return (
     <button
       onClick={hasSession && !confirmed && onClick ? onClick : undefined}
       disabled={!hasSession || confirmed}
       aria-label={isRest ? `${dayLabel} rest day` : `${dayLabel} ${session.title}`}
-      className={`relative flex-1 min-w-0 rounded-xl h-[78px] px-1.5 py-2 flex flex-col justify-between items-start overflow-hidden transition-transform ${cellClass} ${
+      className={`relative flex-1 min-w-0 rounded-xl h-[78px] px-1.5 py-2 flex flex-col justify-between items-stretch overflow-hidden transition-transform ${cellClass} ${
         hasSession && !confirmed ? 'cursor-pointer active:scale-95' : 'cursor-default'
       }`}
     >
-      <span className="sl-mono text-[10px] font-semibold opacity-70">{dayLabel}</span>
+      <span className="sl-mono text-[10px] font-semibold opacity-70 text-center">{dayLabel}</span>
       <span
-        className="sl-display text-[16px]"
+        className="sl-display text-center leading-[0.95] break-words"
         style={{
-          writingMode: 'vertical-rl',
-          textOrientation: 'mixed',
-          transform: 'rotate(180deg)',
-          opacity: hasSession ? 1 : 0.3,
-          lineHeight: 1,
+          fontSize: shortTitle.length > 5 ? 11 : 13,
+          opacity: hasSession ? 1 : 0.45,
+          hyphens: 'auto',
         }}
       >
-        {label5 || 'REST'}
+        {shortTitle}
       </span>
       {confirmed && (
-        <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-accent" />
+        <span
+          aria-label="completed"
+          className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full"
+          style={{ background: 'var(--color-accent)' }}
+        />
       )}
     </button>
   );
@@ -129,7 +129,7 @@ function SessionItem({ session, confirmed, onClick }) {
 
 // ─── Greeting block ────────────────────────────────────────────────────────
 
-function Greeting({ fullName, todayDN, todaysMessage, activeWeek }) {
+function Greeting({ fullName, todayDN, todaysMessage, activeWeek, onSignOut }) {
   const firstName = (fullName || '').split(' ')[0] || 'there';
   const initials = (fullName || '')
     .split(/\s+/)
@@ -145,21 +145,38 @@ function Greeting({ fullName, todayDN, todaysMessage, activeWeek }) {
   return (
     <div
       title={fullName ? `Student · ${fullName}` : undefined}
-      className="flex items-start justify-between gap-4 px-1 pt-2 pb-1"
+      className="pt-2 pb-1"
     >
-      <div className="min-w-0">
-        <div className="sl-label mb-1.5 truncate">{metaBits.join(' · ')}</div>
-        <div className="sl-display text-[30px] text-gray-900 truncate">Hey, {firstName}.</div>
-        <p className="sl-mono text-[11px] text-ink-400 mt-2">{todaysMessage}</p>
+      {/* Top actions — theme toggle + sign out, right-aligned */}
+      <div className="flex items-center justify-end gap-1 -mr-1 -mt-1 mb-2">
+        <ThemeToggle />
+        {onSignOut && (
+          <button
+            onClick={onSignOut}
+            aria-label="Sign out"
+            className="p-1 text-ink-400 hover:text-ink-200"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+          </button>
+        )}
       </div>
-      {initials && (
-        <div
-          className="w-10 h-10 rounded-full bg-ink-100 flex items-center justify-center sl-display text-[13px] text-ink-900 shrink-0"
-          style={{ border: '1.5px solid var(--color-accent)' }}
-        >
-          {initials}
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="sl-label mb-1.5 truncate">{metaBits.join(' · ')}</div>
+          <div className="sl-display text-[32px] text-gray-900 truncate">Hey, {firstName}.</div>
+          <p className="sl-mono text-[11px] text-ink-400 mt-2">{todaysMessage}</p>
         </div>
-      )}
+        {initials && (
+          <div
+            className="w-10 h-10 rounded-full bg-ink-100 flex items-center justify-center sl-display text-[13px] text-ink-900 shrink-0"
+            style={{ border: '1.5px solid var(--color-accent)' }}
+          >
+            {initials}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -167,7 +184,7 @@ function Greeting({ fullName, todayDN, todaysMessage, activeWeek }) {
 // ─── Main component ────────────────────────────────────────────────────────
 
 export default function StudentHome() {
-  const { user, profile } = useAuth();
+  const { user, profile, signOut } = useAuth();
   const navigate = useNavigate();
   const { data: weeks, isLoading } = useStudentProgramDetails(user?.id);
   const { data: confirmedIds = new Set() } = useMyConfirmedSessionIds();
@@ -234,7 +251,7 @@ export default function StudentHome() {
   if (isLoading) {
     return (
       <>
-        <Header title="Home" />
+        <h1 className="sr-only">Home</h1>
         <div className="flex justify-center py-12"><Spinner /></div>
       </>
     );
@@ -243,7 +260,7 @@ export default function StudentHome() {
   if (!weeks?.length) {
     return (
       <>
-        <Header title="Home" />
+        <h1 className="sr-only">Home</h1>
         <div className="p-4"><EmptyState message="No program assigned yet" /></div>
       </>
     );
@@ -251,7 +268,7 @@ export default function StudentHome() {
 
   return (
     <>
-      <Header title="Home" />
+      <h1 className="sr-only">Home</h1>
       <div className="p-4 space-y-6">
 
         {profile?.full_name && (
@@ -260,6 +277,7 @@ export default function StudentHome() {
             todayDN={todayDN}
             todaysMessage={todaysMessage}
             activeWeek={activeWeek}
+            onSignOut={signOut}
           />
         )}
 
