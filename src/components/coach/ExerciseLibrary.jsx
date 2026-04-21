@@ -85,7 +85,11 @@ function ExerciseForm({ initial, onSubmit, onCancel, submitLabel }) {
         />
       </div>
       <div className="flex gap-2">
-        <button type="submit" className="flex-1 sl-btn-primary">
+        <button
+          type="submit"
+          className="flex-1 sl-btn-primary text-[13px]"
+          style={{ padding: '10px 16px' }}
+        >
           {submitLabel}
         </button>
         {onCancel && (
