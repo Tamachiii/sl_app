@@ -44,7 +44,7 @@ Apply `supabase/schema.sql` to a fresh Supabase project (creates tables, RLS pol
 npm run dev       # dev server
 npm run build     # production build → dist/
 npm run preview   # serve dist/
-npm test          # run vitest (103 tests)
+npm test          # run vitest (~130 tests)
 npm run deploy    # publishes dist/ to gh-pages branch
 ```
 
@@ -199,11 +199,28 @@ For any exercise, the coach can pick **any number** of sets to record on video v
 
 ---
 
+## Design System (athletic · editorial · dark-first)
+
+The UI uses a custom editorial design language instead of raw Tailwind utilities for the common cases. All primitives live in `src/index.css`:
+
+- **Fonts** (loaded in `index.html`): **Archivo** (`--font-display`) for headings, buttons, numeric callouts · **Inter** (`--font-body`) for body text · **JetBrains Mono** (`--font-mono`) for labels, meta, and numbers (tabular figures always on).
+- **Palette**: a warm `ink-*` scale (`ink-0` cream → `ink-950` near-black) replaces `gray-*`. Accent is `#ff5a1f` (high-vis orange). Semantic tokens: `--color-success`, `--color-warn`, `--color-danger`.
+- **Utilities** (`@layer components`):
+  - `sl-display` — display headings (Archivo 800, tight leading).
+  - `sl-label` — mono uppercase 10px kicker (`"PROGRAM" / "WEEK 1" / "REVIEW"`).
+  - `sl-mono` — tabular-figure meta/numbers.
+  - `sl-card` — surface primitive (white + hairline → solid `ink-850` in dark mode).
+  - `sl-pill` — small uppercase chip for tags and secondary buttons.
+  - `sl-btn-primary` — accent CTA with display font; override `padding`/`text-[…]` inline for compact variants (see `SessionCard`, `ExerciseLibrary` ExerciseForm).
+- **Editorial page header pattern**: back button + `sl-label` kicker + `sl-display` h1 + right-aligned `sl-pill` actions. Used across `SessionEditor`, `WeekView`, `SessionReview`, etc. `layout/Header` is now only used by `StudentGoals`; new pages should follow the editorial pattern instead.
+- **Tinted surfaces** use `color-mix(in srgb, var(--color-accent) 10%, transparent)` (and success/warn/danger) so they adapt to both themes.
+
 ## Theming (Light / Dark)
 
 - `ThemeProvider` (`src/hooks/useTheme.jsx`) toggles the `dark` class on `<html>` and persists to `localStorage` key `sl_app_theme`. Initial value follows `prefers-color-scheme` if unset.
-- `src/index.css` declares `@custom-variant dark (&:where(.dark, .dark *))` (Tailwind 4) and a compact set of CSS overrides that remap `bg-white`, `bg-gray-50/100/200`, `text-gray-*`, `border-gray-*`, etc. under `.dark`. This avoids adding `dark:` variants to every component.
-- Toggle UI: `ThemeToggle` (sun/moon) lives in `Header`.
+- `src/index.css` declares `@custom-variant dark (&:where(.dark, .dark *))` (Tailwind 4) and a compact set of CSS overrides that remap `bg-white`, `bg-gray-50/100/200`, `text-gray-*`, `border-gray-*`, and the full `ink-*` scale under `.dark`. This avoids adding `dark:` variants to every component.
+- **Class-based remap only**: inline `style={{ color: 'var(--color-ink-800)' }}` does NOT flip. Use `text-gray-*` / `text-ink-*` classes for any text that needs to invert.
+- Toggle UI: `ThemeToggle` (sun/moon) lives inside the top-right avatar popover on `StudentHome` and `CoachDashboard`, and in `Header` on the Goals route.
 - `useTheme()` falls back to a no-op in the absence of a provider so components can render in isolation (tests).
 
 ---
@@ -223,7 +240,7 @@ Both mutations invalidate `['week']`, `['program']`, and/or `['session']` so lis
 - Tests live alongside components as `*.test.jsx` / `*.test.js`.
 - `src/test/utils.jsx` exports `renderWithProviders(ui, { auth, route, queryClient })` which wraps with `ThemeProvider` + `QueryClientProvider` + `AuthContext` + `MemoryRouter`.
 - Mocks: child hooks are stubbed with `vi.mock('../../hooks/useX', () => ({ ... }))` per file.
-- 103 tests across 22 files cover every interactive button, the volume helper, hook layers, and auth/nav flows.
+- ~130 tests across 24 files cover every interactive button, the volume helper, hook layers, and auth/nav flows.
 
 Run:
 ```bash
@@ -268,7 +285,9 @@ Supabase env vars are passed in at build time — ensure the GitHub Actions secr
 ## Notes for Future Agents
 
 - **Tailwind 4**: config is in CSS (`@theme` / `@custom-variant` in `src/index.css`), not a `tailwind.config.js`.
-- **Dark mode is CSS override–based**, not utility-based. Prefer extending overrides in `src/index.css` over adding `dark:` classes everywhere.
+- **Dark mode is CSS override–based**, not utility-based. Prefer extending overrides in `src/index.css` over adding `dark:` classes everywhere. Only *className*-based colors flip — inline `style={{ color: … }}` does not.
+- **Prefer the design system** (`sl-display`, `sl-label`, `sl-mono`, `sl-card`, `sl-pill`, `sl-btn-primary`) and the warm `ink-*` scale over raw `gray-*` / `dark:` utilities on new code.
+- **`layout/Header` is deprecated on most pages** — only `StudentGoals` still uses it. New pages should use the editorial header pattern (back button + sl-label kicker + sl-display h1 + sl-pill actions). `StudentHome` + `CoachDashboard` embed the theme toggle / sign-out inside an avatar-initials popover instead.
 - **HashRouter** is intentional (GitHub Pages). URLs contain `/#/` — don't swap to `BrowserRouter` without switching hosting.
 - **`useWeek.js` owns both `useUpdateWeek` and `useUpdateSession`** (not `useSession.js`) — consolidated to match the mutation source used by `WeekView`.
 - **`useTheme()` tolerates a missing provider** (returns a light-theme no-op). Convenient for tests; don't rely on it in production paths.
