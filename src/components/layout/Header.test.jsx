@@ -35,14 +35,14 @@ describe('Header', () => {
 
   it('does not show back button by default', () => {
     renderHeader();
-    expect(screen.queryByLabelText('Go back')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Back')).not.toBeInTheDocument();
   });
 
   it('shows and clicks back button when showBack is true', async () => {
     const user = userEvent.setup();
     renderHeader({ showBack: true });
 
-    const backBtn = screen.getByLabelText('Go back');
+    const backBtn = screen.getByLabelText('Back');
     expect(backBtn).toBeInTheDocument();
     await user.click(backBtn);
     expect(mockNavigate).toHaveBeenCalledWith(-1);

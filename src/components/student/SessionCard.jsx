@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { formatSlotPrescription } from '../../lib/volume';
+import { useI18n } from '../../hooks/useI18n';
 
 function SlotSummary({ slot }) {
   const ex = slot.exercise;
@@ -34,6 +35,7 @@ export default function SessionCard({
   defaultOpen = false,
   subtitle,
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(defaultOpen);
   const slots = session.exercise_slots || [];
 
@@ -56,18 +58,18 @@ export default function SessionCard({
             {subtitle && <span>{subtitle}</span>}
             {subtitle && <span aria-hidden>·</span>}
             <span>
-              {slots.length} EX
+              {slots.length} {t('common.ex')}
             </span>
             {confirmed && (
               <>
                 <span aria-hidden>·</span>
-                <span style={{ color: 'var(--color-success)' }}>DONE</span>
+                <span style={{ color: 'var(--color-success)' }}>{t('common.doneUpper')}</span>
               </>
             )}
             {archived && (
               <>
                 <span aria-hidden>·</span>
-                <span style={{ color: 'var(--color-warn)' }}>ARCHIVED</span>
+                <span style={{ color: 'var(--color-warn)' }}>{t('common.archivedUpper')}</span>
               </>
             )}
           </p>
@@ -84,14 +86,14 @@ export default function SessionCard({
             </span>
           ) : archived ? (
             <span className="sl-pill" style={{ background: 'color-mix(in srgb, var(--color-warn) 15%, transparent)', color: 'var(--color-warn)' }}>
-              archived
+              {t('common.archived')}
             </span>
           ) : (
             <span
               className="sl-pill"
               style={{ background: 'color-mix(in srgb, var(--color-accent) 15%, transparent)', color: 'var(--color-accent)' }}
             >
-              start
+              {t('common.start')}
             </span>
           )}
           <svg
@@ -108,7 +110,7 @@ export default function SessionCard({
       {open && (
         <div className="border-t border-ink-100">
           {slots.length === 0 ? (
-            <p className="px-4 py-3 sl-mono text-[11px] text-ink-400">No exercises assigned yet.</p>
+            <p className="px-4 py-3 sl-mono text-[11px] text-ink-400">{t('student.sessions.noExercises')}</p>
           ) : (
             <div className="px-4 py-3 space-y-2">
               {slots.map((slot) => (
@@ -123,7 +125,7 @@ export default function SessionCard({
                 className="sl-btn-primary w-full text-[13px]"
                 style={{ padding: '10px 16px' }}
               >
-                {confirmed ? 'Review session' : 'Start session'}
+                {confirmed ? t('common.reviewSession') : t('common.startSession')}
               </button>
             </div>
           )}

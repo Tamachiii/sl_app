@@ -7,6 +7,7 @@ import {
 } from '../../hooks/useExerciseLibrary';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
+import { useI18n } from '../../hooks/useI18n';
 
 const TYPE_FILTERS = ['all', 'pull', 'push'];
 
@@ -34,6 +35,7 @@ function FilterPill({ label, active, onClick }) {
 }
 
 function ExerciseForm({ initial, onSubmit, onCancel, submitLabel }) {
+  const { t } = useI18n();
   const [name, setName] = useState(initial?.name || '');
   const [type, setType] = useState(initial?.type || 'pull');
   const [difficulty, setDifficulty] = useState(initial?.difficulty || 1);
@@ -48,7 +50,7 @@ function ExerciseForm({ initial, onSubmit, onCancel, submitLabel }) {
     <form onSubmit={handleSubmit} className="space-y-3">
       <input
         type="text"
-        placeholder="Exercise name"
+        placeholder={t('coach.library.name')}
         required
         value={name}
         onChange={(e) => setName(e.target.value)}
@@ -60,21 +62,21 @@ function ExerciseForm({ initial, onSubmit, onCancel, submitLabel }) {
           onChange={(e) => setType(e.target.value)}
           className={`${inputCls} flex-1`}
         >
-          <option value="pull">Pull</option>
-          <option value="push">Push</option>
+          <option value="pull">{t('coach.library.typePull')}</option>
+          <option value="push">{t('coach.library.typePush')}</option>
         </select>
         <select
           value={difficulty}
           onChange={(e) => setDifficulty(Number(e.target.value))}
           className={`${inputCls} flex-1`}
         >
-          <option value={1}>Difficulty 1</option>
-          <option value={2}>Difficulty 2</option>
-          <option value={3}>Difficulty 3</option>
+          <option value={1}>{t('coach.library.difficulty', { n: 1 })}</option>
+          <option value={2}>{t('coach.library.difficulty', { n: 2 })}</option>
+          <option value={3}>{t('coach.library.difficulty', { n: 3 })}</option>
         </select>
       </div>
       <div>
-        <label className="sl-label text-ink-400 block mb-1">Volume weight</label>
+        <label className="sl-label text-ink-400 block mb-1">{t('coach.library.volumeWeight')}</label>
         <input
           type="number"
           min={0.1}
@@ -98,7 +100,7 @@ function ExerciseForm({ initial, onSubmit, onCancel, submitLabel }) {
             onClick={onCancel}
             className="flex-1 rounded-lg bg-ink-100 text-ink-700 hover:bg-ink-200 py-2 sl-mono text-[12px]"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
         )}
       </div>
@@ -107,6 +109,7 @@ function ExerciseForm({ initial, onSubmit, onCancel, submitLabel }) {
 }
 
 export default function ExerciseLibrary() {
+  const { t } = useI18n();
   const { data: exercises, isLoading } = useExerciseLibrary();
   const createExercise = useCreateExercise();
   const updateExercise = useUpdateExercise();
@@ -141,9 +144,9 @@ export default function ExerciseLibrary() {
     <div className="p-4 pb-6 space-y-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="sl-label text-ink-400">Catalog</div>
+          <div className="sl-label text-ink-400">{t('coach.library.kicker')}</div>
           <h1 className="sl-display text-[28px] text-gray-900 leading-none mt-1">
-            Library.
+            {t('coach.library.title')}
           </h1>
         </div>
         {!showAdd && (
@@ -151,7 +154,7 @@ export default function ExerciseLibrary() {
             onClick={() => setShowAdd(true)}
             className="sl-btn-primary text-[12px] px-3 py-1.5"
           >
-            + ADD
+            {t('coach.library.add')}
           </button>
         )}
       </div>
@@ -165,7 +168,7 @@ export default function ExerciseLibrary() {
           <ExerciseForm
             onSubmit={handleCreate}
             onCancel={() => setShowAdd(false)}
-            submitLabel="Create"
+            submitLabel={t('coach.library.create')}
           />
         </div>
       )}
@@ -184,8 +187,8 @@ export default function ExerciseLibrary() {
             </svg>
             <input
               type="search"
-              aria-label="Search exercises"
-              placeholder="Search exercises…"
+              aria-label={t('coach.library.search')}
+              placeholder={t('coach.library.search')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-lg border border-ink-200 bg-white pl-9 pr-3 py-2 sl-mono text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
@@ -193,24 +196,32 @@ export default function ExerciseLibrary() {
           </div>
 
           <div className="flex gap-2" role="group" aria-label="Filter by type">
-            {TYPE_FILTERS.map((t) => (
-              <FilterPill
-                key={t}
-                label={t === 'all' ? 'All' : t.charAt(0).toUpperCase() + t.slice(1)}
-                active={typeFilter === t}
-                onClick={() => setTypeFilter(t)}
-              />
-            ))}
+            {TYPE_FILTERS.map((filter) => {
+              const label =
+                filter === 'all'
+                  ? t('coach.library.filterAll')
+                  : filter === 'pull'
+                  ? t('coach.library.filterPull')
+                  : t('coach.library.filterPush');
+              return (
+                <FilterPill
+                  key={filter}
+                  label={label}
+                  active={typeFilter === filter}
+                  onClick={() => setTypeFilter(filter)}
+                />
+              );
+            })}
           </div>
         </div>
       )}
 
       {!isLoading && !hasExercises && !showAdd && (
-        <EmptyState message="No exercises yet" />
+        <EmptyState message={t('coach.library.noneYet')} />
       )}
 
       {!isLoading && hasExercises && filtered.length === 0 && (
-        <EmptyState message="No exercises match your search" />
+        <EmptyState message={t('coach.library.noneMatch')} />
       )}
 
       <div className="space-y-2">
@@ -221,7 +232,7 @@ export default function ExerciseLibrary() {
                 initial={ex}
                 onSubmit={(vals) => handleUpdate(ex.id, vals)}
                 onCancel={() => setEditingId(null)}
-                submitLabel="Save"
+                submitLabel={t('common.save')}
               />
             ) : (
               <div className="flex items-center justify-between gap-3">
@@ -246,16 +257,16 @@ export default function ExerciseLibrary() {
                     aria-label={`Edit ${ex.name}`}
                     className="sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)] px-1"
                   >
-                    edit
+                    {t('coach.library.edit')}
                   </button>
                   <button
                     onClick={() => {
-                      if (confirm(`Delete "${ex.name}"?`)) deleteExercise.mutate(ex.id);
+                      if (confirm(t('coach.library.confirmDelete', { name: ex.name }))) deleteExercise.mutate(ex.id);
                     }}
                     aria-label={`Delete ${ex.name}`}
                     className="sl-mono text-[11px] text-ink-400 hover:text-danger px-1"
                   >
-                    del
+                    {t('coach.library.del')}
                   </button>
                 </div>
               </div>

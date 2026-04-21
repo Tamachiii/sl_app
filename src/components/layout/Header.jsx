@@ -1,10 +1,13 @@
 import { useNavigate } from 'react-router-dom';
 import ThemeToggle from '../ui/ThemeToggle';
+import LanguageSelect from '../ui/LanguageSelect';
 import { useAuth } from '../../hooks/useAuth';
+import { useI18n } from '../../hooks/useI18n';
 
 export default function Header({ title, showBack = false, actions }) {
   const navigate = useNavigate();
   const { signOut } = useAuth();
+  const { t } = useI18n();
 
   return (
     <header className="sticky top-0 z-10 bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
@@ -12,7 +15,7 @@ export default function Header({ title, showBack = false, actions }) {
         <button
           onClick={() => navigate(-1)}
           className="text-gray-600 -ml-1 p-1"
-          aria-label="Go back"
+          aria-label={t('common.back')}
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -22,11 +25,12 @@ export default function Header({ title, showBack = false, actions }) {
       <h1 className="text-lg font-semibold text-gray-900 flex-1 truncate">{title}</h1>
       <div className="flex items-center gap-2">
         {actions}
+        <LanguageSelect />
         <ThemeToggle />
         {signOut && (
           <button
             onClick={signOut}
-            aria-label="Sign out"
+            aria-label={t('common.signOut')}
             className="p-1 text-gray-400 hover:text-gray-600"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

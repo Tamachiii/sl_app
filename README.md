@@ -225,6 +225,16 @@ The UI uses a custom editorial design language instead of raw Tailwind utilities
 
 ---
 
+## Internationalization (EN / FR / DE)
+
+- `I18nProvider` (`src/hooks/useI18n.jsx`) resolves initial language from `localStorage.sl_app_lang`, falling back to `navigator.language`, then `'en'`. Persists writes and mirrors to `<html lang>`.
+- Locale dictionaries live in `src/lib/i18n/{en,fr,de}.js` (nested keys like `student.home.nextSession`). `getMessage(lang, key, params)` supports `{token}` interpolation with English fallback for missing keys.
+- `LanguageSelect` (`src/components/ui/LanguageSelect.jsx`) is a compact EN/FR/DE button group. Rendered inside the `StudentHome` and `CoachDashboard` avatar popovers, next to the `LoginPage` kicker, and in `Header` (Goals route).
+- `useI18n()` has a no-op English fallback when no provider is mounted — same isolated-test pattern as `useTheme`.
+- Label values are stored title-case (`'Home'`); the `sl-label` utility uppercases visually via CSS.
+
+---
+
 ## Inline Title Editing
 
 `EditableText` (`src/components/ui/EditableText.jsx`) is a controlled click-to-edit component: renders a button showing `value` or `placeholder`, becomes an input on click, commits on Enter/blur, cancels on Escape. Used for:

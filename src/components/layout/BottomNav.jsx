@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { useI18n } from '../../hooks/useI18n';
 
 function NavItem({ to, label, icon, end = false }) {
   return (
@@ -73,6 +74,7 @@ const StatsIcon = (
 
 export default function BottomNav() {
   const { role } = useAuth();
+  const { t } = useI18n();
 
   const navClass =
     'sticky bottom-0 flex justify-around backdrop-blur supports-[backdrop-filter]:bg-white/80 bg-white border-t border-ink-100';
@@ -80,20 +82,20 @@ export default function BottomNav() {
   if (role === 'coach') {
     return (
       <nav aria-label="Main navigation" className={navClass}>
-        <NavItem to="/coach/dashboard" label="Dashboard" icon={DashboardIcon} end />
-        <NavItem to="/coach/students" label="Students" icon={StudentsIcon} end />
-        <NavItem to="/coach/sessions" label="Sessions" icon={SessionsIcon} end />
-        <NavItem to="/coach/exercises" label="Library" icon={LibraryIcon} end />
+        <NavItem to="/coach/dashboard" label={t('nav.dashboard')} icon={DashboardIcon} end />
+        <NavItem to="/coach/students" label={t('nav.students')} icon={StudentsIcon} end />
+        <NavItem to="/coach/sessions" label={t('nav.sessions')} icon={SessionsIcon} end />
+        <NavItem to="/coach/exercises" label={t('nav.library')} icon={LibraryIcon} end />
       </nav>
     );
   }
 
   return (
     <nav aria-label="Main navigation" className={navClass}>
-      <NavItem to="/student" label="Home" icon={HomeIcon} end />
-      <NavItem to="/student/sessions" label="Sessions" icon={SessionsIcon} />
-      <NavItem to="/student/stats" label="Stats" icon={StatsIcon} />
-      <NavItem to="/student/goals" label="Goals" icon={GoalIcon} />
+      <NavItem to="/student" label={t('nav.home')} icon={HomeIcon} end />
+      <NavItem to="/student/sessions" label={t('nav.sessions')} icon={SessionsIcon} />
+      <NavItem to="/student/stats" label={t('nav.stats')} icon={StatsIcon} />
+      <NavItem to="/student/goals" label={t('nav.goals')} icon={GoalIcon} />
     </nav>
   );
 }

@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { useI18n } from '../../hooks/useI18n';
 import { useStudents } from '../../hooks/useStudents';
 import { useAllConfirmations } from '../../hooks/useSessionConfirmation';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import ThemeToggle from '../ui/ThemeToggle';
+import LanguageSelect from '../ui/LanguageSelect';
 
 function UserMenu({ fullName, onSignOut }) {
+  const { t } = useI18n();
   const initials = (fullName || '')
     .split(/\s+/)
     .filter(Boolean)
@@ -43,7 +46,7 @@ function UserMenu({ fullName, onSignOut }) {
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Open user menu"
+        aria-label={t('common.openUserMenu')}
         className="w-10 h-10 rounded-full bg-ink-100 flex items-center justify-center sl-display text-[13px] text-ink-900 cursor-pointer hover:brightness-95 active:scale-95 transition-transform"
         style={{ border: '1.5px solid var(--color-accent)' }}
       >
@@ -55,8 +58,12 @@ function UserMenu({ fullName, onSignOut }) {
           className="absolute right-0 top-12 z-20 min-w-[168px] rounded-xl bg-white shadow-lg border border-ink-100 overflow-hidden"
         >
           <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-ink-100">
-            <span className="sl-label">Theme</span>
+            <span className="sl-label">{t('common.theme')}</span>
             <ThemeToggle />
+          </div>
+          <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-ink-100">
+            <span className="sl-label">{t('common.language')}</span>
+            <LanguageSelect />
           </div>
           {onSignOut && (
             <button
@@ -67,7 +74,7 @@ function UserMenu({ fullName, onSignOut }) {
               <svg className="w-4 h-4 text-ink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
               </svg>
-              Sign out
+              {t('common.signOut')}
             </button>
           )}
         </div>
@@ -77,6 +84,7 @@ function UserMenu({ fullName, onSignOut }) {
 }
 
 export default function CoachDashboard() {
+  const { t } = useI18n();
   const { profile, signOut } = useAuth();
   const { data: students, isLoading: studentsLoading } = useStudents();
   const { data: confirmations, isLoading: confsLoading } = useAllConfirmations();
@@ -90,14 +98,14 @@ export default function CoachDashboard() {
       <div className="sl-card px-4 py-4">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <div className="sl-label text-ink-400">Coach</div>
+            <div className="sl-label text-ink-400">{t('coach.dashboard.kicker')}</div>
             <p className="sl-display text-[28px] text-gray-900 leading-none mt-1">
-              Dashboard.
+              {t('coach.dashboard.title')}
             </p>
             <p className="sl-mono text-[11px] text-ink-400 mt-2">
-              {students ? `${students.length} ${students.length === 1 ? 'athlete' : 'athletes'}` : '—'}
+              {students ? `${students.length} ${students.length === 1 ? t('coach.dashboard.athlete') : t('coach.dashboard.athletes_plural')}` : '—'}
               {' · '}
-              {recentActivity.length} RECENT
+              {recentActivity.length} {t('coach.dashboard.recent')}
             </p>
           </div>
           <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
@@ -106,7 +114,7 @@ export default function CoachDashboard() {
 
       <section aria-labelledby="students-heading" className="space-y-2">
         <h2 id="students-heading" className="sl-label text-ink-400">
-          Athletes
+          {t('coach.dashboard.athletes')}
         </h2>
 
         {studentsLoading && (
@@ -114,7 +122,7 @@ export default function CoachDashboard() {
         )}
 
         {!studentsLoading && (!students || students.length === 0) && (
-          <EmptyState message="No students yet" />
+          <EmptyState message={t('coach.dashboard.noStudents')} />
         )}
 
         <div className="space-y-2">
@@ -143,7 +151,7 @@ export default function CoachDashboard() {
 
       <section aria-labelledby="activity-heading" className="space-y-2">
         <h2 id="activity-heading" className="sl-label text-ink-400">
-          Recent activity
+          {t('coach.dashboard.recentActivity')}
         </h2>
 
         {confsLoading && (
@@ -151,7 +159,7 @@ export default function CoachDashboard() {
         )}
 
         {!confsLoading && recentActivity.length === 0 && (
-          <EmptyState message="No recent confirmations" />
+          <EmptyState message={t('coach.dashboard.noConfirmations')} />
         )}
 
         <div className="space-y-2">

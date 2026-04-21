@@ -3,8 +3,10 @@ import { Link, useSearchParams } from 'react-router-dom';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import { useAllConfirmations } from '../../hooks/useSessionConfirmation';
+import { useI18n } from '../../hooks/useI18n';
 
 export default function SessionsFeed() {
+  const { t } = useI18n();
   const { data: confirmations, isLoading } = useAllConfirmations();
   const [showArchived, setShowArchived] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -70,7 +72,7 @@ export default function SessionsFeed() {
                   color: 'var(--color-ink-900)',
                 }}
               >
-                archived
+                {t('common.archived')}
               </span>
             )}
             <span
@@ -83,7 +85,7 @@ export default function SessionsFeed() {
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
               </svg>
-              confirmed
+              {t('common.confirmed')}
             </span>
           </div>
         </div>
@@ -107,21 +109,21 @@ export default function SessionsFeed() {
   return (
     <div className="p-4 pb-6 space-y-5">
       <div>
-        <div className="sl-label text-ink-400">Feed</div>
+        <div className="sl-label text-ink-400">{t('coach.sessions.kicker')}</div>
         <h1 className="sl-display text-[28px] text-gray-900 leading-none mt-1">
-          Sessions.
+          {t('coach.sessions.title')}
         </h1>
       </div>
 
       {studentOptions.length > 0 && (
         <label className="flex items-center gap-2">
-          <span className="sl-label text-ink-400">Student</span>
+          <span className="sl-label text-ink-400">{t('coach.sessions.student')}</span>
           <select
             value={studentFilter}
             onChange={handleFilterChange}
             className="flex-1 rounded-lg border border-ink-200 bg-white px-3 py-1.5 sl-mono text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
           >
-            <option value="">All students</option>
+            <option value="">{t('coach.sessions.allStudents')}</option>
             {studentOptions.map((o) => (
               <option key={o.id} value={o.id}>{o.name}</option>
             ))}
@@ -130,10 +132,10 @@ export default function SessionsFeed() {
       )}
 
       {active.length === 0 && archived.length === 0 && (
-        <EmptyState message={studentFilter ? 'No confirmed sessions for this student' : 'No confirmed sessions yet'} />
+        <EmptyState message={studentFilter ? t('coach.sessions.noneForStudent') : t('coach.sessions.noneYet')} />
       )}
       {active.length === 0 && archived.length > 0 && !showArchived && (
-        <EmptyState message="No sessions to review — all confirmed sessions are archived." />
+        <EmptyState message={t('coach.sessions.allArchived')} />
       )}
 
       <div className="space-y-3">{active.map(renderCard)}</div>
@@ -144,8 +146,8 @@ export default function SessionsFeed() {
           className="w-full sl-mono text-[11px] text-ink-400 hover:text-ink-700 py-2 underline"
         >
           {showArchived
-            ? `Hide ${archived.length} archived`
-            : `Show ${archived.length} archived`}
+            ? t('coach.sessions.hideArchived', { n: archived.length })
+            : t('coach.sessions.showArchived', { n: archived.length })}
         </button>
       )}
 
