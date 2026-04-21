@@ -63,17 +63,21 @@ function DayCell({ dayLabel, session, confirmed, isToday, onClick }) {
       onClick={hasSession && !confirmed && onClick ? onClick : undefined}
       disabled={!hasSession || confirmed}
       aria-label={isRest ? `${dayLabel} rest day` : `${dayLabel} ${session.title}`}
-      className={`relative flex-1 min-w-0 rounded-xl h-[78px] px-1.5 py-2 flex flex-col justify-between items-stretch overflow-hidden transition-transform ${cellClass} ${
+      className={`relative flex-1 min-w-0 rounded-xl h-[108px] px-1.5 py-2 flex flex-col items-center gap-1.5 overflow-hidden transition-transform ${cellClass} ${
         hasSession && !confirmed ? 'cursor-pointer active:scale-95' : 'cursor-default'
       }`}
     >
       <span className="sl-mono text-[10px] font-semibold opacity-70 text-center">{dayLabel}</span>
       <span
-        className="sl-display text-center leading-[0.95] break-words"
+        className="sl-display flex-1 min-h-0 leading-none tracking-wide"
         style={{
-          fontSize: shortTitle.length > 5 ? 11 : 13,
+          writingMode: 'vertical-rl',
+          transform: 'rotate(180deg)',
+          fontSize: shortTitle.length > 6 ? 11 : 12,
           opacity: hasSession ? 1 : 0.45,
-          hyphens: 'auto',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
         }}
       >
         {shortTitle}
