@@ -8,7 +8,6 @@ const StudentCard = memo(function StudentCard({ student }) {
   const ensureProgram = useEnsureProgram();
   const ensuredRef = useRef(false);
 
-  // Auto-create a default program if none exists (one-time side effect)
   useEffect(() => {
     if (isSuccess && program === null && !ensuredRef.current && !ensureProgram.isPending) {
       ensuredRef.current = true;
@@ -16,20 +15,42 @@ const StudentCard = memo(function StudentCard({ student }) {
     }
   }, [isSuccess, program, student.id, ensureProgram]);
 
+  const fullName = student.profile?.full_name || 'Student';
+  const initials = fullName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? '')
+    .join('');
+
   return (
-    <div className="bg-white rounded-xl shadow-sm p-4">
-      <div className="flex items-center justify-between mb-2 gap-2">
-        <h3 className="font-semibold text-gray-900">
-          {student.profile?.full_name || 'Student'}
-        </h3>
-        <div className="flex items-center gap-1.5">
-          <Link
-            to={`/coach/student/${student.id}/goals`}
-            className="text-xs bg-gray-100 text-gray-600 rounded-lg px-2.5 py-1 hover:bg-gray-200"
+    <div className="sl-card p-4 space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className="w-10 h-10 rounded-full flex items-center justify-center sl-display text-[13px] shrink-0"
+            style={{
+              background: 'color-mix(in srgb, var(--color-accent) 15%, transparent)',
+              color: 'var(--color-accent)',
+              border: '1px solid color-mix(in srgb, var(--color-accent) 35%, transparent)',
+            }}
+            aria-hidden="true"
           >
-            Goals
-          </Link>
+            {initials || '—'}
+          </div>
+          <div className="min-w-0">
+            <h3 className="sl-display text-[18px] text-gray-900 truncate">{fullName}</h3>
+            <p className="sl-mono text-[11px] text-ink-400 mt-0.5">
+              {program?.weeks?.length ? `${program.weeks.length} WEEKS` : 'NO PROGRAM'}
+            </p>
+          </div>
         </div>
+        <Link
+          to={`/coach/student/${student.id}/goals`}
+          className="sl-pill shrink-0 bg-ink-100 text-ink-700 hover:bg-ink-200"
+        >
+          goals
+        </Link>
       </div>
       {program && (
         <WeekTimeline

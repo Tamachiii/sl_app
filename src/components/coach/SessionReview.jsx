@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
-import { useParams } from 'react-router-dom';
-import Header from '../layout/Header';
+import { useNavigate, useParams } from 'react-router-dom';
 import Spinner from '../ui/Spinner';
 import { useSession } from '../../hooks/useSession';
 import { useSetLogs } from '../../hooks/useSetLogs';
@@ -10,13 +9,9 @@ import { useSessionConfirmation } from '../../hooks/useSessionConfirmation';
 import SlotProgress from './SlotProgress';
 import { formatSlotPrescription, formatRestSeconds, groupSlotsBySuperset } from '../../lib/volume';
 
-/**
- * Coach-facing read-only view of a session the student has completed.
- * Mirrors SessionEditor layout but strips every edit control and adds the
- * confirmation banner + per-slot set/RPE progress.
- */
 export default function SessionReview() {
   const { sessionId } = useParams();
+  const navigate = useNavigate();
   const { data: session, isLoading } = useSession(sessionId);
   const slots = session?.exercise_slots || [];
   const { data: setLogs } = useSetLogs(sessionId, slots);
@@ -27,99 +22,133 @@ export default function SessionReview() {
   const isArchived = !!session?.archived_at;
 
   if (isLoading) {
-    return (
-      <>
-        <Header title="Session review" showBack />
-        <div className="flex justify-center py-12"><Spinner /></div>
-      </>
-    );
+    return <div className="flex justify-center py-12"><Spinner /></div>;
   }
 
   return (
-    <>
-      <Header
-        title={session?.title || 'Session review'}
-        showBack
-        actions={
-          <button
-            onClick={() =>
-              archiveSession.mutate({ sessionId, archived: !isArchived })
-            }
-            disabled={archiveSession.isPending}
-            className={`text-xs rounded-lg px-2.5 py-1.5 ${
-              isArchived
-                ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            {isArchived ? 'Unarchive' : 'Archive'}
-          </button>
-        }
-      />
-      <div className="p-4 space-y-4">
-        {isArchived && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-            Archived on {new Date(session.archived_at).toLocaleString()}
-          </div>
-        )}
-        {confirmation ? (
-          <div className="rounded-xl border border-green-200 bg-green-50 p-3 text-sm text-green-800">
-            <div className="flex items-center gap-2 font-medium">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-              </svg>
-              Confirmed by student
-            </div>
-            <p className="text-xs text-green-700 mt-0.5">
-              {new Date(confirmation.confirmed_at).toLocaleString()}
-            </p>
-            {confirmation.notes && (
-              <p className="mt-1 text-sm text-gray-700 whitespace-pre-wrap">{confirmation.notes}</p>
-            )}
-          </div>
-        ) : (
-          <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-600">
-            Not yet confirmed by the student.
-          </div>
-        )}
+    <div className="p-4 pb-6 space-y-5">
+      <div className="flex items-start gap-3">
+        <button
+          onClick={() => navigate(-1)}
+          aria-label="Back"
+          className="w-9 h-9 rounded-lg bg-ink-100 flex items-center justify-center text-ink-700 hover:bg-ink-200 shrink-0"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <div className="flex-1 min-w-0">
+          <div className="sl-label text-ink-400">Review</div>
+          <h1 className="sl-display text-[22px] text-gray-900 leading-tight mt-0.5 truncate">
+            {session?.title || 'Session'}
+          </h1>
+        </div>
+        <button
+          onClick={() => archiveSession.mutate({ sessionId, archived: !isArchived })}
+          disabled={archiveSession.isPending}
+          className={`sl-pill shrink-0 disabled:opacity-50 ${
+            isArchived ? '' : 'bg-ink-100 text-ink-700 hover:bg-ink-200'
+          }`}
+          style={
+            isArchived
+              ? {
+                  background: 'color-mix(in srgb, var(--color-warn) 22%, transparent)',
+                  color: 'var(--color-ink-900)',
+                }
+              : undefined
+          }
+        >
+          {isArchived ? 'unarchive' : 'archive'}
+        </button>
+      </div>
 
+      {isArchived && (
+        <div
+          className="rounded-xl p-3 sl-mono text-[12px]"
+          style={{
+            background: 'color-mix(in srgb, var(--color-warn) 12%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--color-warn) 35%, transparent)',
+            color: 'var(--color-ink-900)',
+          }}
+        >
+          Archived on {new Date(session.archived_at).toLocaleString()}
+        </div>
+      )}
+
+      {confirmation ? (
+        <div
+          className="rounded-xl p-3 space-y-1"
+          style={{
+            background: 'color-mix(in srgb, var(--color-success) 10%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--color-success) 35%, transparent)',
+          }}
+        >
+          <div
+            className="flex items-center gap-2 sl-label"
+            style={{ color: 'var(--color-success)' }}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+            Confirmed by student
+          </div>
+          <p className="sl-mono text-[11px] text-ink-400">
+            {new Date(confirmation.confirmed_at).toLocaleString()}
+          </p>
+          {confirmation.notes && (
+            <p className="text-[13px] text-ink-700 whitespace-pre-wrap pt-1">{confirmation.notes}</p>
+          )}
+        </div>
+      ) : (
+        <div className="sl-card p-3 sl-mono text-[12px] text-ink-500">
+          Not yet confirmed by the student.
+        </div>
+      )}
+
+      <div className="space-y-3">
         {slotGroups.map((group) => {
           const renderSlot = (slot) => {
             const ex = slot.exercise;
             const slotLogs = (setLogs || []).filter((l) => l.exercise_slot_id === slot.id);
+            const comment = (slotComments || []).find((x) => x.exercise_slot_id === slot.id);
             return (
-              <div key={slot.id} className="bg-white rounded-xl shadow-sm p-4 space-y-2">
-                <div>
-                  <span className="font-medium text-gray-900 text-sm">{ex.name}</span>
+              <div key={slot.id} className="sl-card p-4 space-y-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="sl-display text-[16px] text-gray-900">{ex.name}</span>
                   <span
-                    className={`ml-2 text-xs font-medium px-1.5 py-0.5 rounded ${
-                      ex.type === 'pull' ? 'bg-pull/10 text-pull' : 'bg-push/10 text-push'
+                    className={`sl-pill ${
+                      ex.type === 'pull' ? 'bg-pull/15 text-pull' : 'bg-push/15 text-push'
                     }`}
                   >
                     {ex.type}
                   </span>
-                  <span className="ml-1 text-xs text-gray-400">D{ex.difficulty}</span>
+                  <span className="sl-mono text-[10px] text-ink-400">D{ex.difficulty}</span>
                 </div>
-                <p className="text-xs text-gray-400">
-                  Planned: {formatSlotPrescription(slot)}
-                  {slot.weight_kg ? ` @ ${slot.weight_kg}kg` : ' (BW)'}
+                <p className="sl-mono text-[11px] text-ink-400">
+                  PLANNED: {formatSlotPrescription(slot)}
+                  {slot.weight_kg ? ` @ ${slot.weight_kg}KG` : ' (BW)'}
                   {slot.rest_seconds != null && (
-                    <span className="ml-2">· Rest {formatRestSeconds(slot.rest_seconds)}</span>
+                    <span className="ml-2">· REST {formatRestSeconds(slot.rest_seconds)}</span>
                   )}
                 </p>
                 <SlotProgress logs={slotLogs} plannedSets={slot.sets} />
-                {(() => {
-                  const c = (slotComments || []).find(
-                    (x) => x.exercise_slot_id === slot.id
-                  );
-                  if (!c) return null;
-                  return (
-                    <div className="text-xs text-gray-700 bg-blue-50 border border-blue-100 rounded-lg px-2 py-1.5 whitespace-pre-wrap">
-                      <span className="font-medium text-blue-700">Student note:</span>{' '}
-                      {c.body}
-                    </div>
-                  );
-                })()}
+                {comment && (
+                  <div
+                    className="text-[13px] text-gray-900 rounded-lg px-2.5 py-1.5 whitespace-pre-wrap"
+                    style={{
+                      background: 'color-mix(in srgb, var(--color-accent) 10%, transparent)',
+                      border: '1px solid color-mix(in srgb, var(--color-accent) 30%, transparent)',
+                    }}
+                  >
+                    <span
+                      className="sl-label mr-1"
+                      style={{ color: 'var(--color-accent)' }}
+                    >
+                      Student note
+                    </span>
+                    {comment.body}
+                  </div>
+                )}
               </div>
             );
           };
@@ -127,10 +156,15 @@ export default function SessionReview() {
             return (
               <div
                 key={group.key}
-                className="rounded-xl border-2 border-primary/30 bg-primary/5 p-2 space-y-2"
+                className="rounded-xl p-2 space-y-2"
+                style={{
+                  borderColor: 'color-mix(in srgb, var(--color-accent) 35%, transparent)',
+                  border: '1px solid color-mix(in srgb, var(--color-accent) 35%, transparent)',
+                  background: 'color-mix(in srgb, var(--color-accent) 6%, transparent)',
+                }}
               >
                 <div className="px-2 pt-1">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-primary">
+                  <span className="sl-label" style={{ color: 'var(--color-accent)' }}>
                     Superset
                   </span>
                 </div>
@@ -141,6 +175,6 @@ export default function SessionReview() {
           return renderSlot(group.slots[0]);
         })}
       </div>
-    </>
+    </div>
   );
 }

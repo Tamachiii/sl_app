@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import Header from '../layout/Header';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useSession, useAddSlot, useUpdateSlot, useDeleteSlot } from '../../hooks/useSession';
 import { useUpdateSession } from '../../hooks/useWeek';
 import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
@@ -14,6 +13,7 @@ import CopyDialog from '../ui/CopyDialog';
 
 export default function SessionEditor() {
   const { sessionId, studentId } = useParams();
+  const navigate = useNavigate();
   const { data: session, isLoading } = useSession(sessionId);
   const { data: library } = useExerciseLibrary();
   const addSlot = useAddSlot();
@@ -33,12 +33,7 @@ export default function SessionEditor() {
   const slotGroups = useMemo(() => groupSlotsBySuperset(slots), [slots]);
 
   if (isLoading) {
-    return (
-      <>
-        <Header title="Session" showBack />
-        <div className="flex justify-center py-12"><Spinner /></div>
-      </>
-    );
+    return <div className="flex justify-center py-12"><Spinner /></div>;
   }
 
   function handleAddExercise() {
@@ -92,54 +87,67 @@ export default function SessionEditor() {
     ]);
   }
 
+  const inputCls =
+    'w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-mono text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
+
   return (
-    <>
-      <Header
-        title={
-          <EditableText
-            value={session?.title || ''}
-            onSave={(title) => updateSession.mutate({ id: sessionId, title })}
-            placeholder="Session"
-            ariaLabel="Edit session title"
-          />
-        }
-        showBack
-        actions={
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setShowCopy(true)}
-              className="text-xs bg-gray-100 text-gray-600 rounded-lg px-2.5 py-1.5 hover:bg-gray-200"
-            >
-              Copy to…
-            </button>
-            <button
-              onClick={() => duplicateSession.mutate({ sessionId })}
-              disabled={duplicateSession.isPending}
-              className="text-xs bg-gray-100 text-gray-600 rounded-lg px-2.5 py-1.5 hover:bg-gray-200"
-            >
-              Duplicate
-            </button>
+    <div className="p-4 pb-6 space-y-5">
+      <div className="flex items-start gap-3">
+        <button
+          onClick={() => navigate(-1)}
+          aria-label="Back"
+          className="w-9 h-9 rounded-lg bg-ink-100 flex items-center justify-center text-ink-700 hover:bg-ink-200 shrink-0"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <div className="flex-1 min-w-0">
+          <div className="sl-label text-ink-400">Session</div>
+          <div className="sl-display text-[22px] text-gray-900 leading-tight mt-0.5">
+            <EditableText
+              value={session?.title || ''}
+              onSave={(title) => updateSession.mutate({ id: sessionId, title })}
+              placeholder="Session"
+              ariaLabel="Edit session title"
+            />
           </div>
-        }
-      />
-      <div className="p-4 space-y-4">
-        <VolumeBar pull={vol.pull} push={vol.push} />
-
-        <div className="bg-white rounded-xl shadow-sm p-3 flex items-center gap-3">
-          <label htmlFor="session-date" className="text-sm text-gray-600 shrink-0">
-            Scheduled date
-          </label>
-          <input
-            id="session-date"
-            type="date"
-            value={session?.scheduled_date || ''}
-            onChange={(e) =>
-              updateSession.mutate({ id: sessionId, scheduled_date: e.target.value || null })
-            }
-            className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
-          />
         </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={() => setShowCopy(true)}
+            className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200"
+          >
+            copy to…
+          </button>
+          <button
+            onClick={() => duplicateSession.mutate({ sessionId })}
+            disabled={duplicateSession.isPending}
+            className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 disabled:opacity-50"
+          >
+            duplicate
+          </button>
+        </div>
+      </div>
 
+      <VolumeBar pull={vol.pull} push={vol.push} />
+
+      <div className="sl-card p-3 flex items-center gap-3">
+        <label htmlFor="session-date" className="sl-label text-ink-400 shrink-0">
+          Scheduled
+        </label>
+        <input
+          id="session-date"
+          type="date"
+          value={session?.scheduled_date || ''}
+          onChange={(e) =>
+            updateSession.mutate({ id: sessionId, scheduled_date: e.target.value || null })
+          }
+          className="flex-1 rounded-lg border border-ink-200 bg-white px-3 py-1.5 sl-mono text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+        />
+      </div>
+
+      <div className="space-y-3">
         {(() => {
           let flatIdx = 0;
           return slotGroups.map((group) => {
@@ -160,17 +168,21 @@ export default function SessionEditor() {
               return (
                 <div
                   key={group.key}
-                  className="rounded-xl border-2 border-primary/30 bg-primary/5 p-2 space-y-2"
+                  className="rounded-xl border p-2 space-y-2"
+                  style={{
+                    borderColor: 'color-mix(in srgb, var(--color-accent) 35%, transparent)',
+                    background: 'color-mix(in srgb, var(--color-accent) 6%, transparent)',
+                  }}
                 >
                   <div className="flex items-center justify-between px-2 pt-1">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-primary">
+                    <span className="sl-label" style={{ color: 'var(--color-accent)' }}>
                       Superset
                     </span>
                     <button
                       onClick={() => handleUnlinkSuperset(group.key)}
-                      className="text-xs text-gray-500 hover:text-danger"
+                      className="sl-mono text-[11px] text-ink-400 hover:text-danger underline"
                     >
-                      Unlink superset
+                      unlink
                     </button>
                   </div>
                   {group.slots.map(renderRow)}
@@ -180,78 +192,78 @@ export default function SessionEditor() {
             return renderRow(group.slots[0], 0);
           });
         })()}
-
-        {showAdd ? (
-          <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
-            <select
-              value={selectedExercise}
-              onChange={(e) => setSelectedExercise(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm"
-            >
-              <option value="">Select exercise...</option>
-              {(library || []).map((ex) => (
-                <option key={ex.id} value={ex.id}>
-                  {ex.name} ({ex.type}, D{ex.difficulty})
-                </option>
-              ))}
-            </select>
-            <fieldset className="flex gap-3 text-sm text-gray-600">
-              <label className="flex items-center gap-1.5">
-                <input
-                  type="radio"
-                  name="add-unit"
-                  value="reps"
-                  checked={addUnit === 'reps'}
-                  onChange={(e) => setAddUnit(e.target.value)}
-                />
-                Reps
-              </label>
-              <label className="flex items-center gap-1.5">
-                <input
-                  type="radio"
-                  name="add-unit"
-                  value="seconds"
-                  checked={addUnit === 'seconds'}
-                  onChange={(e) => setAddUnit(e.target.value)}
-                />
-                Seconds (time under tension)
-              </label>
-            </fieldset>
-            {slots.length > 0 && (
-              <label className="flex items-center gap-2 text-sm text-gray-600">
-                <input
-                  type="checkbox"
-                  checked={pairAsSuperset}
-                  onChange={(e) => setPairAsSuperset(e.target.checked)}
-                />
-                Pair with previous exercise as superset
-              </label>
-            )}
-            <div className="flex gap-2">
-              <button
-                onClick={handleAddExercise}
-                disabled={!selectedExercise || addSlot.isPending}
-                className="flex-1 bg-primary text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50"
-              >
-                Add
-              </button>
-              <button
-                onClick={() => setShowAdd(false)}
-                className="flex-1 bg-gray-100 text-gray-600 rounded-lg py-2 text-sm font-medium"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            onClick={() => setShowAdd(true)}
-            className="w-full border-2 border-dashed border-gray-300 text-gray-400 rounded-xl py-3 text-sm font-medium hover:border-primary hover:text-primary transition-colors"
-          >
-            + Add Exercise
-          </button>
-        )}
       </div>
+
+      {showAdd ? (
+        <div className="sl-card p-4 space-y-3">
+          <select
+            value={selectedExercise}
+            onChange={(e) => setSelectedExercise(e.target.value)}
+            className={inputCls}
+          >
+            <option value="">Select exercise…</option>
+            {(library || []).map((ex) => (
+              <option key={ex.id} value={ex.id}>
+                {ex.name} ({ex.type}, D{ex.difficulty})
+              </option>
+            ))}
+          </select>
+          <fieldset className="flex gap-4 sl-mono text-[12px] text-ink-600">
+            <label className="flex items-center gap-1.5">
+              <input
+                type="radio"
+                name="add-unit"
+                value="reps"
+                checked={addUnit === 'reps'}
+                onChange={(e) => setAddUnit(e.target.value)}
+              />
+              Reps
+            </label>
+            <label className="flex items-center gap-1.5">
+              <input
+                type="radio"
+                name="add-unit"
+                value="seconds"
+                checked={addUnit === 'seconds'}
+                onChange={(e) => setAddUnit(e.target.value)}
+              />
+              Seconds (TUT)
+            </label>
+          </fieldset>
+          {slots.length > 0 && (
+            <label className="flex items-center gap-2 sl-mono text-[12px] text-ink-600">
+              <input
+                type="checkbox"
+                checked={pairAsSuperset}
+                onChange={(e) => setPairAsSuperset(e.target.checked)}
+              />
+              Pair with previous as superset
+            </label>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={handleAddExercise}
+              disabled={!selectedExercise || addSlot.isPending}
+              className="flex-1 sl-btn-primary disabled:opacity-50"
+            >
+              Add
+            </button>
+            <button
+              onClick={() => setShowAdd(false)}
+              className="flex-1 rounded-lg bg-ink-100 text-ink-700 hover:bg-ink-200 py-2 sl-mono text-[12px]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setShowAdd(true)}
+          className="w-full border border-dashed border-ink-200 text-ink-400 rounded-xl py-3 sl-mono text-[12px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
+        >
+          + ADD EXERCISE
+        </button>
+      )}
 
       <CopyDialog
         open={showCopy}
@@ -262,6 +274,6 @@ export default function SessionEditor() {
         onCopy={handleCopyToStudent}
         isPending={duplicateSession.isPending}
       />
-    </>
+    </div>
   );
 }

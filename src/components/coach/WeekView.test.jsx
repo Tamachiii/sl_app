@@ -83,7 +83,7 @@ describe('WeekView', () => {
     mockProgramData = { data: { id: 'prog-1', weeks: [{ id: 'w-1', week_number: 1 }] } };
     renderWeekView();
 
-    await user.click(screen.getByText('Copy to…'));
+    await user.click(screen.getByText('copy to…'));
     await user.selectOptions(screen.getByRole('combobox'), 's-2');
     await user.click(screen.getByRole('button', { name: 'Copy' }));
 
@@ -141,7 +141,7 @@ describe('WeekView', () => {
     };
     renderWeekView();
 
-    await user.click(screen.getByText('+ Add Session'));
+    await user.click(screen.getByText('+ ADD SESSION'));
     expect(mockCreateSession.mutate).toHaveBeenCalled();
   });
 
@@ -153,16 +153,15 @@ describe('WeekView', () => {
     };
     renderWeekView();
 
-    await user.click(screen.getByText('Duplicate'));
+    await user.click(screen.getByText('duplicate'));
     expect(mockDuplicateWeek.mutate).toHaveBeenCalledWith({
       weekId: 'w-1',
       newWeekNumber: 3,
     });
   });
 
-  it('clicking delete session with confirm calls deleteSession', async () => {
+  it('confirming the delete-session dialog calls deleteSession', async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     mockWeekData = {
       data: {
         week_number: 1,
@@ -173,13 +172,12 @@ describe('WeekView', () => {
     renderWeekView();
 
     await user.click(screen.getByRole('button', { name: /delete session/i }));
+    await user.click(await screen.findByRole('button', { name: 'Delete' }));
     expect(mockDeleteSession.mutate).toHaveBeenCalledWith('sess-1');
-    window.confirm.mockRestore();
   });
 
-  it('clicking Delete week with confirm calls deleteWeek and navigates back', async () => {
+  it('confirming the delete-week dialog calls deleteWeek and navigates back', async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     mockWeekData = {
       data: { id: 'w-1', week_number: 2, sessions: [] },
       isLoading: false,
@@ -187,17 +185,16 @@ describe('WeekView', () => {
     renderWeekView();
 
     await user.click(screen.getByRole('button', { name: /delete week/i }));
+    await user.click(await screen.findByRole('button', { name: 'Delete' }));
     expect(mockDeleteWeek.mutate).toHaveBeenCalledWith('w-1', expect.any(Object));
     // The onSuccess callback passed to mutate is what navigates; invoke it manually.
     const onSuccess = mockDeleteWeek.mutate.mock.calls[0][1].onSuccess;
     onSuccess();
     expect(mockNavigate).toHaveBeenCalledWith(-1);
-    window.confirm.mockRestore();
   });
 
-  it('does not call deleteWeek when confirm is cancelled', async () => {
+  it('cancelling the delete-week dialog does not call deleteWeek', async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
     mockWeekData = {
       data: { id: 'w-1', week_number: 2, sessions: [] },
       isLoading: false,
@@ -205,8 +202,8 @@ describe('WeekView', () => {
     renderWeekView();
 
     await user.click(screen.getByRole('button', { name: /delete week/i }));
+    await user.click(await screen.findByRole('button', { name: 'Cancel' }));
     expect(mockDeleteWeek.mutate).not.toHaveBeenCalled();
-    window.confirm.mockRestore();
   });
 
 });

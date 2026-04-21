@@ -14,7 +14,7 @@ function ymd(date) {
   return `${y}-${m}-${day}`;
 }
 
-const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
 export default function SessionCalendar({ sessions }) {
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
@@ -34,7 +34,6 @@ export default function SessionCalendar({ sessions }) {
     const month = cursor.getMonth();
     const first = new Date(year, month, 1);
     const daysInMonth = new Date(year, month + 1, 0).getDate();
-    // Monday-first: JS Sunday=0 → shift to 6, Monday=1 → 0.
     const leading = (first.getDay() + 6) % 7;
     const totalCells = Math.ceil((leading + daysInMonth) / 7) * 7;
 
@@ -58,32 +57,32 @@ export default function SessionCalendar({ sessions }) {
   const todayKey = ymd(new Date());
 
   return (
-    <div className="bg-white rounded-xl shadow-sm p-4">
+    <div className="sl-card p-4">
       <div className="flex items-center justify-between mb-3">
         <button
           onClick={() => setCursor((c) => addMonths(c, -1))}
           aria-label="Previous month"
-          className="text-gray-500 hover:text-primary p-1"
+          className="w-8 h-8 rounded-lg bg-ink-100 text-ink-500 flex items-center justify-center hover:bg-ink-200 transition-colors"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <span className="text-sm font-medium text-gray-900">{monthLabel}</span>
+        <span className="sl-display text-[15px] text-gray-900 uppercase tracking-wide">{monthLabel}</span>
         <button
           onClick={() => setCursor((c) => addMonths(c, 1))}
           aria-label="Next month"
-          className="text-gray-500 hover:text-primary p-1"
+          className="w-8 h-8 rounded-lg bg-ink-100 text-ink-500 flex items-center justify-center hover:bg-ink-200 transition-colors"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
           </svg>
         </button>
       </div>
 
-      <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">
-        {WEEKDAYS.map((d) => (
-          <div key={d}>{d}</div>
+      <div className="grid grid-cols-7 gap-1 text-center sl-mono text-[10px] text-ink-400 mb-1.5">
+        {WEEKDAYS.map((d, i) => (
+          <div key={i}>{d}</div>
         ))}
       </div>
 
@@ -97,16 +96,27 @@ export default function SessionCalendar({ sessions }) {
           const first = entries[0];
           const content = (
             <div
-              className={`aspect-square flex flex-col items-center justify-center rounded-lg text-xs ${
+              className={`aspect-square flex flex-col items-center justify-center rounded-lg sl-mono text-[12px] ${
                 isToday
-                  ? 'bg-primary/10 text-primary font-semibold'
+                  ? 'text-ink-900'
                   : 'text-gray-700'
-              } ${entries.length ? 'hover:bg-gray-100' : ''}`}
+              } ${entries.length && !isToday ? 'hover:bg-ink-50' : ''}`}
+              style={isToday ? { background: 'var(--color-accent)' } : undefined}
             >
-              <span>{cell.dayNum}</span>
+              <span className="tabular-nums font-semibold">{cell.dayNum}</span>
               <div className="flex gap-0.5 mt-0.5 h-1">
-                {hasCompleted && <span className="w-1 h-1 rounded-full bg-success" />}
-                {hasUpcoming && <span className="w-1 h-1 rounded-full bg-primary" />}
+                {hasCompleted && (
+                  <span
+                    className="w-1 h-1 rounded-full"
+                    style={{ background: 'var(--color-success)' }}
+                  />
+                )}
+                {hasUpcoming && (
+                  <span
+                    className="w-1 h-1 rounded-full"
+                    style={{ background: isToday ? 'var(--color-ink-900)' : 'var(--color-accent)' }}
+                  />
+                )}
               </div>
             </div>
           );
@@ -125,12 +135,12 @@ export default function SessionCalendar({ sessions }) {
         })}
       </div>
 
-      <div className="flex gap-3 justify-end text-[11px] text-gray-500 mt-3">
+      <div className="flex gap-3 justify-end sl-mono text-[10px] text-ink-400 mt-3">
         <span className="flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-success" /> Completed
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--color-success)' }} /> DONE
         </span>
         <span className="flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-primary" /> Upcoming
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--color-accent)' }} /> UPCOMING
         </span>
       </div>
     </div>

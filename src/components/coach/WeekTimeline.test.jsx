@@ -61,7 +61,7 @@ describe('WeekTimeline', () => {
     const user = userEvent.setup();
     renderTimeline();
 
-    await user.click(screen.getByText('+ Week'));
+    await user.click(screen.getByText('+ WEEK'));
     expect(mockCreateWeek.mutate).toHaveBeenCalledWith({
       programId: 'prog-1',
       weekNumber: 3,

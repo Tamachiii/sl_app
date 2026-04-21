@@ -12,7 +12,6 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
   const [showNotes, setShowNotes] = useState(!!slot.notes);
   const videoSets = Array.isArray(slot.record_video_set_numbers) ? slot.record_video_set_numbers : [];
 
-  // Sync local state when server data changes (e.g. after mutation refetch)
   useEffect(() => {
     setSets(slot.sets);
     setReps(slot.reps ?? '');
@@ -64,24 +63,31 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
     if (n !== (slot.notes ?? null)) onUpdate({ notes: n });
   }
 
+  const inputCls =
+    'w-full rounded-lg border border-ink-200 bg-white px-2 py-1.5 sl-mono text-[13px] text-center text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
+
   return (
-    <div className="bg-white rounded-xl shadow-sm p-4 space-y-2">
-      <div className="flex items-center justify-between">
-        <div className="flex-1">
-          <span className="font-medium text-gray-900 text-sm">{ex.name}</span>
-          <span className={`ml-2 text-xs font-medium px-1.5 py-0.5 rounded ${
-            ex.type === 'pull' ? 'bg-pull/10 text-pull' : 'bg-push/10 text-push'
-          }`}>
-            {ex.type}
-          </span>
-          <span className="ml-1 text-xs text-gray-400">D{ex.difficulty}</span>
+    <div className="sl-card p-4 space-y-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="sl-display text-[16px] text-gray-900">{ex.name}</span>
+            <span
+              className={`sl-pill ${
+                ex.type === 'pull' ? 'bg-pull/15 text-pull' : 'bg-push/15 text-push'
+              }`}
+            >
+              {ex.type}
+            </span>
+            <span className="sl-mono text-[10px] text-ink-400">D{ex.difficulty}</span>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5 shrink-0">
           <button
             onClick={() => onMove(-1)}
             disabled={index === 0}
             aria-label="Move up"
-            className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30"
+            className="w-7 h-7 rounded-md flex items-center justify-center text-ink-400 hover:bg-ink-100 hover:text-gray-700 disabled:opacity-30"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
@@ -91,7 +97,7 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
             onClick={() => onMove(1)}
             disabled={index === total - 1}
             aria-label="Move down"
-            className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30"
+            className="w-7 h-7 rounded-md flex items-center justify-center text-ink-400 hover:bg-ink-100 hover:text-gray-700 disabled:opacity-30"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -100,7 +106,7 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
           <button
             onClick={() => { if (confirm('Remove this exercise?')) onDelete(); }}
             aria-label="Remove exercise"
-            className="p-1 text-gray-400 hover:text-danger"
+            className="w-7 h-7 rounded-md flex items-center justify-center text-ink-400 hover:bg-ink-100 hover:text-danger"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -109,9 +115,9 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
         </div>
       </div>
 
-      <div className="flex gap-3">
+      <div className="flex gap-2">
         <div className="flex-1">
-          <label htmlFor={`sets-${slot.id}`} className="text-xs text-gray-500 block mb-0.5">Sets</label>
+          <label htmlFor={`sets-${slot.id}`} className="sl-label text-ink-400 block mb-1">Sets</label>
           <input
             id={`sets-${slot.id}`}
             type="number"
@@ -119,12 +125,12 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
             value={sets}
             onChange={(e) => setSets(Number(e.target.value))}
             onBlur={handleBlur}
-            className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-center"
+            className={inputCls}
           />
         </div>
         {isTimeBased ? (
           <div className="flex-1">
-            <label htmlFor={`seconds-${slot.id}`} className="text-xs text-gray-500 block mb-0.5">Seconds</label>
+            <label htmlFor={`seconds-${slot.id}`} className="sl-label text-ink-400 block mb-1">Seconds</label>
             <input
               id={`seconds-${slot.id}`}
               type="number"
@@ -132,12 +138,12 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
               value={seconds}
               onChange={(e) => setSeconds(e.target.value)}
               onBlur={handleBlur}
-              className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-center"
+              className={inputCls}
             />
           </div>
         ) : (
           <div className="flex-1">
-            <label htmlFor={`reps-${slot.id}`} className="text-xs text-gray-500 block mb-0.5">Reps</label>
+            <label htmlFor={`reps-${slot.id}`} className="sl-label text-ink-400 block mb-1">Reps</label>
             <input
               id={`reps-${slot.id}`}
               type="number"
@@ -145,12 +151,12 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
               value={reps}
               onChange={(e) => setReps(e.target.value)}
               onBlur={handleBlur}
-              className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-center"
+              className={inputCls}
             />
           </div>
         )}
         <div className="flex-1">
-          <label htmlFor={`weight-${slot.id}`} className="text-xs text-gray-500 block mb-0.5">Weight (kg)</label>
+          <label htmlFor={`weight-${slot.id}`} className="sl-label text-ink-400 block mb-1">Weight</label>
           <input
             id={`weight-${slot.id}`}
             type="number"
@@ -160,11 +166,11 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
             onChange={(e) => setWeight(e.target.value)}
             onBlur={handleBlur}
             placeholder="BW"
-            className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-center"
+            className={inputCls}
           />
         </div>
         <div className="flex-1">
-          <label htmlFor={`rest-${slot.id}`} className="text-xs text-gray-500 block mb-0.5">Rest (s)</label>
+          <label htmlFor={`rest-${slot.id}`} className="sl-label text-ink-400 block mb-1">Rest (s)</label>
           <input
             id={`rest-${slot.id}`}
             type="number"
@@ -174,13 +180,13 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
             onChange={(e) => setRest(e.target.value)}
             onBlur={handleBlur}
             placeholder="—"
-            className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-center"
+            className={inputCls}
           />
         </div>
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs text-gray-500 flex items-center gap-1">
+        <span className="sl-label text-ink-400 flex items-center gap-1">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
           </svg>
@@ -195,13 +201,18 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
                 type="button"
                 onClick={() => toggleVideoSet(n)}
                 aria-pressed={active}
-                className={`text-xs font-medium rounded-full px-2 py-0.5 border transition-colors ${
+                className="sl-mono text-[11px] rounded-full w-6 h-6 flex items-center justify-center border transition-colors"
+                style={
                   active
-                    ? 'bg-amber-100 border-amber-300 text-amber-800'
-                    : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
-                }`}
+                    ? {
+                        background: 'var(--color-warn)',
+                        borderColor: 'var(--color-warn)',
+                        color: 'var(--color-ink-900)',
+                      }
+                    : undefined
+                }
               >
-                {n}
+                <span className={active ? '' : 'text-ink-500'}>{n}</span>
               </button>
             );
           })}
@@ -210,16 +221,16 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
           <button
             type="button"
             onClick={videoSets.length === Number(sets) ? clearVideoSets : selectAllVideoSets}
-            className="text-xs text-gray-400 hover:text-primary underline"
+            className="sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)] underline"
           >
-            {videoSets.length === Number(sets) ? 'None' : 'All'}
+            {videoSets.length === Number(sets) ? 'NONE' : 'ALL'}
           </button>
         )}
       </div>
 
       {showNotes ? (
         <div className="space-y-1">
-          <label htmlFor={`notes-${slot.id}`} className="text-xs text-gray-500 block">
+          <label htmlFor={`notes-${slot.id}`} className="sl-label text-ink-400 block">
             Coach note for student
           </label>
           <textarea
@@ -229,13 +240,13 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
             onBlur={handleNotesBlur}
             placeholder="e.g. keep elbows tucked, focus on the negative…"
             rows={2}
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary"
+            className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[13px] text-gray-900 resize-none focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
           />
         </div>
       ) : (
         <button
           onClick={() => setShowNotes(true)}
-          className="text-xs text-gray-400 hover:text-primary"
+          className="sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)]"
         >
           + Add coach note
         </button>

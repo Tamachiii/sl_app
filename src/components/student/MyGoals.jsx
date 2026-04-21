@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import Header from '../layout/Header';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import {
@@ -48,59 +47,71 @@ function GoalCard({ goal }) {
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm p-4 space-y-2">
+    <div className="sl-card p-4 space-y-3">
       <div className="flex items-start justify-between gap-2">
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-gray-900">{goal.exercise?.name}</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="sl-display text-[18px] text-gray-900">{goal.exercise?.name}</span>
             {goal.achieved && (
-              <span className="flex items-center gap-1 text-xs font-medium text-green-700 bg-green-100 px-1.5 py-0.5 rounded">
+              <span
+                className="sl-pill inline-flex items-center gap-1"
+                style={{ background: 'var(--color-success)', color: 'var(--color-ink-900)' }}
+              >
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                 </svg>
-                Achieved
+                achieved
               </span>
             )}
           </div>
-          <p className="text-sm text-gray-600">Target: {formatGoalTarget(goal)}</p>
+          <p className="sl-mono text-[11px] text-ink-400 mt-1">TARGET · {formatGoalTarget(goal)}</p>
           {goal.notes && (
-            <p className="text-xs text-gray-500 whitespace-pre-wrap mt-0.5">{goal.notes}</p>
+            <p className="text-[13px] text-gray-700 whitespace-pre-wrap mt-1.5 leading-snug">{goal.notes}</p>
           )}
         </div>
         <button
           onClick={() =>
             toggleAchieved.mutate({ id: goal.id, achieved: !goal.achieved })
           }
-          className={`text-xs rounded-lg px-2.5 py-1.5 font-medium shrink-0 ${
+          className={`sl-pill shrink-0 ${
             goal.achieved
-              ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              : 'bg-primary text-white hover:opacity-90'
+              ? 'bg-ink-100 text-ink-500 hover:bg-ink-200'
+              : ''
           }`}
+          style={
+            goal.achieved
+              ? undefined
+              : { background: 'var(--color-accent)', color: 'var(--color-ink-900)' }
+          }
         >
-          {goal.achieved ? 'Undo' : 'Mark achieved'}
+          {goal.achieved ? 'undo' : 'mark achieved'}
         </button>
       </div>
 
       {entries.length > 0 && (
-        <div className="border-t border-gray-100 pt-2">
-          <p className="text-xs font-medium text-gray-600 mb-1">Best so far</p>
-          <p className="text-sm text-gray-800">
+        <div className="border-t border-ink-100 pt-3">
+          <p className="sl-label text-ink-400 mb-1">Best so far</p>
+          <p className="sl-display text-[20px] text-gray-900 tabular-nums">
             {best.weight_kg}kg
-            {best.sets && best.reps ? ` (${best.sets} × ${best.reps})` : ''}
+            {best.sets && best.reps ? (
+              <span className="sl-mono text-[12px] text-ink-400 ml-2">
+                {best.sets} × {best.reps}
+              </span>
+            ) : null}
           </p>
           <details className="mt-2">
-            <summary className="text-xs text-gray-500 cursor-pointer">
+            <summary className="sl-mono text-[11px] text-ink-400 cursor-pointer hover:text-gray-700">
               {entries.length} attempt{entries.length === 1 ? '' : 's'}
             </summary>
-            <ul className="mt-1 space-y-1">
+            <ul className="mt-2 space-y-1">
               {entries.slice(0, 8).map((e) => (
-                <li key={e.id} className="text-xs text-gray-600 flex justify-between gap-2">
-                  <span>
+                <li key={e.id} className="sl-mono text-[11px] text-gray-700 flex justify-between gap-2">
+                  <span className="truncate">
                     {e.weight_kg}kg
                     {e.sets && e.reps ? ` — ${e.sets} × ${e.reps}` : ''}
                     {e.notes ? ` · ${e.notes}` : ''}
                   </span>
-                  <span className="text-gray-400 shrink-0">
+                  <span className="text-ink-400 shrink-0 tabular-nums">
                     {new Date(e.recorded_at).toLocaleDateString()}
                   </span>
                 </li>
@@ -111,10 +122,10 @@ function GoalCard({ goal }) {
       )}
 
       {open ? (
-        <form onSubmit={handleLog} className="border-t border-gray-100 pt-3 space-y-2">
+        <form onSubmit={handleLog} className="border-t border-ink-100 pt-3 space-y-2">
           <div className="flex gap-2">
             <label className="flex-1">
-              <span className="text-xs text-gray-600 block mb-1">Weight (kg)</span>
+              <span className="sl-label text-ink-400 block mb-1">Weight (kg)</span>
               <input
                 type="number"
                 min={0}
@@ -122,27 +133,27 @@ function GoalCard({ goal }) {
                 value={weight}
                 onChange={(e) => setWeight(e.target.value)}
                 required
-                className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                className="w-full rounded-lg border border-ink-200 bg-white px-2 py-1.5 sl-mono text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
               />
             </label>
             <label className="flex-1">
-              <span className="text-xs text-gray-600 block mb-1">Sets</span>
+              <span className="sl-label text-ink-400 block mb-1">Sets</span>
               <input
                 type="number"
                 min={0}
                 value={sets}
                 onChange={(e) => setSets(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                className="w-full rounded-lg border border-ink-200 bg-white px-2 py-1.5 sl-mono text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
               />
             </label>
             <label className="flex-1">
-              <span className="text-xs text-gray-600 block mb-1">Reps</span>
+              <span className="sl-label text-ink-400 block mb-1">Reps</span>
               <input
                 type="number"
                 min={0}
                 value={reps}
                 onChange={(e) => setReps(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                className="w-full rounded-lg border border-ink-200 bg-white px-2 py-1.5 sl-mono text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
               />
             </label>
           </div>
@@ -151,20 +162,20 @@ function GoalCard({ goal }) {
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Notes (optional)"
             rows={2}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
           />
           <div className="flex gap-2">
             <button
               type="submit"
               disabled={addProgress.isPending}
-              className="flex-1 bg-primary text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50"
+              className="sl-btn-primary flex-1 disabled:opacity-50"
             >
               {addProgress.isPending ? 'Logging…' : 'Log attempt'}
             </button>
             <button
               type="button"
               onClick={() => setOpen(false)}
-              className="flex-1 bg-gray-100 text-gray-600 rounded-lg py-2 text-sm font-medium"
+              className="flex-1 bg-ink-100 text-ink-700 rounded-lg py-2 sl-display text-[13px] hover:bg-ink-200"
             >
               Cancel
             </button>
@@ -173,9 +184,13 @@ function GoalCard({ goal }) {
       ) : (
         <button
           onClick={() => setOpen(true)}
-          className="w-full text-xs font-medium text-primary border border-primary/40 rounded-lg py-1.5 hover:bg-primary/5"
+          className="w-full sl-mono text-[11px] rounded-lg py-2 hover:bg-ink-50 transition-colors"
+          style={{
+            border: '1px solid color-mix(in srgb, var(--color-accent) 40%, transparent)',
+            color: 'var(--color-accent)',
+          }}
         >
-          + Log attempt
+          + LOG ATTEMPT
         </button>
       )}
     </div>
@@ -187,24 +202,28 @@ export default function MyGoals() {
 
   if (isLoading) {
     return (
-      <>
-        <Header title="My Goals" />
+      <div className="p-4">
+        <h1 className="sr-only">My Goals</h1>
         <div className="flex justify-center py-12"><Spinner /></div>
-      </>
+      </div>
     );
   }
 
   return (
-    <>
-      <Header title="My Goals" />
-      <div className="p-4 space-y-3">
-        {(!goals || goals.length === 0) && (
-          <EmptyState message="Your coach hasn't set any goals yet" />
-        )}
+    <div className="p-4 pb-6 space-y-4">
+      <div className="pt-3 pb-1">
+        <div className="sl-label text-ink-400">Milestones</div>
+        <h1 className="sl-display text-[32px] text-gray-900 leading-none mt-1">Goals.</h1>
+      </div>
+
+      {(!goals || goals.length === 0) && (
+        <EmptyState message="Your coach hasn't set any goals yet" />
+      )}
+      <div className="space-y-3">
         {goals?.map((g) => (
           <GoalCard key={g.id} goal={g} />
         ))}
       </div>
-    </>
+    </div>
   );
 }

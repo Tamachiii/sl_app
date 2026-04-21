@@ -5,16 +5,18 @@ function SlotSummary({ slot }) {
   const ex = slot.exercise;
   if (!ex) return null;
   return (
-    <div className="flex items-center gap-2 text-xs text-gray-600">
+    <div className="flex items-center gap-2.5">
       <span
-        className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-          ex.type === 'pull' ? 'bg-pull' : 'bg-push'
+        className={`sl-pill shrink-0 ${
+          ex.type === 'pull' ? 'bg-pull/15 text-pull' : 'bg-push/15 text-push'
         }`}
-      />
-      <span className="font-medium text-gray-800 truncate">{ex.name}</span>
-      <span className="text-gray-400 shrink-0">
+      >
+        {ex.type}
+      </span>
+      <span className="sl-display text-[14px] text-gray-900 truncate">{ex.name}</span>
+      <span className="sl-mono text-[11px] text-ink-400 shrink-0 ml-auto">
         {formatSlotPrescription(slot)}
-        {slot.weight_kg ? ` @ ${slot.weight_kg} kg` : ''}
+        {slot.weight_kg ? ` @ ${slot.weight_kg}kg` : ''}
       </span>
     </div>
   );
@@ -36,39 +38,64 @@ export default function SessionCard({
   const slots = session.exercise_slots || [];
 
   return (
-    <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+    <div className="sl-card overflow-hidden">
       <button
-        className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+        className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-ink-50 transition-colors"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        <div className="min-w-0">
-          <p className={`text-sm font-medium truncate ${archived ? 'text-gray-400' : 'text-gray-900'}`}>
+        <div className="min-w-0 flex-1">
+          <p
+            className={`sl-display text-[17px] truncate ${
+              archived ? 'text-ink-400' : 'text-gray-900'
+            }`}
+          >
             {session.title || `Session ${session.sort_order + 1}`}
           </p>
-          <p className="text-xs text-gray-400 mt-0.5">
-            {subtitle ? <span>{subtitle} · </span> : null}
-            {slots.length} exercise{slots.length !== 1 ? 's' : ''}
-            {confirmed && <span className="ml-2 text-green-600 font-medium">· Done</span>}
-            {archived && <span className="ml-2 text-amber-600 font-medium">· Archived</span>}
+          <p className="sl-mono text-[11px] text-ink-400 mt-0.5 flex items-center gap-1.5">
+            {subtitle && <span>{subtitle}</span>}
+            {subtitle && <span aria-hidden>·</span>}
+            <span>
+              {slots.length} EX
+            </span>
+            {confirmed && (
+              <>
+                <span aria-hidden>·</span>
+                <span style={{ color: 'var(--color-success)' }}>DONE</span>
+              </>
+            )}
+            {archived && (
+              <>
+                <span aria-hidden>·</span>
+                <span style={{ color: 'var(--color-warn)' }}>ARCHIVED</span>
+              </>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {confirmed ? (
-            <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-            </svg>
+            <span
+              className="w-7 h-7 rounded-lg flex items-center justify-center"
+              style={{ background: 'var(--color-success)', color: 'var(--color-ink-900)' }}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+              </svg>
+            </span>
           ) : archived ? (
-            <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
-              Archived
+            <span className="sl-pill" style={{ background: 'color-mix(in srgb, var(--color-warn) 15%, transparent)', color: 'var(--color-warn)' }}>
+              archived
             </span>
           ) : (
-            <span className="text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-              Start
+            <span
+              className="sl-pill"
+              style={{ background: 'color-mix(in srgb, var(--color-accent) 15%, transparent)', color: 'var(--color-accent)' }}
+            >
+              start
             </span>
           )}
           <svg
-            className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}
+            className={`w-4 h-4 text-ink-400 transition-transform ${open ? 'rotate-180' : ''}`}
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -79,9 +106,9 @@ export default function SessionCard({
       </button>
 
       {open && (
-        <div className="border-t border-gray-100">
+        <div className="border-t border-ink-100">
           {slots.length === 0 ? (
-            <p className="px-4 py-3 text-xs text-gray-400">No exercises assigned yet.</p>
+            <p className="px-4 py-3 sl-mono text-[11px] text-ink-400">No exercises assigned yet.</p>
           ) : (
             <div className="px-4 py-3 space-y-2">
               {slots.map((slot) => (
@@ -93,7 +120,8 @@ export default function SessionCard({
             <div className="px-4 pb-3">
               <button
                 onClick={onStart}
-                className="w-full bg-primary text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition-opacity"
+                className="sl-btn-primary w-full text-[13px]"
+                style={{ padding: '10px 16px' }}
               >
                 {confirmed ? 'Review session' : 'Start session'}
               </button>

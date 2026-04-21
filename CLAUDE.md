@@ -54,30 +54,50 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 
 | Feature area | Primary files | Shared deps |
 |---|---|---|
-| Auth / login | `auth/LoginPage`, `hooks/useAuth`, `routes.jsx` | `lib/supabase` |
-| Coach dashboard | `coach/CoachDashboard`, `hooks/useStudents`, `hooks/useSessionConfirmation` (`useAllConfirmations`) | `layout/Header` |
-| Coach student list | `coach/CoachHome` (greeting card with role+name tooltip), `coach/StudentCard`, `coach/WeekTimeline`, `hooks/useStudents`, `hooks/useProgram`, `hooks/useAuth` | `layout/Header` |
+| Auth / login | `auth/LoginPage` (editorial sl-card form), `hooks/useAuth`, `routes.jsx` | `lib/supabase` |
+| Coach dashboard | `coach/CoachDashboard` (editorial h1 + inline `UserMenu` avatar popover with Theme + Sign out), `hooks/useStudents`, `hooks/useSessionConfirmation` (`useAllConfirmations`) | — |
+| Coach student list | `coach/CoachHome`, `coach/StudentCard`, `coach/WeekTimeline`, `hooks/useStudents`, `hooks/useProgram`, `hooks/useAuth` | — |
 | Coach week reordering | `coach/WeekTimeline` (dnd-kit sortable), `hooks/useWeek` (`useReorderWeeks`) | `@dnd-kit/core`, `@dnd-kit/sortable` |
-| Coach sessions feed | `coach/SessionsFeed` (with `?student=:id` filter), `hooks/useSessionConfirmation` (`useAllConfirmations`) | `layout/Header`, `ui/EmptyState` |
-| Coach week view | `coach/WeekView`, `hooks/useWeek`, `hooks/useDuplicate`, `coach/VolumeBar`, `lib/volume` | `ui/EditableText`, `layout/Header` |
-| Coach session editor | `coach/SessionEditor`, `coach/ExerciseSlotRow`, `hooks/useSession`, `hooks/useExerciseLibrary`, `hooks/useDuplicate` | `coach/VolumeBar`, `ui/EditableText` |
+| Coach sessions feed | `coach/SessionsFeed` (with `?student=:id` filter, editorial h1), `hooks/useSessionConfirmation` (`useAllConfirmations`) | `ui/EmptyState` |
+| Coach week view | `coach/WeekView` (editorial top bar + sl-card sessions), `hooks/useWeek`, `hooks/useDuplicate`, `coach/VolumeBar`, `lib/volume` | `ui/EditableText` |
+| Coach session editor | `coach/SessionEditor` (editorial top bar + sl-pill actions), `coach/ExerciseSlotRow`, `hooks/useSession`, `hooks/useExerciseLibrary`, `hooks/useDuplicate` | `coach/VolumeBar`, `ui/EditableText` |
+| Coach session review | `coach/SessionReview` (editorial top bar + archive sl-pill + student-note tinted callout), `hooks/useSession`, `hooks/useSetLogs`, `hooks/useSlotComments`, `hooks/useSessionConfirmation`, `hooks/useWeek` (`useArchiveSession`) | `coach/SlotProgress`, `lib/volume` |
 | Coach exercise slot notes | `coach/ExerciseSlotRow` (notes textarea), `student/SessionView` (note display) | `hooks/useSession` (`useUpdateSlot`) |
 | Record-video set flag | `coach/ExerciseSlotRow` (set chips → `record_video_set_numbers` int[]), `student/SetRow` (camera badge), `student/SessionView` (passes prop) | `hooks/useSession`, `hooks/useStudentProgramDetails` |
-| Coach exercise library | `coach/ExerciseLibrary`, `hooks/useExerciseLibrary` | `ui/Dialog`, `ui/EmptyState` |
-| Student home | `student/StudentHome` (greeting card with role+name tooltip + today status), `student/SessionCard`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation`, `hooks/useAuth` | `layout/Header` |
-| Student sessions list | `student/StudentSessions`, `student/SessionCard`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation` | `layout/Header`, `lib/volume` |
-| Student stats | `student/StudentDashboard` (route: /student/stats), `student/SessionCalendar`, `student/ExerciseProgressChart` (per-exercise weekly tonnage), `hooks/useStudentProgressStats` | `lib/volume`, `layout/Header`, `ui/EmptyState` |
+| Coach exercise library | `coach/ExerciseLibrary` (editorial h1 + filter pills + compact Save CTA), `hooks/useExerciseLibrary` | `ui/Dialog`, `ui/EmptyState` |
+| Student home | `student/StudentHome` (editorial Greeting card with inline `UserMenu` avatar popover — Theme + Sign out; vertical-written day-strip titles), `student/SessionCard`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation`, `hooks/useAuth` | — |
+| Student sessions list | `student/StudentSessions` (editorial h1 + compact Start/Review CTA on `SessionCard`), `student/SessionCard`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation` | `lib/volume` |
+| Student stats | `student/StudentDashboard` (route: /student/stats), `student/SessionCalendar`, `student/ExerciseProgressChart` (per-exercise weekly tonnage), `hooks/useStudentProgressStats` | `lib/volume`, `ui/EmptyState` |
 | Student session logging | `student/SessionView`, `student/SetRow`, `student/RpeInput`, `hooks/useSession`, `hooks/useSetLogs` | — |
 | Session confirmations | `hooks/useSessionConfirmation`, `student/SessionView`, `coach/WeekView` (badge), `coach/SessionsFeed`, `coach/SessionReview` | — |
 | Goals & progress | `hooks/useGoals`, `coach/StudentGoals`, `student/MyGoals` | `hooks/useExerciseLibrary`, `layout/BottomNav` (Goals tab) |
-| Theming | `hooks/useTheme`, `ui/ThemeToggle`, `index.css` | `layout/Header` |
+| Theming | `hooks/useTheme`, `ui/ThemeToggle`, `index.css` | `coach/CoachDashboard` `UserMenu`, `student/StudentHome` `Greeting` |
 
 ---
+
+## Design system (editorial · dark-first · accent-driven)
+
+The app uses a custom editorial design system — **do not swap in `dark:` utilities or `text-gray-*` ad-hoc**. Use these primitives:
+
+- **Fonts**: `--font-display` Archivo (headings, buttons), `--font-body` Inter, `--font-mono` JetBrains Mono (labels, meta, numbers).
+- **Palette**: a single warm `ink-*` scale (`ink-0` cream → `ink-950` near-black) replaces `gray-*`. Accent is `--color-accent: #ff5a1f`. Semantic: `--color-success`, `--color-warn`, `--color-danger`.
+- **Utilities** (defined in `src/index.css` under `@layer components`):
+  - `sl-display` — Archivo 800, tight leading. Use for h1/h2/numeric callouts.
+  - `sl-label` — mono 10px uppercase + wide tracking, colored `ink-400`. Use for kickers above headings ("PROGRAM", "REVIEW", "WEEK 1") and section titles.
+  - `sl-mono` — body meta/numbers. Tabular figures on by default.
+  - `sl-card` — white surface + hairline shadow in light mode; flips to `ink-850` solid (no shadow) in dark mode.
+  - `sl-pill` — small uppercase mono pill for chips/tags/action buttons.
+  - `sl-btn-primary` — accent-filled CTA, display font, 16×20 padding. For tighter contexts (inline forms, inside cards) override with `className="… text-[13px]" style={{ padding: '10px 16px' }}` — this is the established compact-CTA pattern (see `SessionCard`, `ExerciseLibrary` ExerciseForm).
+- **Editorial page header pattern** (no `<Header/>`): a back button (`w-9 h-9 rounded-lg bg-ink-100`) + `sl-label` kicker + `sl-display` h1 + right-aligned `sl-pill` action buttons. Used on `SessionEditor`, `WeekView`, `SessionReview`, etc.
+- **Top-right user menu**: `StudentHome` and `CoachDashboard` have an inline avatar-initials popover containing `ThemeToggle` + Sign out (`Header` was removed from those surfaces). `Header` is now only used by `StudentGoals` — don't reach for it on new pages; follow the editorial header pattern instead.
+- **Tinted surfaces** use `color-mix(in srgb, var(--color-accent) 10%, transparent)` (and similar for success/warn/danger). Prefer this over hand-picked hex — it adapts to both themes.
+- **Day-strip session titles** on `StudentHome` are rendered with `writing-mode: vertical-rl; transform: rotate(180deg)` so "LOWER 1" / "UPPER 1" read top-to-bottom without wrapping in the narrow 7-column grid.
 
 ## Gotchas (read once, never re-discover)
 
 - **Tailwind 4, CSS-based config.** `@theme` and `@custom-variant` live in `src/index.css`. There's no `tailwind.config.js`.
 - **Dark mode = CSS overrides, not `dark:` utilities.** Extend `src/index.css` rather than sprinkle `dark:` classes. Class-based (`.dark` on `<html>`).
+- **Dark-mode remap only applies to class-based colors.** `.dark .text-gray-900`, `.dark .text-ink-700`, etc. flip via className selectors. An inline `style={{ color: 'var(--color-ink-800)' }}` will NOT flip. Use `text-gray-900` / `text-ink-*` classes for any text that needs to invert — reserve inline `style` for colors that stay the same in both themes (accent, success, warn, danger) or for `color-mix()` backgrounds/borders that don't need flipping.
 - **HashRouter is intentional** (GitHub Pages). URLs contain `/#/`.
 - **`useWeek.js` owns `useUpdateWeek` and `useUpdateSession`** (not `useSession.js`). Weeks-level and sessions-level write mutations are consolidated there.
 - **`useTheme()` has a no-op fallback** when no provider is mounted — convenient for isolated tests. Don't rely on it in production paths.

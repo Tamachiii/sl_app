@@ -41,22 +41,24 @@ function SortableWeek({ week, studentId }) {
     <div
       ref={setNodeRef}
       style={style}
-      className="shrink-0 flex items-stretch rounded-lg bg-gray-100 overflow-hidden"
+      className="shrink-0 flex items-stretch rounded-lg bg-ink-100 overflow-hidden"
     >
       <button
         onClick={() => navigate(`/coach/student/${studentId}/week/${week.id}`)}
-        className="hover:bg-primary/10 text-gray-700 pl-3 pr-2 py-2 text-sm font-medium transition-colors text-left"
+        className="pl-3 pr-2 py-2 text-left transition-colors hover:bg-ink-200"
       >
-        W{week.week_number}
+        <span className="sl-display text-[13px] text-gray-900 block leading-tight">
+          W{week.week_number}
+        </span>
         {week.label && (
-          <span className="block text-xs text-gray-400">{week.label}</span>
+          <span className="sl-mono text-[10px] text-ink-400 block mt-0.5">{week.label}</span>
         )}
       </button>
       <button
         {...attributes}
         {...listeners}
         aria-label={`Reorder week ${week.week_number}`}
-        className="px-2 text-gray-400 hover:text-gray-700 hover:bg-gray-200 cursor-grab active:cursor-grabbing touch-none"
+        className="px-2 text-ink-400 hover:text-gray-700 hover:bg-ink-200 cursor-grab active:cursor-grabbing touch-none"
       >
         <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true">
           <circle cx="2.5" cy="3" r="1.25" />
@@ -130,9 +132,9 @@ export default function WeekTimeline({ studentId, program }) {
         <button
           onClick={handleAddWeek}
           disabled={createWeek.isPending}
-          className="shrink-0 border-2 border-dashed border-gray-300 text-gray-400 rounded-lg px-3 py-2 text-sm font-medium hover:border-primary hover:text-primary transition-colors"
+          className="shrink-0 border border-dashed border-ink-200 text-ink-400 rounded-lg px-3 py-2 sl-mono text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
         >
-          + Week
+          + WEEK
         </button>
       </div>
     </DndContext>

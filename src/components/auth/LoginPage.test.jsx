@@ -70,6 +70,6 @@ describe('LoginPage', () => {
     await user.type(screen.getByLabelText('Password'), 'password123');
     await user.click(screen.getByRole('button', { name: 'Sign In' }));
 
-    expect(screen.getByRole('button', { name: 'Signing in...' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Signing in…' })).toBeDisabled();
   });
 });
