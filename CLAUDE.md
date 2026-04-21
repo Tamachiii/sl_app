@@ -25,23 +25,27 @@ When a change might ripple (e.g. editing a shared component like `Header`), `Gre
 ```
 src/
   App.jsx, main.jsx, routes.jsx, index.css
-  lib/           supabase.js  queryClient.js  volume.js
-  hooks/         useAuth  useTheme  useProgram  useWeek  useSession
-                 useExerciseLibrary  useDuplicate  useStudents
-                 useSetLogs  useSessionConfirmation  useStudentProgressStats
-                 useStudentProgramDetails
+  lib/           supabase.js  queryClient.js  volume.js  day.js  i18n/
+  hooks/         useAuth  useTheme  useI18n  useProgram  useWeek  useSession
+                 useExerciseLibrary  useDuplicate  useStudents  useGoals
+                 useSetLogs  useSessionConfirmation  useSlotComments
+                 useStudentProgressStats  useStudentProgramDetails
   components/
     auth/        LoginPage  ProtectedRoute  RoleGate
-    layout/      Header  BottomNav  AppShell
+    layout/      BottomNav  AppShell
     coach/       CoachDashboard  CoachHome  StudentCard  WeekTimeline  WeekView
-                 SessionEditor  ExerciseSlotRow  ExerciseLibrary
-                 VolumeBar  SessionsFeed
-    student/     StudentHome  StudentSessions  StudentDashboard(Stats)  SessionView  SetRow  RpeInput
-    ui/          EditableText  ThemeToggle  Dialog  Spinner  EmptyState  CopyDialog  ConfirmDialog  ErrorBoundary
+                 SessionEditor  SessionReview  ExerciseSlotRow  ExerciseLibrary
+                 VolumeBar  SessionsFeed  StudentGoals  SlotProgress
+    student/     StudentHome  StudentSessions  SessionCard  SessionView  SetRow
+                 RpeInput  StudentDashboard(Stats)  SessionCalendar
+                 ExerciseProgressChart  MyGoals
+    ui/          EditableText  ThemeToggle  LanguageSelect  Dialog  Spinner
+                 EmptyState  CopyDialog  ConfirmDialog  ErrorBoundary
   test/          setup.js  utils.jsx (renderWithProviders)
 supabase/
   schema.sql
   migrations/    <dated SQL files, applied in order>
+docs/            ARCHITECTURE.md  DESIGN_SYSTEM.md  ENVIRONMENT.md
 ```
 
 Tests live next to their component as `*.test.jsx`.
@@ -70,29 +74,23 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 | Student stats | `student/StudentDashboard` (route: /student/stats), `student/SessionCalendar`, `student/ExerciseProgressChart` (per-exercise weekly tonnage), `hooks/useStudentProgressStats` | `lib/volume`, `ui/EmptyState` |
 | Student session logging | `student/SessionView` (collapsible exercise cards — auto-open incomplete, auto-collapse completed; supersets collapse as one unit), `student/SetRow`, `student/RpeInput`, `hooks/useSession`, `hooks/useSetLogs` | — |
 | Session confirmations | `hooks/useSessionConfirmation`, `student/SessionView`, `coach/WeekView` (badge), `coach/SessionsFeed`, `coach/SessionReview` | — |
-| Goals & progress | `hooks/useGoals`, `coach/StudentGoals` (editorial back-button header + sl-card goal rows + compact Save CTA), `student/MyGoals` | `hooks/useExerciseLibrary`, `layout/BottomNav` (Goals tab) |
+| Coach goals (per student) | `coach/StudentGoals` (editorial back-button header + sl-card goal rows + compact Save CTA), `hooks/useGoals` | `hooks/useExerciseLibrary`, `layout/BottomNav` |
+| Student goals | `student/MyGoals` (sl-card rows, per-goal log/toggle-achieved), `hooks/useGoals` | `layout/BottomNav` (Goals tab) |
 | Theming | `hooks/useTheme`, `ui/ThemeToggle`, `index.css` | `coach/CoachDashboard` `UserMenu`, `student/StudentHome` `Greeting` |
-| i18n (EN/FR/DE) | `hooks/useI18n`, `lib/i18n/{en,fr,de,index}.js`, `ui/LanguageSelect` | `layout/Header`, `auth/LoginPage`, both `UserMenu` popovers |
+| i18n (EN/FR/DE) | `hooks/useI18n`, `lib/i18n/{en,fr,de,index}.js`, `ui/LanguageSelect` | `auth/LoginPage`, both `UserMenu` popovers |
+| Day-number helpers | `lib/day.js` (`DAY_LABELS`, `DAY_FULL`, `todayDayNumber`) | `student/StudentHome`, `student/SessionView` |
 
 ---
 
-## Design system (editorial · dark-first · accent-driven)
+## Design system
 
-The app uses a custom editorial design system — **do not swap in `dark:` utilities or `text-gray-*` ad-hoc**. Use these primitives:
+Full primitives, dark-mode rules, and the editorial page-header pattern are in [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md). Short version for agents:
 
-- **Fonts**: `--font-display` Archivo (headings, buttons), `--font-body` Inter, `--font-mono` JetBrains Mono (labels, meta, numbers).
-- **Palette**: a single warm `ink-*` scale (`ink-0` cream → `ink-950` near-black) replaces `gray-*`. Accent is `--color-accent: #ff5a1f`. Semantic: `--color-success`, `--color-warn`, `--color-danger`.
-- **Utilities** (defined in `src/index.css` under `@layer components`):
-  - `sl-display` — Archivo 800, tight leading. Use for h1/h2/numeric callouts.
-  - `sl-label` — mono 10px uppercase + wide tracking, colored `ink-400`. Use for kickers above headings ("PROGRAM", "REVIEW", "WEEK 1") and section titles.
-  - `sl-mono` — body meta/numbers. Tabular figures on by default.
-  - `sl-card` — white surface + hairline shadow in light mode; flips to `ink-850` solid (no shadow) in dark mode.
-  - `sl-pill` — small uppercase mono pill for chips/tags/action buttons.
-  - `sl-btn-primary` — accent-filled CTA, display font, 16×20 padding. For tighter contexts (inline forms, inside cards) override with `className="… text-[13px]" style={{ padding: '10px 16px' }}` — this is the established compact-CTA pattern (see `SessionCard`, `ExerciseLibrary` ExerciseForm).
-- **Editorial page header pattern** (no `<Header/>`): a back button (`w-9 h-9 rounded-lg bg-ink-100`) + `sl-label` kicker + `sl-display` h1 + right-aligned `sl-pill` action buttons. Used on `SessionEditor`, `WeekView`, `SessionReview`, etc.
-- **Top-right user menu**: `StudentHome` and `CoachDashboard` have an inline avatar-initials popover containing `ThemeToggle` + Sign out (`Header` was removed from those surfaces). No page imports `layout/Header` anymore — always follow the editorial header pattern (back-button + kicker + h1) on new pages.
-- **Tinted surfaces** use `color-mix(in srgb, var(--color-accent) 10%, transparent)` (and similar for success/warn/danger). Prefer this over hand-picked hex — it adapts to both themes.
-- **Day-strip session titles** on `StudentHome` are rendered with `writing-mode: vertical-rl; transform: rotate(180deg)` so "LOWER 1" / "UPPER 1" read top-to-bottom without wrapping in the narrow 7-column grid.
+- **Do not** swap in `dark:` utilities or `text-gray-*` ad-hoc. Use `sl-card` / `sl-display` / `sl-label` / `sl-mono` / `sl-pill` / `sl-btn-primary` + the warm `ink-*` scale.
+- **Editorial page header** on every screen: back button (`w-9 h-9 rounded-lg bg-ink-100`) + `sl-label` kicker + `sl-display` h1 + right-aligned `sl-pill` action buttons. `StudentHome` / `CoachDashboard` use an inline avatar-initials popover instead of a shared header.
+- **Compact CTA**: override `sl-btn-primary` with `className="… text-[13px]" style={{ padding: '10px 16px' }}` (see `SessionCard`, `ExerciseLibrary` ExerciseForm).
+- **Tinted surfaces** use `color-mix(in srgb, var(--color-accent) 10%, transparent)` (and success/warn/danger) so they adapt to both themes.
+- **Day-strip session titles** on `StudentHome` use `writing-mode: vertical-rl; transform: rotate(180deg)` to read top-to-bottom without wrapping in the narrow 7-column grid.
 
 ## Gotchas (read once, never re-discover)
 
@@ -141,7 +139,7 @@ Test runs are via WSL: `wsl -d Ubuntu -- bash -lc "cd /home/tamachi/sl_app && np
 
 1. Load only the files listed in the matching row of the feature table above.
 2. If the feature adds a DB table/column, put the SQL in `supabase/migrations/<date>_<name>.sql` **and** append it to `schema.sql`.
-3. Add tests next to components; stub hooks with `vi.mock(...)`; use `renderWithProviders` when rendering anything with `Header`.
+3. Add tests next to components; stub hooks with `vi.mock(...)`; use `renderWithProviders` from [src/test/utils.jsx](src/test/utils.jsx) for anything that needs Theme / QueryClient / Auth / Router.
 4. Update this file's feature table only if you introduced a new feature area.
 5. Run `npm test -- --run` and `npm run build` before committing.
 6. Update `README.md` and `CLAUDE.md` to reflect the new feature (domain model, feature table, gotchas, etc.) before pushing.

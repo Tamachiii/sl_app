@@ -147,6 +147,127 @@ describe('SessionView', () => {
     expect(screen.getByText('Keep elbows tucked throughout')).toBeInTheDocument();
   });
 
+  it('auto-collapses a slot whose logs are all done, auto-opens an incomplete one', () => {
+    mockSessionData = {
+      data: {
+        title: 'Mixed Day',
+        exercise_slots: [
+          {
+            id: 'slot-done',
+            sets: 2,
+            reps: 10,
+            weight_kg: 20,
+            sort_order: 0,
+            exercise: { name: 'Dip', type: 'push', difficulty: 2, volume_weight: 1 },
+          },
+          {
+            id: 'slot-open',
+            sets: 2,
+            reps: 10,
+            weight_kg: 20,
+            sort_order: 1,
+            exercise: { name: 'Pullup', type: 'pull', difficulty: 2, volume_weight: 1 },
+          },
+        ],
+      },
+      isLoading: false,
+    };
+    mockSetLogsData = {
+      data: [
+        { id: 'l-1', exercise_slot_id: 'slot-done', set_number: 1, done: true, rpe: null },
+        { id: 'l-2', exercise_slot_id: 'slot-done', set_number: 2, done: true, rpe: null },
+        { id: 'l-3', exercise_slot_id: 'slot-open', set_number: 1, done: false, rpe: null },
+        { id: 'l-4', exercise_slot_id: 'slot-open', set_number: 2, done: false, rpe: null },
+      ],
+      isLoading: false,
+    };
+    renderSessionView();
+
+    // Both exercise headers are visible.
+    expect(screen.getByText('Dip')).toBeInTheDocument();
+    expect(screen.getByText('Pullup')).toBeInTheDocument();
+    // The completed slot's body (SetRow "Set 1/2") is hidden; the incomplete slot's body is visible.
+    // Pullup has two SetRows ("Set 1" and "Set 2"); Dip has none because it's collapsed.
+    const set1Nodes = screen.getAllByText('Set 1');
+    expect(set1Nodes).toHaveLength(1);
+  });
+
+  it('manual toggle on an auto-open slot collapses it', async () => {
+    const user = userEvent.setup();
+    mockSessionData = {
+      data: {
+        title: 'Single',
+        exercise_slots: [
+          {
+            id: 'slot-1',
+            sets: 2,
+            reps: 10,
+            weight_kg: 20,
+            sort_order: 0,
+            exercise: { name: 'Dip', type: 'push', difficulty: 2, volume_weight: 1 },
+          },
+        ],
+      },
+      isLoading: false,
+    };
+    mockSetLogsData = {
+      data: [
+        { id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, rpe: null },
+      ],
+      isLoading: false,
+    };
+    renderSessionView();
+
+    // Auto-open: Set 1 visible.
+    expect(screen.getByText('Set 1')).toBeInTheDocument();
+
+    // Click the slot header to collapse.
+    await user.click(screen.getByRole('button', { expanded: true }));
+    expect(screen.queryByText('Set 1')).toBeNull();
+  });
+
+  it('renders a superset group as a single collapsible unit', () => {
+    mockSessionData = {
+      data: {
+        title: 'Super',
+        exercise_slots: [
+          {
+            id: 'slot-a',
+            sets: 3,
+            reps: 8,
+            weight_kg: 10,
+            sort_order: 0,
+            superset_group: 1,
+            exercise: { name: 'Curl', type: 'pull', difficulty: 1, volume_weight: 1 },
+          },
+          {
+            id: 'slot-b',
+            sets: 3,
+            reps: 8,
+            weight_kg: 10,
+            sort_order: 1,
+            superset_group: 1,
+            exercise: { name: 'Skullcrusher', type: 'push', difficulty: 1, volume_weight: 1 },
+          },
+        ],
+      },
+      isLoading: false,
+    };
+    mockSetLogsData = {
+      data: [
+        { id: 'l-a1', exercise_slot_id: 'slot-a', set_number: 1, done: false, rpe: null },
+        { id: 'l-b1', exercise_slot_id: 'slot-b', set_number: 1, done: false, rpe: null },
+      ],
+      isLoading: false,
+    };
+    renderSessionView();
+
+    expect(screen.getByText(/Superset/i)).toBeInTheDocument();
+    expect(screen.getByText(/Alternate between exercises/i)).toBeInTheDocument();
+    expect(screen.getByText('Curl')).toBeInTheDocument();
+    expect(screen.getByText('Skullcrusher')).toBeInTheDocument();
+  });
+
   it('shows confirmed banner and undo button when already confirmed', async () => {
     const user = userEvent.setup();
     mockConfirmation = {

@@ -52,80 +52,30 @@ npm run deploy    # publishes dist/ to gh-pages branch
 
 ## Directory Structure
 
+Top level only — see [CLAUDE.md](CLAUDE.md) for the feature → files table that maps each area (coach dashboard, student home, week editor, etc.) to its primary files.
+
 ```
 src/
-  App.jsx                      # Top-level providers (Theme, QueryClient, Auth, Router)
-  main.jsx                     # Entry point
-  routes.jsx                   # React.lazy + Suspense route table
-  index.css                    # Tailwind import + dark-theme CSS overrides
-  lib/
-    supabase.js                # Supabase client (singleton)
-    queryClient.js             # Shared React Query client
-    volume.js                  # computeSessionVolume() — aggregates pull/push volume
-  hooks/
-    useAuth.jsx                # AuthProvider + useAuth (session, profile, role)
-    useTheme.jsx               # ThemeProvider + useTheme (light/dark, localStorage-backed)
-    useProgram.js              # Student → program/weeks queries + mutations
-    useWeek.js                 # Week + sessions (incl. useUpdateWeek, useUpdateSession)
-    useSession.js              # Session + exercise_slots queries/mutations
-    useExerciseLibrary.js      # CRUD for coach's exercise library
-    useDuplicate.js            # Duplicate week / duplicate session server-side logic
-    useStudents.js             # Coach's student list
-    useSetLogs.js              # Student set-logging mutations
-    useSessionConfirmation.js  # Confirmations (student + coach hooks incl. useAllConfirmations)
-    useStudentProgressStats.js # Aggregated stats for the Student Dashboard
+  App.jsx  main.jsx  routes.jsx  index.css
+  lib/                 supabase, queryClient, volume, day, i18n
+  hooks/               auth · theme · i18n · program · week · session · goals · students · set-logs · confirmations · stats
   components/
-    auth/LoginPage.jsx
-    layout/
-      Header.jsx               # Sticky top bar (back button, title, actions, ThemeToggle)
-      BottomNav.jsx            # Role-aware bottom tabs + sign out
-    coach/
-      CoachHome.jsx            # Student list (greeting card with role+name tooltip)
-      StudentCard.jsx          # Student card with WeekTimeline
-      WeekTimeline.jsx         # W1/W2/... pills + "+ Week" (drag-and-drop reordering via @dnd-kit)
-      WeekView.jsx             # Sessions list (inline-editable labels & titles)
-      SessionEditor.jsx        # Exercise slots + add/duplicate (inline-editable title)
-      ExerciseSlotRow.jsx      # Per-slot sets/reps/weight + reorder/delete
-      ExerciseLibrary.jsx      # Coach's exercise CRUD
-      VolumeBar.jsx            # Stacked pull/push volume bar
-    student/
-      StudentHome.jsx          # Home tab: greeting card (role+name tooltip, today status) + 7-day strip + next session preview + upcoming/completed
-      SessionCard.jsx          # Expandable session card (used by Home & Sessions)
-      StudentSessions.jsx      # Sessions tab: full program session picker
-      StudentDashboard.jsx     # Stats tab (/student/stats): progress + per-exercise weekly tonnage chart
-      ExerciseProgressChart.jsx # SVG line/bar chart of Σ(sets×reps×weight) per week for a selected exercise
-      SessionView.jsx          # Runs through the session (SetRow per set); exercises in collapsible cards
-      SetRow.jsx               # Weight/reps/RPE/done per set
-      RpeInput.jsx             # 1-10 RPE picker
-    ui/
-      EditableText.jsx         # Click-to-edit text (Enter/blur commit, Esc cancel)
-      ThemeToggle.jsx          # Sun/moon button
-      Dialog.jsx, Spinner.jsx, EmptyState.jsx
-      CopyDialog.jsx           # Shared dialog for copying weeks/sessions
-      ConfirmDialog.jsx        # Shared confirmation dialog
-      ErrorBoundary.jsx        # React ErrorBoundary wrapper
-  test/
-    setup.js                   # jest-dom + matchMedia polyfill
-    utils.jsx                  # renderWithProviders() — wraps Theme + Query + Auth + Router
-supabase/schema.sql            # Tables, RLS, signup trigger
-public/
-  manifest.json                # PWA manifest
-  favicon.svg
+    auth/              LoginPage, ProtectedRoute, RoleGate
+    layout/            BottomNav, AppShell
+    coach/             CoachDashboard, CoachHome, StudentCard, WeekTimeline, WeekView,
+                       SessionEditor, SessionReview, ExerciseSlotRow, ExerciseLibrary,
+                       VolumeBar, SessionsFeed, StudentGoals
+    student/           StudentHome, StudentSessions, SessionCard, SessionView, SetRow,
+                       RpeInput, StudentDashboard (Stats), MyGoals, ExerciseProgressChart
+    ui/                EditableText, ThemeToggle, LanguageSelect, Dialog, Spinner,
+                       EmptyState, CopyDialog, ConfirmDialog, ErrorBoundary
+  test/                setup.js, utils.jsx (renderWithProviders)
+supabase/
+  schema.sql           Tables, RLS, signup trigger
+  migrations/          Dated SQL files, applied in order
+public/                manifest.json, favicon.svg
+docs/                  ARCHITECTURE.md, DESIGN_SYSTEM.md, ENVIRONMENT.md
 ```
-
----
-
-## Domain Model
-
-### Coach Dashboard
-
-`CoachDashboard` is the coach's landing page (`/coach/dashboard`). It shows:
-- **Students** — compact list; each row links to the per-student confirmation history.
-- **Recent Activity** — the 5 most recent non-archived confirmed sessions across all students, linking directly to `SessionReview`.
-
-### Sessions feed
-
-`SessionsFeed` (`/coach/sessions`) aggregates confirmed sessions from all students in a single reverse-chronological list. Each card shows the student's name, session title, week/day context, timestamp and optional notes. Archived sessions are hidden behind a toggle. Data comes from `useAllConfirmations` (three Supabase round-trips, RLS-scoped to the coach).
 
 ---
 
@@ -199,39 +149,17 @@ For any exercise, the coach can pick **any number** of sets to record on video v
 
 ---
 
-## Design System (athletic · editorial · dark-first)
+## Design System, Theming, and i18n
 
-The UI uses a custom editorial design language instead of raw Tailwind utilities for the common cases. All primitives live in `src/index.css`:
+Full primitives (`sl-card`, `sl-display`, `sl-label`, `sl-mono`, `sl-pill`, `sl-btn-primary`), dark-mode rules, and the editorial page-header pattern live in [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md).
 
-- **Fonts** (loaded in `index.html`): **Archivo** (`--font-display`) for headings, buttons, numeric callouts · **Inter** (`--font-body`) for body text · **JetBrains Mono** (`--font-mono`) for labels, meta, and numbers (tabular figures always on).
-- **Palette**: a warm `ink-*` scale (`ink-0` cream → `ink-950` near-black) replaces `gray-*`. Accent is `#ff5a1f` (high-vis orange). Semantic tokens: `--color-success`, `--color-warn`, `--color-danger`.
-- **Utilities** (`@layer components`):
-  - `sl-display` — display headings (Archivo 800, tight leading).
-  - `sl-label` — mono uppercase 10px kicker (`"PROGRAM" / "WEEK 1" / "REVIEW"`).
-  - `sl-mono` — tabular-figure meta/numbers.
-  - `sl-card` — surface primitive (white + hairline → solid `ink-850` in dark mode).
-  - `sl-pill` — small uppercase chip for tags and secondary buttons.
-  - `sl-btn-primary` — accent CTA with display font; override `padding`/`text-[…]` inline for compact variants (see `SessionCard`, `ExerciseLibrary` ExerciseForm).
-- **Editorial page header pattern**: back button + `sl-label` kicker + `sl-display` h1 + right-aligned `sl-pill` actions. Used across `SessionEditor`, `WeekView`, `SessionReview`, etc. `layout/Header` is now only used by `StudentGoals`; new pages should follow the editorial pattern instead.
-- **Tinted surfaces** use `color-mix(in srgb, var(--color-accent) 10%, transparent)` (and success/warn/danger) so they adapt to both themes.
+Working notes for agents — feature → files map, gotchas, and hook ownership — live in [CLAUDE.md](CLAUDE.md). System architecture (data model, React Query invalidation, RLS) lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Environment setup (WSL recommended) lives in [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md).
 
-## Theming (Light / Dark)
+Quick summary:
 
-- `ThemeProvider` (`src/hooks/useTheme.jsx`) toggles the `dark` class on `<html>` and persists to `localStorage` key `sl_app_theme`. Initial value follows `prefers-color-scheme` if unset.
-- `src/index.css` declares `@custom-variant dark (&:where(.dark, .dark *))` (Tailwind 4) and a compact set of CSS overrides that remap `bg-white`, `bg-gray-50/100/200`, `text-gray-*`, `border-gray-*`, and the full `ink-*` scale under `.dark`. This avoids adding `dark:` variants to every component.
-- **Class-based remap only**: inline `style={{ color: 'var(--color-ink-800)' }}` does NOT flip. Use `text-gray-*` / `text-ink-*` classes for any text that needs to invert.
-- Toggle UI: `ThemeToggle` (sun/moon) lives inside the top-right avatar popover on `StudentHome` and `CoachDashboard`, and in `Header` on the Goals route.
-- `useTheme()` falls back to a no-op in the absence of a provider so components can render in isolation (tests).
-
----
-
-## Internationalization (EN / FR / DE)
-
-- `I18nProvider` (`src/hooks/useI18n.jsx`) resolves initial language from `localStorage.sl_app_lang`, falling back to `navigator.language`, then `'en'`. Persists writes and mirrors to `<html lang>`.
-- Locale dictionaries live in `src/lib/i18n/{en,fr,de}.js` (nested keys like `student.home.nextSession`). `getMessage(lang, key, params)` supports `{token}` interpolation with English fallback for missing keys.
-- `LanguageSelect` (`src/components/ui/LanguageSelect.jsx`) is a compact EN/FR/DE button group. Rendered inside the `StudentHome` and `CoachDashboard` avatar popovers, next to the `LoginPage` kicker, and in `Header` (Goals route).
-- `useI18n()` has a no-op English fallback when no provider is mounted — same isolated-test pattern as `useTheme`.
-- Label values are stored title-case (`'Home'`); the `sl-label` utility uppercases visually via CSS.
+- **Theme**: `ThemeProvider` (`src/hooks/useTheme.jsx`) toggles `.dark` on `<html>`, persists to `localStorage.sl_app_theme`. CSS-override based — don't sprinkle `dark:` classes.
+- **i18n**: `I18nProvider` (`src/hooks/useI18n.jsx`) with EN/FR/DE dictionaries in `src/lib/i18n/`. Title-case values, `sl-label` uppercases via CSS.
+- **Toggles**: `ThemeToggle` + `LanguageSelect` live inside the avatar popovers on `StudentHome` and `CoachDashboard`, and next to the `LoginPage` kicker.
 
 ---
 
@@ -297,8 +225,7 @@ Supabase env vars are passed in at build time — ensure the GitHub Actions secr
 - **Tailwind 4**: config is in CSS (`@theme` / `@custom-variant` in `src/index.css`), not a `tailwind.config.js`.
 - **Dark mode is CSS override–based**, not utility-based. Prefer extending overrides in `src/index.css` over adding `dark:` classes everywhere. Only *className*-based colors flip — inline `style={{ color: … }}` does not.
 - **Prefer the design system** (`sl-display`, `sl-label`, `sl-mono`, `sl-card`, `sl-pill`, `sl-btn-primary`) and the warm `ink-*` scale over raw `gray-*` / `dark:` utilities on new code.
-- **`layout/Header` is deprecated on most pages** — only `StudentGoals` still uses it. New pages should use the editorial header pattern (back button + sl-label kicker + sl-display h1 + sl-pill actions). `StudentHome` + `CoachDashboard` embed the theme toggle / sign-out inside an avatar-initials popover instead.
+- **Editorial page header on every page**: back button + `sl-label` kicker + `sl-display` h1 + right-aligned `sl-pill` actions. `StudentHome` and `CoachDashboard` use an inline avatar popover instead of a shared header.
 - **HashRouter** is intentional (GitHub Pages). URLs contain `/#/` — don't swap to `BrowserRouter` without switching hosting.
 - **`useWeek.js` owns both `useUpdateWeek` and `useUpdateSession`** (not `useSession.js`) — consolidated to match the mutation source used by `WeekView`.
 - **`useTheme()` tolerates a missing provider** (returns a light-theme no-op). Convenient for tests; don't rely on it in production paths.
-- When adding a page that uses `<Header />` in a test, wrap with `ThemeProvider` (or use `renderWithProviders`) — `Header` renders `ThemeToggle`.

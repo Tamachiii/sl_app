@@ -4,21 +4,12 @@ import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { useStudentProgramDetails } from '../../hooks/useStudentProgramDetails';
 import { useMyConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
+import { DAY_LABELS, DAY_FULL, todayDayNumber } from '../../lib/day';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import ThemeToggle from '../ui/ThemeToggle';
 import LanguageSelect from '../ui/LanguageSelect';
 import SessionCard from './SessionCard';
-
-// day_number 1 = Monday … 7 = Sunday
-const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-const DAY_FULL   = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-/** Map JS getDay() (0=Sun … 6=Sat) → training day_number (1=Mon … 7=Sun). */
-function todayDayNumber() {
-  const d = new Date().getDay();
-  return d === 0 ? 7 : d;
-}
 
 /** Weekday slot for a session. Prefer scheduled_date (actual calendar day) over day_number. */
 function sessionDayNumber(s) {
