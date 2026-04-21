@@ -12,7 +12,15 @@ export default function AppShell() {
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
-      <main ref={mainRef} className="flex-1 overflow-y-auto">
+      <main
+        ref={mainRef}
+        className="flex-1 overflow-y-auto"
+        style={{
+          paddingTop: 'env(safe-area-inset-top)',
+          paddingLeft: 'env(safe-area-inset-left)',
+          paddingRight: 'env(safe-area-inset-right)',
+        }}
+      >
         <Outlet />
       </main>
       <BottomNav />

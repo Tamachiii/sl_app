@@ -79,9 +79,17 @@ export default function BottomNav() {
   const navClass =
     'sticky bottom-0 flex justify-around backdrop-blur supports-[backdrop-filter]:bg-white/80 bg-white border-t border-ink-100';
 
+  // Honor the home-indicator / gesture-bar safe area on iOS + Samsung edge devices.
+  // On non-notched devices env(...) returns 0, so this is a no-op visually.
+  const navStyle = {
+    paddingBottom: 'env(safe-area-inset-bottom)',
+    paddingLeft: 'env(safe-area-inset-left)',
+    paddingRight: 'env(safe-area-inset-right)',
+  };
+
   if (role === 'coach') {
     return (
-      <nav aria-label="Main navigation" className={navClass}>
+      <nav aria-label="Main navigation" className={navClass} style={navStyle}>
         <NavItem to="/coach/dashboard" label={t('nav.dashboard')} icon={DashboardIcon} end />
         <NavItem to="/coach/students" label={t('nav.students')} icon={StudentsIcon} end />
         <NavItem to="/coach/sessions" label={t('nav.sessions')} icon={SessionsIcon} end />
@@ -91,7 +99,7 @@ export default function BottomNav() {
   }
 
   return (
-    <nav aria-label="Main navigation" className={navClass}>
+    <nav aria-label="Main navigation" className={navClass} style={navStyle}>
       <NavItem to="/student" label={t('nav.home')} icon={HomeIcon} end />
       <NavItem to="/student/sessions" label={t('nav.sessions')} icon={SessionsIcon} />
       <NavItem to="/student/stats" label={t('nav.stats')} icon={StatsIcon} />

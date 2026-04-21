@@ -2,10 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="description" content="Street Lifting Coach — manage and track calisthenics training programs for coaches and athletes." />
-    <meta name="theme-color" content="#f97316" />
-    <meta name="color-scheme" content="light" />
+    <!-- Status-bar / Dynamic Island strip matches the app surface per theme.
+         Light = Tailwind gray-50 (the AppShell background); dark = ink-900. -->
+    <meta name="theme-color" content="#f9fafb" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#111110" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
     <link rel="icon" href="/sl_app/favicon.svg" type="image/svg+xml" />
     <link rel="manifest" href="/sl_app/manifest.json" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />

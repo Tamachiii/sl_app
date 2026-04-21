@@ -75,7 +75,7 @@ git worktree remove ../sl_app_wt_featurename
 
 - **[.gitattributes](../.gitattributes)** — `* text=auto eol=lf` so line endings stay LF regardless of which OS or editor checks out the tree. Prevents mixed-CRLF commits if someone opens the repo from Windows.
 - **[.nvmrc](../.nvmrc)** — pins Node 20 to match `.github/workflows/*` (runs on `ubuntu-latest` with Node 20). `nvm use` in the repo root picks it up.
-- **[.claude/launch.json](../.claude/launch.json)** — uses `"runtimeExecutable": "npm"` with `["run", "dev"]` so the dev server works from any worktree path. The previous `wsl -d Ubuntu -- bash -lc "cd /home/tamachi/sl_app && …"` baked in a specific Linux path and broke for worktrees.
+- **[.claude/launch.json](../.claude/launch.json)** — wraps `npm run dev` in `wsl -d Ubuntu -- bash -lc`. The wrapper is required while Claude Code is running on the Windows side (a bare `"runtimeExecutable": "npm"` fails with `spawn npm ENOENT` because Windows needs `npm.cmd`). The hardcoded `cd /home/tamachi/sl_app` was dropped — `wsl.exe` translates the worktree's Windows cwd into the matching Linux path before invoking bash, so the config is worktree-agnostic. Once Claude Code itself runs inside WSL (the goal of this migration), the wrapper can be replaced with `"runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"]`.
 
 ## Gotchas
 
