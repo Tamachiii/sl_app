@@ -94,7 +94,7 @@ src/
       StudentSessions.jsx      # Sessions tab: full program session picker
       StudentDashboard.jsx     # Stats tab (/student/stats): progress + per-exercise weekly tonnage chart
       ExerciseProgressChart.jsx # SVG line/bar chart of Σ(sets×reps×weight) per week for a selected exercise
-      SessionView.jsx          # Runs through the session (SetRow per set)
+      SessionView.jsx          # Runs through the session (SetRow per set); exercises in collapsible cards
       SetRow.jsx               # Weight/reps/RPE/done per set
       RpeInput.jsx             # 1-10 RPE picker
     ui/

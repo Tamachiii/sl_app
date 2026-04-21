@@ -50,6 +50,7 @@ export default function SessionView() {
   const unconfirmSession = useUnconfirmSession();
 
   const [notes, setNotes] = useState('');
+  const [manualOpen, setManualOpen] = useState({});
 
   useEffect(() => {
     if (slots.length > 0 && logs !== undefined) {
@@ -65,6 +66,22 @@ export default function SessionView() {
     return (logs || [])
       .filter((l) => l.exercise_slot_id === slotId)
       .sort((a, b) => a.set_number - b.set_number);
+  }
+
+  function getGroupLogs(group) {
+    return group.slots.flatMap((s) => getLogsForSlot(s.id));
+  }
+
+  function isGroupOpen(group) {
+    if (manualOpen[group.key] !== undefined) return manualOpen[group.key];
+    const gl = getGroupLogs(group);
+    if (gl.length === 0) return true;
+    return gl.some((l) => !l.done);
+  }
+
+  function toggleGroup(group) {
+    const currently = isGroupOpen(group);
+    setManualOpen((prev) => ({ ...prev, [group.key]: !currently }));
   }
 
   const isConfirmed = !!confirmation;
@@ -123,7 +140,22 @@ export default function SessionView() {
       )}
 
       {slotGroups.map((group, groupIdx) => {
-        const renderSlot = (slot, slotIdx) => {
+        const open = isGroupOpen(group);
+        const gl = getGroupLogs(group);
+        const done = gl.filter((l) => l.done).length;
+        const total = gl.length;
+        const chevron = (
+          <svg
+            className={`w-4 h-4 text-ink-400 shrink-0 self-center transition-transform ${open ? 'rotate-180' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        );
+
+        const renderSlotFull = (slot, slotIdx) => {
           const ex = slot.exercise;
           const slotLogs = getLogsForSlot(slot.id);
           const globalIdx = String(slotIdx + 1).padStart(2, '0');
@@ -197,17 +229,98 @@ export default function SessionView() {
                 background: 'color-mix(in srgb, var(--color-accent) 5%, transparent)',
               }}
             >
-              <div className="px-2 pt-1 flex items-baseline gap-2">
+              <button
+                type="button"
+                onClick={() => toggleGroup(group)}
+                aria-expanded={open}
+                className="w-full px-2 pt-1 pb-1 flex items-baseline gap-2 text-left"
+              >
                 <span className="sl-label" style={{ color: 'var(--color-accent)' }}>Superset</span>
-                <span className="sl-mono text-[11px] text-ink-400">
-                  Alternate between exercises each set
+                <span className="sl-mono text-[11px] text-ink-400 flex-1 truncate">
+                  {open ? 'Alternate between exercises each set' : `${group.slots.length} exercises`}
                 </span>
-              </div>
-              {group.slots.map((s, i) => renderSlot(s, groupIdx + i))}
+                {total > 0 && (
+                  <span className="sl-mono text-[11px] text-ink-400 shrink-0">{done}/{total}</span>
+                )}
+                {chevron}
+              </button>
+              {open && group.slots.map((s, i) => renderSlotFull(s, groupIdx + i))}
             </div>
           );
         }
-        return renderSlot(group.slots[0], groupIdx);
+
+        const slot = group.slots[0];
+        const ex = slot.exercise;
+        const slotLogs = getLogsForSlot(slot.id);
+        const globalIdx = String(groupIdx + 1).padStart(2, '0');
+        return (
+          <div key={slot.id} className="sl-card overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleGroup(group)}
+              aria-expanded={open}
+              className="w-full flex items-baseline gap-2.5 p-4 text-left hover:bg-ink-50 transition-colors"
+            >
+              <span className="sl-mono text-[12px]" style={{ color: 'var(--color-accent)' }}>{globalIdx}</span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="sl-display text-[20px] text-gray-900">{ex.name}</span>
+                  <span
+                    className={`sl-pill ${
+                      ex.type === 'pull' ? 'bg-pull/15 text-pull' : 'bg-push/15 text-push'
+                    }`}
+                  >
+                    {ex.type}
+                  </span>
+                </div>
+                <p className="sl-mono text-[11px] text-ink-400 mt-1">
+                  {formatSlotPrescription(slot)}
+                  {slot.weight_kg ? ` @ ${slot.weight_kg}kg` : ' (BW)'}
+                  {slot.rest_seconds != null && (
+                    <span className="ml-2">· Rest {formatRestSeconds(slot.rest_seconds)}</span>
+                  )}
+                </p>
+              </div>
+              {total > 0 && (
+                <span className="sl-mono text-[11px] text-ink-400 shrink-0 self-center">{done}/{total}</span>
+              )}
+              {chevron}
+            </button>
+            {open && (
+              <div className="px-4 pb-4 pt-3 space-y-3 border-t border-ink-100">
+                {slot.notes && (
+                  <div
+                    className="rounded-lg px-3 py-2.5"
+                    style={{
+                      background: 'color-mix(in srgb, var(--color-accent) 8%, transparent)',
+                      borderLeft: '2px solid var(--color-accent)',
+                    }}
+                  >
+                    <div className="sl-label mb-1" style={{ color: 'var(--color-accent)' }}>Coach note</div>
+                    <p className="text-[13px] leading-snug text-gray-800 whitespace-pre-wrap">{slot.notes}</p>
+                  </div>
+                )}
+                <div className="space-y-1.5">
+                  {slotLogs.map((log) => (
+                    <SetRow
+                      key={log.id}
+                      log={log}
+                      locked={isConfirmed}
+                      restSeconds={slot.rest_seconds}
+                      recordVideo={(slot.record_video_set_numbers || []).includes(log.set_number)}
+                    />
+                  ))}
+                </div>
+                <SlotCommentBox
+                  sessionId={sessionId}
+                  slotId={slot.id}
+                  comment={(slotComments || []).find((c) => c.exercise_slot_id === slot.id)}
+                  locked={isArchived}
+                />
+              </div>
+            )}
+          </div>
+        );
       })}
 
       {!confLoading && (
