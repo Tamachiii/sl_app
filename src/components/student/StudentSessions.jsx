@@ -16,6 +16,7 @@ export default function StudentSessions() {
   const { data: confirmedIds = new Set() } = useMyConfirmedSessionIds();
 
   const [showArchived, setShowArchived] = useState(false);
+  const [openSessionId, setOpenSessionId] = useState(null);
 
   const visibleWeeks = useMemo(() => {
     if (!weeks) return [];
@@ -73,6 +74,10 @@ export default function StudentSessions() {
                 confirmed={confirmedIds.has(session.id)}
                 archived={!!session.archived_at}
                 onStart={() => navigate(`/student/session/${session.id}`)}
+                open={openSessionId === session.id}
+                onToggle={() =>
+                  setOpenSessionId((id) => (id === session.id ? null : session.id))
+                }
               />
             ))}
           </div>

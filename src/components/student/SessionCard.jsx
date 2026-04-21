@@ -27,16 +27,24 @@ export default function SessionCard({
   onStart,
   defaultOpen = false,
   subtitle,
+  open: controlledOpen,
+  onToggle,
 }) {
   const { t } = useI18n();
-  const [open, setOpen] = useState(defaultOpen);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : uncontrolledOpen;
+  const toggle = () => {
+    if (isControlled) onToggle?.();
+    else setUncontrolledOpen((v) => !v);
+  };
   const slots = session.exercise_slots || [];
 
   return (
     <div className="sl-card overflow-hidden">
       <button
         className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-ink-50 transition-colors"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
         aria-expanded={open}
       >
         <div className="min-w-0 flex-1">

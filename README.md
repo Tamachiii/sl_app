@@ -193,7 +193,7 @@ For any exercise, the coach can pick **any number** of sets to record on video v
 
 **Student**
 1. Logs in → **Home tab** (`/student`) — current training week: 7-day strip (session or rest day per slot), an expandable "Next session" preview with full exercise list and Start button, the remaining upcoming sessions, and completed sessions this week
-2. **Sessions tab** (`/student/sessions`) — full program by week; each session card is expandable to show all exercises (name, sets, reps, prescribed weight); tap "Start session" to open `SessionView`
+2. **Sessions tab** (`/student/sessions`) — full program by week; each session card is expandable to show all exercises (name, sets, reps, prescribed weight) — only one card can be open at a time (accordion); tap "Start session" to open `SessionView`
 3. **Stats tab** (`/student/stats`) — progress stats: sessions confirmed, sets done, weekly volume bars, lift-progression sparklines, recent activity
 4. **Goals tab** (`/student/goals`) — `MyGoals`
 
