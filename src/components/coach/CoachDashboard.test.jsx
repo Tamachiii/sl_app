@@ -32,7 +32,7 @@ describe('CoachDashboard', () => {
 
   it('renders the Dashboard header', () => {
     renderDashboard();
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    expect(screen.getByText('Dashboard.')).toBeInTheDocument();
   });
 
   it('renders student names in the students section', () => {

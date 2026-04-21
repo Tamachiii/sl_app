@@ -59,7 +59,7 @@ describe('ExerciseLibrary', () => {
     const user = userEvent.setup();
     renderLibrary();
 
-    await user.click(screen.getByText('+ Add'));
+    await user.click(screen.getByText('+ ADD'));
     expect(screen.getByPlaceholderText('Exercise name')).toBeInTheDocument();
     expect(screen.getByText('Create')).toBeInTheDocument();
     expect(screen.getByText('Cancel')).toBeInTheDocument();
@@ -70,7 +70,7 @@ describe('ExerciseLibrary', () => {
     mockCreate.mutate.mockImplementation((vals, opts) => opts?.onSuccess?.());
     renderLibrary();
 
-    await user.click(screen.getByText('+ Add'));
+    await user.click(screen.getByText('+ ADD'));
     await user.type(screen.getByPlaceholderText('Exercise name'), 'Muscle Up');
     await user.click(screen.getByText('Create'));
 
@@ -84,7 +84,7 @@ describe('ExerciseLibrary', () => {
     const user = userEvent.setup();
     renderLibrary();
 
-    await user.click(screen.getByText('+ Add'));
+    await user.click(screen.getByText('+ ADD'));
     await user.click(screen.getByText('Cancel'));
     expect(screen.queryByPlaceholderText('Exercise name')).not.toBeInTheDocument();
   });
