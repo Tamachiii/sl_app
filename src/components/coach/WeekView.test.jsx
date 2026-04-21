@@ -83,7 +83,7 @@ describe('WeekView', () => {
     mockProgramData = { data: { id: 'prog-1', weeks: [{ id: 'w-1', week_number: 1 }] } };
     renderWeekView();
 
-    await user.click(screen.getByText('Copy to…'));
+    await user.click(screen.getByText('copy to…'));
     await user.selectOptions(screen.getByRole('combobox'), 's-2');
     await user.click(screen.getByRole('button', { name: 'Copy' }));
 
@@ -141,7 +141,7 @@ describe('WeekView', () => {
     };
     renderWeekView();
 
-    await user.click(screen.getByText('+ Add Session'));
+    await user.click(screen.getByText('+ ADD SESSION'));
     expect(mockCreateSession.mutate).toHaveBeenCalled();
   });
 
@@ -153,7 +153,7 @@ describe('WeekView', () => {
     };
     renderWeekView();
 
-    await user.click(screen.getByText('Duplicate'));
+    await user.click(screen.getByText('duplicate'));
     expect(mockDuplicateWeek.mutate).toHaveBeenCalledWith({
       weekId: 'w-1',
       newWeekNumber: 3,

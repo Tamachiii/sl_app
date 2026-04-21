@@ -82,7 +82,7 @@ describe('ExerciseSlotRow', () => {
     renderSlotRow();
     expect(screen.getByLabelText('Sets')).toHaveValue(3);
     expect(screen.getByLabelText('Reps')).toHaveValue(10);
-    expect(screen.getByLabelText('Weight (kg)')).toHaveValue(50);
+    expect(screen.getByLabelText('Weight')).toHaveValue(50);
   });
 
   it('calls onUpdate on sets blur when value changes', async () => {

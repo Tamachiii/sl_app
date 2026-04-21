@@ -101,8 +101,8 @@ describe('SessionEditor', () => {
     };
     renderEditor();
 
-    await user.click(screen.getByText('+ Add Exercise'));
-    expect(screen.getByText('Select exercise...')).toBeInTheDocument();
+    await user.click(screen.getByText('+ ADD EXERCISE'));
+    expect(screen.getByText('Select exercise…')).toBeInTheDocument();
     expect(screen.getByText('Add')).toBeInTheDocument();
     expect(screen.getByText('Cancel')).toBeInTheDocument();
   });
@@ -115,9 +115,9 @@ describe('SessionEditor', () => {
     };
     renderEditor();
 
-    await user.click(screen.getByText('+ Add Exercise'));
+    await user.click(screen.getByText('+ ADD EXERCISE'));
     await user.click(screen.getByText('Cancel'));
-    expect(screen.queryByText('Select exercise...')).not.toBeInTheDocument();
+    expect(screen.queryByText('Select exercise…')).not.toBeInTheDocument();
   });
 
   it('selecting an exercise and clicking Add calls addSlot', async () => {
@@ -128,7 +128,7 @@ describe('SessionEditor', () => {
     };
     renderEditor();
 
-    await user.click(screen.getByText('+ Add Exercise'));
+    await user.click(screen.getByText('+ ADD EXERCISE'));
     await user.selectOptions(screen.getByRole('combobox'), 'ex-1');
     await user.click(screen.getByText('Add'));
 
@@ -150,7 +150,7 @@ describe('SessionEditor', () => {
     };
     renderEditor();
 
-    await user.click(screen.getByText('Duplicate'));
+    await user.click(screen.getByText('duplicate'));
     expect(mockDuplicateSession.mutate).toHaveBeenCalledWith({ sessionId: 'sess-1' });
   });
 
@@ -162,7 +162,7 @@ describe('SessionEditor', () => {
     };
     renderEditor();
 
-    await user.click(screen.getByText('Copy to…'));
+    await user.click(screen.getByText('copy to…'));
     const selects = screen.getAllByRole('combobox');
     await user.selectOptions(selects[0], 'stu-2');
     await user.selectOptions(selects[1], 'w-10');
