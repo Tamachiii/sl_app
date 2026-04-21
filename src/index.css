@@ -3,47 +3,152 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --color-primary: #f97316;
-  --color-primary-dark: #c2410c;
+  /* Typography */
+  --font-display: "Archivo", "Inter", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+
+  /* Warm ink scale (replaces gray-*) */
+  --color-ink-950: #0a0a0a;
+  --color-ink-900: #111110;
+  --color-ink-850: #171716;
+  --color-ink-800: #1d1c1a;
+  --color-ink-700: #26241f;
+  --color-ink-600: #3a3631;
+  --color-ink-500: #5b564d;
+  --color-ink-400: #807a6e;
+  --color-ink-300: #a8a197;
+  --color-ink-200: #c9c3b8;
+  --color-ink-100: #e4dfd4;
+  --color-ink-50:  #f2efe6;
+  --color-ink-0:   #faf8f3;
+
+  /* Accent & semantic */
+  --color-accent: #ff5a1f;
+  --color-accent-dim: #c43d0f;
+  --color-danger: #ff4a2e;
+  --color-success: #8cf06a;
+  --color-warn: #ffb347;
+
+  /* Legacy aliases — kept so untouched components still compile */
+  --color-primary: #ff5a1f;
+  --color-primary-dark: #c43d0f;
   --color-pull: #fbbf24;
   --color-push: #f59e0b;
-  --color-success: #84cc16;
-  --color-danger: #ef4444;
 }
 
 html, body, #root {
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
-  /* iOS Safari: keep layout glued to the visual viewport (no rubber-band body scroll). */
   position: fixed;
   inset: 0;
   width: 100%;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-body);
   -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- Component utilities ---------- */
+@layer components {
+  .sl-display {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 0.92;
+  }
+  .sl-condensed {
+    font-family: "Archivo Narrow", var(--font-display);
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+  }
+  .sl-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-ink-400);
+  }
+  .sl-mono {
+    font-family: var(--font-mono);
+    font-feature-settings: "tnum";
+  }
+  .sl-hairline {
+    height: 1px;
+    background: var(--color-ink-100);
+  }
+  .dark .sl-hairline {
+    background: var(--color-ink-700);
+  }
+  .sl-card {
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 1px 0 var(--color-ink-100);
+  }
+  .dark .sl-card {
+    background: var(--color-ink-850);
+    box-shadow: none;
+  }
+  .sl-btn {
+    font-family: var(--font-display);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 14px;
+    border: none;
+    cursor: pointer;
+  }
+  .sl-btn-primary {
+    background: var(--color-accent);
+    color: var(--color-ink-900);
+    font-family: var(--font-display);
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-radius: 12px;
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .sl-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
 }
 
 /* ---------- Dark theme ----------
  * Overrides common Tailwind utility classes when `.dark` is on <html>.
- * This avoids rewriting every component with `dark:` variants.
+ * Remapped onto the warm ink-* scale.
  */
 .dark {
   color-scheme: dark;
 }
 
 .dark body {
-  background-color: #18181b;
-  color: #e4e4e7;
+  background-color: var(--color-ink-900);
+  color: var(--color-ink-50);
 }
 
-/* Backgrounds */
-.dark .bg-white { background-color: #27272a !important; }
-.dark .bg-gray-50 { background-color: #18181b !important; }
-.dark .bg-gray-100 { background-color: #3f3f46 !important; }
-.dark .bg-gray-200 { background-color: #52525b !important; }
+/* Backgrounds — old gray-* utilities remap to ink-* */
+.dark .bg-white { background-color: var(--color-ink-850) !important; }
+.dark .bg-gray-50 { background-color: var(--color-ink-900) !important; }
+.dark .bg-gray-100 { background-color: var(--color-ink-800) !important; }
+.dark .bg-gray-200 { background-color: var(--color-ink-700) !important; }
 .dark .bg-red-50 { background-color: #3f1d1d !important; }
 .dark .bg-green-50 { background-color: #14532d !important; }
 .dark .bg-green-100 { background-color: #166534 !important; }
@@ -71,19 +176,19 @@ body {
 .dark .text-amber-800 { color: #fcd34d !important; }
 .dark .ring-amber-300 { --tw-ring-color: #b45309 !important; }
 
-/* Text */
-.dark .text-gray-900 { color: #fafafa !important; }
-.dark .text-gray-800 { color: #e4e4e7 !important; }
-.dark .text-gray-700 { color: #e4e4e7 !important; }
-.dark .text-gray-600 { color: #d4d4d8 !important; }
-.dark .text-gray-500 { color: #a1a1aa !important; }
-.dark .text-gray-400 { color: #a1a1aa !important; }
+/* Text — gray-* remaps onto ink-* */
+.dark .text-gray-900 { color: var(--color-ink-0) !important; }
+.dark .text-gray-800 { color: var(--color-ink-50) !important; }
+.dark .text-gray-700 { color: var(--color-ink-100) !important; }
+.dark .text-gray-600 { color: var(--color-ink-200) !important; }
+.dark .text-gray-500 { color: var(--color-ink-300) !important; }
+.dark .text-gray-400 { color: var(--color-ink-400) !important; }
 .dark .text-red-700 { color: #fca5a5 !important; }
 
 /* Borders */
-.dark .border-gray-100 { border-color: #3f3f46 !important; }
-.dark .border-gray-200 { border-color: #3f3f46 !important; }
-.dark .border-gray-300 { border-color: #52525b !important; }
+.dark .border-gray-100 { border-color: var(--color-ink-800) !important; }
+.dark .border-gray-200 { border-color: var(--color-ink-700) !important; }
+.dark .border-gray-300 { border-color: var(--color-ink-600) !important; }
 
 /* Shadows look bad in dark mode — tone them down */
 .dark .shadow-sm,
