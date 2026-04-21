@@ -55,11 +55,11 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 | Feature area | Primary files | Shared deps |
 |---|---|---|
 | Auth / login | `auth/LoginPage` (editorial sl-card form), `hooks/useAuth`, `routes.jsx` | `lib/supabase` |
-| Coach dashboard | `coach/CoachDashboard` (editorial h1 + inline `UserMenu` avatar popover with Theme + Sign out), `hooks/useStudents`, `hooks/useSessionConfirmation` (`useAllConfirmations`) | — |
+| Coach dashboard | `coach/CoachDashboard` (editorial h1 + inline `UserMenu` avatar popover with Theme + Sign out; recent-activity cards only — athlete list lives under the Students tab), `hooks/useSessionConfirmation` (`useAllConfirmations`) | — |
 | Coach student list | `coach/CoachHome`, `coach/StudentCard`, `coach/WeekTimeline`, `hooks/useStudents`, `hooks/useProgram`, `hooks/useAuth` | — |
 | Coach week reordering | `coach/WeekTimeline` (dnd-kit sortable), `hooks/useWeek` (`useReorderWeeks`) | `@dnd-kit/core`, `@dnd-kit/sortable` |
 | Coach sessions feed | `coach/SessionsFeed` (with `?student=:id` filter, editorial h1), `hooks/useSessionConfirmation` (`useAllConfirmations`) | `ui/EmptyState` |
-| Coach week view | `coach/WeekView` (editorial top bar + sl-card sessions), `hooks/useWeek`, `hooks/useDuplicate`, `coach/VolumeBar`, `lib/volume` | `ui/EditableText` |
+| Coach week view | `coach/WeekView` (editorial top bar + single-line sl-card session rows — open a session for volume/detail), `hooks/useWeek`, `hooks/useDuplicate` | `ui/EditableText` |
 | Coach session editor | `coach/SessionEditor` (editorial top bar + sl-pill actions), `coach/ExerciseSlotRow`, `hooks/useSession`, `hooks/useExerciseLibrary`, `hooks/useDuplicate` | `coach/VolumeBar`, `ui/EditableText` |
 | Coach session review | `coach/SessionReview` (editorial top bar + archive sl-pill + student-note tinted callout), `hooks/useSession`, `hooks/useSetLogs`, `hooks/useSlotComments`, `hooks/useSessionConfirmation`, `hooks/useWeek` (`useArchiveSession`) | `coach/SlotProgress`, `lib/volume` |
 | Coach exercise slot notes | `coach/ExerciseSlotRow` (notes textarea), `student/SessionView` (note display) | `hooks/useSession` (`useUpdateSlot`) |
@@ -70,7 +70,7 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 | Student stats | `student/StudentDashboard` (route: /student/stats), `student/SessionCalendar`, `student/ExerciseProgressChart` (per-exercise weekly tonnage), `hooks/useStudentProgressStats` | `lib/volume`, `ui/EmptyState` |
 | Student session logging | `student/SessionView`, `student/SetRow`, `student/RpeInput`, `hooks/useSession`, `hooks/useSetLogs` | — |
 | Session confirmations | `hooks/useSessionConfirmation`, `student/SessionView`, `coach/WeekView` (badge), `coach/SessionsFeed`, `coach/SessionReview` | — |
-| Goals & progress | `hooks/useGoals`, `coach/StudentGoals`, `student/MyGoals` | `hooks/useExerciseLibrary`, `layout/BottomNav` (Goals tab) |
+| Goals & progress | `hooks/useGoals`, `coach/StudentGoals` (editorial back-button header + sl-card goal rows + compact Save CTA), `student/MyGoals` | `hooks/useExerciseLibrary`, `layout/BottomNav` (Goals tab) |
 | Theming | `hooks/useTheme`, `ui/ThemeToggle`, `index.css` | `coach/CoachDashboard` `UserMenu`, `student/StudentHome` `Greeting` |
 | i18n (EN/FR/DE) | `hooks/useI18n`, `lib/i18n/{en,fr,de,index}.js`, `ui/LanguageSelect` | `layout/Header`, `auth/LoginPage`, both `UserMenu` popovers |
 
@@ -90,7 +90,7 @@ The app uses a custom editorial design system — **do not swap in `dark:` utili
   - `sl-pill` — small uppercase mono pill for chips/tags/action buttons.
   - `sl-btn-primary` — accent-filled CTA, display font, 16×20 padding. For tighter contexts (inline forms, inside cards) override with `className="… text-[13px]" style={{ padding: '10px 16px' }}` — this is the established compact-CTA pattern (see `SessionCard`, `ExerciseLibrary` ExerciseForm).
 - **Editorial page header pattern** (no `<Header/>`): a back button (`w-9 h-9 rounded-lg bg-ink-100`) + `sl-label` kicker + `sl-display` h1 + right-aligned `sl-pill` action buttons. Used on `SessionEditor`, `WeekView`, `SessionReview`, etc.
-- **Top-right user menu**: `StudentHome` and `CoachDashboard` have an inline avatar-initials popover containing `ThemeToggle` + Sign out (`Header` was removed from those surfaces). `Header` is now only used by `StudentGoals` — don't reach for it on new pages; follow the editorial header pattern instead.
+- **Top-right user menu**: `StudentHome` and `CoachDashboard` have an inline avatar-initials popover containing `ThemeToggle` + Sign out (`Header` was removed from those surfaces). No page imports `layout/Header` anymore — always follow the editorial header pattern (back-button + kicker + h1) on new pages.
 - **Tinted surfaces** use `color-mix(in srgb, var(--color-accent) 10%, transparent)` (and similar for success/warn/danger). Prefer this over hand-picked hex — it adapts to both themes.
 - **Day-strip session titles** on `StudentHome` are rendered with `writing-mode: vertical-rl; transform: rotate(180deg)` so "LOWER 1" / "UPPER 1" read top-to-bottom without wrapping in the narrow 7-column grid.
 
