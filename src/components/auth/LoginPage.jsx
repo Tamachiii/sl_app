@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { useI18n } from '../../hooks/useI18n';
+import LanguageSelect from '../ui/LanguageSelect';
 
 const inputCls =
   'w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 sl-mono text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
 
 export default function LoginPage() {
   const { user, role, signIn } = useAuth();
+  const { t } = useI18n();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -32,10 +35,14 @@ export default function LoginPage() {
         className="w-full max-w-sm sl-card p-6 space-y-5"
       >
         <div className="text-center space-y-1">
-          <div className="sl-label text-ink-400">Street Lifting</div>
+          <div className="sl-label text-ink-400">{t('login.kicker')}</div>
           <h1 className="sl-display text-[28px] text-gray-900 leading-none">
-            Sign in.
+            {t('login.title')}
           </h1>
+        </div>
+
+        <div className="flex justify-center">
+          <LanguageSelect />
         </div>
 
         {error && (
@@ -55,7 +62,7 @@ export default function LoginPage() {
 
         <div>
           <label htmlFor="login-email" className="sl-label text-ink-400 block mb-1">
-            Email
+            {t('login.email')}
           </label>
           <input
             id="login-email"
@@ -69,7 +76,7 @@ export default function LoginPage() {
 
         <div>
           <label htmlFor="login-password" className="sl-label text-ink-400 block mb-1">
-            Password
+            {t('login.password')}
           </label>
           <input
             id="login-password"
@@ -86,7 +93,7 @@ export default function LoginPage() {
           disabled={loading}
           className="w-full sl-btn-primary disabled:opacity-50"
         >
-          {loading ? 'Signing in…' : 'Sign In'}
+          {loading ? t('login.signingIn') : t('login.signIn')}
         </button>
       </form>
     </div>

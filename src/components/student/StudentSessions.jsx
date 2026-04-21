@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { useI18n } from '../../hooks/useI18n';
 import { useStudentProgramDetails } from '../../hooks/useStudentProgramDetails';
 import { useMyConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 import Spinner from '../ui/Spinner';
@@ -9,6 +10,7 @@ import SessionCard from './SessionCard';
 
 export default function StudentSessions() {
   const { user } = useAuth();
+  const { t } = useI18n();
   const navigate = useNavigate();
   const { data: weeks, isLoading } = useStudentProgramDetails(user?.id);
   const { data: confirmedIds = new Set() } = useMyConfirmedSessionIds();
@@ -46,11 +48,11 @@ export default function StudentSessions() {
   return (
     <div className="p-4 pb-6 space-y-5">
       <div className="pt-3 pb-1">
-        <div className="sl-label text-ink-400">Program</div>
-        <h1 className="sl-display text-[32px] text-gray-900 leading-none mt-1">Sessions.</h1>
+        <div className="sl-label text-ink-400">{t('student.sessions.kicker')}</div>
+        <h1 className="sl-display text-[32px] text-gray-900 leading-none mt-1">{t('student.sessions.title')}</h1>
       </div>
 
-      {!weeks?.length && <EmptyState message="No program assigned yet" />}
+      {!weeks?.length && <EmptyState message={t('student.home.noProgram')} />}
 
       {visibleWeeks.map((week) => (
         <section key={week.id} aria-labelledby={`week-${week.id}-heading`} className="space-y-2.5">
@@ -58,7 +60,7 @@ export default function StudentSessions() {
             id={`week-${week.id}-heading`}
             className="sl-label text-ink-400 flex items-baseline gap-2"
           >
-            <span>Week {week.week_number}</span>
+            <span>{t('student.home.week')} {week.week_number}</span>
             {week.label && (
               <span className="sl-mono text-[11px] normal-case text-ink-400">· {week.label}</span>
             )}
@@ -83,8 +85,8 @@ export default function StudentSessions() {
           className="w-full sl-mono text-[11px] text-ink-400 hover:text-gray-700 py-2 underline"
         >
           {showArchived
-            ? `Hide ${archivedCount} archived session${archivedCount !== 1 ? 's' : ''}`
-            : `Show ${archivedCount} archived session${archivedCount !== 1 ? 's' : ''}`}
+            ? t(archivedCount === 1 ? 'student.sessions.hideArchivedOne' : 'student.sessions.hideArchivedMany', { n: archivedCount })
+            : t(archivedCount === 1 ? 'student.sessions.showArchivedOne' : 'student.sessions.showArchivedMany', { n: archivedCount })}
         </button>
       )}
     </div>

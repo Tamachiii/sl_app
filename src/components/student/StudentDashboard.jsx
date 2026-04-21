@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import { useStudentProgressStats } from '../../hooks/useStudentProgressStats';
+import { useI18n } from '../../hooks/useI18n';
 import SessionCalendar from './SessionCalendar';
 import ExerciseProgressChart from './ExerciseProgressChart';
 
@@ -55,6 +56,7 @@ function SectionHeading({ id, children }) {
 }
 
 export default function StudentDashboard() {
+  const { t } = useI18n();
   const { data, isLoading } = useStudentProgressStats();
 
   const recentWeeklyVolume = useMemo(
@@ -98,52 +100,52 @@ export default function StudentDashboard() {
   return (
     <div className="p-4 pb-6 space-y-6">
       <div className="pt-3 pb-1">
-        <div className="sl-label text-ink-400">Progress</div>
-        <h1 className="sl-display text-[32px] text-gray-900 leading-none mt-1">Stats.</h1>
+        <div className="sl-label text-ink-400">{t('student.stats.kicker')}</div>
+        <h1 className="sl-display text-[32px] text-gray-900 leading-none mt-1">{t('student.stats.title')}</h1>
       </div>
 
-      {!hasProgram && <EmptyState message="No program assigned yet" />}
+      {!hasProgram && <EmptyState message={t('student.home.noProgram')} />}
 
       {hasProgram && (
         <>
           <section aria-labelledby="summary-heading">
-            <SectionHeading id="summary-heading">Summary</SectionHeading>
+            <SectionHeading id="summary-heading">{t('student.stats.summary')}</SectionHeading>
             <div className="grid grid-cols-2 gap-2">
               <StatCard
-                label="Sessions"
+                label={t('student.stats.sessions')}
                 value={`${stats.totalSessionsConfirmed}/${stats.totalSessions}`}
-                sub={`${completionPct}% complete`}
+                sub={t('student.stats.pctComplete', { n: completionPct })}
               />
               <StatCard
-                label="Sets done"
+                label={t('student.stats.setsDone')}
                 value={stats.totalSetsDone}
-                sub={`of ${stats.totalSets} prescribed`}
+                sub={t('student.stats.ofPrescribed', { n: stats.totalSets })}
               />
               <StatCard
-                label="Full weeks"
+                label={t('student.stats.fullWeeks')}
                 value={stats.weeklyVolume.filter(
                   (w) => w.sessions_total > 0 && w.sessions_confirmed === w.sessions_total
                 ).length}
-                sub={`of ${stats.weeklyVolume.length} weeks`}
+                sub={t('student.stats.ofWeeks', { n: stats.weeklyVolume.length })}
               />
               <StatCard
-                label="Avg RPE"
+                label={t('student.stats.avgRpe')}
                 value={stats.avgRpe != null ? stats.avgRpe.toFixed(1) : '—'}
-                sub={stats.avgRpe != null ? 'across logged sets' : 'log sets to see'}
+                sub={stats.avgRpe != null ? t('student.stats.acrossLogged') : t('student.stats.logSetsToSee')}
               />
             </div>
           </section>
 
           <section aria-labelledby="calendar-heading">
-            <SectionHeading id="calendar-heading">Calendar</SectionHeading>
+            <SectionHeading id="calendar-heading">{t('student.stats.calendar')}</SectionHeading>
             <SessionCalendar sessions={stats.sessionCalendar} />
           </section>
 
           <section aria-labelledby="volume-heading">
-            <SectionHeading id="volume-heading">Weekly volume</SectionHeading>
+            <SectionHeading id="volume-heading">{t('student.stats.weeklyVolume')}</SectionHeading>
             <div className="sl-card p-4 space-y-3">
               {maxWeeklyTotal === 0 ? (
-                <p className="sl-mono text-[11px] text-ink-400">No volume assigned yet.</p>
+                <p className="sl-mono text-[11px] text-ink-400">{t('student.stats.noVolume')}</p>
               ) : (
                 recentWeeklyVolume.map((w) => (
                   <VolumeWeekRow key={w.week_id} week={w} maxTotal={maxWeeklyTotal} />
@@ -165,7 +167,7 @@ export default function StudentDashboard() {
           </section>
 
           <section aria-labelledby="progress-heading">
-            <SectionHeading id="progress-heading">Exercise progression</SectionHeading>
+            <SectionHeading id="progress-heading">{t('student.stats.exerciseProgression')}</SectionHeading>
             <ExerciseProgressChart
               exercises={stats.exerciseProgress?.exercises ?? []}
               byExercise={stats.exerciseProgress?.byExercise ?? {}}
@@ -173,9 +175,9 @@ export default function StudentDashboard() {
           </section>
 
           <section aria-labelledby="activity-heading">
-            <SectionHeading id="activity-heading">Recent activity</SectionHeading>
+            <SectionHeading id="activity-heading">{t('student.stats.recentActivity')}</SectionHeading>
             {stats.recentConfirmations.length === 0 ? (
-              <EmptyState message="No confirmed sessions yet" />
+              <EmptyState message={t('student.stats.noConfirmed')} />
             ) : (
               <div className="space-y-2">
                 {stats.recentConfirmations.map((c) => (

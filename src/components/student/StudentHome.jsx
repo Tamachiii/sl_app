@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { useI18n } from '../../hooks/useI18n';
 import { useStudentProgramDetails } from '../../hooks/useStudentProgramDetails';
 import { useMyConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import ThemeToggle from '../ui/ThemeToggle';
+import LanguageSelect from '../ui/LanguageSelect';
 import SessionCard from './SessionCard';
 
 // day_number 1 = Monday … 7 = Sunday
@@ -134,6 +136,7 @@ function SessionItem({ session, confirmed, onClick }) {
 // ─── Greeting block ────────────────────────────────────────────────────────
 
 function Greeting({ fullName, todayDN, todaysMessage, activeWeek, onSignOut }) {
+  const { t } = useI18n();
   const firstName = (fullName || '').split(' ')[0] || 'there';
   const initials = (fullName || '')
     .split(/\s+/)
@@ -142,7 +145,7 @@ function Greeting({ fullName, todayDN, todaysMessage, activeWeek, onSignOut }) {
     .map((p) => p[0]?.toUpperCase() ?? '')
     .join('');
 
-  const metaBits = [`Week ${activeWeek?.week_number ?? '—'}`];
+  const metaBits = [`${t('student.home.week')} ${activeWeek?.week_number ?? '—'}`];
   if (activeWeek?.label) metaBits.push(activeWeek.label);
   metaBits.push(DAY_FULL[todayDN - 1]);
 
@@ -173,7 +176,7 @@ function Greeting({ fullName, todayDN, todaysMessage, activeWeek, onSignOut }) {
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="sl-label mb-1.5 truncate">{metaBits.join(' · ')}</div>
-          <div className="sl-display text-[32px] text-gray-900 truncate">Hey, {firstName}.</div>
+          <div className="sl-display text-[32px] text-gray-900 truncate">{t('student.home.hey')}, {firstName}.</div>
           <p className="sl-mono text-[11px] text-ink-400 mt-2">{todaysMessage}</p>
         </div>
         {initials && (
@@ -183,7 +186,7 @@ function Greeting({ fullName, todayDN, todaysMessage, activeWeek, onSignOut }) {
               onClick={() => setMenuOpen((v) => !v)}
               aria-haspopup="menu"
               aria-expanded={menuOpen}
-              aria-label="Open user menu"
+              aria-label={t('common.openUserMenu')}
               className="w-10 h-10 rounded-full bg-ink-100 flex items-center justify-center sl-display text-[13px] text-ink-900 cursor-pointer hover:brightness-95 active:scale-95 transition-transform"
               style={{ border: '1.5px solid var(--color-accent)' }}
             >
@@ -195,8 +198,12 @@ function Greeting({ fullName, todayDN, todaysMessage, activeWeek, onSignOut }) {
                 className="absolute right-0 top-12 z-20 min-w-[168px] rounded-xl bg-white shadow-lg border border-ink-100 overflow-hidden"
               >
                 <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-ink-100">
-                  <span className="sl-label">Theme</span>
+                  <span className="sl-label">{t('common.theme')}</span>
                   <ThemeToggle />
+                </div>
+                <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-ink-100">
+                  <span className="sl-label">{t('common.language')}</span>
+                  <LanguageSelect />
                 </div>
                 {onSignOut && (
                   <button
@@ -207,7 +214,7 @@ function Greeting({ fullName, todayDN, todaysMessage, activeWeek, onSignOut }) {
                     <svg className="w-4 h-4 text-ink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                     </svg>
-                    Sign out
+                    {t('common.signOut')}
                   </button>
                 )}
               </div>
@@ -223,6 +230,7 @@ function Greeting({ fullName, todayDN, todaysMessage, activeWeek, onSignOut }) {
 
 export default function StudentHome() {
   const { user, profile, signOut } = useAuth();
+  const { t } = useI18n();
   const navigate = useNavigate();
   const { data: weeks, isLoading } = useStudentProgramDetails(user?.id);
   const { data: confirmedIds = new Set() } = useMyConfirmedSessionIds();
@@ -276,11 +284,11 @@ export default function StudentHome() {
 
   let todaysMessage;
   if (!todaysSession) {
-    todaysMessage = 'Today is a day off — rest up.';
+    todaysMessage = t('student.home.todayRest');
   } else if (todayConfirmed) {
-    todaysMessage = "Today's session is done — great work.";
+    todaysMessage = t('student.home.todayDone');
   } else {
-    todaysMessage = 'You have a session to finish today.';
+    todaysMessage = t('student.home.todayPending');
   }
 
   const doneCount = completed.length;
@@ -299,7 +307,7 @@ export default function StudentHome() {
     return (
       <>
         <h1 className="sr-only">Home</h1>
-        <div className="p-4"><EmptyState message="No program assigned yet" /></div>
+        <div className="p-4"><EmptyState message={t('student.home.noProgram')} /></div>
       </>
     );
   }
@@ -323,7 +331,7 @@ export default function StudentHome() {
         <section aria-labelledby="week-heading">
           <div className="flex items-baseline justify-between mb-3">
             <h2 id="week-heading" className="sl-label">
-              Week {activeWeek?.week_number}
+              {t('student.home.week')} {activeWeek?.week_number}
               {activeWeek?.label && (
                 <span className="ml-1 normal-case tracking-normal font-normal text-ink-500">
                   — {activeWeek.label}
@@ -332,7 +340,7 @@ export default function StudentHome() {
             </h2>
             {totalCount > 0 && (
               <span className="sl-label" style={{ color: 'var(--color-accent)' }}>
-                {doneCount} / {totalCount} done
+                {doneCount} / {totalCount} {t('common.done')}
               </span>
             )}
           </div>
@@ -353,7 +361,7 @@ export default function StudentHome() {
         {/* Next session preview */}
         {upcoming.length > 0 && (
           <section aria-labelledby="next-heading" className="relative">
-            <h2 id="next-heading" className="sl-label mb-3">Next session</h2>
+            <h2 id="next-heading" className="sl-label mb-3">{t('student.home.nextSession')}</h2>
             {/* Left accent bar, sits inside the rounded card via overflow clipping. */}
             <div className="relative overflow-hidden rounded-2xl">
               <div
@@ -378,7 +386,7 @@ export default function StudentHome() {
         {/* Upcoming sessions */}
         {upcoming.length > 1 && (
           <section aria-labelledby="upcoming-heading">
-            <h2 id="upcoming-heading" className="sl-label mb-3">Upcoming</h2>
+            <h2 id="upcoming-heading" className="sl-label mb-3">{t('student.home.upcoming')}</h2>
             <div className="space-y-2">
               {upcoming.slice(1).map((s) => (
                 <SessionItem
@@ -395,7 +403,7 @@ export default function StudentHome() {
         {/* Completed this week */}
         {completed.length > 0 && (
           <section aria-labelledby="completed-heading">
-            <h2 id="completed-heading" className="sl-label mb-3">Completed this week</h2>
+            <h2 id="completed-heading" className="sl-label mb-3">{t('student.home.completedThisWeek')}</h2>
             <div className="space-y-2">
               {completed.map((s) => (
                 <SessionItem
@@ -410,7 +418,7 @@ export default function StudentHome() {
         )}
 
         {upcoming.length === 0 && completed.length === 0 && (
-          <EmptyState message="No sessions in this week" />
+          <EmptyState message={t('student.home.noSessionsInWeek')} />
         )}
       </div>
     </>

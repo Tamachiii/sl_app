@@ -72,6 +72,7 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 | Session confirmations | `hooks/useSessionConfirmation`, `student/SessionView`, `coach/WeekView` (badge), `coach/SessionsFeed`, `coach/SessionReview` | — |
 | Goals & progress | `hooks/useGoals`, `coach/StudentGoals`, `student/MyGoals` | `hooks/useExerciseLibrary`, `layout/BottomNav` (Goals tab) |
 | Theming | `hooks/useTheme`, `ui/ThemeToggle`, `index.css` | `coach/CoachDashboard` `UserMenu`, `student/StudentHome` `Greeting` |
+| i18n (EN/FR/DE) | `hooks/useI18n`, `lib/i18n/{en,fr,de,index}.js`, `ui/LanguageSelect` | `layout/Header`, `auth/LoginPage`, both `UserMenu` popovers |
 
 ---
 
@@ -95,6 +96,7 @@ The app uses a custom editorial design system — **do not swap in `dark:` utili
 
 ## Gotchas (read once, never re-discover)
 
+- **i18n lives in `src/lib/i18n/` + `hooks/useI18n`.** Three locales (EN/FR/DE) with deep-key resolution and English fallback. `t(key, params)` supports `{token}` interpolation. Language persists in `localStorage.sl_app_lang` and mirrors to `<html lang>`. `useI18n()` has a no-op English fallback for isolated tests (same pattern as `useTheme`). **Label values are stored title-case** (`'Home'`, `'Dashboard'`) — the `sl-label` utility uppercases them via CSS. Tests read DOM text (title case), rendered UI displays uppercase.
 - **Tailwind 4, CSS-based config.** `@theme` and `@custom-variant` live in `src/index.css`. There's no `tailwind.config.js`.
 - **Dark mode = CSS overrides, not `dark:` utilities.** Extend `src/index.css` rather than sprinkle `dark:` classes. Class-based (`.dark` on `<html>`).
 - **Dark-mode remap only applies to class-based colors.** `.dark .text-gray-900`, `.dark .text-ink-700`, etc. flip via className selectors. An inline `style={{ color: 'var(--color-ink-800)' }}` will NOT flip. Use `text-gray-900` / `text-ink-*` classes for any text that needs to invert — reserve inline `style` for colors that stay the same in both themes (accent, success, warn, danger) or for `color-mix()` backgrounds/borders that don't need flipping.
