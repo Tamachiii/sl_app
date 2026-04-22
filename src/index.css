@@ -33,9 +33,10 @@
   /* Legacy aliases — kept so untouched components still compile */
   --color-primary: #ff5a1f;
   --color-primary-dark: #c43d0f;
-  /* Pull/Push volume colors — mapped onto the editorial palette so they
-     sit alongside the rest of the accent/success/warn/danger set. */
-  --color-pull: #8cf06a;
+  /* Pull/Push volume colors — the archived-pill amber for pull and the
+     accent orange for push. Intentionally avoids the success-lime,
+     which is reserved for "done" states elsewhere in the app. */
+  --color-pull: #ffb347;
   --color-push: #ff5a1f;
 }
 
