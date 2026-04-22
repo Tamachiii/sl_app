@@ -46,13 +46,6 @@ function SlotHeader({ slot, globalIdx }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="sl-display text-[20px] text-gray-900">{ex.name}</span>
-          <span
-            className={`sl-pill ${
-              ex.type === 'pull' ? 'bg-pull/15 text-pull' : 'bg-push/15 text-push'
-            }`}
-          >
-            {ex.type}
-          </span>
         </div>
         <p className="sl-mono text-[11px] text-ink-400 mt-1">
           {formatSlotPrescription(slot)}

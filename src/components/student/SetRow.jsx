@@ -40,19 +40,13 @@ const SetRow = memo(function SetRow({ log, locked = false, restSeconds = null, r
   const showTimer = remaining != null && remaining > 0;
   const timerDone = remaining === 0;
 
-  const rowBg = log.done
-    ? 'bg-success/10'
-    : recordVideo
-      ? 'bg-warn/10 ring-1'
-      : 'bg-ink-50';
-  const ringStyle = recordVideo && !log.done ? { boxShadow: 'inset 0 0 0 1px var(--color-warn)' } : undefined;
+  const rowBg = log.done ? 'bg-success/10' : 'bg-ink-50';
 
   return (
     <div
       className={`rounded-xl px-3 py-2 transition-colors ${rowBg} ${
         log.done ? 'opacity-75' : ''
       }`}
-      style={ringStyle}
     >
       <div className="flex items-center gap-3">
         <button
