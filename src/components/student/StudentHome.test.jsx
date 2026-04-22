@@ -108,6 +108,35 @@ describe('StudentHome', () => {
     expect(screen.getByText('Pull Day')).toBeInTheDocument();
   });
 
+  it('keeps an archived session visible in the day strip (does not flip to Rest)', () => {
+    mockWeeks = {
+      data: [
+        {
+          id: 'w-1',
+          week_number: 1,
+          label: 'Intro',
+          sessions: [
+            { id: 'sess-1', title: 'Push Day', day_number: 1, sort_order: 0, archived_at: null },
+            {
+              id: 'sess-arch',
+              title: 'Leg 1',
+              day_number: 3,
+              sort_order: 1,
+              archived_at: '2026-04-22T08:00:00Z',
+            },
+          ],
+        },
+      ],
+      isLoading: false,
+    };
+    renderHome();
+    // The archived session keeps its title in the day strip and is exposed as archived to AT.
+    expect(screen.getByLabelText(/Leg 1 \(archived\)/i)).toBeInTheDocument();
+    // The cell is disabled — no click navigates from an archived day.
+    const cell = screen.getByLabelText(/Leg 1 \(archived\)/i);
+    expect(cell).toBeDisabled();
+  });
+
   it('clicking a day-strip cell navigates to that session', async () => {
     const user = userEvent.setup();
     mockWeeks = { data: sampleWeeks, isLoading: false };

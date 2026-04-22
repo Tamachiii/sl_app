@@ -34,13 +34,16 @@ function findActiveWeek(weeks, confirmedIds) {
 
 // ─── Day strip cell ────────────────────────────────────────────────────────
 
-function DayCell({ dayLabel, session, confirmed, isToday, onClick }) {
+function DayCell({ dayLabel, session, confirmed, archived, isToday, onClick }) {
   const hasSession = !!session;
   const isRest = !hasSession;
+  const interactive = hasSession && !confirmed && !archived;
 
   // Background / text color logic — editorial dark-first treatment.
   let cellClass;
-  if (isToday && hasSession && !confirmed) {
+  if (archived) {
+    cellClass = 'bg-ink-50 text-ink-400 border border-transparent';
+  } else if (isToday && hasSession && !confirmed) {
     cellClass = 'bg-accent text-ink-900 border border-transparent';
   } else if (hasSession) {
     // Both confirmed and pending use the surface card; confirmed gets a corner dot.
@@ -50,14 +53,19 @@ function DayCell({ dayLabel, session, confirmed, isToday, onClick }) {
   }
 
   const shortTitle = (session?.title || (isRest ? 'Rest' : '')).toUpperCase();
+  const ariaLabel = isRest
+    ? `${dayLabel} rest day`
+    : archived
+      ? `${dayLabel} ${session.title} (archived)`
+      : `${dayLabel} ${session.title}`;
 
   return (
     <button
-      onClick={hasSession && !confirmed && onClick ? onClick : undefined}
-      disabled={!hasSession || confirmed}
-      aria-label={isRest ? `${dayLabel} rest day` : `${dayLabel} ${session.title}`}
+      onClick={interactive && onClick ? onClick : undefined}
+      disabled={!interactive}
+      aria-label={ariaLabel}
       className={`relative flex-1 min-w-0 rounded-xl h-[108px] px-1.5 py-2 flex flex-col items-center gap-1.5 overflow-hidden transition-transform ${cellClass} ${
-        hasSession && !confirmed ? 'cursor-pointer active:scale-95' : 'cursor-default'
+        interactive ? 'cursor-pointer active:scale-95' : 'cursor-default'
       }`}
     >
       <span className="sl-mono text-[10px] font-semibold opacity-70 text-center">{dayLabel}</span>
@@ -67,15 +75,16 @@ function DayCell({ dayLabel, session, confirmed, isToday, onClick }) {
           writingMode: 'vertical-rl',
           transform: 'rotate(180deg)',
           fontSize: shortTitle.length > 6 ? 11 : 12,
-          opacity: hasSession ? 1 : 0.45,
+          opacity: hasSession && !archived ? 1 : 0.45,
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
+          textDecoration: archived ? 'line-through' : undefined,
         }}
       >
         {shortTitle}
       </span>
-      {confirmed && (
+      {confirmed && !archived && (
         <span
           aria-label="completed"
           className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full"
@@ -195,23 +204,31 @@ export default function StudentHome() {
     return findActiveWeek(weeks, confirmedIds);
   }, [weeks, confirmedIds]);
 
+  const weekSessions = useMemo(() => activeWeek?.sessions || [], [activeWeek]);
   const activeSessions = useMemo(
-    () => (activeWeek?.sessions || []).filter((s) => !s.archived_at),
-    [activeWeek]
+    () => weekSessions.filter((s) => !s.archived_at),
+    [weekSessions]
   );
 
+  // Include archived sessions in the day strip so the cell doesn't flip to
+  // "Rest" when the coach archives a session. When a day has both an archived
+  // and an active session, prefer the active one.
   const daySlots = useMemo(() => {
     const byDay = {};
-    for (const s of activeSessions) {
+    for (const s of weekSessions) {
       const d = sessionDayNumber(s);
-      if (d >= 1 && d <= 7) byDay[d] = s;
+      if (d < 1 || d > 7) continue;
+      const existing = byDay[d];
+      if (!existing || (existing.archived_at && !s.archived_at)) {
+        byDay[d] = s;
+      }
     }
     return Array.from({ length: 7 }, (_, i) => ({
       dayNumber: i + 1,
       label: DAY_LABELS[i],
       session: byDay[i + 1] ?? null,
     }));
-  }, [activeSessions]);
+  }, [weekSessions]);
 
   const upcoming = useMemo(
     () =>
@@ -279,16 +296,20 @@ export default function StudentHome() {
 
         <section aria-label="Week overview">
           <div className="grid grid-cols-7 gap-1.5">
-            {daySlots.map(({ dayNumber, label, session }) => (
-              <DayCell
-                key={dayNumber}
-                dayLabel={label}
-                session={session}
-                confirmed={session ? confirmedIds.has(session.id) : false}
-                isToday={dayNumber === todayDN}
-                onClick={session ? () => navigate(`/student/session/${session.id}`) : null}
-              />
-            ))}
+            {daySlots.map(({ dayNumber, label, session }) => {
+              const isArchived = !!session?.archived_at;
+              return (
+                <DayCell
+                  key={dayNumber}
+                  dayLabel={label}
+                  session={session}
+                  confirmed={session && !isArchived ? confirmedIds.has(session.id) : false}
+                  archived={isArchived}
+                  isToday={dayNumber === todayDN}
+                  onClick={session && !isArchived ? () => navigate(`/student/session/${session.id}`) : null}
+                />
+              );
+            })}
           </div>
         </section>
 
