@@ -36,7 +36,7 @@ function FilterPill({ label, active, onClick }) {
   );
 }
 
-function ExerciseForm({ initial, onSubmit, onCancel, submitLabel }) {
+function ExerciseForm({ initial, onSubmit, onCancel, submitLabel, pending, pendingLabel }) {
   const { t } = useI18n();
   const [name, setName] = useState(initial?.name || '');
   const [type, setType] = useState(initial?.type || 'pull');
@@ -91,10 +91,11 @@ function ExerciseForm({ initial, onSubmit, onCancel, submitLabel }) {
       <div className="flex gap-2">
         <button
           type="submit"
-          className="flex-1 sl-btn-primary text-[13px]"
+          disabled={pending}
+          className="flex-1 sl-btn-primary text-[13px] disabled:opacity-50"
           style={{ padding: '10px 16px' }}
         >
-          {submitLabel}
+          {pending && pendingLabel ? pendingLabel : submitLabel}
         </button>
         {onCancel && (
           <button
@@ -165,6 +166,8 @@ export default function ExerciseLibrary() {
             onSubmit={handleCreate}
             onCancel={() => setShowAdd(false)}
             submitLabel={t('coach.library.create')}
+            pending={createExercise.isPending}
+            pendingLabel={t('coach.library.creating')}
           />
         </div>
       )}
@@ -241,6 +244,8 @@ export default function ExerciseLibrary() {
                 onSubmit={(vals) => handleUpdate(ex.id, vals)}
                 onCancel={() => setEditingId(null)}
                 submitLabel={t('common.save')}
+                pending={updateExercise.isPending}
+                pendingLabel={t('common.saving')}
               />
             ) : (
               <div className="flex items-center justify-between gap-3">

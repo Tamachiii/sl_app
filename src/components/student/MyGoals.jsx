@@ -170,7 +170,8 @@ function GoalCard({ goal }) {
             <button
               type="submit"
               disabled={addProgress.isPending}
-              className="sl-btn-primary flex-1 disabled:opacity-50"
+              className="flex-1 sl-btn-primary text-[13px] disabled:opacity-50"
+              style={{ padding: '10px 16px' }}
             >
               {addProgress.isPending ? 'Logging…' : 'Log attempt'}
             </button>

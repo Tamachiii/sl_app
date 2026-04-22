@@ -91,7 +91,8 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full sl-btn-primary disabled:opacity-50"
+          className="w-full sl-btn-primary text-[13px] disabled:opacity-50"
+          style={{ padding: '10px 16px' }}
         >
           {loading ? t('login.signingIn') : t('login.signIn')}
         </button>
