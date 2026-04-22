@@ -63,7 +63,7 @@ export default function WeekView() {
   }
 
   return (
-    <div className="p-4 pb-6 space-y-5">
+    <div className="p-4 pb-6 md:p-8 space-y-5">
       <div className="flex items-start gap-3">
         <button
           onClick={() => navigate(-1)}

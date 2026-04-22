@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import BottomNav from './BottomNav';
+import SideNav from './SideNav';
 
 export default function AppShell() {
   const mainRef = useRef(null);
@@ -11,7 +12,8 @@ export default function AppShell() {
   }, [pathname]);
 
   return (
-    <div className="flex flex-col h-full bg-gray-50">
+    <div className="flex flex-col md:flex-row h-full bg-gray-50">
+      <SideNav />
       <main
         ref={mainRef}
         className="flex-1 overflow-y-auto"
@@ -21,7 +23,9 @@ export default function AppShell() {
           paddingRight: 'env(safe-area-inset-right)',
         }}
       >
-        <Outlet />
+        <div className="mx-auto w-full max-w-5xl">
+          <Outlet />
+        </div>
       </main>
       <BottomNav />
     </div>

@@ -91,7 +91,7 @@ export default function SessionEditor() {
     'w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-mono text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
 
   return (
-    <div className="p-4 pb-6 space-y-5">
+    <div className="p-4 pb-6 md:p-8 space-y-5">
       <div className="flex items-start gap-3">
         <button
           onClick={() => navigate(-1)}

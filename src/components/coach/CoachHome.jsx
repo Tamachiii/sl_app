@@ -14,16 +14,16 @@ export default function CoachHome() {
   const count = students?.length ?? 0;
 
   return (
-    <div className="p-4 pb-6 space-y-5">
+    <div className="p-4 pb-6 md:p-8 space-y-5">
       <h1 className="sr-only">Students</h1>
 
       {profile?.full_name && (
         <div
-          className="sl-card px-4 py-4 cursor-help"
+          className="sl-card px-4 py-4 md:px-6 md:py-6 cursor-help"
           title={`Coach · ${profile.full_name}`}
         >
           <div className="sl-label text-ink-400">{t('coach.home.kicker')}</div>
-          <p className="sl-display text-[28px] text-gray-900 leading-none mt-1">
+          <p className="sl-display text-[28px] md:text-[40px] text-gray-900 leading-none mt-1">
             {t('coach.home.hey')}, {firstName}.
           </p>
           <p className="sl-mono text-[11px] text-ink-400 mt-2">
@@ -40,7 +40,7 @@ export default function CoachHome() {
       {!isLoading && !count && (
         <EmptyState message={t('coach.home.noStudentsExt')} />
       )}
-      <div className="space-y-3">
+      <div className="space-y-3 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">
         {students?.map((s) => (
           <StudentCard key={s.id} student={s} />
         ))}

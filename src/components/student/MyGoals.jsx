@@ -210,10 +210,10 @@ export default function MyGoals() {
   }
 
   return (
-    <div className="p-4 pb-6 space-y-4">
+    <div className="p-4 pb-6 md:p-8 space-y-4">
       <div className="pt-3 pb-1">
         <div className="sl-label text-ink-400">Milestones</div>
-        <h1 className="sl-display text-[32px] text-gray-900 leading-none mt-1">Goals.</h1>
+        <h1 className="sl-display text-[32px] md:text-[44px] text-gray-900 leading-none mt-1">Goals.</h1>
       </div>
 
       {(!goals || goals.length === 0) && (

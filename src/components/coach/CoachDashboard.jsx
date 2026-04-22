@@ -92,12 +92,12 @@ export default function CoachDashboard() {
     .slice(0, 5);
 
   return (
-    <div className="p-4 pb-6 space-y-5">
-      <div className="sl-card px-4 py-4">
+    <div className="p-4 pb-6 md:p-8 space-y-5">
+      <div className="sl-card px-4 py-4 md:px-6 md:py-6">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="sl-label text-ink-400">{t('coach.dashboard.kicker')}</div>
-            <p className="sl-display text-[28px] text-gray-900 leading-none mt-1">
+            <p className="sl-display text-[28px] md:text-[40px] text-gray-900 leading-none mt-1">
               {t('coach.dashboard.title')}
             </p>
           </div>
@@ -118,7 +118,7 @@ export default function CoachDashboard() {
           <EmptyState message={t('coach.dashboard.noConfirmations')} />
         )}
 
-        <div className="space-y-2">
+        <div className="space-y-2 md:grid md:grid-cols-2 md:gap-2 md:space-y-0">
           {recentActivity.map((c) => (
             <Link
               key={c.id}

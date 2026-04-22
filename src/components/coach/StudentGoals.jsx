@@ -77,7 +77,7 @@ export default function StudentGoals() {
 
   if (pidLoading || isLoading) {
     return (
-      <div className="p-4 pb-6 space-y-5">
+      <div className="p-4 pb-6 md:p-8 space-y-5">
         <PageHeader onBack={() => navigate(-1)} />
         <div className="flex justify-center py-12"><Spinner /></div>
       </div>
@@ -85,7 +85,7 @@ export default function StudentGoals() {
   }
 
   return (
-    <div className="p-4 pb-6 space-y-5">
+    <div className="p-4 pb-6 md:p-8 space-y-5">
       <PageHeader onBack={() => navigate(-1)} />
 
       <div className="space-y-2">

@@ -95,10 +95,10 @@ export default function SessionsFeed() {
   }
 
   return (
-    <div className="p-4 pb-6 space-y-5">
+    <div className="p-4 pb-6 md:p-8 space-y-5">
       <div>
         <div className="sl-label text-ink-400">{t('coach.sessions.kicker')}</div>
-        <h1 className="sl-display text-[28px] text-gray-900 leading-none mt-1">
+        <h1 className="sl-display text-[28px] md:text-[40px] text-gray-900 leading-none mt-1">
           {t('coach.sessions.title')}
         </h1>
       </div>
@@ -126,7 +126,7 @@ export default function SessionsFeed() {
         <EmptyState message={t('coach.sessions.allArchived')} />
       )}
 
-      <div className="space-y-3">{active.map(renderCard)}</div>
+      <div className="space-y-3 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">{active.map(renderCard)}</div>
 
       {archived.length > 0 && (
         <button
@@ -139,7 +139,9 @@ export default function SessionsFeed() {
         </button>
       )}
 
-      {showArchived && <div className="space-y-3">{archived.map(renderCard)}</div>}
+      {showArchived && (
+        <div className="space-y-3 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">{archived.map(renderCard)}</div>
+      )}
     </div>
   );
 }

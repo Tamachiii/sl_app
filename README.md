@@ -1,6 +1,6 @@
 # Street Lifting Coach (sl_app)
 
-A mobile-first React application for coaches and students to plan, track, and execute street-lifting / calisthenics training programs. Coaches design multi-week programs (weeks → sessions → exercise slots); students log sets, reps, weight, RPE, and completion.
+A responsive React application for coaches and students to plan, track, and execute street-lifting / calisthenics training programs. Mobile-first design with a bottom tab bar; on desktop (≥ 768px) the nav promotes to a left sidebar and content caps at `max-w-5xl`. Coaches design multi-week programs (weeks → sessions → exercise slots); students log sets, reps, weight, RPE, and completion.
 
 Deployed to GitHub Pages: https://tamachiii.github.io/sl_app/
 
@@ -61,7 +61,7 @@ src/
   hooks/               auth · theme · i18n · program · week · session · goals · students · set-logs · confirmations · stats
   components/
     auth/              LoginPage, ProtectedRoute, RoleGate
-    layout/            BottomNav, AppShell
+    layout/            AppShell, BottomNav, SideNav, navItems
     coach/             CoachDashboard, CoachHome, StudentCard, WeekTimeline, WeekView,
                        SessionEditor, SessionReview, ExerciseSlotRow, ExerciseLibrary,
                        VolumeBar, SessionsFeed, StudentGoals

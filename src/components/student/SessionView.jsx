@@ -124,7 +124,7 @@ export default function SessionView() {
   if (slots.length > 0) metaBits.push(`${slots.length} EX`);
 
   return (
-    <div className="p-4 pb-6 space-y-5">
+    <div className="p-4 pb-6 md:p-8 space-y-5">
       <SessionTopBar
         title={session?.title || 'Session'}
         meta={metaBits.join(' · ')}

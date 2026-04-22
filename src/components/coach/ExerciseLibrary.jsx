@@ -141,11 +141,11 @@ export default function ExerciseLibrary() {
   const hasExercises = exercises && exercises.length > 0;
 
   return (
-    <div className="p-4 pb-6 space-y-5">
+    <div className="p-4 pb-6 md:p-8 space-y-5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="sl-label text-ink-400">{t('coach.library.kicker')}</div>
-          <h1 className="sl-display text-[28px] text-gray-900 leading-none mt-1">
+          <h1 className="sl-display text-[28px] md:text-[40px] text-gray-900 leading-none mt-1">
             {t('coach.library.title')}
           </h1>
         </div>
@@ -224,7 +224,7 @@ export default function ExerciseLibrary() {
         <EmptyState message={t('coach.library.noneMatch')} />
       )}
 
-      <div className="space-y-2">
+      <div className="space-y-2 md:grid md:grid-cols-2 md:gap-2 md:space-y-0">
         {filtered.map((ex) => (
           <div key={ex.id} className="sl-card p-4">
             {editingId === ex.id ? (

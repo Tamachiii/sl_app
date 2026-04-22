@@ -32,7 +32,7 @@ src/
                  useStudentProgressStats  useStudentProgramDetails
   components/
     auth/        LoginPage  ProtectedRoute  RoleGate
-    layout/      BottomNav  AppShell
+    layout/      AppShell  BottomNav  SideNav  navItems
     coach/       CoachDashboard  CoachHome  StudentCard  WeekTimeline  WeekView
                  SessionEditor  SessionReview  ExerciseSlotRow  ExerciseLibrary
                  VolumeBar  SessionsFeed  StudentGoals  SlotProgress
@@ -91,6 +91,7 @@ Full primitives, dark-mode rules, and the editorial page-header pattern are in [
 - **Compact CTA**: override `sl-btn-primary` with `className="… text-[13px]" style={{ padding: '10px 16px' }}` (see `SessionCard`, `ExerciseLibrary` ExerciseForm).
 - **Tinted surfaces** use `color-mix(in srgb, var(--color-accent) 10%, transparent)` (and success/warn/danger) so they adapt to both themes.
 - **Day-strip session titles** on `StudentHome` use `writing-mode: vertical-rl; transform: rotate(180deg)` to read top-to-bottom without wrapping in the narrow 7-column grid.
+- **Responsive layout** lives in `layout/AppShell` + `SideNav` + `BottomNav`. Mobile is `flex-col` with a sticky `BottomNav`; from `md:` up (`≥ 768px`) the shell becomes `flex-row`, `BottomNav` gets `md:hidden`, and `SideNav` (`hidden md:flex w-56`) becomes the left rail. Both nav components share their item list via `layout/navItems.getNavItems(role, t)` so there's exactly one place to edit tabs. Content in `main` is wrapped in `mx-auto w-full max-w-5xl` so it caps around ~1024px on wide monitors. Per-screen roots use `p-4 pb-6 md:p-8`; display headings scale `text-[28px] md:text-[40px]` (coach h1s) or `text-[32px] md:text-[44px]` (student h1s). List screens (CoachHome, CoachDashboard activity, SessionsFeed, ExerciseLibrary) switch to a 2-column grid at `md:` via `space-y-* md:grid md:grid-cols-2 md:gap-* md:space-y-0`.
 
 ## Gotchas (read once, never re-discover)
 

@@ -97,10 +97,10 @@ export default function StudentDashboard() {
       : Math.round((stats.totalSessionsConfirmed / stats.totalSessions) * 100);
 
   return (
-    <div className="p-4 pb-6 space-y-6">
+    <div className="p-4 pb-6 md:p-8 space-y-6">
       <div className="pt-3 pb-1">
         <div className="sl-label text-ink-400">{t('student.stats.kicker')}</div>
-        <h1 className="sl-display text-[32px] text-gray-900 leading-none mt-1">{t('student.stats.title')}</h1>
+        <h1 className="sl-display text-[32px] md:text-[44px] text-gray-900 leading-none mt-1">{t('student.stats.title')}</h1>
       </div>
 
       {!hasProgram && <EmptyState message={t('student.home.noProgram')} />}

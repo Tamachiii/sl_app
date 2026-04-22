@@ -138,7 +138,7 @@ function Greeting({ fullName, todayDN, todaysMessage, activeWeek, onSignOut }) {
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="sl-label mb-1.5 truncate">{metaBits.join(' · ')}</div>
-          <div className="sl-display text-[32px] text-gray-900 truncate">{t('student.home.hey')}, {firstName}.</div>
+          <div className="sl-display text-[32px] md:text-[44px] text-gray-900 truncate">{t('student.home.hey')}, {firstName}.</div>
           <p className="sl-mono text-[11px] text-ink-400 mt-2">{todaysMessage}</p>
         </div>
         {initials && (
@@ -282,7 +282,7 @@ export default function StudentHome() {
   return (
     <>
       <h1 className="sr-only">Home</h1>
-      <div className="p-4 space-y-6">
+      <div className="p-4 md:p-8 space-y-6">
 
         {profile?.full_name && (
           <Greeting
