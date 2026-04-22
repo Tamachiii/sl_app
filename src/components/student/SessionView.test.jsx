@@ -147,7 +147,7 @@ describe('SessionView', () => {
     expect(screen.getByText('Keep elbows tucked throughout')).toBeInTheDocument();
   });
 
-  it('auto-collapses a slot whose logs are all done, auto-opens an incomplete one', () => {
+  it('auto-opens only the first incomplete slot when earlier slots are done', () => {
     mockSessionData = {
       data: {
         title: 'Mixed Day',
@@ -188,6 +188,59 @@ describe('SessionView', () => {
     expect(screen.getByText('Pullup')).toBeInTheDocument();
     // The completed slot's body (SetRow "Set 1/2") is hidden; the incomplete slot's body is visible.
     // Pullup has two SetRows ("Set 1" and "Set 2"); Dip has none because it's collapsed.
+    const set1Nodes = screen.getAllByText('Set 1');
+    expect(set1Nodes).toHaveLength(1);
+  });
+
+  it('auto-opens only the first slot when multiple slots are incomplete', () => {
+    mockSessionData = {
+      data: {
+        title: 'Fresh Day',
+        exercise_slots: [
+          {
+            id: 'slot-a',
+            sets: 1,
+            reps: 5,
+            weight_kg: 50,
+            sort_order: 0,
+            exercise: { name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
+          },
+          {
+            id: 'slot-b',
+            sets: 1,
+            reps: 5,
+            weight_kg: 50,
+            sort_order: 1,
+            exercise: { name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
+          },
+          {
+            id: 'slot-c',
+            sets: 1,
+            reps: 5,
+            weight_kg: 50,
+            sort_order: 2,
+            exercise: { name: 'Row', type: 'pull', difficulty: 1, volume_weight: 1 },
+          },
+        ],
+      },
+      isLoading: false,
+    };
+    mockSetLogsData = {
+      data: [
+        { id: 'l-a', exercise_slot_id: 'slot-a', set_number: 1, done: false, rpe: null },
+        { id: 'l-b', exercise_slot_id: 'slot-b', set_number: 1, done: false, rpe: null },
+        { id: 'l-c', exercise_slot_id: 'slot-c', set_number: 1, done: false, rpe: null },
+      ],
+      isLoading: false,
+    };
+    renderSessionView();
+
+    // All three exercise headers visible.
+    expect(screen.getByText('Squat')).toBeInTheDocument();
+    expect(screen.getByText('Bench')).toBeInTheDocument();
+    expect(screen.getByText('Row')).toBeInTheDocument();
+
+    // Only the first incomplete slot (Squat) is auto-open, so only one "Set 1" SetRow is rendered.
     const set1Nodes = screen.getAllByText('Set 1');
     expect(set1Nodes).toHaveLength(1);
   });

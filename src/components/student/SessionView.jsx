@@ -70,15 +70,25 @@ export default function SessionView() {
     return group.slots.flatMap((s) => getLogsForSlot(s.id));
   }
 
-  function isGroupOpen(group) {
-    if (manualOpen[group.key] !== undefined) return manualOpen[group.key];
-    const gl = getGroupLogs(group);
-    if (gl.length === 0) return true;
-    return gl.some((l) => !l.done);
+  // Auto-open only the first group that still has incomplete sets (or whose
+  // logs haven't been ensured yet). Once the user finishes the last set of
+  // group N, the next group with incomplete work auto-expands.
+  let firstOpenIdx = -1;
+  for (let i = 0; i < slotGroups.length; i++) {
+    const gl = getGroupLogs(slotGroups[i]);
+    if (gl.length === 0 || gl.some((l) => !l.done)) {
+      firstOpenIdx = i;
+      break;
+    }
   }
 
-  function toggleGroup(group) {
-    const currently = isGroupOpen(group);
+  function isGroupOpen(group, idx) {
+    if (manualOpen[group.key] !== undefined) return manualOpen[group.key];
+    return idx === firstOpenIdx;
+  }
+
+  function toggleGroup(group, idx) {
+    const currently = isGroupOpen(group, idx);
     setManualOpen((prev) => ({ ...prev, [group.key]: !currently }));
   }
 
@@ -142,8 +152,8 @@ export default function SessionView() {
           key={group.key}
           group={group}
           groupIdx={groupIdx}
-          open={isGroupOpen(group)}
-          onToggle={() => toggleGroup(group)}
+          open={isGroupOpen(group, groupIdx)}
+          onToggle={() => toggleGroup(group, groupIdx)}
           getLogsForSlot={getLogsForSlot}
           slotComments={slotComments}
           sessionId={sessionId}
