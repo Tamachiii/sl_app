@@ -3,9 +3,14 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 let mockConfirmations = { data: [], isLoading: false };
+let mockStudents = { data: [], isLoading: false };
 
 vi.mock('../../hooks/useSessionConfirmation', () => ({
   useAllConfirmations: () => mockConfirmations,
+}));
+
+vi.mock('../../hooks/useStudents', () => ({
+  useStudents: () => mockStudents,
 }));
 
 vi.mock('../../hooks/useAuth', () => ({
@@ -13,12 +18,15 @@ vi.mock('../../hooks/useAuth', () => ({
 }));
 
 vi.mock('../../hooks/useI18n', () => ({
-  useI18n: () => ({ t: (k) => {
+  useI18n: () => ({ t: (k, params) => {
     const map = {
       'coach.dashboard.kicker': 'COACH',
       'coach.dashboard.title': 'Dashboard.',
+      'coach.dashboard.athletes': 'Athletes',
       'coach.dashboard.recentActivity': 'Recent activity',
       'coach.dashboard.noConfirmations': 'No recent confirmations',
+      'coach.dashboard.openStudent': `Open ${params?.name ?? ''}`,
+      'coach.home.noStudentsExt': 'No students yet',
     };
     return map[k] || k;
   } }),
@@ -38,6 +46,7 @@ describe('CoachDashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockConfirmations = { data: [], isLoading: false };
+    mockStudents = { data: [], isLoading: false };
   });
 
   it('renders the Dashboard header', () => {
@@ -45,10 +54,24 @@ describe('CoachDashboard', () => {
     expect(screen.getByText('Dashboard.')).toBeInTheDocument();
   });
 
-  it('does not render a redundant athletes section (covered by Students tab)', () => {
+  it('renders the athletes section with clickable student links', () => {
+    mockStudents = {
+      data: [
+        { id: 's-1', profile: { full_name: 'Alice' } },
+        { id: 's-2', profile: { full_name: 'Bob' } },
+      ],
+      isLoading: false,
+    };
     renderDashboard();
-    // Any student-list section heading would use this wording; it should be gone.
-    expect(screen.queryByText(/^Athletes$/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /athletes/i })).toBeInTheDocument();
+    const aliceLink = screen.getByRole('link', { name: /open alice/i });
+    expect(aliceLink).toHaveAttribute('href', '/coach/students/s-1');
+    expect(screen.getByRole('link', { name: /open bob/i })).toBeInTheDocument();
+  });
+
+  it('shows empty athletes state when no students', () => {
+    renderDashboard();
+    expect(screen.getByText(/no students yet/i)).toBeInTheDocument();
   });
 
   it('renders recent activity confirmations', () => {
@@ -70,7 +93,7 @@ describe('CoachDashboard', () => {
       isLoading: false,
     };
     renderDashboard();
-    expect(screen.getByText('Alice')).toBeInTheDocument();
+    // 'Alice' may also show up in the athletes list; look for the session card text.
     expect(screen.getByText('Push Day')).toBeInTheDocument();
   });
 

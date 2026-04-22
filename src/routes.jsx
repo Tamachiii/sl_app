@@ -1,5 +1,10 @@
 import { lazy, Suspense } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useParams } from 'react-router-dom';
+
+function RedirectToStudent() {
+  const { studentId } = useParams();
+  return <Navigate to={`/coach/students/${studentId}`} replace />;
+}
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import RoleGate from './components/auth/RoleGate';
 import AppShell from './components/layout/AppShell';
@@ -13,7 +18,6 @@ const WeekView = lazy(() => import('./components/coach/WeekView'));
 const SessionEditor = lazy(() => import('./components/coach/SessionEditor'));
 const ExerciseLibrary = lazy(() => import('./components/coach/ExerciseLibrary'));
 const SessionReview = lazy(() => import('./components/coach/SessionReview'));
-const StudentGoals = lazy(() => import('./components/coach/StudentGoals'));
 const StudentHome = lazy(() => import('./components/student/StudentHome'));
 const StudentSessions = lazy(() => import('./components/student/StudentSessions'));
 const StudentStats = lazy(() => import('./components/student/StudentDashboard'));
@@ -46,9 +50,10 @@ export const routes = [
               { path: '/coach', element: <Navigate to="/coach/dashboard" replace /> },
               { path: '/coach/dashboard', element: <Lazy><CoachDashboard /></Lazy> },
               { path: '/coach/students', element: <Lazy><CoachHome /></Lazy> },
+              { path: '/coach/students/:studentId', element: <Lazy><CoachHome /></Lazy> },
+              { path: '/coach/student/:studentId/goals', element: <RedirectToStudent /> },
               { path: '/coach/sessions', element: <Lazy><SessionsFeed /></Lazy> },
               { path: '/coach/student/:studentId/session/:sessionId/review', element: <Lazy><SessionReview /></Lazy> },
-              { path: '/coach/student/:studentId/goals', element: <Lazy><StudentGoals /></Lazy> },
               { path: '/coach/student/:studentId/week/:weekId', element: <Lazy><WeekView /></Lazy> },
               { path: '/coach/student/:studentId/week/:weekId/session/:sessionId', element: <Lazy><SessionEditor /></Lazy> },
               { path: '/coach/exercises', element: <Lazy><ExerciseLibrary /></Lazy> },

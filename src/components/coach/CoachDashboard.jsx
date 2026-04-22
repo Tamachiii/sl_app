@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
+import { useStudents } from '../../hooks/useStudents';
 import { useAllConfirmations } from '../../hooks/useSessionConfirmation';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
@@ -82,9 +83,45 @@ function UserMenu({ fullName, onSignOut }) {
   );
 }
 
+function StudentListItem({ student, t }) {
+  const fullName = student.profile?.full_name || 'Student';
+  const initials = fullName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? '')
+    .join('');
+
+  return (
+    <Link
+      to={`/coach/students/${student.id}`}
+      aria-label={t('coach.dashboard.openStudent', { name: fullName })}
+      className="block sl-card p-3 hover:bg-ink-50 transition-colors"
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <div
+          className="w-10 h-10 rounded-full flex items-center justify-center sl-display text-[13px] shrink-0"
+          style={{
+            background: 'color-mix(in srgb, var(--color-accent) 15%, transparent)',
+            color: 'var(--color-accent)',
+            border: '1px solid color-mix(in srgb, var(--color-accent) 35%, transparent)',
+          }}
+          aria-hidden="true"
+        >
+          {initials || '—'}
+        </div>
+        <div className="min-w-0">
+          <p className="sl-display text-[16px] text-gray-900 truncate">{fullName}</p>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
 export default function CoachDashboard() {
   const { t } = useI18n();
   const { profile, signOut } = useAuth();
+  const { data: students, isLoading: studentsLoading } = useStudents();
   const { data: confirmations, isLoading: confsLoading } = useAllConfirmations();
 
   const recentActivity = (confirmations || [])
@@ -104,6 +141,26 @@ export default function CoachDashboard() {
           <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
         </div>
       </div>
+
+      <section aria-labelledby="athletes-heading" className="space-y-2">
+        <h2 id="athletes-heading" className="sl-label text-ink-400">
+          {t('coach.dashboard.athletes')}
+        </h2>
+
+        {studentsLoading && (
+          <div className="flex justify-center py-6"><Spinner /></div>
+        )}
+
+        {!studentsLoading && (!students || students.length === 0) && (
+          <EmptyState message={t('coach.home.noStudentsExt')} />
+        )}
+
+        <div className="space-y-2 md:grid md:grid-cols-2 md:gap-2 md:space-y-0">
+          {(students || []).map((s) => (
+            <StudentListItem key={s.id} student={s} t={t} />
+          ))}
+        </div>
+      </section>
 
       <section aria-labelledby="activity-heading" className="space-y-2">
         <h2 id="activity-heading" className="sl-label text-ink-400">

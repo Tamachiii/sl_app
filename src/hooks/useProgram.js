@@ -26,7 +26,7 @@ export function useProgram(studentId) {
 /**
  * Creates a default program for a student if none exists.
  * Call this from components that need to guarantee a program exists
- * (e.g. StudentCard on first visit).
+ * (e.g. CoachHome on first visit to a student page).
  */
 export function useEnsureProgram() {
   const qc = useQueryClient();

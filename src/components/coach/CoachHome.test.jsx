@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 let mockStudentsData = { data: null, isLoading: false };
 
@@ -14,12 +14,27 @@ vi.mock('../../hooks/useProgram', () => ({
   useEnsureProgram: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
+vi.mock('../../hooks/useWeek', () => ({
+  useReorderWeeks: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+vi.mock('./StudentGoalsSection', () => ({
+  default: () => <div data-testid="goals-section" />,
+}));
+
+vi.mock('./StudentStatsSection', () => ({
+  default: () => <div data-testid="stats-section" />,
+}));
+
 import CoachHome from './CoachHome';
 
-function renderCoachHome() {
+function renderCoachHome(path = '/coach/students') {
   return render(
-    <MemoryRouter>
-      <CoachHome />
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route path="/coach/students" element={<CoachHome />} />
+        <Route path="/coach/students/:studentId" element={<CoachHome />} />
+      </Routes>
     </MemoryRouter>
   );
 }
@@ -37,7 +52,7 @@ describe('CoachHome', () => {
     expect(screen.getByText(/no students yet/i)).toBeInTheDocument();
   });
 
-  it('renders student cards', () => {
+  it('renders selector with each student when no student is selected', () => {
     mockStudentsData = {
       data: [
         { id: 's-1', profile: { full_name: 'Alice' } },
@@ -46,13 +61,27 @@ describe('CoachHome', () => {
       isLoading: false,
     };
     renderCoachHome();
-    expect(screen.getByText('Alice')).toBeInTheDocument();
-    expect(screen.getByText('Bob')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Alice' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Bob' })).toBeInTheDocument();
+    expect(screen.getByText(/select a student to manage/i)).toBeInTheDocument();
   });
 
-  it('renders the header title', () => {
+  it('renders selected student sections when a student is in the URL', () => {
+    mockStudentsData = {
+      data: [
+        { id: 's-1', profile: { full_name: 'Alice' } },
+      ],
+      isLoading: false,
+    };
+    renderCoachHome('/coach/students/s-1');
+    expect(screen.getByRole('heading', { level: 2, name: 'Alice' })).toBeInTheDocument();
+    expect(screen.getByTestId('goals-section')).toBeInTheDocument();
+    expect(screen.getByTestId('stats-section')).toBeInTheDocument();
+  });
+
+  it('renders the page title', () => {
     mockStudentsData = { data: [], isLoading: false };
     renderCoachHome();
-    expect(screen.getByText('Students')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Athletes' })).toBeInTheDocument();
   });
 });

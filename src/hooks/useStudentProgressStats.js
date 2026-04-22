@@ -17,20 +17,28 @@ import { computeSessionVolume } from '../lib/volume';
  *   - recentConfirmations[] (last 5, newest first)
  *   - weeklyVolume[]    [{ week_number, label, pull, push, sessions_confirmed, sessions_total }]
  *   - sessionCalendar[] [{ session_id, title, date, completed }] — sessions w/ scheduled_date
+ *
+ * Pass a `studentId` (students.id row id) to stat any student — used by the
+ * coach Students view. Omit it to stat the signed-in user (student flow).
  */
-export function useStudentProgressStats() {
+export function useStudentProgressStats(studentId) {
   const { user } = useAuth();
 
   return useQuery({
-    queryKey: ['student-progress-stats', user?.id],
+    queryKey: ['student-progress-stats', studentId ?? user?.id],
     queryFn: async () => {
-      // 1. Resolve the student row for this user.
-      const { data: student, error: stErr } = await supabase
-        .from('students')
-        .select('id')
-        .eq('profile_id', user.id)
-        .single();
-      if (stErr) throw stErr;
+      // 1. Resolve the student row. Coach view passes studentId directly;
+      //    student view looks it up via profile_id.
+      let resolvedStudentId = studentId;
+      if (!resolvedStudentId) {
+        const { data: student, error: stErr } = await supabase
+          .from('students')
+          .select('id')
+          .eq('profile_id', user.id)
+          .single();
+        if (stErr) throw stErr;
+        resolvedStudentId = student.id;
+      }
 
       // 2. Fetch program(s) → weeks → sessions → slots → exercise meta.
       const { data: programs, error: pErr } = await supabase
@@ -48,7 +56,7 @@ export function useStudentProgressStats() {
             )
           )
         `)
-        .eq('student_id', student.id);
+        .eq('student_id', resolvedStudentId);
       if (pErr) throw pErr;
 
       // Flatten weeks / sessions / slots.
@@ -229,6 +237,6 @@ export function useStudentProgressStats() {
         exerciseProgress,
       };
     },
-    enabled: !!user?.id,
+    enabled: !!(studentId || user?.id),
   });
 }

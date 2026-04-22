@@ -1,0 +1,138 @@
+import { useMemo } from 'react';
+import { useI18n } from '../../hooks/useI18n';
+import { useStudentProgressStats } from '../../hooks/useStudentProgressStats';
+import Spinner from '../ui/Spinner';
+import EmptyState from '../ui/EmptyState';
+import ExerciseProgressChart from '../student/ExerciseProgressChart';
+
+function StatCard({ label, value, sub }) {
+  return (
+    <div className="sl-card p-3.5">
+      <div className="sl-label text-ink-400">{label}</div>
+      <div className="sl-display text-[28px] text-gray-900 leading-none mt-1.5 tabular-nums">
+        {value}
+      </div>
+      {sub && <div className="sl-mono text-[11px] text-ink-400 mt-1">{sub}</div>}
+    </div>
+  );
+}
+
+function VolumeWeekRow({ week, maxTotal }) {
+  const { week_number, label, pull, push } = week;
+  const total = pull + push;
+  const rowPct = maxTotal === 0 ? 0 : (total / maxTotal) * 100;
+  const pullPct = total === 0 ? 0 : (pull / total) * 100;
+  const pushPct = total === 0 ? 0 : (push / total) * 100;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-baseline justify-between">
+        <span className="sl-mono text-[11px] text-gray-800">
+          W{week_number}
+          {label && <span className="text-ink-400 ml-1.5">{label}</span>}
+        </span>
+        <span className="sl-mono text-[11px] text-ink-400 tabular-nums">{Math.round(total)}</span>
+      </div>
+      <div className="h-2.5 rounded-full bg-ink-100 overflow-hidden" aria-hidden="true">
+        {total > 0 ? (
+          <div className="flex h-full" style={{ width: `${rowPct}%` }}>
+            {pull > 0 && <div className="bg-pull" style={{ width: `${pullPct}%` }} />}
+            {push > 0 && <div className="bg-push" style={{ width: `${pushPct}%` }} />}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+export default function StudentStatsSection({ studentId }) {
+  const { t } = useI18n();
+  const { data, isLoading } = useStudentProgressStats(studentId);
+
+  const recentWeeklyVolume = useMemo(
+    () => (data?.weeklyVolume || []).slice(-4),
+    [data]
+  );
+
+  const maxWeeklyTotal = useMemo(() => {
+    if (!recentWeeklyVolume.length) return 0;
+    return Math.max(...recentWeeklyVolume.map((w) => w.pull + w.push));
+  }, [recentWeeklyVolume]);
+
+  if (isLoading) {
+    return <div className="flex justify-center py-6"><Spinner /></div>;
+  }
+
+  const stats = data || {
+    totalSessions: 0,
+    totalSessionsConfirmed: 0,
+    totalSets: 0,
+    totalSetsDone: 0,
+    avgRpe: null,
+    weeklyVolume: [],
+    exerciseProgress: { exercises: [], byExercise: {} },
+  };
+
+  if (stats.totalSessions === 0) {
+    return <EmptyState message={t('student.home.noProgram')} />;
+  }
+
+  const completionPct = Math.round(
+    (stats.totalSessionsConfirmed / stats.totalSessions) * 100
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-2">
+        <StatCard
+          label={t('student.stats.sessions')}
+          value={`${stats.totalSessionsConfirmed}/${stats.totalSessions}`}
+          sub={t('student.stats.pctComplete', { n: completionPct })}
+        />
+        <StatCard
+          label={t('student.stats.setsDone')}
+          value={stats.totalSetsDone}
+          sub={t('student.stats.ofPrescribed', { n: stats.totalSets })}
+        />
+        <StatCard
+          label={t('student.stats.avgRpe')}
+          value={stats.avgRpe != null ? stats.avgRpe.toFixed(1) : '—'}
+          sub={stats.avgRpe != null ? t('student.stats.acrossLogged') : t('student.stats.logSetsToSee')}
+        />
+      </div>
+
+      <div className="sl-card p-4 space-y-3">
+        <div className="sl-label text-ink-400">{t('student.stats.weeklyVolume')}</div>
+        {maxWeeklyTotal === 0 ? (
+          <p className="sl-mono text-[11px] text-ink-400">{t('student.stats.noVolume')}</p>
+        ) : (
+          recentWeeklyVolume.map((w) => (
+            <VolumeWeekRow key={w.week_id} week={w} maxTotal={maxWeeklyTotal} />
+          ))
+        )}
+        {maxWeeklyTotal > 0 && (
+          <div className="flex justify-between sl-mono text-[11px] text-ink-400 pt-2 border-t border-ink-100">
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-2 h-2 rounded-full bg-pull" />
+              PULL
+            </span>
+            <span className="flex items-center gap-1.5">
+              PUSH
+              <span className="inline-block w-2 h-2 rounded-full bg-push" />
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div className="sl-label text-ink-400 mb-2.5">
+          {t('student.stats.exerciseProgression')}
+        </div>
+        <ExerciseProgressChart
+          exercises={stats.exerciseProgress?.exercises ?? []}
+          byExercise={stats.exerciseProgress?.byExercise ?? {}}
+        />
+      </div>
+    </div>
+  );
+}

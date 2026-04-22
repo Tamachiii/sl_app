@@ -62,9 +62,11 @@ src/
   components/
     auth/              LoginPage, ProtectedRoute, RoleGate
     layout/            AppShell, BottomNav, SideNav, navItems
-    coach/             CoachDashboard, CoachHome, StudentCard, WeekTimeline, WeekView,
-                       SessionEditor, SessionReview, ExerciseSlotRow, ExerciseLibrary,
-                       VolumeBar, SessionsFeed, StudentGoals
+    coach/             CoachDashboard, CoachHome (single-student view with selector +
+                       Program/Goals/Stats sections), StudentGoalsSection,
+                       StudentStatsSection, WeekTimeline, WeekView, SessionEditor,
+                       SessionReview, ExerciseSlotRow, ExerciseLibrary, VolumeBar,
+                       SessionsFeed
     student/           StudentHome, StudentSessions, SessionCard, SessionView, SetRow,
                        RpeInput, StudentDashboard (Stats), MyGoals, ExerciseProgressChart
     ui/                EditableText, ThemeToggle, LanguageSelect, Dialog, Spinner,
@@ -136,8 +138,8 @@ For any exercise, the coach can pick **any number** of sets to record on video v
 ## Roles & Flows
 
 **Coach**
-1. Logs in → redirected to `CoachDashboard` (student list + recent confirmations feed)
-2. **Students tab** (`/coach/students`) — student cards with `WeekTimeline`; tap a week → `WeekView`; create/duplicate sessions; open `SessionEditor` to manage exercise slots; manage `ExerciseLibrary`
+1. Logs in → redirected to `CoachDashboard` (athletes list with basic info + recent confirmations feed). Tapping an athlete opens that student's single-student page.
+2. **Students tab** (`/coach/students` and `/coach/students/:studentId`) — single-student view centralising everything for one athlete: dropdown selector at top, student header, **Program** (`WeekTimeline` → `WeekView` → `SessionEditor`), **Goals** (inline list + add form), **Stats** (summary cards + weekly volume + exercise progression).
 3. **Sessions tab** (`/coach/sessions`) — all students' confirmed sessions in one feed (`SessionsFeed`), newest first; tap any card to open `SessionReview`
 4. **Library tab** — exercise CRUD with search + type filter
 
