@@ -142,21 +142,11 @@ export default function ExerciseLibrary() {
 
   return (
     <div className="p-4 pb-6 md:p-8 space-y-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="sl-label text-ink-400">{t('coach.library.kicker')}</div>
-          <h1 className="sl-display text-[28px] md:text-[40px] text-gray-900 leading-none mt-1">
-            {t('coach.library.title')}
-          </h1>
-        </div>
-        {!showAdd && (
-          <button
-            onClick={() => setShowAdd(true)}
-            className="sl-btn-primary text-[12px] px-3 py-1.5"
-          >
-            {t('coach.library.add')}
-          </button>
-        )}
+      <div className="pt-3 pb-1">
+        <div className="sl-label text-ink-400">{t('coach.library.kicker')}</div>
+        <h1 className="sl-display text-[28px] md:text-[40px] text-gray-900 leading-none mt-1">
+          {t('coach.library.title')}
+        </h1>
       </div>
 
       {isLoading && (
@@ -173,46 +163,58 @@ export default function ExerciseLibrary() {
         </div>
       )}
 
-      {!isLoading && hasExercises && (
+      {!isLoading && !showAdd && (
         <div className="space-y-3">
-          <div className="relative">
-            <svg
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400 pointer-events-none"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
+          <div className="flex items-center gap-2">
+            {hasExercises && (
+              <div className="relative flex-1">
+                <svg
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400 pointer-events-none"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z" />
+                </svg>
+                <input
+                  type="search"
+                  aria-label={t('coach.library.search')}
+                  placeholder={t('coach.library.search')}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full rounded-lg border border-ink-200 bg-white pl-9 pr-3 py-2 sl-mono text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                />
+              </div>
+            )}
+            <button
+              onClick={() => setShowAdd(true)}
+              className={`sl-btn-primary text-[12px] px-3 py-2 shrink-0${hasExercises ? '' : ' ml-auto'}`}
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z" />
-            </svg>
-            <input
-              type="search"
-              aria-label={t('coach.library.search')}
-              placeholder={t('coach.library.search')}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-lg border border-ink-200 bg-white pl-9 pr-3 py-2 sl-mono text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-            />
+              {t('coach.library.add')}
+            </button>
           </div>
 
-          <div className="flex gap-2" role="group" aria-label="Filter by type">
-            {TYPE_FILTERS.map((filter) => {
-              const label =
-                filter === 'all'
-                  ? t('coach.library.filterAll')
-                  : filter === 'pull'
-                  ? t('coach.library.filterPull')
-                  : t('coach.library.filterPush');
-              return (
-                <FilterPill
-                  key={filter}
-                  label={label}
-                  active={typeFilter === filter}
-                  onClick={() => setTypeFilter(filter)}
-                />
-              );
-            })}
-          </div>
+          {hasExercises && (
+            <div className="flex gap-2" role="group" aria-label="Filter by type">
+              {TYPE_FILTERS.map((filter) => {
+                const label =
+                  filter === 'all'
+                    ? t('coach.library.filterAll')
+                    : filter === 'pull'
+                    ? t('coach.library.filterPull')
+                    : t('coach.library.filterPush');
+                return (
+                  <FilterPill
+                    key={filter}
+                    label={label}
+                    active={typeFilter === filter}
+                    onClick={() => setTypeFilter(filter)}
+                  />
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
