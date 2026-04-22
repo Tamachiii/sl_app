@@ -33,8 +33,10 @@
   /* Legacy aliases — kept so untouched components still compile */
   --color-primary: #ff5a1f;
   --color-primary-dark: #c43d0f;
-  --color-pull: #fbbf24;
-  --color-push: #f59e0b;
+  /* Pull/Push volume colors — mapped onto the editorial palette so they
+     sit alongside the rest of the accent/success/warn/danger set. */
+  --color-pull: #8cf06a;
+  --color-push: #ff5a1f;
 }
 
 html, body, #root {
