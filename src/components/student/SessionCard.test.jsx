@@ -36,9 +36,10 @@ describe('SessionCard', () => {
     expect(onStart).toHaveBeenCalledTimes(1);
   });
 
-  it('shows "DONE" and the Review CTA when confirmed', () => {
+  it('shows the done pill and the Review CTA when confirmed', () => {
     render(<SessionCard session={baseSession} confirmed defaultOpen />);
-    expect(screen.getByText('DONE')).toBeInTheDocument();
+    // sl-pill uses raw "done" text; CSS uppercases visually.
+    expect(screen.getByText('done')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Review session/i })).toBeInTheDocument();
   });
 

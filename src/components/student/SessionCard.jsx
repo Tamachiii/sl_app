@@ -61,12 +61,6 @@ export default function SessionCard({
             <span>
               {slots.length} {t('common.ex')}
             </span>
-            {confirmed && (
-              <>
-                <span aria-hidden>·</span>
-                <span style={{ color: 'var(--color-success)' }}>{t('common.doneUpper')}</span>
-              </>
-            )}
             {archived && (
               <>
                 <span aria-hidden>·</span>
@@ -78,12 +72,10 @@ export default function SessionCard({
         <div className="flex items-center gap-2 shrink-0">
           {confirmed ? (
             <span
-              className="w-7 h-7 rounded-lg flex items-center justify-center"
-              style={{ background: 'var(--color-success)', color: 'var(--color-ink-900)' }}
+              className="sl-pill"
+              style={{ background: 'color-mix(in srgb, var(--color-success) 20%, transparent)', color: 'var(--color-success)' }}
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-              </svg>
+              {t('common.done')}
             </span>
           ) : archived ? (
             <span className="sl-pill" style={{ background: 'color-mix(in srgb, var(--color-warn) 15%, transparent)', color: 'var(--color-warn)' }}>
