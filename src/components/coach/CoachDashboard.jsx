@@ -130,16 +130,14 @@ export default function CoachDashboard() {
 
   return (
     <div className="p-4 pb-6 md:p-8 space-y-5">
-      <div className="sl-card px-4 py-4 md:px-6 md:py-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="sl-label text-ink-400">{t('coach.dashboard.kicker')}</div>
-            <p className="sl-display text-[28px] md:text-[40px] text-gray-900 leading-none mt-1">
-              {t('coach.dashboard.title')}
-            </p>
-          </div>
-          <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
+      <div className="pt-3 pb-1 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="sl-label text-ink-400">{t('coach.dashboard.kicker')}</div>
+          <h1 className="sl-display text-[28px] md:text-[40px] text-gray-900 leading-none mt-1">
+            {t('coach.dashboard.title')}
+          </h1>
         </div>
+        <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
       </div>
 
       <section aria-labelledby="athletes-heading" className="space-y-2">

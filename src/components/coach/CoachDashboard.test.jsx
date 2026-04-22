@@ -22,7 +22,7 @@ vi.mock('../../hooks/useI18n', () => ({
     const map = {
       'coach.dashboard.kicker': 'COACH',
       'coach.dashboard.title': 'Dashboard.',
-      'coach.dashboard.athletes': 'Athletes',
+      'coach.dashboard.athletes': 'Students',
       'coach.dashboard.recentActivity': 'Recent activity',
       'coach.dashboard.noConfirmations': 'No recent confirmations',
       'coach.dashboard.openStudent': `Open ${params?.name ?? ''}`,
@@ -54,7 +54,7 @@ describe('CoachDashboard', () => {
     expect(screen.getByText('Dashboard.')).toBeInTheDocument();
   });
 
-  it('renders the athletes section with clickable student links', () => {
+  it('renders the students section with clickable student links', () => {
     mockStudents = {
       data: [
         { id: 's-1', profile: { full_name: 'Alice' } },
@@ -63,13 +63,13 @@ describe('CoachDashboard', () => {
       isLoading: false,
     };
     renderDashboard();
-    expect(screen.getByRole('heading', { name: /athletes/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /students/i })).toBeInTheDocument();
     const aliceLink = screen.getByRole('link', { name: /open alice/i });
     expect(aliceLink).toHaveAttribute('href', '/coach/students/s-1');
     expect(screen.getByRole('link', { name: /open bob/i })).toBeInTheDocument();
   });
 
-  it('shows empty athletes state when no students', () => {
+  it('shows empty students state when no students', () => {
     renderDashboard();
     expect(screen.getByText(/no students yet/i)).toBeInTheDocument();
   });
