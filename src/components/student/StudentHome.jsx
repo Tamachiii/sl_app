@@ -107,7 +107,7 @@ function Greeting({ fullName, todayDN, todaysMessage, activeWeek, onSignOut }) {
   return (
     <div
       title={fullName ? `Student · ${fullName}` : undefined}
-      className="pt-2 pb-1"
+      className="pt-3 pb-1"
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">

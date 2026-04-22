@@ -99,7 +99,7 @@ export default function SessionsFeed() {
 
   return (
     <div className="p-4 pb-6 md:p-8 space-y-5">
-      <div className="flex items-start justify-between gap-4">
+      <div className="pt-3 pb-1 flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="sl-label text-ink-400">{t('coach.sessions.kicker')}</div>
           <h1 className="sl-display text-[28px] md:text-[40px] text-gray-900 leading-none mt-1">
