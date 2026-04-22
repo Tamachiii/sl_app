@@ -45,7 +45,8 @@ describe('SessionCard', () => {
 
   it('shows the archived pill and hides the CTA when archived', () => {
     render(<SessionCard session={baseSession} archived defaultOpen />);
-    expect(screen.getByText('ARCHIVED')).toBeInTheDocument();
+    // sl-pill uses raw "archived" text; CSS uppercases visually.
+    expect(screen.getByText('archived')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Start session|Review session/i })).toBeNull();
   });
 

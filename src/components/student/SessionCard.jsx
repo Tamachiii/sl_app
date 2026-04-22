@@ -61,12 +61,6 @@ export default function SessionCard({
             <span>
               {slots.length} {t('common.ex')}
             </span>
-            {archived && (
-              <>
-                <span aria-hidden>·</span>
-                <span style={{ color: 'var(--color-warn)' }}>{t('common.archivedUpper')}</span>
-              </>
-            )}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
