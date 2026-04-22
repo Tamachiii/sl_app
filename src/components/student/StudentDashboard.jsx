@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
+import UserMenu from '../ui/UserMenu';
+import { useAuth } from '../../hooks/useAuth';
 import { useStudentProgressStats } from '../../hooks/useStudentProgressStats';
 import { useI18n } from '../../hooks/useI18n';
 import SessionCalendar from './SessionCalendar';
@@ -56,6 +58,7 @@ function SectionHeading({ id, children }) {
 
 export default function StudentDashboard() {
   const { t } = useI18n();
+  const { profile, signOut } = useAuth();
   const { data, isLoading } = useStudentProgressStats();
 
   const recentWeeklyVolume = useMemo(
@@ -98,9 +101,12 @@ export default function StudentDashboard() {
 
   return (
     <div className="p-4 pb-6 md:p-8 space-y-6">
-      <div className="pt-3 pb-1">
-        <div className="sl-label text-ink-400">{t('student.stats.kicker')}</div>
-        <h1 className="sl-display text-[32px] md:text-[44px] text-gray-900 leading-none mt-1">{t('student.stats.title')}</h1>
+      <div className="pt-3 pb-1 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="sl-label text-ink-400">{t('student.stats.kicker')}</div>
+          <h1 className="sl-display text-[32px] md:text-[44px] text-gray-900 leading-none mt-1">{t('student.stats.title')}</h1>
+        </div>
+        <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
       </div>
 
       {!hasProgram && <EmptyState message={t('student.home.noProgram')} />}

@@ -161,7 +161,7 @@ Quick summary:
 
 - **Theme**: `ThemeProvider` (`src/hooks/useTheme.jsx`) toggles `.dark` on `<html>`, persists to `localStorage.sl_app_theme`. CSS-override based — don't sprinkle `dark:` classes.
 - **i18n**: `I18nProvider` (`src/hooks/useI18n.jsx`) with EN/FR/DE dictionaries in `src/lib/i18n/`. Title-case values, `sl-label` uppercases via CSS.
-- **Toggles**: `ThemeToggle` + `LanguageSelect` live inside the avatar popovers on `StudentHome` and `CoachDashboard`, and next to the `LoginPage` kicker.
+- **Toggles**: `ThemeToggle` + `LanguageSelect` live inside `ui/UserMenu` (the avatar-initials popover rendered on every top-level page — coach Dashboard/Students/Sessions/Library and student Home/Sessions/Stats/Goals), and next to the `LoginPage` kicker.
 
 ---
 
@@ -227,7 +227,7 @@ Supabase env vars are passed in at build time — ensure the GitHub Actions secr
 - **Tailwind 4**: config is in CSS (`@theme` / `@custom-variant` in `src/index.css`), not a `tailwind.config.js`.
 - **Dark mode is CSS override–based**, not utility-based. Prefer extending overrides in `src/index.css` over adding `dark:` classes everywhere. Only *className*-based colors flip — inline `style={{ color: … }}` does not.
 - **Prefer the design system** (`sl-display`, `sl-label`, `sl-mono`, `sl-card`, `sl-pill`, `sl-btn-primary`) and the warm `ink-*` scale over raw `gray-*` / `dark:` utilities on new code.
-- **Editorial page header on every page**: back button + `sl-label` kicker + `sl-display` h1 + right-aligned `sl-pill` actions. `StudentHome` and `CoachDashboard` use an inline avatar popover instead of a shared header.
+- **Editorial page header on every page**: back button + `sl-label` kicker + `sl-display` h1 + right-aligned `sl-pill` actions. Top-level pages render `ui/UserMenu` (avatar-initials popover → Theme / Language / Sign out) as the right-aligned action; wrap the header in `flex items-start justify-between gap-4`.
 - **HashRouter** is intentional (GitHub Pages). URLs contain `/#/` — don't swap to `BrowserRouter` without switching hosting.
 - **`useWeek.js` owns both `useUpdateWeek` and `useUpdateSession`** (not `useSession.js`) — consolidated to match the mutation source used by `WeekView`.
 - **`useTheme()` tolerates a missing provider** (returns a light-theme no-op). Convenient for tests; don't rely on it in production paths.

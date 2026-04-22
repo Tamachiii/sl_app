@@ -7,6 +7,8 @@ import {
 } from '../../hooks/useExerciseLibrary';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
+import UserMenu from '../ui/UserMenu';
+import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 
 const TYPE_FILTERS = ['all', 'pull', 'push'];
@@ -110,6 +112,7 @@ function ExerciseForm({ initial, onSubmit, onCancel, submitLabel }) {
 
 export default function ExerciseLibrary() {
   const { t } = useI18n();
+  const { profile, signOut } = useAuth();
   const { data: exercises, isLoading } = useExerciseLibrary();
   const createExercise = useCreateExercise();
   const updateExercise = useUpdateExercise();
@@ -142,11 +145,14 @@ export default function ExerciseLibrary() {
 
   return (
     <div className="p-4 pb-6 md:p-8 space-y-5">
-      <div className="pt-3 pb-1">
-        <div className="sl-label text-ink-400">{t('coach.library.kicker')}</div>
-        <h1 className="sl-display text-[28px] md:text-[40px] text-gray-900 leading-none mt-1">
-          {t('coach.library.title')}
-        </h1>
+      <div className="pt-3 pb-1 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="sl-label text-ink-400">{t('coach.library.kicker')}</div>
+          <h1 className="sl-display text-[28px] md:text-[40px] text-gray-900 leading-none mt-1">
+            {t('coach.library.title')}
+          </h1>
+        </div>
+        <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
       </div>
 
       {isLoading && (

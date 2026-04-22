@@ -6,10 +6,11 @@ import { useStudentProgramDetails } from '../../hooks/useStudentProgramDetails';
 import { useMyConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
+import UserMenu from '../ui/UserMenu';
 import SessionCard from './SessionCard';
 
 export default function StudentSessions() {
-  const { user } = useAuth();
+  const { user, profile, signOut } = useAuth();
   const { t } = useI18n();
   const navigate = useNavigate();
   const { data: weeks, isLoading } = useStudentProgramDetails(user?.id);
@@ -48,9 +49,12 @@ export default function StudentSessions() {
 
   return (
     <div className="p-4 pb-6 md:p-8 space-y-5">
-      <div className="pt-3 pb-1">
-        <div className="sl-label text-ink-400">{t('student.sessions.kicker')}</div>
-        <h1 className="sl-display text-[32px] md:text-[44px] text-gray-900 leading-none mt-1">{t('student.sessions.title')}</h1>
+      <div className="pt-3 pb-1 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="sl-label text-ink-400">{t('student.sessions.kicker')}</div>
+          <h1 className="sl-display text-[32px] md:text-[44px] text-gray-900 leading-none mt-1">{t('student.sessions.title')}</h1>
+        </div>
+        <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
       </div>
 
       {!weeks?.length && <EmptyState message={t('student.home.noProgram')} />}

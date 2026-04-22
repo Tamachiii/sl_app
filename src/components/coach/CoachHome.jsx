@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { useStudents } from '../../hooks/useStudents';
 import { useProgram, useEnsureProgram } from '../../hooks/useProgram';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
+import UserMenu from '../ui/UserMenu';
 import WeekTimeline from './WeekTimeline';
 import StudentGoalsSection from './StudentGoalsSection';
 import StudentStatsSection from './StudentStatsSection';
@@ -134,6 +136,7 @@ function SelectedStudentView({ student, t }) {
 
 export default function CoachHome() {
   const { t } = useI18n();
+  const { profile, signOut } = useAuth();
   const { studentId } = useParams();
   const navigate = useNavigate();
   const { data: students, isLoading } = useStudents();
@@ -147,11 +150,14 @@ export default function CoachHome() {
 
   return (
     <div className="p-4 pb-6 md:p-8 space-y-5">
-      <div className="pt-3 pb-1">
-        <div className="sl-label text-ink-400">{t('coach.home.kicker')}</div>
-        <h1 className="sl-display text-[28px] md:text-[40px] text-gray-900 leading-none mt-1">
-          {t('coach.home.athletes')}
-        </h1>
+      <div className="pt-3 pb-1 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="sl-label text-ink-400">{t('coach.home.kicker')}</div>
+          <h1 className="sl-display text-[28px] md:text-[40px] text-gray-900 leading-none mt-1">
+            {t('coach.home.athletes')}
+          </h1>
+        </div>
+        <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
       </div>
 
       {isLoading && (

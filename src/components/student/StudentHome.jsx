@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
@@ -7,8 +7,7 @@ import { useMyConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 import { DAY_LABELS, DAY_FULL, todayDayNumber } from '../../lib/day';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
-import ThemeToggle from '../ui/ThemeToggle';
-import LanguageSelect from '../ui/LanguageSelect';
+import UserMenu from '../ui/UserMenu';
 import SessionCard from './SessionCard';
 
 /** Weekday slot for a session. Prefer scheduled_date (actual calendar day) over day_number. */
@@ -100,35 +99,10 @@ function DayCell({ dayLabel, session, confirmed, archived, isToday, onClick }) {
 function Greeting({ fullName, todayDN, todaysMessage, activeWeek, onSignOut }) {
   const { t } = useI18n();
   const firstName = (fullName || '').split(' ')[0] || 'there';
-  const initials = (fullName || '')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() ?? '')
-    .join('');
 
   const metaBits = [`${t('student.home.week')} ${activeWeek?.week_number ?? '—'}`];
   if (activeWeek?.label) metaBits.push(activeWeek.label);
   metaBits.push(DAY_FULL[todayDN - 1]);
-
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef(null);
-
-  useEffect(() => {
-    if (!menuOpen) return undefined;
-    function handle(e) {
-      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
-    }
-    function handleKey(e) {
-      if (e.key === 'Escape') setMenuOpen(false);
-    }
-    document.addEventListener('mousedown', handle);
-    document.addEventListener('keydown', handleKey);
-    return () => {
-      document.removeEventListener('mousedown', handle);
-      document.removeEventListener('keydown', handleKey);
-    };
-  }, [menuOpen]);
 
   return (
     <div
@@ -141,48 +115,7 @@ function Greeting({ fullName, todayDN, todaysMessage, activeWeek, onSignOut }) {
           <div className="sl-display text-[32px] md:text-[44px] text-gray-900 truncate">{t('student.home.hey')}, {firstName}.</div>
           <p className="sl-mono text-[11px] text-ink-400 mt-2">{todaysMessage}</p>
         </div>
-        {initials && (
-          <div ref={menuRef} className="relative shrink-0">
-            <button
-              type="button"
-              onClick={() => setMenuOpen((v) => !v)}
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              aria-label={t('common.openUserMenu')}
-              className="w-10 h-10 rounded-full bg-ink-100 flex items-center justify-center sl-display text-[13px] text-ink-900 cursor-pointer hover:brightness-95 active:scale-95 transition-transform"
-              style={{ border: '1.5px solid var(--color-accent)' }}
-            >
-              {initials}
-            </button>
-            {menuOpen && (
-              <div
-                role="menu"
-                className="absolute right-0 top-12 z-20 min-w-[168px] rounded-xl bg-white shadow-lg border border-ink-100 overflow-hidden"
-              >
-                <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-ink-100">
-                  <span className="sl-label">{t('common.theme')}</span>
-                  <ThemeToggle />
-                </div>
-                <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-ink-100">
-                  <span className="sl-label">{t('common.language')}</span>
-                  <LanguageSelect />
-                </div>
-                {onSignOut && (
-                  <button
-                    role="menuitem"
-                    onClick={() => { setMenuOpen(false); onSignOut(); }}
-                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-900 hover:bg-gray-50 text-left"
-                  >
-                    <svg className="w-4 h-4 text-ink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                    </svg>
-                    {t('common.signOut')}
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+        <UserMenu fullName={fullName} onSignOut={onSignOut} />
       </div>
     </div>
   );

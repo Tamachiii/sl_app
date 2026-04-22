@@ -39,8 +39,8 @@ src/
     student/     StudentHome  StudentSessions  SessionCard  SessionView  SetRow
                  RpeInput  StudentDashboard(Stats)  SessionCalendar
                  ExerciseProgressChart  MyGoals
-    ui/          EditableText  ThemeToggle  LanguageSelect  Dialog  Spinner
-                 EmptyState  CopyDialog  ConfirmDialog  ErrorBoundary
+    ui/          EditableText  ThemeToggle  LanguageSelect  UserMenu  Dialog
+                 Spinner  EmptyState  CopyDialog  ConfirmDialog  ErrorBoundary
   test/          setup.js  utils.jsx (renderWithProviders)
 supabase/
   schema.sql
@@ -59,25 +59,26 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 | Feature area | Primary files | Shared deps |
 |---|---|---|
 | Auth / login | `auth/LoginPage` (editorial sl-card form), `hooks/useAuth`, `routes.jsx` | `lib/supabase` |
-| Coach dashboard | `coach/CoachDashboard` (editorial h1 + inline `UserMenu` avatar popover with Theme + Sign out; Athletes list → `/coach/students/:id`; Recent Activity cards), `hooks/useStudents`, `hooks/useSessionConfirmation` (`useAllConfirmations`) | — |
-| Coach single-student view | `coach/CoachHome` (dropdown selector + student header + Program/Goals/Stats sections; routes `/coach/students` and `/coach/students/:studentId`), `coach/StudentGoalsSection`, `coach/StudentStatsSection`, `coach/WeekTimeline`, `hooks/useStudents`, `hooks/useProgram` | `hooks/useStudentProgressStats`, `hooks/useGoals` |
+| Coach dashboard | `coach/CoachDashboard` (flat editorial h1 + `ui/UserMenu`; Students list → `/coach/students/:id`; Recent Activity cards), `hooks/useStudents`, `hooks/useSessionConfirmation` (`useAllConfirmations`) | `ui/UserMenu` |
+| Coach single-student view | `coach/CoachHome` (dropdown selector + student header + Program/Goals/Stats sections; routes `/coach/students` and `/coach/students/:studentId`), `coach/StudentGoalsSection`, `coach/StudentStatsSection`, `coach/WeekTimeline`, `hooks/useStudents`, `hooks/useProgram` | `ui/UserMenu`, `hooks/useStudentProgressStats`, `hooks/useGoals` |
 | Coach week reordering | `coach/WeekTimeline` (dnd-kit sortable), `hooks/useWeek` (`useReorderWeeks`) | `@dnd-kit/core`, `@dnd-kit/sortable` |
-| Coach sessions feed | `coach/SessionsFeed` (with `?student=:id` filter, editorial h1), `hooks/useSessionConfirmation` (`useAllConfirmations`) | `ui/EmptyState` |
+| Coach sessions feed | `coach/SessionsFeed` (with `?student=:id` filter, editorial h1), `hooks/useSessionConfirmation` (`useAllConfirmations`) | `ui/UserMenu`, `ui/EmptyState` |
 | Coach week view | `coach/WeekView` (editorial top bar + single-line sl-card session rows — open a session for volume/detail), `hooks/useWeek`, `hooks/useDuplicate` | `ui/EditableText` |
 | Coach session editor | `coach/SessionEditor` (editorial top bar + sl-pill actions), `coach/ExerciseSlotRow`, `hooks/useSession`, `hooks/useExerciseLibrary`, `hooks/useDuplicate` | `coach/VolumeBar`, `ui/EditableText` |
 | Coach session review | `coach/SessionReview` (editorial top bar + archive sl-pill + student-note tinted callout), `hooks/useSession`, `hooks/useSetLogs`, `hooks/useSlotComments`, `hooks/useSessionConfirmation`, `hooks/useWeek` (`useArchiveSession`) | `coach/SlotProgress`, `lib/volume` |
 | Coach exercise slot notes | `coach/ExerciseSlotRow` (notes textarea), `student/SessionView` (note display) | `hooks/useSession` (`useUpdateSlot`) |
 | Record-video set flag | `coach/ExerciseSlotRow` (set chips → `record_video_set_numbers` int[]), `student/SetRow` (camera badge), `student/SessionView` (passes prop) | `hooks/useSession`, `hooks/useStudentProgramDetails` |
-| Coach exercise library | `coach/ExerciseLibrary` (editorial h1 + filter pills + compact Save CTA), `hooks/useExerciseLibrary` | `ui/Dialog`, `ui/EmptyState` |
-| Student home | `student/StudentHome` (editorial Greeting card with inline `UserMenu` avatar popover — Theme + Sign out; vertical-written day-strip titles), `student/SessionCard`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation`, `hooks/useAuth` | — |
-| Student sessions list | `student/StudentSessions` (editorial h1 + accordion — only one `SessionCard` open at a time — + compact Start/Review CTA), `student/SessionCard`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation` | `lib/volume` |
-| Student stats | `student/StudentDashboard` (route: /student/stats), `student/SessionCalendar`, `student/ExerciseProgressChart` (per-exercise weekly tonnage), `hooks/useStudentProgressStats` | `lib/volume`, `ui/EmptyState` |
+| Coach exercise library | `coach/ExerciseLibrary` (editorial h1 + search-bar row with inline `+ ADD` button + filter pills), `hooks/useExerciseLibrary` | `ui/UserMenu`, `ui/Dialog`, `ui/EmptyState` |
+| Student home | `student/StudentHome` (editorial Greeting with `ui/UserMenu`; vertical-written day-strip titles), `student/SessionCard`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation`, `hooks/useAuth` | `ui/UserMenu` |
+| Student sessions list | `student/StudentSessions` (editorial h1 + accordion — only one `SessionCard` open at a time — + compact Start/Review CTA), `student/SessionCard`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation` | `ui/UserMenu`, `lib/volume` |
+| Student stats | `student/StudentDashboard` (route: /student/stats), `student/SessionCalendar`, `student/ExerciseProgressChart` (per-exercise weekly tonnage), `hooks/useStudentProgressStats` | `ui/UserMenu`, `lib/volume`, `ui/EmptyState` |
 | Student session logging | `student/SessionView` (collapsible exercise cards — auto-open incomplete, auto-collapse completed; supersets collapse as one unit), `student/SetRow`, `student/RpeInput`, `hooks/useSession`, `hooks/useSetLogs` | — |
 | Session confirmations | `hooks/useSessionConfirmation`, `student/SessionView`, `coach/WeekView` (badge), `coach/SessionsFeed`, `coach/SessionReview` | — |
 | Coach goals (per student) | `coach/StudentGoalsSection` (rendered inside `coach/CoachHome`; inline goal list + form), `hooks/useGoals` | `hooks/useExerciseLibrary` |
-| Student goals | `student/MyGoals` (sl-card rows, per-goal log/toggle-achieved), `hooks/useGoals` | `layout/BottomNav` (Goals tab) |
-| Theming | `hooks/useTheme`, `ui/ThemeToggle`, `index.css` | `coach/CoachDashboard` `UserMenu`, `student/StudentHome` `Greeting` |
-| i18n (EN/FR/DE) | `hooks/useI18n`, `lib/i18n/{en,fr,de,index}.js`, `ui/LanguageSelect` | `auth/LoginPage`, both `UserMenu` popovers |
+| Student goals | `student/MyGoals` (sl-card rows, per-goal log/toggle-achieved), `hooks/useGoals` | `ui/UserMenu`, `layout/BottomNav` (Goals tab) |
+| User menu popover | `ui/UserMenu` (avatar-initials button → popover with Theme / Language / Sign out). Used on every top-level page (both coach & student) as the right-aligned header action. | `ui/ThemeToggle`, `ui/LanguageSelect`, `hooks/useI18n` |
+| Theming | `hooks/useTheme`, `ui/ThemeToggle`, `index.css` | `ui/UserMenu` |
+| i18n (EN/FR/DE) | `hooks/useI18n`, `lib/i18n/{en,fr,de,index}.js`, `ui/LanguageSelect` | `auth/LoginPage`, `ui/UserMenu` |
 | Day-number helpers | `lib/day.js` (`DAY_LABELS`, `DAY_FULL`, `todayDayNumber`) | `student/StudentHome`, `student/SessionView` |
 
 ---
@@ -87,7 +88,7 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 Full primitives, dark-mode rules, and the editorial page-header pattern are in [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md). Short version for agents:
 
 - **Do not** swap in `dark:` utilities or `text-gray-*` ad-hoc. Use `sl-card` / `sl-display` / `sl-label` / `sl-mono` / `sl-pill` / `sl-btn-primary` + the warm `ink-*` scale.
-- **Editorial page header** on every screen: back button (`w-9 h-9 rounded-lg bg-ink-100`) + `sl-label` kicker + `sl-display` h1 + right-aligned `sl-pill` action buttons. `StudentHome` / `CoachDashboard` use an inline avatar-initials popover instead of a shared header.
+- **Editorial page header** on every screen: back button (`w-9 h-9 rounded-lg bg-ink-100`) + `sl-label` kicker + `sl-display` h1 + right-aligned `sl-pill` action buttons. Every top-level page (both coach & student) additionally renders `ui/UserMenu` (avatar-initials popover → Theme / Language / Sign out) as the right-aligned action; wrap the header in `flex items-start justify-between gap-4`.
 - **Compact CTA**: override `sl-btn-primary` with `className="… text-[13px]" style={{ padding: '10px 16px' }}` (see `SessionCard`, `ExerciseLibrary` ExerciseForm).
 - **Tinted surfaces** use `color-mix(in srgb, var(--color-accent) 10%, transparent)` (and success/warn/danger) so they adapt to both themes.
 - **Day-strip session titles** on `StudentHome` use `writing-mode: vertical-rl; transform: rotate(180deg)` to read top-to-bottom without wrapping in the narrow 7-column grid.
