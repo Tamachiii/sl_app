@@ -44,7 +44,6 @@ export default function VideoUploadButton({
         ref={inputRef}
         type="file"
         accept="video/*"
-        capture="environment"
         className="sr-only"
         onChange={handlePick}
         disabled={disabled || busy}
