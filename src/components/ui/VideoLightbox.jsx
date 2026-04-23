@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 export default function VideoLightbox({ open, onClose, children }) {
   useEffect(() => {
@@ -17,7 +18,7 @@ export default function VideoLightbox({ open, onClose, children }) {
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
@@ -41,6 +42,7 @@ export default function VideoLightbox({ open, onClose, children }) {
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
