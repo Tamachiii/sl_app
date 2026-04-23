@@ -49,7 +49,7 @@ const SetRow = memo(function SetRow({ log, locked = false, restSeconds = null, r
         log.done ? 'opacity-75' : ''
       }`}
     >
-      <div className="flex items-center gap-3">
+      <div className="flex items-center flex-wrap gap-x-3 gap-y-2">
         <button
           onClick={() => !locked && toggleDone.mutate({ logId: log.id, done: !log.done })}
           disabled={locked}
@@ -88,6 +88,16 @@ const SetRow = memo(function SetRow({ log, locked = false, restSeconds = null, r
           </span>
         )}
 
+        {recordVideo && (
+          <VideoUploadButton
+            setLogId={log.id}
+            exerciseSlotId={log.exercise_slot_id}
+            setNumber={log.set_number}
+            existingVideo={video}
+            disabled={locked}
+          />
+        )}
+
         <button
           type="button"
           onClick={() => !locked && setRpeOpen((v) => !v)}
@@ -118,17 +128,6 @@ const SetRow = memo(function SetRow({ log, locked = false, restSeconds = null, r
         </div>
       )}
 
-      {recordVideo && (
-        <div className="pt-2">
-          <VideoUploadButton
-            setLogId={log.id}
-            exerciseSlotId={log.exercise_slot_id}
-            setNumber={log.set_number}
-            existingVideo={video}
-            disabled={locked}
-          />
-        </div>
-      )}
     </div>
   );
 });
