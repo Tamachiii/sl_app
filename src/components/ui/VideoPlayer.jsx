@@ -163,9 +163,9 @@ export default function VideoPlayer({ storagePath, className = '' }) {
         </span>
 
         <div className="flex-1 relative h-7 flex items-center">
-          <div className="absolute inset-x-0 h-1 rounded-full bg-white/25" />
+          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-white/25" />
           <div
-            className="absolute left-0 h-1 rounded-full pointer-events-none"
+            className="absolute left-0 top-1/2 -translate-y-1/2 h-1 rounded-full pointer-events-none"
             style={{ width: `${progress}%`, background: 'var(--color-accent)' }}
           />
           <input
