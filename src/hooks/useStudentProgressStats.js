@@ -40,7 +40,10 @@ export function useStudentProgressStats(studentId) {
         resolvedStudentId = student.id;
       }
 
-      // 2. Fetch program(s) → weeks → sessions → slots → exercise meta.
+      // 2. Fetch the active program → weeks → sessions → slots → exercise meta.
+      //    Stats are scoped to the currently-active program (the block the
+      //    student is training right now). Prior blocks don't roll into these
+      //    aggregates so progress feels block-local.
       const { data: programs, error: pErr } = await supabase
         .from('programs')
         .select(`
@@ -56,7 +59,8 @@ export function useStudentProgressStats(studentId) {
             )
           )
         `)
-        .eq('student_id', resolvedStudentId);
+        .eq('student_id', resolvedStudentId)
+        .eq('is_active', true);
       if (pErr) throw pErr;
 
       // Flatten weeks / sessions / slots.

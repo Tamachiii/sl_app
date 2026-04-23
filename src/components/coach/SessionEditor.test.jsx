@@ -29,7 +29,7 @@ vi.mock('../../hooks/useStudents', () => ({
 }));
 
 vi.mock('../../hooks/useProgram', () => ({
-  useProgram: (sid) => ({
+  useActiveProgram: (sid) => ({
     data: sid
       ? { id: 'prog-1', weeks: [{ id: 'w-10', week_number: 1, label: null }] }
       : null,

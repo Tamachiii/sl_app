@@ -33,9 +33,10 @@ src/
   components/
     auth/        LoginPage  ProtectedRoute  RoleGate
     layout/      AppShell  BottomNav  SideNav  navItems
-    coach/       CoachDashboard  CoachHome  StudentCard  WeekTimeline  WeekView
-                 SessionEditor  SessionReview  ExerciseSlotRow  ExerciseLibrary
-                 VolumeBar  SessionsFeed  StudentGoals  SlotProgress
+    coach/       CoachDashboard  CoachHome  StudentCard  ProgramSwitcher
+                 WeekTimeline  WeekView  SessionEditor  SessionReview
+                 ExerciseSlotRow  ExerciseLibrary  VolumeBar  SessionsFeed
+                 StudentGoals  SlotProgress
     student/     StudentHome  StudentSessions  SessionCard  SessionView  SetRow
                  RpeInput  StudentDashboard(Stats)  SessionCalendar
                  ExerciseProgressChart  MyGoals
@@ -60,7 +61,8 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 |---|---|---|
 | Auth / login | `auth/LoginPage` (editorial sl-card form), `hooks/useAuth`, `routes.jsx` | `lib/supabase` |
 | Coach dashboard | `coach/CoachDashboard` (flat editorial h1 + `ui/UserMenu`; Students list → `/coach/students/:id`; Recent Activity cards), `hooks/useStudents`, `hooks/useSessionConfirmation` (`useAllConfirmations`) | `ui/UserMenu` |
-| Coach single-student view | `coach/CoachHome` (dropdown selector + student header + Program/Goals/Stats sections; routes `/coach/students` and `/coach/students/:studentId`), `coach/StudentGoalsSection`, `coach/StudentStatsSection`, `coach/WeekTimeline`, `hooks/useStudents`, `hooks/useProgram` | `ui/UserMenu`, `hooks/useStudentProgressStats`, `hooks/useGoals` |
+| Coach single-student view | `coach/CoachHome` (dropdown selector + student header + `ProgramSwitcher` + Program/Goals/Stats sections; routes `/coach/students` and `/coach/students/:studentId`; selected program id lives in URL as `?program=:id`), `coach/ProgramSwitcher`, `coach/StudentGoalsSection`, `coach/StudentStatsSection`, `coach/WeekTimeline`, `hooks/useStudents`, `hooks/useProgram` (`useProgramsForStudent`, `useProgram`, `useEnsureProgram`) | `ui/UserMenu`, `hooks/useStudentProgressStats`, `hooks/useGoals` |
+| Coach programs CRUD (periodization) | `coach/ProgramSwitcher` (horizontal pills; dnd-kit reorder + Manage dialog for rename/set-active/delete), `hooks/useProgram` (`useCreateProgram`, `useRenameProgram`, `useDeleteProgram`, `useSetActiveProgram`, `useReorderPrograms`, `useActiveProgram`) | `ui/Dialog`, `@dnd-kit/core`, `@dnd-kit/sortable` |
 | Coach week reordering | `coach/WeekTimeline` (dnd-kit sortable), `hooks/useWeek` (`useReorderWeeks`) | `@dnd-kit/core`, `@dnd-kit/sortable` |
 | Coach sessions feed | `coach/SessionsFeed` (with `?student=:id` filter, editorial h1), `hooks/useSessionConfirmation` (`useAllConfirmations`) | `ui/UserMenu`, `ui/EmptyState` |
 | Coach week view | `coach/WeekView` (editorial top bar + single-line sl-card session rows — open a session for volume/detail), `hooks/useWeek`, `hooks/useDuplicate` | `ui/EditableText` |
@@ -110,7 +112,8 @@ Full primitives, dark-mode rules, and the editorial page-header pattern are in [
 - **Vite `base` is `/sl_app/`** and there's a manual-chunks split (`router`, `query`, `supabase`). Pages are lazy-loaded in `routes.jsx`.
 - **React Rules of Hooks:** Never call `useMemo` or any other hook after an early return like `if (isLoading) return <Spinner/>`. Always put hooks at the top of the component.
 - **RLS is strict.** When adding tables, add both student- and coach-side policies. Walk session → profile via `student_profile_for_session()` / `coach_profile_for_session()` helpers (defined in `schema.sql`).
-- **Reordering weeks uses `useReorderWeeks`** — a two-pass update (park all at `100000+idx`, then assign `idx+1`) to dodge the `UNIQUE(program_id, week_number)` constraint. Triggered from `WeekTimeline` drag-and-drop.
+- **Programs are periodization blocks.** `programs` has `sort_order int` and `is_active boolean` (migration `2026_04_23_programs_crud.sql`). A partial unique index `programs_one_active_per_student ON programs(student_id) WHERE is_active` enforces at-most-one-active per student. Students only see the active program: `useStudentProgramDetails` + `useStudentProgressStats` both filter `.eq('is_active', true)`. Coaches browse all programs via `useProgramsForStudent(studentId)` (list w/o weeks) and open one via `useProgram(programId)` (detail w/ weeks). `useActiveProgram(studentId)` is the convenience resolver for "the student's current block" and backs `CopyDialog`'s destination. **`useProgram` now takes `programId`, not `studentId`** — this was a breaking rename during the periodization refactor. `useSetActiveProgram` deactivates the current active program first (else the partial unique index rejects the insert); `useCreateProgram` with `setActive: true` does the same. `useEnsureProgram` explicitly inserts `is_active: true` since the column default is now `false`.
+- **Reordering weeks uses `useReorderWeeks`** — a two-pass update (park all at `100000+idx`, then assign `idx+1`) to dodge the `UNIQUE(program_id, week_number)` constraint. Triggered from `WeekTimeline` drag-and-drop. `useReorderPrograms` mirrors the same two-pass pattern for programs (even though `sort_order` has no unique constraint) so the code reads identically.
 - **WeekTimeline is dnd-kit sortable.** Each week pill has a separate drag handle (6-dot grip) — the label area still navigates on click. Touch drag needs a 200ms press delay (`TouchSensor` activation) so taps don't trigger drags. Tests that render `WeekTimeline` (directly or via `CoachHome`) must mock `useReorderWeeks` from `hooks/useWeek`.
 - **Coach single-student page.** `/coach/students` shows the dropdown selector with no student picked (empty-state prompt). `/coach/students/:studentId` resolves the URL param to a student and renders Program / Goals / Stats in one scroll. Dashboard student cards and legacy `/coach/student/:studentId/goals` redirect into this page (`RedirectToStudent` in `routes.jsx` interpolates the param — plain `<Navigate to="/foo/:id" />` does NOT). Weeks / session-editor / review routes still live at `/coach/student/:studentId/...` and use `navigate(-1)` to return here.
 - **`useStudentProgressStats(studentId?)`** accepts an optional `students.id` row id. Omit for the signed-in student (self-stats), pass it to stat another student from the coach view. `StudentStatsSection` wraps it for the coach single-student page; `StudentDashboard` (student Stats page) calls it with no arg.

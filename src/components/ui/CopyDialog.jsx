@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import Dialog from './Dialog';
 import { useStudents } from '../../hooks/useStudents';
-import { useProgram } from '../../hooks/useProgram';
+import { useActiveProgram } from '../../hooks/useProgram';
 
 /**
  * Shared dialog for copying a week or session to another student's program.
@@ -28,7 +28,8 @@ export default function CopyDialog({
   const { data: students } = useStudents();
   const [copyStudentId, setCopyStudentId] = useState('');
   const [copyWeekId, setCopyWeekId] = useState('');
-  const { data: destProgram } = useProgram(copyStudentId || undefined);
+  // Copy targets the destination student's currently-active program block.
+  const { data: destProgram } = useActiveProgram(copyStudentId || undefined);
   const destWeeks = destProgram?.weeks || [];
 
   function handleClose() {

@@ -35,7 +35,7 @@ vi.mock('../../hooks/useDuplicate', () => ({
 }));
 
 vi.mock('../../hooks/useProgram', () => ({
-  useProgram: () => mockProgramData,
+  useActiveProgram: () => mockProgramData,
 }));
 
 vi.mock('../../hooks/useStudents', () => ({

@@ -27,11 +27,15 @@ CREATE TABLE public.students (
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 
--- Programs (top-level container per student)
+-- Programs (top-level container per student). A student can have many programs
+-- arranged by sort_order (for periodization blocks), but at most one is_active
+-- at a time. Students only ever see the active program.
 CREATE TABLE public.programs (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   student_id  uuid NOT NULL REFERENCES public.students(id) ON DELETE CASCADE,
   name        text NOT NULL,
+  sort_order  int  NOT NULL DEFAULT 0,
+  is_active   boolean NOT NULL DEFAULT false,
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 
@@ -105,6 +109,8 @@ CREATE TABLE public.set_logs (
 CREATE INDEX idx_students_coach_id ON public.students(coach_id);
 CREATE INDEX idx_students_profile_id ON public.students(profile_id);
 CREATE INDEX idx_programs_student_id ON public.programs(student_id);
+CREATE UNIQUE INDEX programs_one_active_per_student
+  ON public.programs(student_id) WHERE is_active;
 CREATE INDEX idx_weeks_program_id ON public.weeks(program_id);
 CREATE INDEX idx_sessions_week_id ON public.sessions(week_id);
 CREATE INDEX idx_sessions_scheduled_date ON public.sessions(scheduled_date);

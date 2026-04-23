@@ -63,7 +63,7 @@ src/
     auth/              LoginPage, ProtectedRoute, RoleGate
     layout/            AppShell, BottomNav, SideNav, navItems
     coach/             CoachDashboard, CoachHome (single-student view with selector +
-                       Program/Goals/Stats sections), StudentGoalsSection,
+                       Program/Goals/Stats sections), ProgramSwitcher, StudentGoalsSection,
                        StudentStatsSection, WeekTimeline, WeekView, SessionEditor,
                        SessionReview, ExerciseSlotRow, ExerciseLibrary, VolumeBar,
                        SessionsFeed
@@ -86,7 +86,7 @@ docs/                  ARCHITECTURE.md, DESIGN_SYSTEM.md, ENVIRONMENT.md
 ```
 profiles (id, role: 'coach'|'student', full_name)
   ↓ 1:many (coach_id)
-programs (id, coach_id, student_id, title)
+programs (id, student_id, name, sort_order, is_active)  -- periodization blocks per student
   ↓ 1:many
 weeks (id, program_id, week_number, label)
   ↓ 1:many
@@ -122,6 +122,10 @@ The Library tab (`ExerciseLibrary`) shows a **search bar** and **type filter pil
 - **Recent activity**: last 5 confirmations, each linking back to the session.
 
 An "Empty state" is shown when no program is assigned yet. The tab lives alongside Home and Goals on the student bottom nav.
+
+### Program periodization (multiple program blocks per student)
+
+A student can have many programs (periodization blocks) at once, but only one is **active** at a time (partial unique index `programs_one_active_per_student`). Students only ever see the active program on Home / Sessions / Stats — previous blocks stay invisible to them so the active block drives all progress aggregates. Coaches see a horizontal **ProgramSwitcher** pill row on `CoachHome` above the week timeline: each pill shows the program name + an `ACTIVE` badge; coaches can rename, set-active, delete (with confirmation), reorder via a 6-dot grip (dnd-kit, same pattern as `WeekTimeline`), and add new blocks via `+ PROGRAM`. Selected program is URL-synced as `?program=<id>`; the default is the active one. Deleting the *active* program is blocked while other programs exist — coaches must activate another first. Migration: `2026_04_23_programs_crud.sql` (adds `sort_order` + `is_active` with chronological backfill).
 
 ### Week reordering
 

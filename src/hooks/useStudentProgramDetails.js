@@ -19,6 +19,8 @@ export function useStudentProgramDetails(userId) {
         .single();
       if (sErr) throw sErr;
 
+      // Students only see their active program (periodization block). Coaches
+      // manage multiple programs per student, flipping is_active to roll over.
       const { data: programs, error: pErr } = await supabase
         .from('programs')
         .select(`
@@ -36,7 +38,7 @@ export function useStudentProgramDetails(userId) {
           )
         `)
         .eq('student_id', student.id)
-        .order('created_at', { ascending: true });
+        .eq('is_active', true);
       if (pErr) throw pErr;
 
       const weeks = [];

@@ -1,13 +1,18 @@
-import { useEffect, useRef } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useRef } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { useStudents } from '../../hooks/useStudents';
-import { useProgram, useEnsureProgram } from '../../hooks/useProgram';
+import {
+  useProgramsForStudent,
+  useProgram,
+  useEnsureProgram,
+} from '../../hooks/useProgram';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
 import WeekTimeline from './WeekTimeline';
+import ProgramSwitcher from './ProgramSwitcher';
 import StudentGoalsSection from './StudentGoalsSection';
 import StudentStatsSection from './StudentStatsSection';
 
@@ -83,7 +88,7 @@ function StudentHeader({ student, program, t }) {
   );
 }
 
-function ProgramSection({ studentId, program, t }) {
+function ProgramWeeksSection({ studentId, program, t }) {
   if (!program) {
     return <div className="flex justify-center py-6"><Spinner /></div>;
   }
@@ -99,31 +104,92 @@ function ProgramSection({ studentId, program, t }) {
 }
 
 function SelectedStudentView({ student, t }) {
-  const { data: program, isSuccess } = useProgram(student.id);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { data: programs, isSuccess } = useProgramsForStudent(student.id);
   const ensureProgram = useEnsureProgram();
   const ensuredRef = useRef(false);
 
+  // First-visit auto-seed: no programs → create a default active one.
   useEffect(() => {
-    if (isSuccess && program === null && !ensuredRef.current && !ensureProgram.isPending) {
+    if (
+      isSuccess
+      && Array.isArray(programs)
+      && programs.length === 0
+      && !ensuredRef.current
+      && !ensureProgram.isPending
+    ) {
       ensuredRef.current = true;
       ensureProgram.mutate({ studentId: student.id });
     }
-  }, [isSuccess, program, student.id, ensureProgram]);
+  }, [isSuccess, programs, student.id, ensureProgram]);
 
-  // Reset the ensured-flag when switching students.
   useEffect(() => {
     ensuredRef.current = false;
   }, [student.id]);
 
+  const activeProgram = useMemo(
+    () => (programs || []).find((p) => p.is_active) ?? (programs || [])[0] ?? null,
+    [programs],
+  );
+
+  const urlProgramId = searchParams.get('program');
+  const urlProgramExists = urlProgramId && (programs || []).some((p) => p.id === urlProgramId);
+  const selectedProgramId = urlProgramExists ? urlProgramId : activeProgram?.id ?? null;
+
+  // Drop a stale ?program= from the URL (e.g. after deletion) so back/forward
+  // doesn't resurrect a dead id.
+  useEffect(() => {
+    if (urlProgramId && !urlProgramExists && isSuccess && (programs || []).length > 0) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('program');
+      setSearchParams(next, { replace: true });
+    }
+  }, [urlProgramId, urlProgramExists, isSuccess, programs, searchParams, setSearchParams]);
+
+  const { data: selectedProgram } = useProgram(selectedProgramId);
+
+  function handleSelectProgram(programId) {
+    const next = new URLSearchParams(searchParams);
+    if (programId && programId !== activeProgram?.id) {
+      next.set('program', programId);
+    } else {
+      next.delete('program');
+    }
+    setSearchParams(next, { replace: true });
+  }
+
+  function handleProgramDeleted(deletedId) {
+    if (deletedId === selectedProgramId) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('program');
+      setSearchParams(next, { replace: true });
+    }
+  }
+
   return (
     <div className="space-y-6">
-      <StudentHeader student={student} program={program} t={t} />
+      <StudentHeader student={student} program={selectedProgram} t={t} />
 
       <section aria-labelledby="program-heading" className="space-y-2">
         <h3 id="program-heading" className="sl-label text-ink-400">
           {t('coach.home.program')}
         </h3>
-        <ProgramSection studentId={student.id} program={program} t={t} />
+
+        {isSuccess && (programs || []).length > 0 && (
+          <ProgramSwitcher
+            studentId={student.id}
+            programs={programs}
+            selectedId={selectedProgramId}
+            onSelect={handleSelectProgram}
+            onProgramDeleted={handleProgramDeleted}
+          />
+        )}
+
+        <ProgramWeeksSection
+          studentId={student.id}
+          program={selectedProgram}
+          t={t}
+        />
       </section>
 
       <section aria-labelledby="goals-heading" className="space-y-2">

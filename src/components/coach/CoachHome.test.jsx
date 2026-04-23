@@ -9,9 +9,15 @@ vi.mock('../../hooks/useStudents', () => ({
 }));
 
 vi.mock('../../hooks/useProgram', () => ({
+  useProgramsForStudent: () => ({ data: [], isSuccess: true }),
   useProgram: () => ({ data: null, isSuccess: true }),
   useCreateWeek: () => ({ mutate: vi.fn(), isPending: false }),
   useEnsureProgram: () => ({ mutate: vi.fn(), isPending: false }),
+  useCreateProgram: () => ({ mutate: vi.fn(), isPending: false }),
+  useRenameProgram: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteProgram: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetActiveProgram: () => ({ mutate: vi.fn(), isPending: false }),
+  useReorderPrograms: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock('../../hooks/useWeek', () => ({
