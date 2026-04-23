@@ -114,13 +114,15 @@ export default function WeekTimeline({ studentId, program }) {
     });
   }
 
+  const isEmpty = localWeeks.length === 0;
+
   return (
     <DndContext
       sensors={sensors}
       collisionDetection={closestCenter}
       onDragEnd={handleDragEnd}
     >
-      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+      <div className={`flex gap-2 ${isEmpty ? '' : 'overflow-x-auto pb-1 -mx-1 px-1'}`}>
         <SortableContext
           items={localWeeks.map((w) => w.id)}
           strategy={horizontalListSortingStrategy}
@@ -132,7 +134,7 @@ export default function WeekTimeline({ studentId, program }) {
         <button
           onClick={handleAddWeek}
           disabled={createWeek.isPending}
-          className="shrink-0 border border-dashed border-ink-200 text-ink-400 rounded-lg px-3 py-2 sl-mono text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
+          className={`${isEmpty ? 'flex-1 justify-center py-3' : 'shrink-0 py-2'} flex items-center border border-dashed border-ink-200 text-ink-400 rounded-lg px-3 sl-mono text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors`}
         >
           + WEEK
         </button>

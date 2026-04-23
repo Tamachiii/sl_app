@@ -88,19 +88,30 @@ function StudentHeader({ student, program, t }) {
   );
 }
 
-function ProgramWeeksSection({ studentId, program, t }) {
-  if (!program) {
-    return <div className="flex justify-center py-6"><Spinner /></div>;
-  }
-  if (!program.weeks?.length) {
-    return (
-      <div className="space-y-2">
-        <EmptyState message={t('coach.home.noProgramWeeks')} />
+function ProgramCard({ studentId, programs, selectedProgramId, program, onSelect, onProgramDeleted }) {
+  const hasPrograms = Array.isArray(programs) && programs.length > 0;
+
+  return (
+    <div className="sl-card p-3 md:p-4 space-y-3">
+      {hasPrograms && (
+        <ProgramSwitcher
+          studentId={studentId}
+          programs={programs}
+          selectedId={selectedProgramId}
+          onSelect={onSelect}
+          onProgramDeleted={onProgramDeleted}
+        />
+      )}
+
+      {hasPrograms && program && <div className="sl-hairline -mx-3 md:-mx-4" />}
+
+      {!program ? (
+        <div className="flex justify-center py-4"><Spinner /></div>
+      ) : (
         <WeekTimeline studentId={studentId} program={program} />
-      </div>
-    );
-  }
-  return <WeekTimeline studentId={studentId} program={program} />;
+      )}
+    </div>
+  );
 }
 
 function SelectedStudentView({ student, t }) {
@@ -175,20 +186,13 @@ function SelectedStudentView({ student, t }) {
           {t('coach.home.program')}
         </h3>
 
-        {isSuccess && (programs || []).length > 0 && (
-          <ProgramSwitcher
-            studentId={student.id}
-            programs={programs}
-            selectedId={selectedProgramId}
-            onSelect={handleSelectProgram}
-            onProgramDeleted={handleProgramDeleted}
-          />
-        )}
-
-        <ProgramWeeksSection
+        <ProgramCard
           studentId={student.id}
+          programs={isSuccess ? (programs || []) : []}
+          selectedProgramId={selectedProgramId}
           program={selectedProgram}
-          t={t}
+          onSelect={handleSelectProgram}
+          onProgramDeleted={handleProgramDeleted}
         />
       </section>
 
