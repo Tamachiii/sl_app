@@ -140,7 +140,14 @@ export function useCreateProgram() {
       if (error) throw error;
       return data;
     },
-    onSuccess: (_d, vars) => {
+    onSuccess: (newProg, vars) => {
+      // Seed the list cache synchronously so the parent's `onSelect(newProg.id)`
+      // callback sees the new program in the list before the invalidation refetch
+      // lands — otherwise CoachHome's stale-?program cleanup strips it.
+      qc.setQueryData(['programs', vars.studentId], (old) => {
+        if (!Array.isArray(old)) return old;
+        return [...old, { ...newProg, weeks: [] }];
+      });
       invalidateProgramQueries(qc, vars.studentId);
     },
   });
