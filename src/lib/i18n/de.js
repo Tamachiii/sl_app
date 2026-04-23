@@ -83,6 +83,9 @@ const de = {
       ofWeeks: 'von {n} Wochen',
       acrossLogged: 'über erfasste Sätze',
       logSetsToSee: 'Sätze erfassen',
+      legendDone: 'ERL.',
+      legendUpcoming: 'GEPLANT',
+      legendHistory: 'VERLAUF',
     },
   },
   coach: {

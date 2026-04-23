@@ -4,6 +4,7 @@ import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
 import { useAuth } from '../../hooks/useAuth';
 import { useStudentProgressStats } from '../../hooks/useStudentProgressStats';
+import { useStudentHistoricalSessions } from '../../hooks/useStudentHistoricalSessions';
 import { useI18n } from '../../hooks/useI18n';
 import SessionCalendar from './SessionCalendar';
 import ExerciseProgressChart from './ExerciseProgressChart';
@@ -60,6 +61,7 @@ export default function StudentDashboard() {
   const { t } = useI18n();
   const { profile, signOut } = useAuth();
   const { data, isLoading } = useStudentProgressStats();
+  const { data: historicalSessions } = useStudentHistoricalSessions();
 
   const recentWeeklyVolume = useMemo(
     () => (data?.weeklyVolume || []).slice(-4),
@@ -136,7 +138,9 @@ export default function StudentDashboard() {
 
           <section aria-labelledby="calendar-heading">
             <SectionHeading id="calendar-heading">{t('student.stats.calendar')}</SectionHeading>
-            <SessionCalendar sessions={stats.sessionCalendar} />
+            <SessionCalendar
+              sessions={[...(stats.sessionCalendar || []), ...(historicalSessions || [])]}
+            />
           </section>
 
           <section aria-labelledby="volume-heading">

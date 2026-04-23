@@ -83,6 +83,9 @@ const fr = {
       ofWeeks: 'sur {n} semaines',
       acrossLogged: 'sur les séries enregistrées',
       logSetsToSee: 'enregistre des séries',
+      legendDone: 'FAIT',
+      legendUpcoming: 'À VENIR',
+      legendHistory: 'HISTORIQUE',
     },
   },
   coach: {

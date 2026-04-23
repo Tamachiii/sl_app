@@ -9,6 +9,10 @@ vi.mock('../../hooks/useStudentProgressStats', () => ({
   useStudentProgressStats: () => mockStats,
 }));
 
+vi.mock('../../hooks/useStudentHistoricalSessions', () => ({
+  useStudentHistoricalSessions: () => ({ data: [] }),
+}));
+
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({}),
 }));

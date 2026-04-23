@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useI18n } from '../../hooks/useI18n';
 
 function startOfMonth(d) {
   return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -17,6 +18,7 @@ function ymd(date) {
 const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
 export default function SessionCalendar({ sessions }) {
+  const { t } = useI18n();
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
 
   const byDate = useMemo(() => {
@@ -90,16 +92,23 @@ export default function SessionCalendar({ sessions }) {
         {cells.map((cell, i) => {
           if (!cell) return <div key={i} className="aspect-square" />;
           const entries = byDate.get(cell.key) || [];
-          const hasCompleted = entries.some((e) => e.completed);
-          const hasUpcoming = entries.some((e) => !e.completed);
+          const activeEntries = entries.filter((e) => !e.historical);
+          const historicalEntries = entries.filter((e) => e.historical);
+          const hasCompleted = activeEntries.some((e) => e.completed);
+          const hasUpcoming = activeEntries.some((e) => !e.completed);
+          // Show the history dot only when the day has no active session —
+          // the active plan takes visual priority when both exist.
+          const showHistorical = activeEntries.length === 0 && historicalEntries.length > 0;
           const isToday = cell.key === todayKey;
-          const first = entries[0];
+          const first = activeEntries[0] || historicalEntries[0];
           const content = (
             <div
               className={`aspect-square flex flex-col items-center justify-center rounded-lg sl-mono text-[12px] ${
                 isToday
                   ? 'text-ink-900'
-                  : 'text-gray-700'
+                  : showHistorical
+                    ? 'text-ink-400'
+                    : 'text-gray-700'
               } ${entries.length && !isToday ? 'hover:bg-ink-50' : ''}`}
               style={isToday ? { background: 'var(--color-accent)' } : undefined}
             >
@@ -115,6 +124,12 @@ export default function SessionCalendar({ sessions }) {
                   <span
                     className="w-1 h-1 rounded-full"
                     style={{ background: isToday ? 'var(--color-ink-900)' : 'var(--color-accent)' }}
+                  />
+                )}
+                {showHistorical && (
+                  <span
+                    className="w-1 h-1 rounded-full"
+                    style={{ background: 'var(--color-ink-400)' }}
                   />
                 )}
               </div>
@@ -137,10 +152,16 @@ export default function SessionCalendar({ sessions }) {
 
       <div className="flex gap-3 justify-end sl-mono text-[10px] text-ink-400 mt-3">
         <span className="flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--color-success)' }} /> DONE
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--color-success)' }} />
+          {t('student.stats.legendDone')}
         </span>
         <span className="flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--color-accent)' }} /> UPCOMING
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--color-accent)' }} />
+          {t('student.stats.legendUpcoming')}
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--color-ink-400)' }} />
+          {t('student.stats.legendHistory')}
         </span>
       </div>
     </div>

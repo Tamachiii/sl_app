@@ -83,6 +83,9 @@ const en = {
       ofWeeks: 'of {n} weeks',
       acrossLogged: 'across logged sets',
       logSetsToSee: 'log sets to see',
+      legendDone: 'DONE',
+      legendUpcoming: 'UPCOMING',
+      legendHistory: 'HISTORY',
     },
   },
   coach: {
