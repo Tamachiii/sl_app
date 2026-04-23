@@ -71,19 +71,6 @@ const SetRow = memo(function SetRow({ log, locked = false, restSeconds = null, r
 
         <span className="sl-label">{`Set ${log.set_number}`}</span>
 
-        {recordVideo && (
-          <span
-            className="sl-pill shrink-0"
-            style={{ background: 'var(--color-warn)', color: 'var(--color-ink-900)' }}
-            aria-label="Record video on this set"
-          >
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-            REC
-          </span>
-        )}
-
         <div className="flex-1" />
 
         {showTimer && (
