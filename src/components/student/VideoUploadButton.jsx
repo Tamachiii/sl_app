@@ -39,17 +39,17 @@ export default function VideoUploadButton({
   const busy = upload.isPending || deleteVideo.isPending;
 
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-2 flex-wrap">
-        <input
-          ref={inputRef}
-          type="file"
-          accept="video/*"
-          capture="environment"
-          className="sr-only"
-          onChange={handlePick}
-          disabled={disabled || busy}
-        />
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="video/*"
+        capture="environment"
+        className="sr-only"
+        onChange={handlePick}
+        disabled={disabled || busy}
+      />
+      <div className="inline-flex items-center gap-2 flex-wrap">
         {existingVideo ? (
           <>
             <button
@@ -97,7 +97,7 @@ export default function VideoUploadButton({
         )}
       </div>
       {err && (
-        <p className="sl-mono text-[11px]" style={{ color: 'var(--color-danger)' }}>{err}</p>
+        <p className="basis-full sl-mono text-[11px] mt-1" style={{ color: 'var(--color-danger)' }}>{err}</p>
       )}
 
       <Dialog open={viewerOpen} onClose={() => setViewerOpen(false)} title={`Set ${setNumber} video`}>
@@ -110,6 +110,6 @@ export default function VideoUploadButton({
           Close
         </button>
       </Dialog>
-    </div>
+    </>
   );
 }
