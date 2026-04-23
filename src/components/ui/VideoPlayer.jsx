@@ -162,22 +162,24 @@ export default function VideoPlayer({ storagePath, className = '' }) {
           {formatTime(current)} / {formatTime(duration)}
         </span>
 
-        <div className="flex-1 relative h-7 flex items-center">
-          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-white/25" />
-          <div
-            className="absolute left-0 top-1/2 -translate-y-1/2 h-1 rounded-full pointer-events-none"
-            style={{ width: `${progress}%`, background: 'var(--color-accent)' }}
-          />
-          <input
-            type="range"
-            min={0}
-            max={duration || 0}
-            step={0.01}
-            value={current}
-            onChange={onSeek}
-            aria-label="Seek"
-            className="absolute inset-0 w-full h-full appearance-none bg-transparent cursor-pointer video-scrub"
-          />
+        <div className="flex-1 relative flex items-center h-7">
+          <div className="relative w-full h-1 rounded-full bg-white/25">
+            <div
+              className="absolute left-0 top-0 bottom-0 rounded-full pointer-events-none"
+              style={{ width: `${progress}%`, background: 'var(--color-accent)' }}
+            />
+            <input
+              type="range"
+              min={0}
+              max={duration || 0}
+              step={0.01}
+              value={current}
+              onChange={onSeek}
+              aria-label="Seek"
+              className="absolute left-0 right-0 top-1/2 -translate-y-1/2 w-full appearance-none bg-transparent cursor-pointer video-scrub"
+              style={{ height: '28px' }}
+            />
+          </div>
         </div>
 
         <button
