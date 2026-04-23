@@ -31,6 +31,13 @@ vi.mock('../../hooks/useSlotComments', () => ({
   useSaveSlotComment: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
+vi.mock('../../hooks/useSetVideo', () => ({
+  useSetVideos: () => ({ data: [], isLoading: false }),
+  useUploadSetVideo: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteSetVideo: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetVideoSignedUrl: () => ({ data: null, isLoading: false }),
+}));
+
 vi.mock('../../hooks/useSessionConfirmation', () => ({
   useSessionConfirmation: () => mockConfirmation,
   useConfirmSession: () => mockConfirm,

@@ -96,6 +96,8 @@ exercise_slots (…, notes, record_video_set_numbers)  session_confirmations (se
   → exercise_library (…)
   ↓ 1:many
 set_logs (…)
+  ↓ 1:1
+set_log_videos (set_log_id UNIQUE, storage_path, mime_type, size_bytes)
 ```
 
 RLS:
@@ -132,6 +134,10 @@ Coaches can add a free-text note to any exercise slot while planning a session (
 ### Record-video set flag
 
 For any exercise, the coach can pick **any number** of sets to record on video via per-set chips in `ExerciseSlotRow` (tap a chip to toggle; "All" / "None" shortcut toggles every set at once). The selection is stored as an `int[]` in `exercise_slots.record_video_set_numbers` (migration `2026_04_20_record_video_set_numbers.sql`, defaults to `{}`). Students see an amber "Record" badge on each matching `SetRow` in `SessionView`, so it's obvious which sets they should film for coach review.
+
+### Set video uploads
+
+Any set flagged via `record_video_set_numbers` gets an **Upload video** CTA under it in `SetRow`. Students pick a clip via `<input type="file" accept="video/*" capture="environment">` (native camera on mobile, file picker on desktop) — the file is uploaded to the private Supabase Storage bucket `set-videos` and tracked in the `set_log_videos` table (1:1 with `set_logs`, UNIQUE on `set_log_id`). Files are keyed by `<profile_id>/<slot_id>/<set>-<uuid>.<ext>` so Storage RLS can gate on the first path segment (student owns it) or the coach's student list (coach reads it). Client caps uploads at 25 MB and surfaces a clear error if the clip is too large — no re-encoding in v1. Students can preview, replace, or delete their clips inline. On the coach side, `SessionReview` renders a row of **SET N** play chips per slot; tapping one opens the clip in a dialog via a 1-hour signed URL. Migration: `2026_04_23_set_log_videos.sql`.
 
 ---
 

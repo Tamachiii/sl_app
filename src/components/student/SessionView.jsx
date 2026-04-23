@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useSession } from '../../hooks/useSession';
 import { useSetLogs, useEnsureSetLogs } from '../../hooks/useSetLogs';
 import { useSlotComments } from '../../hooks/useSlotComments';
+import { useSetVideos } from '../../hooks/useSetVideo';
 import {
   useSessionConfirmation,
   useConfirmSession,
@@ -41,6 +42,13 @@ export default function SessionView() {
   const slots = session?.exercise_slots || [];
   const { data: logs, isLoading: logsLoading } = useSetLogs(sessionId, slots);
   const { data: slotComments } = useSlotComments(sessionId, slots);
+  const slotIds = useMemo(() => slots.map((s) => s.id), [slots]);
+  const { data: videos } = useSetVideos(sessionId, slotIds);
+  const videosByLogId = useMemo(() => {
+    const m = new Map();
+    (videos || []).forEach((v) => m.set(v.set_log_id, v));
+    return m;
+  }, [videos]);
   const slotGroups = useMemo(() => groupSlotsBySuperset(slots), [slots]);
   const ensureLogs = useEnsureSetLogs();
   const { data: confirmation, isLoading: confLoading } = useSessionConfirmation(sessionId);
@@ -159,6 +167,7 @@ export default function SessionView() {
           sessionId={sessionId}
           isConfirmed={isConfirmed}
           isArchived={isArchived}
+          getVideoForLog={(logId) => videosByLogId.get(logId) || null}
         />
       ))}
 

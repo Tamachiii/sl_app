@@ -2,7 +2,7 @@ import SetRow from './SetRow';
 import SlotCommentBox from './SlotCommentBox';
 import { formatSlotPrescription, formatRestSeconds } from '../../lib/volume';
 
-function SlotBody({ slot, slotLogs, slotComments, sessionId, isConfirmed, isArchived }) {
+function SlotBody({ slot, slotLogs, slotComments, sessionId, isConfirmed, isArchived, getVideoForLog }) {
   return (
     <div className="space-y-3">
       {slot.notes && (
@@ -25,6 +25,7 @@ function SlotBody({ slot, slotLogs, slotComments, sessionId, isConfirmed, isArch
             locked={isConfirmed}
             restSeconds={slot.rest_seconds}
             recordVideo={(slot.record_video_set_numbers || []).includes(log.set_number)}
+            video={getVideoForLog ? getVideoForLog(log.id) : null}
           />
         ))}
       </div>
@@ -82,6 +83,7 @@ export default function SlotGroupCard({
   sessionId,
   isConfirmed,
   isArchived,
+  getVideoForLog,
 }) {
   const groupLogs = group.slots.flatMap((s) => getLogsForSlot(s.id));
   const done = groupLogs.filter((l) => l.done).length;
@@ -123,6 +125,7 @@ export default function SlotGroupCard({
                 sessionId={sessionId}
                 isConfirmed={isConfirmed}
                 isArchived={isArchived}
+                getVideoForLog={getVideoForLog}
               />
             </div>
           );
@@ -156,6 +159,7 @@ export default function SlotGroupCard({
             sessionId={sessionId}
             isConfirmed={isConfirmed}
             isArchived={isArchived}
+            getVideoForLog={getVideoForLog}
           />
         </div>
       )}

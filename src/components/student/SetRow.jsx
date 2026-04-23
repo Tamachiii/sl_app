@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { useToggleSetDone, useSetRpe } from '../../hooks/useSetLogs';
 import RpeInput from './RpeInput';
+import VideoUploadButton from './VideoUploadButton';
 
 function formatMMSS(sec) {
   const m = Math.floor(sec / 60);
@@ -11,7 +12,7 @@ function formatMMSS(sec) {
 /**
  * SetRow — one row per set_log entry inside a SessionView exercise card.
  */
-const SetRow = memo(function SetRow({ log, locked = false, restSeconds = null, recordVideo = false }) {
+const SetRow = memo(function SetRow({ log, locked = false, restSeconds = null, recordVideo = false, video = null }) {
   const toggleDone = useToggleSetDone();
   const setRpe = useSetRpe();
 
@@ -126,6 +127,18 @@ const SetRow = memo(function SetRow({ log, locked = false, restSeconds = null, r
               setRpe.mutate({ logId: log.id, rpe });
               if (rpe != null) setRpeOpen(false);
             }}
+          />
+        </div>
+      )}
+
+      {recordVideo && (
+        <div className="pt-2">
+          <VideoUploadButton
+            setLogId={log.id}
+            exerciseSlotId={log.exercise_slot_id}
+            setNumber={log.set_number}
+            existingVideo={video}
+            disabled={locked}
           />
         </div>
       )}

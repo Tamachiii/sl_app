@@ -1,13 +1,40 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Spinner from '../ui/Spinner';
+import Dialog from '../ui/Dialog';
+import VideoPlayer from '../ui/VideoPlayer';
 import { useSession } from '../../hooks/useSession';
 import { useSetLogs } from '../../hooks/useSetLogs';
 import { useSlotComments } from '../../hooks/useSlotComments';
+import { useSetVideos } from '../../hooks/useSetVideo';
 import { useArchiveSession } from '../../hooks/useWeek';
 import { useSessionConfirmation } from '../../hooks/useSessionConfirmation';
 import SlotProgress from './SlotProgress';
 import { formatSlotPrescription, formatRestSeconds, groupSlotsBySuperset } from '../../lib/volume';
+
+function SlotVideoStrip({ videos, onPlay }) {
+  if (!videos || videos.length === 0) return null;
+  const sorted = [...videos].sort((a, b) => a.set_number - b.set_number);
+  return (
+    <div className="flex flex-wrap gap-1.5 pt-1">
+      {sorted.map((v) => (
+        <button
+          key={v.id}
+          type="button"
+          onClick={() => onPlay(v)}
+          className="sl-pill bg-accent/15 hover:brightness-95"
+          style={{ color: 'var(--color-accent)' }}
+          aria-label={`Play set ${v.set_number} video`}
+        >
+          <svg className="w-3 h-3 inline-block mr-1" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+          SET {v.set_number}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export default function SessionReview() {
   const { sessionId } = useParams();
@@ -16,10 +43,22 @@ export default function SessionReview() {
   const slots = session?.exercise_slots || [];
   const { data: setLogs } = useSetLogs(sessionId, slots);
   const { data: slotComments } = useSlotComments(sessionId, slots);
+  const slotIds = useMemo(() => slots.map((s) => s.id), [slots]);
+  const { data: videos } = useSetVideos(sessionId, slotIds);
+  const videosBySlot = useMemo(() => {
+    const m = new Map();
+    (videos || []).forEach((v) => {
+      const arr = m.get(v.exercise_slot_id) || [];
+      arr.push(v);
+      m.set(v.exercise_slot_id, arr);
+    });
+    return m;
+  }, [videos]);
   const { data: confirmation } = useSessionConfirmation(sessionId);
   const archiveSession = useArchiveSession();
   const slotGroups = useMemo(() => groupSlotsBySuperset(slots), [slots]);
   const isArchived = !!session?.archived_at;
+  const [playing, setPlaying] = useState(null);
 
   if (isLoading) {
     return <div className="flex justify-center py-12"><Spinner /></div>;
@@ -132,6 +171,10 @@ export default function SessionReview() {
                   )}
                 </p>
                 <SlotProgress logs={slotLogs} plannedSets={slot.sets} />
+                <SlotVideoStrip
+                  videos={videosBySlot.get(slot.id)}
+                  onPlay={setPlaying}
+                />
                 {comment && (
                   <div
                     className="text-[13px] text-gray-900 rounded-lg px-2.5 py-1.5 whitespace-pre-wrap"
@@ -175,6 +218,21 @@ export default function SessionReview() {
           return renderSlot(group.slots[0]);
         })}
       </div>
+
+      <Dialog
+        open={!!playing}
+        onClose={() => setPlaying(null)}
+        title={playing ? `Set ${playing.set_number} video` : ''}
+      >
+        {playing && <VideoPlayer storagePath={playing.storage_path} />}
+        <button
+          type="button"
+          onClick={() => setPlaying(null)}
+          className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 mt-3"
+        >
+          Close
+        </button>
+      </Dialog>
     </div>
   );
 }
