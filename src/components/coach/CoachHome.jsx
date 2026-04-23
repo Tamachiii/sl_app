@@ -41,6 +41,7 @@ function StudentSelector({ students, studentId, onChange, t }) {
 }
 
 function StudentHeader({ student, program, t }) {
+  const navigate = useNavigate();
   const fullName = student.profile?.full_name || 'Student';
   const weekCount = program?.weeks?.length ?? 0;
   const weeksLabel = weekCount === 0
@@ -61,7 +62,7 @@ function StudentHeader({ student, program, t }) {
         >
           {initialsOf(fullName) || '—'}
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h2 className="sl-display text-[22px] md:text-[26px] text-gray-900 leading-none truncate">
             {fullName}
           </h2>
@@ -69,6 +70,14 @@ function StudentHeader({ student, program, t }) {
             <p className="sl-mono text-[11px] text-ink-400 mt-1.5">{weeksLabel.toUpperCase()}</p>
           )}
         </div>
+        <button
+          type="button"
+          onClick={() => navigate(`/coach/sessions?student=${student.id}`)}
+          className="sl-pill shrink-0 bg-ink-100 text-ink-700 hover:bg-ink-200"
+          aria-label={t('coach.home.viewSessions')}
+        >
+          {t('coach.home.viewSessions')}
+        </button>
       </div>
     </div>
   );

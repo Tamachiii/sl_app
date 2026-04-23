@@ -44,7 +44,7 @@ export function getNavItems(role, t) {
   if (role === 'coach') {
     return [
       { to: '/coach/dashboard', label: t('nav.dashboard'), icon: DashboardIcon, end: true },
-      { to: '/coach/students', label: t('nav.students'), icon: StudentsIcon, end: true },
+      { to: '/coach/students', label: t('nav.students'), icon: StudentsIcon, end: false },
       { to: '/coach/sessions', label: t('nav.sessions'), icon: SessionsIcon, end: true },
       { to: '/coach/exercises', label: t('nav.library'), icon: LibraryIcon, end: true },
     ];

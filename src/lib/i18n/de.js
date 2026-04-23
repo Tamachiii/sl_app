@@ -104,6 +104,7 @@ const de = {
       noProgramWeeks: 'Noch keine Wochen — füge eine hinzu, um zu starten.',
       weeksOne: '{n} Woche',
       weeksMany: '{n} Wochen',
+      viewSessions: 'Einheiten ansehen',
     },
     dashboard: {
       kicker: 'Coach',
