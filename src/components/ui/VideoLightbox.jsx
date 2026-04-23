@@ -21,14 +21,14 @@ export default function VideoLightbox({ open, onClose, children }) {
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-[100] bg-black/85 flex items-center justify-center p-4"
+      className="fixed inset-0 z-[100] bg-black flex items-center justify-center p-4"
       onClick={onClose}
     >
       <button
         type="button"
         onClick={onClose}
         aria-label="Close"
-        className="absolute top-4 right-4 w-10 h-10 rounded-full flex items-center justify-center bg-white/15 hover:bg-white/25 text-white active:scale-95 transition"
+        className="absolute top-4 right-4 w-10 h-10 rounded-full flex items-center justify-center bg-white/20 hover:bg-white/30 text-white active:scale-95 transition ring-1 ring-white/30"
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" />

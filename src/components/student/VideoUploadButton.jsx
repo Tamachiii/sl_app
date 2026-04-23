@@ -100,7 +100,7 @@ export default function VideoUploadButton({
       )}
 
       <VideoLightbox open={viewerOpen} onClose={() => setViewerOpen(false)}>
-        {existingVideo && <VideoPlayer storagePath={existingVideo.storage_path} className="w-full" />}
+        {existingVideo && <VideoPlayer storagePath={existingVideo.storage_path} />}
       </VideoLightbox>
     </>
   );

@@ -213,7 +213,7 @@ export default function SessionReview() {
       </div>
 
       <VideoLightbox open={!!playing} onClose={() => setPlaying(null)}>
-        {playing && <VideoPlayer storagePath={playing.storage_path} className="w-full" />}
+        {playing && <VideoPlayer storagePath={playing.storage_path} />}
       </VideoLightbox>
     </div>
   );
