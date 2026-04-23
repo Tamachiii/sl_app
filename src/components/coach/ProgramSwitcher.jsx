@@ -48,10 +48,10 @@ function SortableProgram({ program, selected, t, onSelect, onOpenMenu }) {
     <div
       ref={setNodeRef}
       style={style}
-      className={`shrink-0 flex items-stretch rounded-lg overflow-hidden transition-shadow ${
+      className={`shrink-0 flex items-stretch rounded-lg overflow-hidden border-2 transition-colors ${
         selected
-          ? 'bg-ink-100 shadow-[inset_0_0_0_2px_var(--color-accent)]'
-          : 'bg-ink-100 shadow-[inset_0_0_0_1px_var(--color-ink-200)]'
+          ? 'bg-ink-100 border-[var(--color-accent)]'
+          : 'bg-ink-100 border-ink-200'
       }`}
     >
       <button
