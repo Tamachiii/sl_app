@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import Spinner from '../ui/Spinner';
 import Dialog from '../ui/Dialog';
 import VideoPlayer from '../ui/VideoPlayer';
+import VideoThumbCard from '../ui/VideoThumbCard';
 import { useSession } from '../../hooks/useSession';
 import { useSetLogs } from '../../hooks/useSetLogs';
 import { useSlotComments } from '../../hooks/useSlotComments';
@@ -16,21 +17,13 @@ function SlotVideoStrip({ videos, onPlay }) {
   if (!videos || videos.length === 0) return null;
   const sorted = [...videos].sort((a, b) => a.set_number - b.set_number);
   return (
-    <div className="flex flex-wrap gap-1.5 pt-1">
+    <div className="flex flex-wrap gap-2 pt-2">
       {sorted.map((v) => (
-        <button
+        <VideoThumbCard
           key={v.id}
-          type="button"
+          setNumber={v.set_number}
           onClick={() => onPlay(v)}
-          className="sl-pill bg-accent/15 hover:brightness-95"
-          style={{ color: 'var(--color-accent)' }}
-          aria-label={`Play set ${v.set_number} video`}
-        >
-          <svg className="w-3 h-3 inline-block mr-1" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M8 5v14l11-7z" />
-          </svg>
-          SET {v.set_number}
-        </button>
+        />
       ))}
     </div>
   );

@@ -217,3 +217,30 @@ body {
 .dark .shadow-xl {
   --tw-shadow-color: rgba(0, 0, 0, 0.5);
 }
+
+/* Custom video scrubber thumb — invisible track (painted by overlay divs), accent thumb */
+.video-scrub::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: var(--color-accent);
+  border: 2px solid #fff;
+  cursor: pointer;
+}
+.video-scrub::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: var(--color-accent);
+  border: 2px solid #fff;
+  cursor: pointer;
+}
+.video-scrub::-webkit-slider-runnable-track {
+  background: transparent;
+  height: 4px;
+}
+.video-scrub::-moz-range-track {
+  background: transparent;
+  height: 4px;
+}
