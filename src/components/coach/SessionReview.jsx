@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Spinner from '../ui/Spinner';
-import Dialog from '../ui/Dialog';
+import VideoLightbox from '../ui/VideoLightbox';
 import VideoPlayer from '../ui/VideoPlayer';
 import VideoThumbCard from '../ui/VideoThumbCard';
 import { useSession } from '../../hooks/useSession';
@@ -212,20 +212,9 @@ export default function SessionReview() {
         })}
       </div>
 
-      <Dialog
-        open={!!playing}
-        onClose={() => setPlaying(null)}
-        title={playing ? `Set ${playing.set_number} video` : ''}
-      >
-        {playing && <VideoPlayer storagePath={playing.storage_path} />}
-        <button
-          type="button"
-          onClick={() => setPlaying(null)}
-          className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 mt-3"
-        >
-          Close
-        </button>
-      </Dialog>
+      <VideoLightbox open={!!playing} onClose={() => setPlaying(null)}>
+        {playing && <VideoPlayer storagePath={playing.storage_path} className="w-full" />}
+      </VideoLightbox>
     </div>
   );
 }

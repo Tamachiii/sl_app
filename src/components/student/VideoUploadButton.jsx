@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useUploadSetVideo, useDeleteSetVideo } from '../../hooks/useSetVideo';
-import Dialog from '../ui/Dialog';
+import VideoLightbox from '../ui/VideoLightbox';
 import VideoPlayer from '../ui/VideoPlayer';
 
 export default function VideoUploadButton({
@@ -99,16 +99,9 @@ export default function VideoUploadButton({
         <p className="basis-full sl-mono text-[11px] mt-1" style={{ color: 'var(--color-danger)' }}>{err}</p>
       )}
 
-      <Dialog open={viewerOpen} onClose={() => setViewerOpen(false)} title={`Set ${setNumber} video`}>
-        {existingVideo && <VideoPlayer storagePath={existingVideo.storage_path} />}
-        <button
-          type="button"
-          onClick={() => setViewerOpen(false)}
-          className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 mt-3"
-        >
-          Close
-        </button>
-      </Dialog>
+      <VideoLightbox open={viewerOpen} onClose={() => setViewerOpen(false)}>
+        {existingVideo && <VideoPlayer storagePath={existingVideo.storage_path} className="w-full" />}
+      </VideoLightbox>
     </>
   );
 }

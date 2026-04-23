@@ -97,7 +97,7 @@ export default function VideoPlayer({ storagePath, className = '' }) {
   return (
     <div
       ref={containerRef}
-      className={`relative rounded-lg overflow-hidden bg-black group select-none ${className}`}
+      className={`relative rounded-lg overflow-hidden bg-black group select-none inline-block max-w-full ${className}`}
     >
       <video
         ref={videoRef}
@@ -106,7 +106,7 @@ export default function VideoPlayer({ storagePath, className = '' }) {
         playsInline
         preload="metadata"
         onClick={togglePlay}
-        className="w-full h-full block cursor-pointer"
+        className="block max-h-[85vh] max-w-full cursor-pointer"
       />
 
       <button
