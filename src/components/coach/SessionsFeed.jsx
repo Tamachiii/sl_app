@@ -39,8 +39,13 @@ export default function SessionsFeed() {
   }, []);
 
   // Restore the last-picked student filter on mount if the URL has none.
+  // Skip when a saved SessionReview is about to redirect (effect above) —
+  // otherwise setSearchParams clobbers that redirect with /coach/sessions.
   useEffect(() => {
     if (studentFilter) return;
+    let hasSavedReview = false;
+    try { hasSavedReview = !!localStorage.getItem(LAST_COACH_SESSION_KEY); } catch { /* ignore */ }
+    if (hasSavedReview) return;
     let saved = null;
     try { saved = localStorage.getItem(LAST_SESSIONS_STUDENT_KEY); } catch { /* ignore */ }
     if (!saved) return;
