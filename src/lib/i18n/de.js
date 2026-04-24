@@ -93,7 +93,7 @@ const de = {
     home: {
       kicker: 'Coach',
       hey: 'Hey',
-      athletes: 'Athleten',
+      athletes: 'Athleten.',
       coachingOne: 'Du coachst {n} Athleten.',
       coachingMany: 'Du coachst {n} Athleten.',
       addStudent: 'Füge einen Athleten hinzu, um zu starten.',

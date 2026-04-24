@@ -93,7 +93,7 @@ const en = {
     home: {
       kicker: 'Coach',
       hey: 'Hey',
-      athletes: 'Students',
+      athletes: 'Students.',
       coachingOne: 'Coaching {n} student.',
       coachingMany: 'Coaching {n} students.',
       addStudent: 'Add a student to get started.',

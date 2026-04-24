@@ -93,7 +93,7 @@ const fr = {
     home: {
       kicker: 'Coach',
       hey: 'Salut',
-      athletes: 'Athlètes',
+      athletes: 'Athlètes.',
       coachingOne: 'Tu coaches {n} athlète.',
       coachingMany: 'Tu coaches {n} athlètes.',
       addStudent: 'Ajoute un athlète pour commencer.',

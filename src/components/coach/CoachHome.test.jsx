@@ -92,6 +92,6 @@ describe('CoachHome', () => {
   it('renders the page title', () => {
     mockStudentsData = { data: [], isLoading: false };
     renderCoachHome();
-    expect(screen.getByRole('heading', { level: 1, name: 'Students' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Students.' })).toBeInTheDocument();
   });
 });
