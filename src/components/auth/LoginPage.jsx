@@ -55,7 +55,7 @@ export default function LoginPage() {
 
   return (
     <div
-      className="relative flex flex-col h-full overflow-hidden"
+      className="relative h-full overflow-y-auto overflow-x-hidden"
       style={{ background: 'var(--color-ink-900)', color: 'var(--color-ink-50)' }}
     >
       <div
@@ -75,78 +75,87 @@ export default function LoginPage() {
       />
 
       <div
-        className="relative flex flex-1 flex-col px-7"
-        style={{ zIndex: 1, paddingTop: 'calc(52px + env(safe-area-inset-top))' }}
+        className="relative mx-auto flex min-h-full w-full max-w-md flex-col px-7"
+        style={{
+          zIndex: 1,
+          paddingTop: 'calc(52px + env(safe-area-inset-top))',
+          paddingBottom: 'calc(48px + env(safe-area-inset-bottom))',
+        }}
       >
-        <div className="pt-10">
-          <div className="flex items-center gap-2.5" style={{ marginBottom: 80 }}>
-            <div
-              className="flex items-center justify-center"
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: 6,
-                background: 'var(--color-accent)',
-              }}
-            >
-              <div
-                style={{
-                  width: 14,
-                  height: 14,
-                  borderRadius: 3,
-                  background: 'var(--color-ink-900)',
-                }}
-              />
-            </div>
-            <div
-              style={{
-                fontFamily: 'var(--font-display)',
-                fontWeight: 800,
-                fontSize: 16,
-                letterSpacing: '-0.02em',
-                color: 'var(--color-ink-50)',
-              }}
-            >
-              STREETLIFT
-            </div>
-          </div>
-
+        <div
+          className="flex items-center gap-2.5"
+          style={{ marginTop: 40, marginBottom: 'clamp(32px, 10vh, 80px)' }}
+        >
           <div
-            className="sl-label"
-            style={{ marginBottom: 14, color: 'var(--color-ink-400)' }}
-          >
-            COACHING · STREET LIFTING · STREET WORKOUT
-          </div>
-
-          <h1
-            className="sl-display"
-            style={{ fontSize: 64, lineHeight: 0.92, color: 'var(--color-ink-0)' }}
-          >
-            Become
-            <br />
-            a big monster
-            <br />
-            like
-            <br />
-            Tony.
-          </h1>
-
-          <p
+            className="flex items-center justify-center"
             style={{
-              marginTop: 28,
-              fontSize: 14,
-              lineHeight: 1.5,
-              maxWidth: 280,
-              color: 'var(--color-ink-300)',
+              width: 28,
+              height: 28,
+              borderRadius: 6,
+              background: 'var(--color-accent)',
             }}
           >
-            Your coach programs the work. You log every set, rep and RPE. Progress stays honest.
-          </p>
+            <div
+              style={{
+                width: 14,
+                height: 14,
+                borderRadius: 3,
+                background: 'var(--color-ink-900)',
+              }}
+            />
+          </div>
+          <div
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontWeight: 800,
+              fontSize: 16,
+              letterSpacing: '-0.02em',
+              color: 'var(--color-ink-50)',
+            }}
+          >
+            Street Lifting App
+          </div>
         </div>
 
-        <div className="flex-1" />
+        <div
+          className="sl-label"
+          style={{ marginBottom: 14, color: 'var(--color-ink-400)' }}
+        >
+          COACHING · STREET LIFTING · STREET WORKOUT
+        </div>
 
-        <div style={{ paddingBottom: 'calc(48px + env(safe-area-inset-bottom))' }}>
+        <h1
+          className="sl-display"
+          style={{
+            fontSize: 'clamp(40px, 13vw, 64px)',
+            lineHeight: 0.92,
+            color: 'var(--color-ink-0)',
+          }}
+        >
+          Become
+          <br />
+          a big monster
+          <br />
+          like
+          <br />
+          Tony.
+        </h1>
+
+        <p
+          style={{
+            marginTop: 'clamp(16px, 4vh, 28px)',
+            fontSize: 14,
+            lineHeight: 1.5,
+            maxWidth: 280,
+            color: 'var(--color-ink-300)',
+          }}
+        >
+          Your coach programs the work. You log every set, rep and RPE. Progress stays honest.
+        </p>
+
+        <div className="flex-1" style={{ minHeight: 32 }} />
+
+        <div>
           {step === 'welcome' ? (
             <button
               type="button"
