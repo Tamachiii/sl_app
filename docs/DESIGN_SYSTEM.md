@@ -157,6 +157,49 @@ There is **no `<Header/>` component** — every page builds its own header from 
 
 Pages with a user menu instead (`StudentHome`, `CoachDashboard`) swap the back button for an avatar-initials popover containing `ThemeToggle` + Sign out — but the overall 3-zone rhythm is the same.
 
+Every top-level page (both coach & student: Dashboard, Students, Sessions, Library, Home, Stats, Goals) renders `ui/UserMenu` as the right-aligned action — wrap the header in `flex items-start justify-between gap-4`.
+
+## Responsive layout
+
+The shell + nav structure lives in `layout/AppShell` + `SideNav` + `BottomNav`:
+
+- **Mobile** (`< 768px`): `flex-col`, sticky `BottomNav` at the bottom.
+- **`md:` and up** (`≥ 768px`): shell becomes `flex-row`. `BottomNav` gets `md:hidden`; `SideNav` (`hidden md:flex w-56`) becomes the left rail.
+
+Both nav components share their item list via `layout/navItems.getNavItems(role, t)` — one place to edit tabs.
+
+Content inside `main` is wrapped in `mx-auto w-full max-w-5xl` so it caps around ~1024px on wide monitors.
+
+Per-screen roots use `p-4 pb-6 md:p-8`. Display headings scale:
+
+- Coach h1s: `text-[28px] md:text-[40px]`
+- Student h1s: `text-[32px] md:text-[44px]`
+
+List screens (CoachHome, CoachDashboard activity, SessionsFeed, ExerciseLibrary) switch to a 2-column grid at `md:` via `space-y-* md:grid md:grid-cols-2 md:gap-* md:space-y-0`.
+
+## Day-strip vertical titles
+
+`StudentHome`'s 7-column day strip is narrow enough that horizontal session titles wrap. The strip titles use:
+
+```css
+writing-mode: vertical-rl;
+transform: rotate(180deg);
+```
+
+…so titles read top-to-bottom without wrapping.
+
+## Native `<dialog>` + dark mode
+
+Native `<dialog>` follows the OS `prefers-color-scheme`, NOT the app's `.dark` class. The [ui/Dialog](../src/components/ui/Dialog.jsx) primitive has explicit `bg-white text-gray-900` on the `<dialog>` element so it routes through the class-based dark remaps in `index.css` (`.dark .bg-white` → `ink-850`, `.dark .text-gray-900` → `ink-0`).
+
+**Don't remove these classes.** Without them, a user on a dark OS sees the dialog stay dark after flipping the app to light (and vice versa).
+
+Related quirk: `disabled:bg-*` Tailwind variants generate `.disabled\:bg-gray-50:disabled`, but the dark override is on `.dark .bg-gray-50` — different selector, so the disabled element stays light in dark mode. Use `disabled:bg-ink-100` (or another `ink-*` token) for disabled-state backgrounds inside anything that lives on a dark surface (dialogs, cards).
+
+## iOS 16px input rule
+
+iOS Safari auto-zooms focused `<input>` / `<textarea>` / `<select>` whose font-size is `< 16px`. **Every text-entry form element in the app is 16px** for that reason. Don't drop any of them below 16px. File pickers, radios, checkboxes, and sliders aren't affected.
+
 ## Tinted surfaces — the `color-mix` recipe
 
 For callouts, banners, and "about-this" panels, use a **transparent tint of a semantic color over the current surface** rather than picking a new hex.
