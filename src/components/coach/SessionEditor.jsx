@@ -44,12 +44,19 @@ export default function SessionEditor() {
         updateSlot.mutate({ id: prev.id, sessionId, superset_group: supersetGroup });
       }
     }
+    // Use max(sort_order) + 1 — NOT slots.length — so the new slot lands strictly
+    // after every existing one, even when prior deletions have left gaps in
+    // sort_order. `slots.length` collides with existing values after any gap,
+    // which breaks superset ordering (the new child can render before its parent).
+    const nextSortOrder = slots.length > 0
+      ? Math.max(...slots.map((s) => s.sort_order ?? 0)) + 1
+      : 0;
     addSlot.mutate({
       sessionId,
       exerciseId: selectedExercise,
       sets: 3,
       ...(addUnit === 'seconds' ? { durationSeconds: 30 } : { reps: 10 }),
-      sortOrder: slots.length,
+      sortOrder: nextSortOrder,
       supersetGroup,
     });
     setSelectedExercise('');
@@ -77,12 +84,18 @@ export default function SessionEditor() {
   async function handleMoveSlot(index, direction) {
     const target = index + direction;
     if (target < 0 || target >= slots.length) return;
-    const a = slots[index];
-    const b = slots[target];
-    await Promise.all([
-      updateSlot.mutateAsync({ id: a.id, sessionId, sort_order: b.sort_order }),
-      updateSlot.mutateAsync({ id: b.id, sessionId, sort_order: a.sort_order })
-    ]);
+    // Rebuild the full order and renumber 0..n-1 so the write is safe even if
+    // legacy data has tied sort_orders (a pair-swap would be a no-op there).
+    // There's no UNIQUE(session_id, sort_order) index so parallel updates are fine.
+    const reordered = [...slots];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    await Promise.all(
+      reordered.map((slot, i) =>
+        slot.sort_order === i
+          ? null
+          : updateSlot.mutateAsync({ id: slot.id, sessionId, sort_order: i })
+      ).filter(Boolean)
+    );
   }
 
   const inputCls =

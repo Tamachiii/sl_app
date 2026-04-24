@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { ThemeProvider } from '../../hooks/useTheme';
 
 const mockAddSlot = { mutate: vi.fn(), isPending: false };
-const mockUpdateSlot = { mutate: vi.fn() };
+const mockUpdateSlot = { mutate: vi.fn(), mutateAsync: vi.fn().mockResolvedValue({}) };
 const mockDeleteSlot = { mutate: vi.fn() };
 const mockDuplicateSession = { mutate: vi.fn(), isPending: false };
 let mockSessionData = { data: null, isLoading: false };
@@ -193,5 +193,33 @@ describe('SessionEditor', () => {
     };
     renderEditor();
     expect(screen.getByText('Pull Up')).toBeInTheDocument();
+  });
+
+  // Regression: adding an exercise used to assign sortOrder = slots.length, which
+  // collides with existing sort_orders when a prior deletion has left a gap. The
+  // collision made superset children render before their parent.
+  it('adds a new slot with sortOrder = max(existing)+1 when sort_orders have gaps', async () => {
+    const user = userEvent.setup();
+    mockSessionData = {
+      data: {
+        title: 'Day 1',
+        exercise_slots: [
+          { id: 's-a', sets: 3, reps: 10, sort_order: 0, exercise: { name: 'Pull Up', type: 'pull', difficulty: 2, volume_weight: 1 } },
+          // gap at 1 (deleted)
+          { id: 's-b', sets: 3, reps: 10, sort_order: 2, exercise: { name: 'Dip', type: 'push', difficulty: 2, volume_weight: 1 } },
+          { id: 's-c', sets: 3, reps: 10, sort_order: 5, exercise: { name: 'Pull Up', type: 'pull', difficulty: 2, volume_weight: 1 } },
+        ],
+      },
+      isLoading: false,
+    };
+    renderEditor();
+
+    await user.click(screen.getByText('+ ADD EXERCISE'));
+    await user.selectOptions(screen.getByRole('combobox'), 'ex-2');
+    await user.click(screen.getByText('Add'));
+
+    expect(mockAddSlot.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ sortOrder: 6 })
+    );
   });
 });
