@@ -58,24 +58,25 @@ describe('ExerciseSlotRow', () => {
     expect(screen.getByRole('button', { name: /move down/i })).toBeDisabled();
   });
 
-  it('clicking delete calls onDelete after confirm', async () => {
+  it('clicking delete opens a confirm dialog and confirming calls onDelete', async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     const { props } = renderSlotRow();
 
     await user.click(screen.getByRole('button', { name: /remove exercise/i }));
+    // Dialog opens with the exercise name in the message
+    expect(screen.getByRole('dialog', { hidden: true })).toHaveTextContent(/Pull Up/);
+
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
     expect(props.onDelete).toHaveBeenCalled();
-    window.confirm.mockRestore();
   });
 
-  it('delete does not call onDelete when confirm is cancelled', async () => {
+  it('cancelling the confirm dialog does not call onDelete', async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
     const { props } = renderSlotRow();
 
     await user.click(screen.getByRole('button', { name: /remove exercise/i }));
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(props.onDelete).not.toHaveBeenCalled();
-    window.confirm.mockRestore();
   });
 
   it('renders sets, reps, and weight inputs', () => {

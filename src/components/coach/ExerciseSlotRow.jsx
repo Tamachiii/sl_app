@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import ConfirmDialog from '../ui/ConfirmDialog';
 
 export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete, onMove, children }) {
   const ex = slot.exercise;
@@ -10,6 +11,7 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
   const [rest, setRest] = useState(slot.rest_seconds ?? '');
   const [notes, setNotes] = useState(slot.notes ?? '');
   const [showNotes, setShowNotes] = useState(!!slot.notes);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const videoSets = Array.isArray(slot.record_video_set_numbers) ? slot.record_video_set_numbers : [];
 
   useEffect(() => {
@@ -104,7 +106,7 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
             </svg>
           </button>
           <button
-            onClick={() => { if (confirm('Remove this exercise?')) onDelete(); }}
+            onClick={() => setConfirmDelete(true)}
             aria-label="Remove exercise"
             className="w-7 h-7 rounded-md flex items-center justify-center text-ink-400 hover:bg-ink-100 hover:text-danger"
           >
@@ -112,6 +114,15 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
+
+          <ConfirmDialog
+            open={confirmDelete}
+            onClose={() => setConfirmDelete(false)}
+            onConfirm={onDelete}
+            title="Remove exercise"
+            message={`Remove "${ex.name}" from this session? This can't be undone.`}
+            confirmText="Remove"
+          />
         </div>
       </div>
 

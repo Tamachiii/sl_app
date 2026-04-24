@@ -253,13 +253,14 @@ export default function SessionEditor() {
             <button
               onClick={handleAddExercise}
               disabled={!selectedExercise || addSlot.isPending}
-              className="flex-1 sl-btn-primary disabled:opacity-50"
+              className="flex-1 sl-btn-primary text-[13px] disabled:opacity-50"
+              style={{ padding: '10px 16px' }}
             >
               Add
             </button>
             <button
               onClick={() => setShowAdd(false)}
-              className="flex-1 rounded-lg bg-ink-100 text-ink-700 hover:bg-ink-200 py-2 sl-mono text-[12px]"
+              className="flex-1 bg-ink-100 text-ink-700 rounded-lg py-2 sl-display text-[13px] hover:bg-ink-200"
             >
               Cancel
             </button>
