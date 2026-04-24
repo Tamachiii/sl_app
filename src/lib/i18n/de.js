@@ -18,6 +18,7 @@ const de = {
     startSession: 'Einheit starten',
     reviewSession: 'Einheit ansehen',
     cancel: 'Abbrechen',
+    close: 'Schließen',
     save: 'Speichern',
     saving: 'Speichere…',
     signOut: 'Abmelden',

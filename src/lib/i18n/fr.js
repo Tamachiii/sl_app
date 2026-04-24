@@ -18,6 +18,7 @@ const fr = {
     startSession: 'Démarrer la séance',
     reviewSession: 'Revoir la séance',
     cancel: 'Annuler',
+    close: 'Fermer',
     save: 'Enregistrer',
     saving: 'Enregistrement…',
     signOut: 'Se déconnecter',

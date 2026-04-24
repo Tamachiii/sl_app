@@ -18,6 +18,7 @@ const en = {
     startSession: 'Start session',
     reviewSession: 'Review session',
     cancel: 'Cancel',
+    close: 'Close',
     save: 'Save',
     saving: 'Saving…',
     signOut: 'Sign out',
