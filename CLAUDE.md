@@ -35,7 +35,7 @@ src/
     layout/      AppShell  BottomNav  SideNav  navItems
     coach/       CoachDashboard  CoachHome  StudentCard  ProgramSwitcher
                  WeekTimeline  WeekView  SessionEditor  SessionReview
-                 ExerciseSlotRow  ExerciseLibrary  VolumeBar  SessionsFeed
+                 ExerciseSlotRow  ExerciseLibrary  SessionsFeed
                  StudentGoals  SlotProgress
     student/     StudentHome  StudentSessions  SessionCard  SessionView  SetRow
                  RpeInput  StudentDashboard(Stats)  SessionCalendar
@@ -66,7 +66,7 @@ Use this to jump straight to the relevant files. **Do not load anything else** u
 | Coach week reordering | `coach/WeekTimeline` (dnd-kit sortable), `hooks/useWeek` (`useReorderWeeks`) | `@dnd-kit/core`, `@dnd-kit/sortable` |
 | Coach sessions feed | `coach/SessionsFeed` (with `?student=:id` filter, editorial h1), `hooks/useSessionConfirmation` (`useAllConfirmations`) | `ui/UserMenu`, `ui/EmptyState` |
 | Coach week view | `coach/WeekView` (editorial top bar + single-line sl-card session rows — open a session for volume/detail), `hooks/useWeek`, `hooks/useDuplicate` | `ui/EditableText` |
-| Coach session editor | `coach/SessionEditor` (editorial top bar + sl-pill actions), `coach/ExerciseSlotRow`, `hooks/useSession`, `hooks/useExerciseLibrary`, `hooks/useDuplicate` | `coach/VolumeBar`, `ui/EditableText` |
+| Coach session editor | `coach/SessionEditor` (editorial top bar + sl-pill actions), `coach/ExerciseSlotRow`, `hooks/useSession`, `hooks/useExerciseLibrary`, `hooks/useDuplicate` | `ui/EditableText` |
 | Coach session review | `coach/SessionReview` (editorial top bar + archive sl-pill + student-note tinted callout), `hooks/useSession`, `hooks/useSetLogs`, `hooks/useSlotComments`, `hooks/useSessionConfirmation`, `hooks/useWeek` (`useArchiveSession`) | `coach/SlotProgress`, `lib/volume` |
 | Coach exercise slot notes | `coach/ExerciseSlotRow` (notes textarea), `student/SessionView` (note display) | `hooks/useSession` (`useUpdateSlot`) |
 | Record-video set flag | `coach/ExerciseSlotRow` (set chips → `record_video_set_numbers` int[]), `student/SetRow` (camera badge), `student/SessionView` (passes prop) | `hooks/useSession`, `hooks/useStudentProgramDetails` |
