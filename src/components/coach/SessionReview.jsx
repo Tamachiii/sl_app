@@ -1,5 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+
+const LAST_COACH_SESSION_KEY = 'sl_last_coach_session';
 import Spinner from '../ui/Spinner';
 import VideoLightbox from '../ui/VideoLightbox';
 import VideoPlayer from '../ui/VideoPlayer';
@@ -30,8 +32,29 @@ function SlotVideoStrip({ videos, onPlay }) {
 }
 
 export default function SessionReview() {
-  const { sessionId } = useParams();
+  const { studentId, sessionId } = useParams();
   const navigate = useNavigate();
+
+  // Persist so tabbing between Sessions and other tabs returns to this
+  // review instead of dropping the coach back on the feed. Cleared on
+  // explicit back-button click below.
+  useEffect(() => {
+    if (!studentId || !sessionId) return;
+    try {
+      localStorage.setItem(
+        LAST_COACH_SESSION_KEY,
+        JSON.stringify({ studentId, sessionId }),
+      );
+    } catch { /* ignore */ }
+  }, [studentId, sessionId]);
+
+  function handleBack() {
+    try { localStorage.removeItem(LAST_COACH_SESSION_KEY); } catch { /* ignore */ }
+    // Explicit parent — history's previous entry can be any tab the coach
+    // came through (and the SessionsFeed restore redirect complicates it).
+    navigate('/coach/sessions');
+  }
+
   const { data: session, isLoading } = useSession(sessionId);
   const slots = session?.exercise_slots || [];
   const { data: setLogs } = useSetLogs(sessionId, slots);
@@ -61,7 +84,7 @@ export default function SessionReview() {
     <div className="p-4 pb-6 md:p-8 space-y-5">
       <div className="flex items-start gap-3">
         <button
-          onClick={() => navigate(-1)}
+          onClick={handleBack}
           aria-label="Back"
           className="w-9 h-9 rounded-lg bg-ink-100 flex items-center justify-center text-ink-700 hover:bg-ink-200 shrink-0"
         >

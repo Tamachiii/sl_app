@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
@@ -7,13 +7,35 @@ import { useAllConfirmations } from '../../hooks/useSessionConfirmation';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 
+const LAST_COACH_SESSION_KEY = 'sl_last_coach_session';
+
 export default function SessionsFeed() {
   const { t } = useI18n();
   const { profile, signOut } = useAuth();
+  const navigate = useNavigate();
   const { data: confirmations, isLoading } = useAllConfirmations();
   const [showArchived, setShowArchived] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const studentFilter = searchParams.get('student') || '';
+
+  // If the coach left a review open and tabbed to another section, bounce
+  // them back into that review on return. Explicit "back" on the review
+  // clears the saved state (see SessionReview).
+  useEffect(() => {
+    let raw = null;
+    try { raw = localStorage.getItem(LAST_COACH_SESSION_KEY); } catch { /* ignore */ }
+    if (!raw) return;
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch { return; }
+    if (!parsed?.studentId || !parsed?.sessionId) return;
+    navigate(
+      `/coach/student/${parsed.studentId}/session/${parsed.sessionId}/review`,
+      { replace: true },
+    );
+    // Only run on mount — re-running on every render would fight the nested
+    // route's own effects.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const studentOptions = useMemo(() => {
     const map = new Map();

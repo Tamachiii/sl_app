@@ -38,6 +38,7 @@ describe('SessionsFeed', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockConfirmations = { data: [], isLoading: false };
+    localStorage.clear();
   });
 
   it('renders loading spinner', () => {

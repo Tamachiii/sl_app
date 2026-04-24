@@ -49,10 +49,22 @@ describe('BottomNav', () => {
     expect(screen.queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument();
   });
 
-  it('Students tab is not active when on a sub-route', () => {
+  it('Students tab is active on Students-section deep routes (WeekView, SessionEditor)', () => {
     renderBottomNav('/coach/student/s-1/week/w-1');
     const studentsLink = screen.getByRole('link', { name: /students/i });
-    expect(studentsLink).not.toHaveClass('text-primary');
+    expect(studentsLink).toHaveClass('text-[var(--color-accent)]');
+  });
+
+  it('Sessions tab is active on the review deep route', () => {
+    renderBottomNav('/coach/student/s-1/session/sess-1/review');
+    const sessionsLink = screen.getByRole('link', { name: /sessions/i });
+    expect(sessionsLink).toHaveClass('text-[var(--color-accent)]');
+  });
+
+  it('Students tab is NOT active on the review deep route', () => {
+    renderBottomNav('/coach/student/s-1/session/sess-1/review');
+    const studentsLink = screen.getByRole('link', { name: /students/i });
+    expect(studentsLink).not.toHaveClass('text-[var(--color-accent)]');
   });
 
   it('Home tab is not active when student is on a sub-route like /student/session/1', () => {

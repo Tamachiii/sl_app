@@ -40,12 +40,35 @@ const StatsIcon = (
   </svg>
 );
 
+// Under the Students tab, deep routes live at `/coach/student/:sid/week/…` and
+// `/coach/student/:sid/week/…/session/…`. Sessions-tab drill-down lives at
+// `/coach/student/:sid/session/…/review`. They share the `/coach/student/`
+// prefix, so a plain `end: false` NavLink match would light up both tabs at
+// once — instead each coach tab declares a `matches(pathname)` predicate that
+// distinguishes /week/ routes (Students) from /review routes (Sessions).
+const isCoachStudentsPath = (p) =>
+  p.startsWith('/coach/students') || /^\/coach\/student\/[^/]+\/week/.test(p);
+const isCoachSessionsPath = (p) =>
+  p.startsWith('/coach/sessions') || /^\/coach\/student\/[^/]+\/session\//.test(p);
+
 export function getNavItems(role, t) {
   if (role === 'coach') {
     return [
       { to: '/coach/dashboard', label: t('nav.dashboard'), icon: DashboardIcon, end: true },
-      { to: '/coach/students', label: t('nav.students'), icon: StudentsIcon, end: false },
-      { to: '/coach/sessions', label: t('nav.sessions'), icon: SessionsIcon, end: true },
+      {
+        to: '/coach/students',
+        label: t('nav.students'),
+        icon: StudentsIcon,
+        end: false,
+        matches: isCoachStudentsPath,
+      },
+      {
+        to: '/coach/sessions',
+        label: t('nav.sessions'),
+        icon: SessionsIcon,
+        end: true,
+        matches: isCoachSessionsPath,
+      },
       { to: '/coach/exercises', label: t('nav.library'), icon: LibraryIcon, end: true },
     ];
   }

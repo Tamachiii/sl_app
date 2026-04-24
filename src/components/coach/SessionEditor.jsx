@@ -24,10 +24,12 @@ import ExerciseSlotRow from './ExerciseSlotRow';
 import Spinner from '../ui/Spinner';
 import EditableText from '../ui/EditableText';
 import CopyDialog from '../ui/CopyDialog';
+import { useRememberCoachStudentsPath } from '../../hooks/useRememberCoachStudentsPath';
 
 export default function SessionEditor() {
-  const { sessionId, studentId } = useParams();
+  const { sessionId, studentId, weekId } = useParams();
   const navigate = useNavigate();
+  useRememberCoachStudentsPath();
   const { data: session, isLoading } = useSession(sessionId);
   const { data: library } = useExerciseLibrary();
   const addSlot = useAddSlot();
@@ -130,7 +132,7 @@ export default function SessionEditor() {
     <div className="p-4 pb-6 md:p-8 space-y-5">
       <div className="flex items-start gap-3">
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => navigate(`/coach/student/${studentId}/week/${weekId}`)}
           aria-label="Back"
           className="w-9 h-9 rounded-lg bg-ink-100 flex items-center justify-center text-ink-700 hover:bg-ink-200 shrink-0"
         >

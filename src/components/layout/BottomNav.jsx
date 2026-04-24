@@ -1,32 +1,38 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { getNavItems } from './navItems';
 
-function NavItem({ to, label, icon, end = false }) {
+function NavItem({ to, label, icon, end = false, matches }) {
+  const { pathname } = useLocation();
+  const customActive = matches ? matches(pathname) : null;
   return (
     <NavLink
       to={to}
       end={end}
-      className={({ isActive }) =>
-        `relative flex-1 flex flex-col items-center justify-center gap-1 py-2.5 transition-colors ${
-          isActive ? 'text-[var(--color-accent)]' : 'text-ink-400 hover:text-ink-700'
-        }`
-      }
+      className={({ isActive }) => {
+        const active = customActive ?? isActive;
+        return `relative flex-1 flex flex-col items-center justify-center gap-1 py-2.5 transition-colors ${
+          active ? 'text-[var(--color-accent)]' : 'text-ink-400 hover:text-ink-700'
+        }`;
+      }}
     >
-      {({ isActive }) => (
-        <>
-          {isActive && (
-            <span
-              aria-hidden="true"
-              className="absolute top-0 left-1/2 -translate-x-1/2 h-[2px] w-8 rounded-full"
-              style={{ background: 'var(--color-accent)' }}
-            />
-          )}
-          {icon}
-          <span className="sl-label text-[10px]">{label}</span>
-        </>
-      )}
+      {({ isActive }) => {
+        const active = customActive ?? isActive;
+        return (
+          <>
+            {active && (
+              <span
+                aria-hidden="true"
+                className="absolute top-0 left-1/2 -translate-x-1/2 h-[2px] w-8 rounded-full"
+                style={{ background: 'var(--color-accent)' }}
+              />
+            )}
+            {icon}
+            <span className="sl-label text-[10px]">{label}</span>
+          </>
+        );
+      }}
     </NavLink>
   );
 }

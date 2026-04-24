@@ -190,7 +190,7 @@ describe('WeekView', () => {
     // The onSuccess callback passed to mutate is what navigates; invoke it manually.
     const onSuccess = mockDeleteWeek.mutate.mock.calls[0][1].onSuccess;
     onSuccess();
-    expect(mockNavigate).toHaveBeenCalledWith(-1);
+    expect(mockNavigate).toHaveBeenCalledWith('/coach/students/s-1');
   });
 
   it('cancelling the delete-week dialog does not call deleteWeek', async () => {

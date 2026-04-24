@@ -15,6 +15,12 @@ import WeekTimeline from './WeekTimeline';
 import ProgramSwitcher from './ProgramSwitcher';
 import StudentGoalsSection from './StudentGoalsSection';
 import StudentStatsSection from './StudentStatsSection';
+import {
+  useRememberCoachStudentsPath,
+  getLastCoachStudentsPath,
+  clearLastCoachStudentsPath,
+  studentIdFromPath,
+} from '../../hooks/useRememberCoachStudentsPath';
 
 function initialsOf(fullName) {
   return (fullName || '')
@@ -222,9 +228,33 @@ export default function CoachHome() {
 
   const selected = (students || []).find((s) => s.id === studentId) || null;
 
+  // Persist the current Students-tab path so tabbing between sections drops
+  // the coach back into the same place — whether that was the student card,
+  // a week view, or the session editor.
+  useRememberCoachStudentsPath();
+
+  // Restore the last Students-tab path when landing on /coach/students with no
+  // param (nav tab click, fresh reload). Skip if the remembered student was
+  // removed so we don't bounce into a dead URL.
+  useEffect(() => {
+    if (studentId || isLoading) return;
+    const saved = getLastCoachStudentsPath();
+    if (!saved) return;
+    const savedStudentId = studentIdFromPath(saved);
+    if (!savedStudentId) return;
+    if (!(students || []).some((s) => s.id === savedStudentId)) return;
+    navigate(saved, { replace: true });
+  }, [studentId, isLoading, students, navigate]);
+
   function handleSelect(id) {
-    if (id) navigate(`/coach/students/${id}`);
-    else navigate('/coach/students');
+    if (id) {
+      navigate(`/coach/students/${id}`);
+    } else {
+      // Explicit "— Select a student —" pick → forget the saved path so we
+      // don't immediately re-redirect via the restore effect above.
+      clearLastCoachStudentsPath();
+      navigate('/coach/students');
+    }
   }
 
   return (

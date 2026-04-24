@@ -1,25 +1,29 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { getNavItems } from './navItems';
 
-function SideNavItem({ to, label, icon, end = false }) {
+function SideNavItem({ to, label, icon, end = false, matches }) {
+  const { pathname } = useLocation();
+  const customActive = matches ? matches(pathname) : null;
   return (
     <NavLink
       to={to}
       end={end}
-      className={({ isActive }) =>
-        `relative flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-          isActive
+      className={({ isActive }) => {
+        const active = customActive ?? isActive;
+        return `relative flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+          active
             ? 'text-[var(--color-accent)]'
             : 'text-ink-500 hover:text-ink-800 hover:bg-ink-50'
-        }`
-      }
-      style={({ isActive }) =>
-        isActive
+        }`;
+      }}
+      style={({ isActive }) => {
+        const active = customActive ?? isActive;
+        return active
           ? { background: 'color-mix(in srgb, var(--color-accent) 10%, transparent)' }
-          : undefined
-      }
+          : undefined;
+      }}
     >
       {icon}
       <span className="sl-display text-[14px] tracking-tight">{label}</span>

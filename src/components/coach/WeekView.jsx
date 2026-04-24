@@ -8,10 +8,12 @@ import EditableText from '../ui/EditableText';
 import CopyDialog from '../ui/CopyDialog';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import { useWeekConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
+import { useRememberCoachStudentsPath } from '../../hooks/useRememberCoachStudentsPath';
 
 export default function WeekView() {
   const { studentId, weekId } = useParams();
   const navigate = useNavigate();
+  useRememberCoachStudentsPath();
   const { data: week, isLoading } = useWeek(weekId);
   const createSession = useCreateSession();
   const deleteSession = useDeleteSession();
@@ -56,9 +58,15 @@ export default function WeekView() {
     );
   }
 
+  // Back goes to the student detail (the logical parent) rather than
+  // navigate(-1). Relying on browser history breaks when the coach arrived
+  // here via a tab-restore redirect — history's previous entry is whatever
+  // section they came from, not CoachHome.
+  const studentPath = `/coach/students/${studentId}`;
+
   function handleDeleteWeek() {
     deleteWeek.mutate(weekId, {
-      onSuccess: () => navigate(-1),
+      onSuccess: () => navigate(studentPath),
     });
   }
 
@@ -66,7 +74,7 @@ export default function WeekView() {
     <div className="p-4 pb-6 md:p-8 space-y-5">
       <div className="flex items-start gap-3">
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => navigate(studentPath)}
           aria-label="Back"
           className="w-9 h-9 rounded-lg bg-ink-100 flex items-center justify-center text-ink-700 hover:bg-ink-200 shrink-0"
         >
