@@ -8,6 +8,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 
 const LAST_COACH_SESSION_KEY = 'sl_last_coach_session';
+const LAST_SESSIONS_STUDENT_KEY = 'sl_last_coach_sessions_student';
 
 export default function SessionsFeed() {
   const { t } = useI18n();
@@ -34,6 +35,19 @@ export default function SessionsFeed() {
     );
     // Only run on mount — re-running on every render would fight the nested
     // route's own effects.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Restore the last-picked student filter on mount if the URL has none.
+  useEffect(() => {
+    if (studentFilter) return;
+    let saved = null;
+    try { saved = localStorage.getItem(LAST_SESSIONS_STUDENT_KEY); } catch { /* ignore */ }
+    if (!saved) return;
+    const next = new URLSearchParams(searchParams);
+    next.set('student', saved);
+    setSearchParams(next, { replace: true });
+    // Only run on mount — changes after mount flow through handleFilterChange.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -65,6 +79,10 @@ export default function SessionsFeed() {
     if (value) next.set('student', value);
     else next.delete('student');
     setSearchParams(next, { replace: true });
+    try {
+      if (value) localStorage.setItem(LAST_SESSIONS_STUDENT_KEY, value);
+      else localStorage.removeItem(LAST_SESSIONS_STUDENT_KEY);
+    } catch { /* ignore */ }
   }
 
   if (isLoading) {
