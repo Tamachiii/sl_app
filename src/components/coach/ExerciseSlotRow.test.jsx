@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { DndContext } from '@dnd-kit/core';
+import { SortableContext } from '@dnd-kit/sortable';
 import ExerciseSlotRow from './ExerciseSlotRow';
 
 const defaultSlot = {
@@ -15,47 +17,31 @@ const defaultSlot = {
 function renderSlotRow(props = {}) {
   const defaultProps = {
     slot: defaultSlot,
-    index: 1,
-    total: 3,
     onUpdate: vi.fn(),
     onDelete: vi.fn(),
-    onMove: vi.fn(),
     ...props,
   };
-  return { ...render(<ExerciseSlotRow {...defaultProps} />), props: defaultProps };
+  const result = render(
+    <DndContext>
+      <SortableContext items={[defaultProps.slot.id]}>
+        <ExerciseSlotRow {...defaultProps} />
+      </SortableContext>
+    </DndContext>
+  );
+  return { ...result, props: defaultProps };
 }
 
 describe('ExerciseSlotRow', () => {
-  it('renders exercise name and type', () => {
+  it('renders exercise name', () => {
     renderSlotRow();
     expect(screen.getByText('Pull Up')).toBeInTheDocument();
-    expect(screen.getByText('pull')).toBeInTheDocument();
   });
 
-  it('clicking move up calls onMove(-1)', async () => {
-    const user = userEvent.setup();
-    const { props } = renderSlotRow();
-
-    await user.click(screen.getByRole('button', { name: /move up/i }));
-    expect(props.onMove).toHaveBeenCalledWith(-1);
-  });
-
-  it('clicking move down calls onMove(1)', async () => {
-    const user = userEvent.setup();
-    const { props } = renderSlotRow();
-
-    await user.click(screen.getByRole('button', { name: /move down/i }));
-    expect(props.onMove).toHaveBeenCalledWith(1);
-  });
-
-  it('move up is disabled when index is 0', () => {
-    renderSlotRow({ index: 0 });
-    expect(screen.getByRole('button', { name: /move up/i })).toBeDisabled();
-  });
-
-  it('move down is disabled when index is last', () => {
-    renderSlotRow({ index: 2, total: 3 });
-    expect(screen.getByRole('button', { name: /move down/i })).toBeDisabled();
+  it('renders a drag handle for reordering', () => {
+    renderSlotRow();
+    expect(
+      screen.getByRole('button', { name: /reorder pull up/i })
+    ).toBeInTheDocument();
   });
 
   it('clicking delete opens a confirm dialog and confirming calls onDelete', async () => {

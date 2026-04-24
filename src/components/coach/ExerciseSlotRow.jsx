@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
+import { useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import ConfirmDialog from '../ui/ConfirmDialog';
 
-export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete, onMove, children }) {
+export default function ExerciseSlotRow({ slot, onUpdate, onDelete, children }) {
   const ex = slot.exercise;
   const isTimeBased = slot.duration_seconds != null;
   const [sets, setSets] = useState(slot.sets);
@@ -13,6 +15,21 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
   const [showNotes, setShowNotes] = useState(!!slot.notes);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const videoSets = Array.isArray(slot.record_video_set_numbers) ? slot.record_video_set_numbers : [];
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: slot.id });
+
+  const sortableStyle = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
 
   useEffect(() => {
     setSets(slot.sets);
@@ -69,42 +86,29 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
     'w-full rounded-lg border border-ink-200 bg-white px-2 py-1.5 sl-mono text-[16px] text-center text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
 
   return (
-    <div className="sl-card p-4 space-y-3">
+    <div ref={setNodeRef} style={sortableStyle} className="sl-card p-4 space-y-3">
       <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="sl-display text-[16px] text-gray-900">{ex.name}</span>
-            <span
-              className={`sl-pill ${
-                ex.type === 'pull' ? 'bg-pull/15 text-pull' : 'bg-push/15 text-push'
-              }`}
-            >
-              {ex.type}
-            </span>
-            <span className="sl-mono text-[10px] text-ink-400">D{ex.difficulty}</span>
-          </div>
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <button
+            type="button"
+            {...attributes}
+            {...listeners}
+            aria-label={`Reorder ${ex.name}`}
+            className="shrink-0 px-1 text-ink-400 hover:text-gray-700 cursor-grab active:cursor-grabbing touch-none"
+          >
+            <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true">
+              <circle cx="2.5" cy="3" r="1.25" />
+              <circle cx="7.5" cy="3" r="1.25" />
+              <circle cx="2.5" cy="8" r="1.25" />
+              <circle cx="7.5" cy="8" r="1.25" />
+              <circle cx="2.5" cy="13" r="1.25" />
+              <circle cx="7.5" cy="13" r="1.25" />
+            </svg>
+          </button>
+          <span className="sl-display text-[16px] text-gray-900 truncate">{ex.name}</span>
+          <span className="sl-mono text-[10px] text-ink-400 shrink-0">D{ex.difficulty}</span>
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
-          <button
-            onClick={() => onMove(-1)}
-            disabled={index === 0}
-            aria-label="Move up"
-            className="w-7 h-7 rounded-md flex items-center justify-center text-ink-400 hover:bg-ink-100 hover:text-gray-700 disabled:opacity-30"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-            </svg>
-          </button>
-          <button
-            onClick={() => onMove(1)}
-            disabled={index === total - 1}
-            aria-label="Move down"
-            className="w-7 h-7 rounded-md flex items-center justify-center text-ink-400 hover:bg-ink-100 hover:text-gray-700 disabled:opacity-30"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
           <button
             onClick={() => setConfirmDelete(true)}
             aria-label="Remove exercise"
@@ -197,12 +201,7 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="sl-label text-ink-400 flex items-center gap-1">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-          </svg>
-          Record sets
-        </span>
+        <span className="sl-label text-ink-400">Record</span>
         <div className="flex gap-1 flex-wrap">
           {Array.from({ length: Number(sets) || 0 }, (_, i) => i + 1).map((n) => {
             const active = videoSets.includes(n);
@@ -212,7 +211,7 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
                 type="button"
                 onClick={() => toggleVideoSet(n)}
                 aria-pressed={active}
-                className="sl-mono text-[11px] rounded-full w-6 h-6 flex items-center justify-center border transition-colors"
+                className="sl-mono text-[11px] rounded-md w-7 h-6 flex items-center justify-center border transition-colors"
                 style={
                   active
                     ? {

@@ -1,5 +1,20 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import {
+  DndContext,
+  PointerSensor,
+  TouchSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  sortableKeyboardCoordinates,
+  arrayMove,
+} from '@dnd-kit/sortable';
 import { useSession, useAddSlot, useUpdateSlot, useDeleteSlot } from '../../hooks/useSession';
 import { useUpdateSession } from '../../hooks/useWeek';
 import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
@@ -29,6 +44,12 @@ export default function SessionEditor() {
 
   const slots = session?.exercise_slots || [];
   const slotGroups = useMemo(() => groupSlotsBySuperset(slots), [slots]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   if (isLoading) {
     return <div className="flex justify-center py-12"><Spinner /></div>;
@@ -81,20 +102,24 @@ export default function SessionEditor() {
     );
   }
 
-  async function handleMoveSlot(index, direction) {
-    const target = index + direction;
-    if (target < 0 || target >= slots.length) return;
-    // Rebuild the full order and renumber 0..n-1 so the write is safe even if
-    // legacy data has tied sort_orders (a pair-swap would be a no-op there).
-    // There's no UNIQUE(session_id, sort_order) index so parallel updates are fine.
-    const reordered = [...slots];
-    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+  async function handleDragEnd(event) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = slots.findIndex((s) => s.id === active.id);
+    const newIdx = slots.findIndex((s) => s.id === over.id);
+    if (oldIdx === -1 || newIdx === -1) return;
+    // Renumber 0..n-1 so the write is safe even if legacy data has tied
+    // sort_orders. No UNIQUE(session_id, sort_order) index → parallel updates
+    // are fine.
+    const reordered = arrayMove(slots, oldIdx, newIdx);
     await Promise.all(
-      reordered.map((slot, i) =>
-        slot.sort_order === i
-          ? null
-          : updateSlot.mutateAsync({ id: slot.id, sessionId, sort_order: i })
-      ).filter(Boolean)
+      reordered
+        .map((slot, i) =>
+          slot.sort_order === i
+            ? null
+            : updateSlot.mutateAsync({ id: slot.id, sessionId, sort_order: i })
+        )
+        .filter(Boolean)
     );
   }
 
@@ -156,52 +181,55 @@ export default function SessionEditor() {
         />
       </div>
 
-      <div className="space-y-3">
-        {(() => {
-          let flatIdx = 0;
-          return slotGroups.map((group) => {
-            const startIdx = flatIdx;
-            flatIdx += group.slots.length;
-            const renderRow = (slot, j) => (
-              <ExerciseSlotRow
-                key={slot.id}
-                slot={slot}
-                index={startIdx + j}
-                total={slots.length}
-                onUpdate={(updates) => updateSlot.mutate({ id: slot.id, sessionId, ...updates })}
-                onDelete={() => deleteSlot.mutate({ id: slot.id, sessionId })}
-                onMove={(dir) => handleMoveSlot(startIdx + j, dir)}
-              />
-            );
-            if (group.slots.length > 1) {
-              return (
-                <div
-                  key={group.key}
-                  className="rounded-xl border p-2 space-y-2"
-                  style={{
-                    borderColor: 'color-mix(in srgb, var(--color-accent) 35%, transparent)',
-                    background: 'color-mix(in srgb, var(--color-accent) 6%, transparent)',
-                  }}
-                >
-                  <div className="flex items-center justify-between px-2 pt-1">
-                    <span className="sl-label" style={{ color: 'var(--color-accent)' }}>
-                      Superset
-                    </span>
-                    <button
-                      onClick={() => handleUnlinkSuperset(group.key)}
-                      className="sl-mono text-[11px] text-ink-400 hover:text-danger underline"
-                    >
-                      unlink
-                    </button>
-                  </div>
-                  {group.slots.map(renderRow)}
-                </div>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext
+          items={slots.map((s) => s.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          <div className="space-y-3">
+            {slotGroups.map((group) => {
+              const renderRow = (slot) => (
+                <ExerciseSlotRow
+                  key={slot.id}
+                  slot={slot}
+                  onUpdate={(updates) => updateSlot.mutate({ id: slot.id, sessionId, ...updates })}
+                  onDelete={() => deleteSlot.mutate({ id: slot.id, sessionId })}
+                />
               );
-            }
-            return renderRow(group.slots[0], 0);
-          });
-        })()}
-      </div>
+              if (group.slots.length > 1) {
+                return (
+                  <div
+                    key={group.key}
+                    className="rounded-xl border p-2 space-y-2"
+                    style={{
+                      borderColor: 'color-mix(in srgb, var(--color-accent) 35%, transparent)',
+                      background: 'color-mix(in srgb, var(--color-accent) 6%, transparent)',
+                    }}
+                  >
+                    <div className="flex items-center justify-between px-2 pt-1">
+                      <span className="sl-label" style={{ color: 'var(--color-accent)' }}>
+                        Superset
+                      </span>
+                      <button
+                        onClick={() => handleUnlinkSuperset(group.key)}
+                        className="sl-mono text-[11px] text-ink-400 hover:text-danger underline"
+                      >
+                        unlink
+                      </button>
+                    </div>
+                    {group.slots.map(renderRow)}
+                  </div>
+                );
+              }
+              return renderRow(group.slots[0]);
+            })}
+          </div>
+        </SortableContext>
+      </DndContext>
 
       {showAdd ? (
         <div className="sl-card p-4 space-y-3">
