@@ -1,7 +1,27 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
+
+// Render both panels side-by-side on md+ (desktop split), one at a time on
+// mobile (step-based welcome → form flow). We gate on JS matchMedia rather
+// than CSS-only `hidden md:flex` so that only one "Sign In" button is in the
+// DOM at a time on mobile — tests (jsdom has no Tailwind CSS loaded) count on
+// that to disambiguate the CTA from the submit button.
+function useIsDesktop() {
+  const query = '(min-width: 768px)';
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia(query).matches,
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const mq = window.matchMedia(query);
+    const handler = (e) => setIsDesktop(e.matches);
+    mq.addEventListener?.('change', handler);
+    return () => mq.removeEventListener?.('change', handler);
+  }, []);
+  return isDesktop;
+}
 
 function ArrowRight({ size = 20 }) {
   return (
@@ -52,6 +72,7 @@ const inputStyle = {
 export default function LoginPage() {
   const { user, role, signIn } = useAuth();
   const { t } = useI18n();
+  const isDesktop = useIsDesktop();
   const [step, setStep] = useState('welcome');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -72,6 +93,12 @@ export default function LoginPage() {
   }
 
   const isWelcome = step === 'welcome';
+  const showHero = isDesktop || isWelcome;
+  const showForm = isDesktop || !isWelcome;
+  const panelPadding = {
+    paddingTop: 'calc(52px + env(safe-area-inset-top))',
+    paddingBottom: 'calc(32px + env(safe-area-inset-bottom))',
+  };
 
   return (
     <div
@@ -94,22 +121,122 @@ export default function LoginPage() {
         }}
       />
 
-      <div
-        className="relative mx-auto flex h-full w-full max-w-md flex-col px-7"
-        style={{
-          zIndex: 1,
-          paddingTop: 'calc(52px + env(safe-area-inset-top))',
-          paddingBottom: 'calc(32px + env(safe-area-inset-bottom))',
-        }}
-      >
-        <div
-          className="flex items-center gap-2.5"
-          style={{
-            marginTop: isWelcome ? 40 : 24,
-            marginBottom: isWelcome ? 'clamp(32px, 10vh, 80px)' : 24,
-          }}
+      <div className="relative h-full mx-auto w-full md:grid md:grid-cols-2 md:max-w-6xl">
+        {/* HERO PANEL — always on desktop, only on welcome step on mobile */}
+        {showHero && (
+        <section
+          className="h-full flex flex-col px-7 md:px-12 lg:px-16"
+          style={{ zIndex: 1, ...panelPadding }}
         >
-          {!isWelcome && (
+          <div
+            className="flex items-center gap-2.5"
+            style={{
+              marginTop: 40,
+              marginBottom: 'clamp(32px, 10vh, 80px)',
+            }}
+          >
+            <div
+              className="flex items-center justify-center"
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 6,
+                background: 'var(--color-accent)',
+              }}
+            >
+              <div
+                style={{
+                  width: 14,
+                  height: 14,
+                  borderRadius: 3,
+                  background: 'var(--color-ink-900)',
+                }}
+              />
+            </div>
+            <div
+              style={{
+                fontFamily: 'var(--font-display)',
+                fontWeight: 800,
+                fontSize: 16,
+                letterSpacing: '-0.02em',
+                color: 'var(--color-ink-50)',
+              }}
+            >
+              Street Lifting App
+            </div>
+          </div>
+
+          <div
+            className="sl-label"
+            style={{ marginBottom: 14, color: 'var(--color-ink-400)' }}
+          >
+            COACHING · STREET LIFTING · STREET WORKOUT
+          </div>
+
+          <h1
+            className="sl-display"
+            style={{
+              fontSize: 'clamp(40px, 8vw, 76px)',
+              lineHeight: 0.92,
+              color: 'var(--color-ink-0)',
+            }}
+          >
+            Become
+            <br />
+            a big monster
+            <br />
+            like
+            <br />
+            Tony.
+          </h1>
+
+          <p
+            style={{
+              marginTop: 'clamp(16px, 4vh, 28px)',
+              fontSize: 14,
+              lineHeight: 1.5,
+              maxWidth: 280,
+              color: 'var(--color-ink-300)',
+            }}
+          >
+            Your coach programs the work. You log every set, rep and RPE. Progress stays honest.
+          </p>
+
+          <div className="flex-1" style={{ minHeight: 24 }} />
+
+          {/* Mobile-only CTA + footer. On desktop the form panel owns these. */}
+          <div className="md:hidden">
+            <button
+              type="button"
+              onClick={() => setStep('form')}
+              className="sl-btn-primary w-full transition active:scale-[0.98]"
+              style={{ padding: '18px 20px', justifyContent: 'space-between' }}
+            >
+              <span>{t('login.signIn')}</span>
+              <ArrowRight />
+            </button>
+            <div
+              className="flex justify-between sl-mono"
+              style={{ marginTop: 24, fontSize: 10, color: 'var(--color-ink-500)' }}
+            >
+              <span>EST. 2026</span>
+              <span>BUILT FOR THE BAR</span>
+            </div>
+          </div>
+        </section>
+        )}
+
+        {/* FORM PANEL — always on desktop, only on form step on mobile */}
+        {showForm && (
+        <section
+          className="h-full flex flex-col px-7 md:px-12 lg:px-16"
+          style={{ zIndex: 1, ...panelPadding }}
+        >
+          {/* Mobile-only top bar: back button + brand. Desktop shows brand in the hero panel only. */}
+          <div
+            className="md:hidden flex items-center gap-2.5"
+            style={{ marginTop: 24, marginBottom: 24 }}
+          >
             <button
               type="button"
               onClick={() => {
@@ -129,112 +256,84 @@ export default function LoginPage() {
             >
               <ArrowLeft />
             </button>
-          )}
-          <div
-            className="flex items-center justify-center"
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: 6,
-              background: 'var(--color-accent)',
-            }}
-          >
+            <div
+              className="flex items-center justify-center"
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 6,
+                background: 'var(--color-accent)',
+              }}
+            >
+              <div
+                style={{
+                  width: 14,
+                  height: 14,
+                  borderRadius: 3,
+                  background: 'var(--color-ink-900)',
+                }}
+              />
+            </div>
             <div
               style={{
-                width: 14,
-                height: 14,
-                borderRadius: 3,
-                background: 'var(--color-ink-900)',
+                fontFamily: 'var(--font-display)',
+                fontWeight: 800,
+                fontSize: 16,
+                letterSpacing: '-0.02em',
+                color: 'var(--color-ink-50)',
               }}
-            />
-          </div>
-          <div
-            style={{
-              fontFamily: 'var(--font-display)',
-              fontWeight: 800,
-              fontSize: 16,
-              letterSpacing: '-0.02em',
-              color: 'var(--color-ink-50)',
-            }}
-          >
-            Street Lifting App
-          </div>
-        </div>
-
-        {isWelcome ? (
-          <>
-            <div
-              className="sl-label"
-              style={{ marginBottom: 14, color: 'var(--color-ink-400)' }}
             >
-              COACHING · STREET LIFTING · STREET WORKOUT
+              Street Lifting App
+            </div>
+          </div>
+
+          {/* On desktop we vertically center the form inside the panel. On mobile it sits at the bottom below the spacer. */}
+          <div className="flex-1 md:flex md:flex-col md:justify-center">
+            <div className="hidden md:block">
+              <div
+                className="sl-label"
+                style={{ marginBottom: 10, color: 'var(--color-ink-400)' }}
+              >
+                {t('login.kicker')}
+              </div>
+              <h1
+                className="sl-display"
+                style={{
+                  fontSize: 'clamp(32px, 5vw, 52px)',
+                  lineHeight: 0.95,
+                  color: 'var(--color-ink-0)',
+                  marginBottom: 'clamp(20px, 4vh, 40px)',
+                }}
+              >
+                {t('login.title')}
+              </h1>
             </div>
 
-            <h1
-              className="sl-display"
-              style={{
-                fontSize: 'clamp(40px, 13vw, 64px)',
-                lineHeight: 0.92,
-                color: 'var(--color-ink-0)',
-              }}
-            >
-              Become
-              <br />
-              a big monster
-              <br />
-              like
-              <br />
-              Tony.
-            </h1>
-
-            <p
-              style={{
-                marginTop: 'clamp(16px, 4vh, 28px)',
-                fontSize: 14,
-                lineHeight: 1.5,
-                maxWidth: 280,
-                color: 'var(--color-ink-300)',
-              }}
-            >
-              Your coach programs the work. You log every set, rep and RPE. Progress stays honest.
-            </p>
-          </>
-        ) : (
-          <>
-            <div
-              className="sl-label"
-              style={{ marginBottom: 10, color: 'var(--color-ink-400)' }}
-            >
-              {t('login.kicker')}
+            <div className="md:hidden">
+              <div
+                className="sl-label"
+                style={{ marginBottom: 10, color: 'var(--color-ink-400)' }}
+              >
+                {t('login.kicker')}
+              </div>
+              <h1
+                className="sl-display"
+                style={{
+                  fontSize: 'clamp(32px, 10vw, 44px)',
+                  lineHeight: 0.95,
+                  color: 'var(--color-ink-0)',
+                }}
+              >
+                {t('login.title')}
+              </h1>
+              <div style={{ minHeight: 24 }} />
             </div>
-            <h1
-              className="sl-display"
-              style={{
-                fontSize: 'clamp(32px, 10vw, 44px)',
-                lineHeight: 0.95,
-                color: 'var(--color-ink-0)',
-              }}
-            >
-              {t('login.title')}
-            </h1>
-          </>
-        )}
 
-        <div className="flex-1" style={{ minHeight: 24 }} />
-
-        <div>
-          {isWelcome ? (
-            <button
-              type="button"
-              onClick={() => setStep('form')}
-              className="sl-btn-primary w-full transition active:scale-[0.98]"
-              style={{ padding: '18px 20px', justifyContent: 'space-between' }}
+            <form
+              onSubmit={handleSubmit}
+              className="space-y-3 w-full"
+              style={{ maxWidth: 440 }}
             >
-              <span>{t('login.signIn')}</span>
-              <ArrowRight />
-            </button>
-          ) : (
-            <form onSubmit={handleSubmit} className="space-y-3">
               {error && (
                 <div
                   role="alert"
@@ -298,7 +397,7 @@ export default function LoginPage() {
                 <ArrowRight />
               </button>
             </form>
-          )}
+          </div>
 
           <div
             className="flex justify-between sl-mono"
@@ -307,7 +406,8 @@ export default function LoginPage() {
             <span>EST. 2026</span>
             <span>BUILT FOR THE BAR</span>
           </div>
-        </div>
+        </section>
+        )}
       </div>
     </div>
   );
