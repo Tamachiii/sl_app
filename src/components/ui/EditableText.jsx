@@ -62,7 +62,7 @@ export default function EditableText({
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         aria-label={ariaLabel || 'Edit title'}
-        className={`rounded border border-primary bg-white px-2 py-0.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary ${inputClassName}`}
+        className={`rounded border border-primary bg-white px-2 py-0.5 text-[16px] focus:outline-none focus:ring-2 focus:ring-primary ${inputClassName}`}
       />
     );
   }

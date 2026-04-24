@@ -55,7 +55,7 @@ export default function ExerciseProgressChart({ exercises, byExercise }) {
         <select
           value={selectedId}
           onChange={(e) => setSelectedId(e.target.value)}
-          className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-display text-[14px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+          className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-display text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
         >
           {exercises.map((ex) => (
             <option key={ex.id} value={ex.id}>

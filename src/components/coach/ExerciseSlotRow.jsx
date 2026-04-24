@@ -66,7 +66,7 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
   }
 
   const inputCls =
-    'w-full rounded-lg border border-ink-200 bg-white px-2 py-1.5 sl-mono text-[13px] text-center text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
+    'w-full rounded-lg border border-ink-200 bg-white px-2 py-1.5 sl-mono text-[16px] text-center text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
 
   return (
     <div className="sl-card p-4 space-y-3">
@@ -251,7 +251,7 @@ export default function ExerciseSlotRow({ slot, index, total, onUpdate, onDelete
             onBlur={handleNotesBlur}
             placeholder="e.g. keep elbows tucked, focus on the negative…"
             rows={2}
-            className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[13px] text-gray-900 resize-none focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+            className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[16px] text-gray-900 resize-none focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
           />
         </div>
       ) : (

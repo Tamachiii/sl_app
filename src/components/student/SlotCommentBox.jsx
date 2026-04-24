@@ -77,7 +77,7 @@ export default function SlotCommentBox({ sessionId, slotId, comment, locked = fa
       onBlur={handleBlur}
       rows={2}
       placeholder="Note for your coach…"
-      className="w-full mt-1 rounded-lg border border-gray-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary"
+      className="w-full mt-1 rounded-lg border border-gray-300 px-2 py-1.5 text-[16px] focus:outline-none focus:ring-2 focus:ring-primary"
     />
   );
 }

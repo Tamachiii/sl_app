@@ -232,7 +232,7 @@ export default function SessionView() {
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Optional notes for your coach…"
                 rows={3}
-                className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[14px] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[16px] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
               />
               <button
                 onClick={handleConfirm}

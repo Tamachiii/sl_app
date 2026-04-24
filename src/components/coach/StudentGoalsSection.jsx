@@ -21,7 +21,7 @@ const EMPTY_FORM = {
 };
 
 const inputCls =
-  'w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-mono text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
+  'w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
 
 export default function StudentGoalsSection({ studentId }) {
   const { t } = useI18n();

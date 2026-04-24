@@ -40,7 +40,7 @@ function ArrowLeft({ size = 18 }) {
 }
 
 const inputCls =
-  'w-full rounded-lg px-3 py-3 sl-mono text-[13px] focus:outline-none focus:ring-2';
+  'w-full rounded-lg px-3 py-3 sl-mono text-[16px] focus:outline-none focus:ring-2';
 
 const inputStyle = {
   background: 'var(--color-ink-850)',

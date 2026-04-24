@@ -14,7 +14,7 @@ import { useI18n } from '../../hooks/useI18n';
 const TYPE_FILTERS = ['all', 'pull', 'push'];
 
 const inputCls =
-  'w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-mono text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
+  'w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
 
 function FilterPill({ label, active, onClick }) {
   return (
@@ -192,7 +192,7 @@ export default function ExerciseLibrary() {
                   placeholder={t('coach.library.search')}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="w-full rounded-lg border border-ink-200 bg-white pl-9 pr-3 py-2 sl-mono text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                  className="w-full rounded-lg border border-ink-200 bg-white pl-9 pr-3 py-2 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
                 />
               </div>
             )}
