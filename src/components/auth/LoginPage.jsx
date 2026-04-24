@@ -21,6 +21,24 @@ function ArrowRight({ size = 20 }) {
   );
 }
 
+function ArrowLeft({ size = 18 }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M19 12H5M11 18l-6-6 6-6" />
+    </svg>
+  );
+}
+
 const inputCls =
   'w-full rounded-lg px-3 py-3 sl-mono text-[13px] focus:outline-none focus:ring-2';
 
@@ -53,9 +71,11 @@ export default function LoginPage() {
     setLoading(false);
   }
 
+  const isWelcome = step === 'welcome';
+
   return (
     <div
-      className="relative h-full overflow-y-auto overflow-x-hidden"
+      className="relative h-full overflow-hidden"
       style={{ background: 'var(--color-ink-900)', color: 'var(--color-ink-50)' }}
     >
       <div
@@ -75,17 +95,41 @@ export default function LoginPage() {
       />
 
       <div
-        className="relative mx-auto flex min-h-full w-full max-w-md flex-col px-7"
+        className="relative mx-auto flex h-full w-full max-w-md flex-col px-7"
         style={{
           zIndex: 1,
           paddingTop: 'calc(52px + env(safe-area-inset-top))',
-          paddingBottom: 'calc(48px + env(safe-area-inset-bottom))',
+          paddingBottom: 'calc(32px + env(safe-area-inset-bottom))',
         }}
       >
         <div
           className="flex items-center gap-2.5"
-          style={{ marginTop: 40, marginBottom: 'clamp(32px, 10vh, 80px)' }}
+          style={{
+            marginTop: isWelcome ? 40 : 24,
+            marginBottom: isWelcome ? 'clamp(32px, 10vh, 80px)' : 24,
+          }}
         >
+          {!isWelcome && (
+            <button
+              type="button"
+              onClick={() => {
+                setStep('welcome');
+                setError('');
+              }}
+              aria-label={t('common.back')}
+              className="flex items-center justify-center rounded-lg transition active:scale-95"
+              style={{
+                width: 32,
+                height: 32,
+                marginRight: 4,
+                background: 'var(--color-ink-850)',
+                color: 'var(--color-ink-100)',
+                border: '1px solid var(--color-ink-700)',
+              }}
+            >
+              <ArrowLeft />
+            </button>
+          )}
           <div
             className="flex items-center justify-center"
             style={{
@@ -117,46 +161,69 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <div
-          className="sl-label"
-          style={{ marginBottom: 14, color: 'var(--color-ink-400)' }}
-        >
-          COACHING · STREET LIFTING · STREET WORKOUT
-        </div>
+        {isWelcome ? (
+          <>
+            <div
+              className="sl-label"
+              style={{ marginBottom: 14, color: 'var(--color-ink-400)' }}
+            >
+              COACHING · STREET LIFTING · STREET WORKOUT
+            </div>
 
-        <h1
-          className="sl-display"
-          style={{
-            fontSize: 'clamp(40px, 13vw, 64px)',
-            lineHeight: 0.92,
-            color: 'var(--color-ink-0)',
-          }}
-        >
-          Become
-          <br />
-          a big monster
-          <br />
-          like
-          <br />
-          Tony.
-        </h1>
+            <h1
+              className="sl-display"
+              style={{
+                fontSize: 'clamp(40px, 13vw, 64px)',
+                lineHeight: 0.92,
+                color: 'var(--color-ink-0)',
+              }}
+            >
+              Become
+              <br />
+              a big monster
+              <br />
+              like
+              <br />
+              Tony.
+            </h1>
 
-        <p
-          style={{
-            marginTop: 'clamp(16px, 4vh, 28px)',
-            fontSize: 14,
-            lineHeight: 1.5,
-            maxWidth: 280,
-            color: 'var(--color-ink-300)',
-          }}
-        >
-          Your coach programs the work. You log every set, rep and RPE. Progress stays honest.
-        </p>
+            <p
+              style={{
+                marginTop: 'clamp(16px, 4vh, 28px)',
+                fontSize: 14,
+                lineHeight: 1.5,
+                maxWidth: 280,
+                color: 'var(--color-ink-300)',
+              }}
+            >
+              Your coach programs the work. You log every set, rep and RPE. Progress stays honest.
+            </p>
+          </>
+        ) : (
+          <>
+            <div
+              className="sl-label"
+              style={{ marginBottom: 10, color: 'var(--color-ink-400)' }}
+            >
+              {t('login.kicker')}
+            </div>
+            <h1
+              className="sl-display"
+              style={{
+                fontSize: 'clamp(32px, 10vw, 44px)',
+                lineHeight: 0.95,
+                color: 'var(--color-ink-0)',
+              }}
+            >
+              {t('login.title')}
+            </h1>
+          </>
+        )}
 
-        <div className="flex-1" style={{ minHeight: 32 }} />
+        <div className="flex-1" style={{ minHeight: 24 }} />
 
         <div>
-          {step === 'welcome' ? (
+          {isWelcome ? (
             <button
               type="button"
               onClick={() => setStep('form')}
