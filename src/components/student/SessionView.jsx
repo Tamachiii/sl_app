@@ -10,6 +10,7 @@ import {
   useUnconfirmSession,
 } from '../../hooks/useSessionConfirmation';
 import Spinner from '../ui/Spinner';
+import Dialog from '../ui/Dialog';
 import { groupSlotsBySuperset } from '../../lib/volume';
 import { DAY_FULL } from '../../lib/day';
 import SlotGroupCard from './SlotGroupCard';
@@ -56,6 +57,7 @@ export default function SessionView() {
   const unconfirmSession = useUnconfirmSession();
 
   const [notes, setNotes] = useState('');
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState({});
 
   useEffect(() => {
@@ -111,7 +113,10 @@ export default function SessionView() {
 
   function handleConfirm() {
     confirmSession.mutate({ sessionId, notes: notes.trim() || null }, {
-      onSuccess: () => setNotes(''),
+      onSuccess: () => {
+        setNotes('');
+        setConfirmDialogOpen(false);
+      },
     });
   }
 
@@ -229,19 +234,8 @@ export default function SessionView() {
                   Let your coach know you've completed this session.
                 </p>
               </div>
-              <label htmlFor="confirm-notes" className="sr-only">
-                Notes for your coach
-              </label>
-              <textarea
-                id="confirm-notes"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Optional notes for your coach…"
-                rows={3}
-                className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[16px] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-              />
               <button
-                onClick={handleConfirm}
+                onClick={() => setConfirmDialogOpen(true)}
                 disabled={confirmSession.isPending}
                 className="sl-btn-primary w-full text-[13px] disabled:opacity-50"
                 style={{ padding: '10px 16px' }}
@@ -252,6 +246,46 @@ export default function SessionView() {
           )}
         </div>
       )}
+
+      <Dialog
+        open={confirmDialogOpen}
+        onClose={() => {
+          if (!confirmSession.isPending) setConfirmDialogOpen(false);
+        }}
+        title="Confirm session"
+      >
+        <p className="sl-mono text-[12px] text-ink-400 mb-3 leading-relaxed">
+          Add an optional note for your coach before confirming.
+        </p>
+        <label htmlFor="confirm-notes" className="sr-only">
+          Notes for your coach
+        </label>
+        <textarea
+          id="confirm-notes"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Optional notes for your coach…"
+          rows={4}
+          className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[16px] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] mb-4"
+        />
+        <div className="flex gap-2">
+          <button
+            onClick={handleConfirm}
+            disabled={confirmSession.isPending}
+            className="flex-1 rounded-lg py-2.5 sl-display text-[13px] text-white disabled:opacity-50"
+            style={{ background: 'var(--color-accent)' }}
+          >
+            {confirmSession.isPending ? 'Confirming…' : 'Confirm'}
+          </button>
+          <button
+            onClick={() => setConfirmDialogOpen(false)}
+            disabled={confirmSession.isPending}
+            className="flex-1 bg-ink-100 text-ink-700 rounded-lg py-2.5 sl-display text-[13px] hover:bg-ink-200 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        </div>
+      </Dialog>
     </div>
   );
 }

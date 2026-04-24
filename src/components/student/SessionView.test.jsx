@@ -116,19 +116,36 @@ describe('SessionView', () => {
     expect(screen.getByRole('button', { name: /confirm session/i })).toBeInTheDocument();
   });
 
-  it('clicking Confirm session calls useConfirmSession with notes', async () => {
+  it('opens confirm dialog, types notes, and calls useConfirmSession', async () => {
     const user = userEvent.setup();
     mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
     mockSetLogsData = { data: [], isLoading: false };
     renderSessionView();
 
-    await user.type(screen.getByLabelText(/notes for your coach/i), 'felt strong');
+    // Notes textarea is hidden until the Student opens the confirm dialog.
+    expect(screen.queryByLabelText(/notes for your coach/i)).toBeNull();
+
     await user.click(screen.getByRole('button', { name: /^confirm session$/i }));
+    await user.type(screen.getByLabelText(/notes for your coach/i), 'felt strong');
+    await user.click(screen.getByRole('button', { name: /^confirm$/i }));
 
     expect(mockConfirm.mutate).toHaveBeenCalledWith(
       { sessionId: 'sess-1', notes: 'felt strong' },
       expect.any(Object)
     );
+  });
+
+  it('cancel in confirm dialog closes it without calling useConfirmSession', async () => {
+    const user = userEvent.setup();
+    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
+    mockSetLogsData = { data: [], isLoading: false };
+    renderSessionView();
+
+    await user.click(screen.getByRole('button', { name: /^confirm session$/i }));
+    expect(screen.getByLabelText(/notes for your coach/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /^cancel$/i }));
+    expect(mockConfirm.mutate).not.toHaveBeenCalled();
   });
 
   it('displays coach note when slot has notes', () => {
