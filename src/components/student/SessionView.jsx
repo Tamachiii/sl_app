@@ -64,6 +64,28 @@ export default function SessionView() {
     }
   }, [sessionId, slots.length, logs !== undefined]);
 
+  // Auto-open only the first group that still has incomplete sets (or whose
+  // logs haven't been ensured yet). Once the user finishes the last set of
+  // group N, the next group with incomplete work auto-expands.
+  const firstOpenIdx = useMemo(() => {
+    for (let i = 0; i < slotGroups.length; i++) {
+      const gl = slotGroups[i].slots.flatMap((s) =>
+        (logs || []).filter((l) => l.exercise_slot_id === s.id)
+      );
+      if (gl.length === 0 || gl.some((l) => !l.done)) return i;
+    }
+    return -1;
+  }, [slotGroups, logs]);
+
+  // Manual open/close overrides are single-shot: once the natural auto-open
+  // target shifts (e.g. student cancels/undoes a set, or finishes the last
+  // set of the current group), drop the overrides so auto-open/close resumes.
+  // Without this reset, revisiting a completed group and then reverting state
+  // would leave `manualOpen` sticky and starve subsequent auto transitions.
+  useEffect(() => {
+    setManualOpen({});
+  }, [firstOpenIdx]);
+
   if (sessLoading || logsLoading) {
     return <div className="flex justify-center py-12"><Spinner /></div>;
   }
@@ -72,22 +94,6 @@ export default function SessionView() {
     return (logs || [])
       .filter((l) => l.exercise_slot_id === slotId)
       .sort((a, b) => a.set_number - b.set_number);
-  }
-
-  function getGroupLogs(group) {
-    return group.slots.flatMap((s) => getLogsForSlot(s.id));
-  }
-
-  // Auto-open only the first group that still has incomplete sets (or whose
-  // logs haven't been ensured yet). Once the user finishes the last set of
-  // group N, the next group with incomplete work auto-expands.
-  let firstOpenIdx = -1;
-  for (let i = 0; i < slotGroups.length; i++) {
-    const gl = getGroupLogs(slotGroups[i]);
-    if (gl.length === 0 || gl.some((l) => !l.done)) {
-      firstOpenIdx = i;
-      break;
-    }
   }
 
   function isGroupOpen(group, idx) {

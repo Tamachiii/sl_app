@@ -252,6 +252,62 @@ describe('SessionView', () => {
     expect(set1Nodes).toHaveLength(1);
   });
 
+  it('drops manual override after state-reverting action so auto-open resumes', async () => {
+    const user = userEvent.setup();
+    const slots = [
+      {
+        id: 'slot-1',
+        sets: 1,
+        reps: 10,
+        weight_kg: 20,
+        sort_order: 0,
+        exercise: { name: 'Dip', type: 'push', difficulty: 2, volume_weight: 1 },
+      },
+    ];
+    // Start: the one set is already done → firstOpenIdx = -1, group auto-closed.
+    mockSessionData = { data: { title: 'Back Nav', exercise_slots: slots }, isLoading: false };
+    mockSetLogsData = {
+      data: [{ id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: true, rpe: null }],
+      isLoading: false,
+    };
+    const { rerender } = renderSessionView();
+
+    // Auto-closed: no SetRow visible.
+    expect(screen.queryByText('Set 1')).toBeNull();
+    expect(screen.getByRole('button', { expanded: false, name: /Dip/i })).toBeInTheDocument();
+
+    // Student goes "back" into the completed exercise by clicking the header.
+    await user.click(screen.getByRole('button', { expanded: false, name: /Dip/i }));
+    expect(screen.getByText('Set 1')).toBeInTheDocument();
+
+    // Student cancels/undoes the set. firstOpenIdx flips from -1 → 0,
+    // which should drop the manual override and auto-open the group.
+    mockSetLogsData = {
+      data: [{ id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, rpe: null }],
+      isLoading: false,
+    };
+    rerender(
+      <MemoryRouter>
+        <SessionView />
+      </MemoryRouter>
+    );
+    expect(screen.getByText('Set 1')).toBeInTheDocument();
+
+    // Student re-completes the set. firstOpenIdx flips 0 → -1.
+    // Before the fix, sticky manualOpen kept the group expanded; now it should auto-close.
+    mockSetLogsData = {
+      data: [{ id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: true, rpe: null }],
+      isLoading: false,
+    };
+    rerender(
+      <MemoryRouter>
+        <SessionView />
+      </MemoryRouter>
+    );
+    expect(screen.queryByText('Set 1')).toBeNull();
+    expect(screen.getByRole('button', { expanded: false, name: /Dip/i })).toBeInTheDocument();
+  });
+
   it('manual toggle on an auto-open slot collapses it', async () => {
     const user = userEvent.setup();
     mockSessionData = {
