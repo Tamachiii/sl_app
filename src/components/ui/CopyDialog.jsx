@@ -54,21 +54,28 @@ export default function CopyDialog({
     ? !copyWeekId || isPending
     : !destProgram?.id || isPending;
 
+  // Inputs use bg-white + border-ink-200 (both have dark-mode remaps in index.css)
+  // so the select adapts to either theme. `disabled:bg-gray-50` — which we used
+  // before — has no dark-mode variant generated, so the disabled dropdown
+  // rendered white on dark. Use `disabled:bg-ink-100` instead (full dark remap).
+  const selectCls =
+    'w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-mono text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] disabled:bg-ink-100 disabled:text-ink-400 disabled:cursor-not-allowed';
+
   return (
     <Dialog open={open} onClose={handleClose} title={title}>
       <div className="space-y-3">
         {description && (
-          <p className="text-xs text-gray-500">{description}</p>
+          <p className="sl-mono text-[11px] text-ink-400">{description}</p>
         )}
         <label className="block">
-          <span className="text-xs text-gray-600 block mb-1">Student</span>
+          <span className="sl-label text-ink-400 block mb-1.5">Student</span>
           <select
             value={copyStudentId}
             onChange={(e) => {
               setCopyStudentId(e.target.value);
               setCopyWeekId('');
             }}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            className={selectCls}
           >
             <option value="">Select student…</option>
             {(students || [])
@@ -83,12 +90,12 @@ export default function CopyDialog({
 
         {showWeekSelect && (
           <label className="block">
-            <span className="text-xs text-gray-600 block mb-1">Destination week</span>
+            <span className="sl-label text-ink-400 block mb-1.5">Destination week</span>
             <select
               value={copyWeekId}
               onChange={(e) => setCopyWeekId(e.target.value)}
               disabled={!copyStudentId || destWeeks.length === 0}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-50"
+              className={selectCls}
             >
               <option value="">
                 {!copyStudentId
@@ -111,13 +118,14 @@ export default function CopyDialog({
           <button
             onClick={handleCopy}
             disabled={copyDisabled}
-            className="flex-1 bg-primary text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50"
+            className="flex-1 sl-btn-primary text-[13px] disabled:opacity-50"
+            style={{ padding: '10px 16px' }}
           >
             {isPending ? 'Copying…' : 'Copy'}
           </button>
           <button
             onClick={handleClose}
-            className="flex-1 bg-gray-100 text-gray-600 rounded-lg py-2 text-sm font-medium"
+            className="flex-1 bg-ink-100 text-ink-700 rounded-lg py-2 sl-display text-[13px] hover:bg-ink-200"
           >
             Cancel
           </button>

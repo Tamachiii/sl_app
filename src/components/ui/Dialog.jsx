@@ -18,7 +18,11 @@ export default function Dialog({ open, onClose, title, children }) {
       onClose={onClose}
       aria-modal="true"
       aria-labelledby={title ? 'dialog-title' : undefined}
-      className="backdrop:bg-black/40 rounded-2xl p-0 w-[calc(100%-2rem)] max-w-md shadow-xl fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 m-0"
+      // bg-white + text-gray-900 both have dark-mode remaps in index.css (bg-white
+      // flips to ink-850, text-gray-900 flips to ink-0), so the dialog follows the
+      // in-app theme instead of the browser's prefers-color-scheme — which is
+      // what the native <dialog> UA styles otherwise track.
+      className="backdrop:bg-black/40 rounded-2xl p-0 w-[calc(100%-2rem)] max-w-md shadow-xl fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 m-0 bg-white text-gray-900"
     >
       <div className="p-5 relative">
         <button
