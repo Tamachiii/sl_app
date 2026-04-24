@@ -20,27 +20,37 @@ function renderLogin() {
   );
 }
 
+async function revealForm(user) {
+  await user.click(screen.getAllByRole('button', { name: /sign in/i })[0]);
+}
+
 describe('LoginPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAuth = { user: null, role: null, signIn: mockSignIn };
   });
 
-  it('renders email and password inputs', () => {
+  it('renders the welcome headline and Sign In CTA', () => {
     renderLogin();
-    expect(screen.getByLabelText('Email')).toBeInTheDocument();
-    expect(screen.getByLabelText('Password')).toBeInTheDocument();
+    const heading = screen.getByRole('heading', { level: 1 });
+    expect(heading).toHaveTextContent(/become/i);
+    expect(heading).toHaveTextContent(/tony/i);
+    expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
   });
 
-  it('renders Sign In button', () => {
+  it('reveals email and password inputs when the CTA is tapped', async () => {
+    const user = userEvent.setup();
     renderLogin();
-    expect(screen.getByRole('button', { name: 'Sign In' })).toBeInTheDocument();
+    await revealForm(user);
+    expect(screen.getByLabelText('Email')).toBeInTheDocument();
+    expect(screen.getByLabelText('Password')).toBeInTheDocument();
   });
 
   it('types email and password then clicks Sign In', async () => {
     mockSignIn.mockResolvedValue({ error: null });
     const user = userEvent.setup();
     renderLogin();
+    await revealForm(user);
 
     await user.type(screen.getByLabelText('Email'), 'test@test.com');
     await user.type(screen.getByLabelText('Password'), 'password123');
@@ -53,6 +63,7 @@ describe('LoginPage', () => {
     mockSignIn.mockResolvedValue({ error: { message: 'Invalid credentials' } });
     const user = userEvent.setup();
     renderLogin();
+    await revealForm(user);
 
     await user.type(screen.getByLabelText('Email'), 'bad@test.com');
     await user.type(screen.getByLabelText('Password'), 'wrong');
@@ -62,9 +73,10 @@ describe('LoginPage', () => {
   });
 
   it('shows loading state while submitting', async () => {
-    mockSignIn.mockImplementation(() => new Promise(() => {})); // never resolves
+    mockSignIn.mockImplementation(() => new Promise(() => {}));
     const user = userEvent.setup();
     renderLogin();
+    await revealForm(user);
 
     await user.type(screen.getByLabelText('Email'), 'test@test.com');
     await user.type(screen.getByLabelText('Password'), 'password123');
