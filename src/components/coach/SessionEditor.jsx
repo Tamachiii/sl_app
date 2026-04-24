@@ -4,8 +4,7 @@ import { useSession, useAddSlot, useUpdateSlot, useDeleteSlot } from '../../hook
 import { useUpdateSession } from '../../hooks/useWeek';
 import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
 import { useDuplicateSession } from '../../hooks/useDuplicate';
-import { computeSessionVolume, groupSlotsBySuperset } from '../../lib/volume';
-import VolumeBar from './VolumeBar';
+import { groupSlotsBySuperset } from '../../lib/volume';
 import ExerciseSlotRow from './ExerciseSlotRow';
 import Spinner from '../ui/Spinner';
 import EditableText from '../ui/EditableText';
@@ -29,7 +28,6 @@ export default function SessionEditor() {
   const [showCopy, setShowCopy] = useState(false);
 
   const slots = session?.exercise_slots || [];
-  const vol = computeSessionVolume(slots);
   const slotGroups = useMemo(() => groupSlotsBySuperset(slots), [slots]);
 
   if (isLoading) {
@@ -129,8 +127,6 @@ export default function SessionEditor() {
           </button>
         </div>
       </div>
-
-      <VolumeBar pull={vol.pull} push={vol.push} />
 
       <div className="sl-card p-3 flex items-center gap-3">
         <label htmlFor="session-date" className="sl-label text-ink-400 shrink-0">
