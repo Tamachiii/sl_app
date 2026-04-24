@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 
 let mockConfirmations = { data: [], isLoading: false };
 let mockStudents = { data: [], isLoading: false };
+let mockDashboardPrograms = { data: {}, isLoading: false };
 
 vi.mock('../../hooks/useSessionConfirmation', () => ({
   useAllConfirmations: () => mockConfirmations,
@@ -11,6 +12,10 @@ vi.mock('../../hooks/useSessionConfirmation', () => ({
 
 vi.mock('../../hooks/useStudents', () => ({
   useStudents: () => mockStudents,
+}));
+
+vi.mock('../../hooks/useProgram', () => ({
+  useCoachDashboardPrograms: () => mockDashboardPrograms,
 }));
 
 vi.mock('../../hooks/useAuth', () => ({
@@ -47,6 +52,7 @@ describe('CoachDashboard', () => {
     vi.clearAllMocks();
     mockConfirmations = { data: [], isLoading: false };
     mockStudents = { data: [], isLoading: false };
+    mockDashboardPrograms = { data: {}, isLoading: false };
   });
 
   it('renders the Dashboard header', () => {
@@ -67,6 +73,21 @@ describe('CoachDashboard', () => {
     const aliceLink = screen.getByRole('link', { name: /open alice/i });
     expect(aliceLink).toHaveAttribute('href', '/coach/students/s-1');
     expect(screen.getByRole('link', { name: /open bob/i })).toBeInTheDocument();
+  });
+
+  it('renders the active program + week under each student when known', () => {
+    mockStudents = {
+      data: [{ id: 's-1', profile: { full_name: 'Alice' } }],
+      isLoading: false,
+    };
+    mockDashboardPrograms = {
+      data: {
+        's-1': { programName: 'Bloc 1/4', activeWeek: { week_number: 3, label: null } },
+      },
+      isLoading: false,
+    };
+    renderDashboard();
+    expect(screen.getByText('W3 · BLOC 1/4')).toBeInTheDocument();
   });
 
   it('shows empty students state when no students', () => {

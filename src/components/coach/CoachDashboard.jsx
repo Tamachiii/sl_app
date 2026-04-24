@@ -3,11 +3,12 @@ import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { useStudents } from '../../hooks/useStudents';
 import { useAllConfirmations } from '../../hooks/useSessionConfirmation';
+import { useCoachDashboardPrograms } from '../../hooks/useProgram';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
 
-function StudentListItem({ student, t }) {
+function StudentListItem({ student, summary, t }) {
   const fullName = student.profile?.full_name || 'Student';
   const initials = fullName
     .split(/\s+/)
@@ -15,6 +16,13 @@ function StudentListItem({ student, t }) {
     .slice(0, 2)
     .map((p) => p[0]?.toUpperCase() ?? '')
     .join('');
+
+  const bits = [];
+  if (summary?.activeWeek?.week_number) {
+    bits.push(`W${summary.activeWeek.week_number}`);
+  }
+  if (summary?.programName) bits.push(summary.programName);
+  const subtitle = bits.join(' · ').toUpperCase();
 
   return (
     <Link
@@ -36,6 +44,9 @@ function StudentListItem({ student, t }) {
         </div>
         <div className="min-w-0">
           <p className="sl-display text-[16px] text-gray-900 truncate">{fullName}</p>
+          {subtitle && (
+            <p className="sl-mono text-[11px] text-ink-400 mt-1.5 truncate">{subtitle}</p>
+          )}
         </div>
       </div>
     </Link>
@@ -47,6 +58,7 @@ export default function CoachDashboard() {
   const { profile, signOut } = useAuth();
   const { data: students, isLoading: studentsLoading } = useStudents();
   const { data: confirmations, isLoading: confsLoading } = useAllConfirmations();
+  const { data: summary } = useCoachDashboardPrograms();
 
   const recentActivity = (confirmations || [])
     .filter((c) => !c.archived_at)
@@ -79,7 +91,7 @@ export default function CoachDashboard() {
 
         <div className="space-y-2 md:grid md:grid-cols-2 md:gap-2 md:space-y-0">
           {(students || []).map((s) => (
-            <StudentListItem key={s.id} student={s} t={t} />
+            <StudentListItem key={s.id} student={s} summary={summary?.[s.id]} t={t} />
           ))}
         </div>
       </section>

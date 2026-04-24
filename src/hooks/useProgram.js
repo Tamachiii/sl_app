@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { useAuth } from './useAuth';
 
 /**
  * List all programs for a student (periodization blocks), ordered by sort_order.
@@ -270,6 +271,72 @@ export function useReorderPrograms() {
     onSettled: (_d, _e, { studentId }) => {
       qc.invalidateQueries({ queryKey: ['programs', studentId] });
     },
+  });
+}
+
+/**
+ * Coach dashboard summary: for each student the coach manages, resolve
+ * { programName, activeWeek } in a single pass. RLS scopes the programs
+ * query to this coach's students.
+ *
+ * "Active week" mirrors the student-side `findActiveWeek`: first week with
+ * an unconfirmed non-archived session, falling back to the last week.
+ */
+export function useCoachDashboardPrograms() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ['coach-dashboard-programs', user?.id],
+    queryFn: async () => {
+      const { data: programs, error: pErr } = await supabase
+        .from('programs')
+        .select(`
+          student_id, name,
+          weeks(id, week_number, label,
+            sessions(id, archived_at))
+        `)
+        .eq('is_active', true);
+      if (pErr) throw pErr;
+
+      const sessionIds = [];
+      for (const p of programs || []) {
+        for (const w of p.weeks || []) {
+          for (const s of w.sessions || []) sessionIds.push(s.id);
+        }
+      }
+
+      let confirmedIds = new Set();
+      if (sessionIds.length > 0) {
+        const { data: confs, error: cErr } = await supabase
+          .from('session_confirmations')
+          .select('session_id')
+          .in('session_id', sessionIds);
+        if (cErr) throw cErr;
+        confirmedIds = new Set((confs || []).map((c) => c.session_id));
+      }
+
+      const summary = {};
+      for (const p of programs || []) {
+        const weeks = (p.weeks || [])
+          .slice()
+          .sort((a, b) => a.week_number - b.week_number);
+        let active = null;
+        for (const w of weeks) {
+          const hasOpen = (w.sessions || []).some(
+            (s) => !s.archived_at && !confirmedIds.has(s.id)
+          );
+          if (hasOpen) { active = w; break; }
+        }
+        if (!active && weeks.length > 0) active = weeks[weeks.length - 1];
+        summary[p.student_id] = {
+          programName: p.name || null,
+          activeWeek: active
+            ? { week_number: active.week_number, label: active.label }
+            : null,
+        };
+      }
+      return summary;
+    },
+    enabled: !!user?.id,
   });
 }
 
