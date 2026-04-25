@@ -232,6 +232,84 @@ export function useUpdateSetTarget() {
   });
 }
 
+// Targeted removal of one set (any position). Deletes the chosen log,
+// renumbers later rows down by 1 with a two-pass park-and-place to dodge
+// the UNIQUE(exercise_slot_id, set_number) constraint, prunes
+// record_video_set_numbers (drop the removed N, decrement anything above
+// it), then decrements exercise_slots.sets. Refuses to remove the last
+// remaining set since exercise_slots.sets has CHECK (sets > 0).
+export function useRemoveSet() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ slotId, setNumber, sessionId }) => {
+      const { data: slot, error: sErr } = await supabase
+        .from('exercise_slots')
+        .select('sets, record_video_set_numbers')
+        .eq('id', slotId)
+        .single();
+      if (sErr) throw sErr;
+      if (slot.sets <= 1) throw new Error('Cannot remove the last set.');
+
+      const { error: dErr } = await supabase
+        .from('set_logs')
+        .delete()
+        .eq('exercise_slot_id', slotId)
+        .eq('set_number', setNumber);
+      if (dErr) throw dErr;
+
+      const { data: above, error: aErr } = await supabase
+        .from('set_logs')
+        .select('id, set_number')
+        .eq('exercise_slot_id', slotId)
+        .gt('set_number', setNumber)
+        .order('set_number');
+      if (aErr) throw aErr;
+
+      // Pass 1: park into a high range.
+      await Promise.all(
+        above.map((row) =>
+          supabase
+            .from('set_logs')
+            .update({ set_number: row.set_number + 100000 })
+            .eq('id', row.id)
+            .then(({ error }) => { if (error) throw error; })
+        )
+      );
+      // Pass 2: drop down by 1.
+      await Promise.all(
+        above.map((row) =>
+          supabase
+            .from('set_logs')
+            .update({ set_number: row.set_number - 1 })
+            .eq('id', row.id)
+            .then(({ error }) => { if (error) throw error; })
+        )
+      );
+
+      const newVideoSets = (slot.record_video_set_numbers || [])
+        .filter((n) => n !== setNumber)
+        .map((n) => (n > setNumber ? n - 1 : n));
+
+      const { error: uErr } = await supabase
+        .from('exercise_slots')
+        .update({
+          sets: slot.sets - 1,
+          record_video_set_numbers: newVideoSets,
+        })
+        .eq('id', slotId);
+      if (uErr) throw uErr;
+
+      return { sessionId };
+    },
+    onSuccess: ({ sessionId }) => {
+      qc.invalidateQueries({ queryKey: ['set-logs'] });
+      if (sessionId) qc.invalidateQueries({ queryKey: ['session', sessionId] });
+      qc.invalidateQueries({ queryKey: ['week'] });
+    },
+  });
+}
+
 // Reset every set_log row's targets to match set 1's. Used by the coach
 // "back to uniform" action, since a uniform compact view requires uniformity.
 export function useResetSlotToUniform() {

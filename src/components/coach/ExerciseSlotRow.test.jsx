@@ -183,4 +183,74 @@ describe('ExerciseSlotRow', () => {
     await user.click(screen.getByRole('button', { name: /reset to uniform/i }));
     expect(onResetToUniform).toHaveBeenCalled();
   });
+
+  it('custom mode hides the Sets input and shows + Add set instead', async () => {
+    const user = userEvent.setup();
+    renderSlotRow({
+      slot: {
+        ...defaultSlot,
+        set_logs: [
+          { id: 'l1', set_number: 1, target_reps: 10, target_weight_kg: 50 },
+          { id: 'l2', set_number: 2, target_reps: 10, target_weight_kg: 50 },
+          { id: 'l3', set_number: 3, target_reps: 10, target_weight_kg: 50 },
+        ],
+      },
+    });
+    await user.click(screen.getByRole('button', { name: /customize sets/i }));
+    expect(screen.queryByLabelText('Sets')).toBeNull();
+    expect(screen.getByRole('button', { name: /\+ add set/i })).toBeInTheDocument();
+  });
+
+  it('clicking + Add set calls onAddSet', async () => {
+    const user = userEvent.setup();
+    const onAddSet = vi.fn();
+    renderSlotRow({
+      slot: {
+        ...defaultSlot,
+        set_logs: [
+          { id: 'l1', set_number: 1, target_reps: 10, target_weight_kg: 50 },
+          { id: 'l2', set_number: 2, target_reps: 10, target_weight_kg: 50 },
+          { id: 'l3', set_number: 3, target_reps: 10, target_weight_kg: 50 },
+        ],
+      },
+      onAddSet,
+    });
+    await user.click(screen.getByRole('button', { name: /customize sets/i }));
+    await user.click(screen.getByRole('button', { name: /\+ add set/i }));
+    expect(onAddSet).toHaveBeenCalledTimes(1);
+  });
+
+  it('clicking the X on a set row calls onRemoveSet with the set number', async () => {
+    const user = userEvent.setup();
+    const onRemoveSet = vi.fn();
+    renderSlotRow({
+      slot: {
+        ...defaultSlot,
+        set_logs: [
+          { id: 'l1', set_number: 1, target_reps: 10, target_weight_kg: 50 },
+          { id: 'l2', set_number: 2, target_reps: 10, target_weight_kg: 50 },
+          { id: 'l3', set_number: 3, target_reps: 10, target_weight_kg: 50 },
+        ],
+      },
+      onRemoveSet,
+    });
+    await user.click(screen.getByRole('button', { name: /customize sets/i }));
+    await user.click(screen.getByRole('button', { name: /remove set 2/i }));
+    expect(onRemoveSet).toHaveBeenCalledWith(2);
+  });
+
+  it('disables the X button when only one set remains', async () => {
+    const user = userEvent.setup();
+    renderSlotRow({
+      slot: {
+        ...defaultSlot,
+        sets: 1,
+        set_logs: [
+          { id: 'l1', set_number: 1, target_reps: 10, target_weight_kg: 50 },
+        ],
+      },
+    });
+    await user.click(screen.getByRole('button', { name: /customize sets/i }));
+    expect(screen.getByRole('button', { name: /remove set 1/i })).toBeDisabled();
+  });
 });

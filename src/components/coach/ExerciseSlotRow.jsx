@@ -7,7 +7,7 @@ import { isSlotUniform } from '../../lib/volume';
 const inputCls =
   'w-full rounded-lg border border-ink-200 bg-white px-2 py-1.5 sl-mono text-[16px] text-center text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
 
-function PerSetRow({ log, isTimeBased, onUpdateSet }) {
+function PerSetRow({ log, isTimeBased, onUpdateSet, onRemoveSet, canRemove }) {
   const [reps, setReps] = useState(log.target_reps ?? '');
   const [seconds, setSeconds] = useState(log.target_duration_seconds ?? '');
   const [weight, setWeight] = useState(log.target_weight_kg ?? '');
@@ -80,6 +80,19 @@ function PerSetRow({ log, isTimeBased, onUpdateSet }) {
           className={inputCls}
         />
       </td>
+      <td className="pl-1 w-7">
+        <button
+          type="button"
+          onClick={() => onRemoveSet(log.set_number)}
+          disabled={!canRemove}
+          aria-label={`Remove set ${log.set_number}`}
+          className="w-7 h-7 rounded-md flex items-center justify-center text-ink-400 hover:bg-ink-100 hover:text-danger disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-ink-400 disabled:cursor-not-allowed"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </td>
     </tr>
   );
 }
@@ -90,6 +103,8 @@ export default function ExerciseSlotRow({
   onDelete,
   onUpdateSet,
   onResetToUniform,
+  onAddSet,
+  onRemoveSet,
   children,
 }) {
   const ex = slot.exercise;
@@ -263,38 +278,24 @@ export default function ExerciseSlotRow({
 
       {showCustom ? (
         <div className="space-y-2">
-          <div className="flex gap-2 items-end">
-            <div className="flex-1 max-w-[6rem]">
-              <label htmlFor={`sets-${slot.id}`} className="sl-label text-ink-400 block mb-1">Sets</label>
-              <input
-                id={`sets-${slot.id}`}
-                type="number"
-                min={1}
-                value={sets}
-                onChange={(e) => setSets(Number(e.target.value))}
-                onBlur={handleBlur}
-                className={inputCls}
-              />
-            </div>
-            <div className="flex-1 text-right">
-              {uniform ? (
-                <button
-                  type="button"
-                  onClick={() => setShowCustom(false)}
-                  className="sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)] underline"
-                >
-                  back to uniform
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleResetToUniform}
-                  className="sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)] underline"
-                >
-                  reset to uniform
-                </button>
-              )}
-            </div>
+          <div className="flex justify-end">
+            {uniform ? (
+              <button
+                type="button"
+                onClick={() => setShowCustom(false)}
+                className="sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)] underline"
+              >
+                back to uniform
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleResetToUniform}
+                className="sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)] underline"
+              >
+                reset to uniform
+              </button>
+            )}
           </div>
           <table className="w-full" aria-label={`Per-set targets for ${ex.name}`}>
             <thead>
@@ -303,6 +304,7 @@ export default function ExerciseSlotRow({
                 <th className="sl-label text-ink-400">{isTimeBased ? 'Sec' : 'Reps'}</th>
                 <th className="sl-label text-ink-400">Weight</th>
                 <th className="sl-label text-ink-400">Rest</th>
+                <th className="w-7" aria-hidden="true" />
               </tr>
             </thead>
             <tbody>
@@ -312,10 +314,19 @@ export default function ExerciseSlotRow({
                   log={log}
                   isTimeBased={isTimeBased}
                   onUpdateSet={onUpdateSet}
+                  onRemoveSet={(setNumber) => onRemoveSet?.(setNumber)}
+                  canRemove={logs.length > 1}
                 />
               ))}
             </tbody>
           </table>
+          <button
+            type="button"
+            onClick={() => onAddSet?.()}
+            className="w-full border border-dashed border-ink-200 text-ink-400 rounded-lg py-1.5 sl-mono text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
+          >
+            + Add set
+          </button>
         </div>
       ) : (
         <>

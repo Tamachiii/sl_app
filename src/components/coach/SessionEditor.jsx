@@ -22,6 +22,7 @@ import {
   useDeleteSlot,
   useUpdateSetTarget,
   useResetSlotToUniform,
+  useRemoveSet,
 } from '../../hooks/useSession';
 import { useUpdateSession } from '../../hooks/useWeek';
 import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
@@ -44,6 +45,7 @@ export default function SessionEditor() {
   const deleteSlot = useDeleteSlot();
   const updateSetTarget = useUpdateSetTarget();
   const resetSlotToUniform = useResetSlotToUniform();
+  const removeSet = useRemoveSet();
   const duplicateSession = useDuplicateSession();
   const updateSession = useUpdateSession();
 
@@ -214,6 +216,12 @@ export default function SessionEditor() {
                   }
                   onResetToUniform={() =>
                     resetSlotToUniform.mutate({ slotId: slot.id, sessionId })
+                  }
+                  onAddSet={() =>
+                    updateSlot.mutate({ id: slot.id, sessionId, sets: (slot.sets || 0) + 1 })
+                  }
+                  onRemoveSet={(setNumber) =>
+                    removeSet.mutate({ slotId: slot.id, setNumber, sessionId })
                   }
                 />
               );
