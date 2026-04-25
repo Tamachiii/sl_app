@@ -81,7 +81,7 @@ const SetRow = memo(function SetRow({ log, locked = false, showTarget = false, r
         <span className="sl-label">{`Set ${log.set_number}`}</span>
 
         {showTarget && (
-          <span className="sl-mono text-[11px] text-ink-500">{formatSetTarget(log)}</span>
+          <span className="sl-label normal-case text-ink-500">{formatSetTarget(log)}</span>
         )}
 
         <div className="flex-1" />
