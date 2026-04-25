@@ -1,4 +1,4 @@
-import{c as R,j as o}from"./query-BK75LP8B.js";import{u as z,s as P,a as T}from"./index-gEMrKTK1.js";import{c as H}from"./volume-DI_WzvjE.js";import{r as C}from"./router-CSyjsHCV.js";function U(c,p="all"){const{user:l}=z();return R({queryKey:["student-progress-stats",c??(l==null?void 0:l.id),p],queryFn:async()=>{let _=c;if(!_){const{data:e,error:t}=await P.from("students").select("id").eq("profile_id",l.id).single();if(t)throw t;_=e.id}let r=P.from("programs").select(`
+import{c as R,j as o}from"./query-BK75LP8B.js";import{u as z,s as P,a as T}from"./index-BpnCY7zt.js";import{c as H}from"./volume-DI_WzvjE.js";import{r as C}from"./router-CSyjsHCV.js";function U(c,p="all"){const{user:l}=z();return R({queryKey:["student-progress-stats",c??(l==null?void 0:l.id),p],queryFn:async()=>{let _=c;if(!_){const{data:e,error:t}=await P.from("students").select("id").eq("profile_id",l.id).single();if(t)throw t;_=e.id}let r=P.from("programs").select(`
           id, name, sort_order, is_active,
           weeks(
             id, week_number, label,
