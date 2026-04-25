@@ -74,18 +74,18 @@ CREATE UNIQUE INDEX programs_one_active_per_student
 
 (Migration: `supabase/migrations/2026_04_23_programs_crud.sql`.)
 
-- **Students only see the active program** on Home / Sessions. `useStudentProgramDetails` + `useStudentProgressStats` both filter `.eq('is_active', true)`.
+- **Students only see the active program** on Home / Sessions. `useStudentProgramDetails` filters `.eq('is_active', true)`. `useStudentProgressStats(studentId, scope)` takes a scope (`'all'` default | `'active'` | `<programId>`) so the Stats page can aggregate across every block, restrict to the active one, or scope to any past block. The selector lives at the top of `StudentDashboard` / `StudentStatsSection` and persists via `?scope=…` (student) / `?statsScope=…` (coach, kept distinct from the editor's `?program=…`).
 - **Coaches browse all programs** via `useProgramsForStudent(studentId)` (list without weeks) and open one via `useProgram(programId)` (detail with weeks). `useActiveProgram(studentId)` resolves "the student's current block" and backs `CopyDialog`'s destination.
 - **`useProgram` takes `programId`, not `studentId`** — breaking rename during the periodization refactor.
 - `useSetActiveProgram` deactivates the current active program first (else the partial unique index rejects the insert). `useCreateProgram` with `setActive: true` does the same. `useEnsureProgram` explicitly inserts `is_active: true` since the column default is `false`.
 - Deleting the *active* program is blocked while other programs exist — the coach must activate another first.
-- **`useStudentProgramDetails`** is the lighter stats-free fetch (weeks → sessions → slots → library) for the Sessions page. Use it when you need full slot structure without aggregation. **`useStudentProgressStats(studentId?)`** is the heavy aggregate fetch; omit `studentId` for self-stats, pass it from the coach view.
+- **`useStudentProgramDetails`** is the lighter stats-free fetch (weeks → sessions → slots → library) for the Sessions page. Use it when you need full slot structure without aggregation. **`useStudentProgressStats(studentId?, scope='all')`** is the heavy aggregate fetch; omit `studentId` for self-stats, pass it from the coach view, and pass `scope` to choose 'all' programs, only the 'active' one, or a specific program id.
 
 ### SessionCalendar history overlay
 
-`useStudentHistoricalSessions` fetches dated sessions from the student's NON-active programs (`is_active=false`). `StudentDashboard` merges them into the calendar payload, flagged `historical: true`. In `SessionCalendar`, a day shows the history dot (muted `--color-ink-400`) ONLY when it has no active-program sessions — active takes visual priority. Historical days are still wrapped in the `<Link>` since the "Students read own sessions" RLS policy is scoped to program ownership, not `is_active`, so students can re-open past sessions read-only.
+`useStudentHistoricalSessions` fetches dated sessions from the student's NON-active programs (`is_active=false`). When `scope === 'active'`, `StudentDashboard` merges them into the calendar payload flagged `historical: true`. In `SessionCalendar`, a day shows the history dot (muted `--color-ink-400`) ONLY when it has no active-program sessions — active takes visual priority. Historical days are still wrapped in the `<Link>` since the "Students read own sessions" RLS policy is scoped to program ownership, not `is_active`, so students can re-open past sessions read-only.
 
-Keep the history query separate from `useStudentProgressStats` so aggregates (tonnage, sessions/sets, RPE, chart data) stay scoped to the active block.
+Under any other scope (`'all'` or a specific past program), the history overlay is suppressed — `useStudentProgressStats` already returns every in-scope session, so layering historical sessions on top would be redundant noise. The hook stays separate because it's the lightest possible fetch (no aggregation) and is fast to skip when not needed.
 
 ## React Query — who owns which key
 

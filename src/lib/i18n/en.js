@@ -87,6 +87,9 @@ const en = {
       legendDone: 'DONE',
       legendUpcoming: 'UPCOMING',
       legendHistory: 'HISTORY',
+      scopeLabel: 'Stats scope',
+      scopeAll: 'All programs',
+      scopeActiveOption: '{name} (active)',
     },
   },
   coach: {

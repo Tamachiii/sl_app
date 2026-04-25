@@ -87,6 +87,9 @@ const fr = {
       legendDone: 'FAIT',
       legendUpcoming: 'À VENIR',
       legendHistory: 'HISTORIQUE',
+      scopeLabel: 'Étendue des stats',
+      scopeAll: 'Tous les programmes',
+      scopeActiveOption: '{name} (actif)',
     },
   },
   coach: {

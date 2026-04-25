@@ -1,13 +1,17 @@
 import { useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
 import { useAuth } from '../../hooks/useAuth';
 import { useStudentProgressStats } from '../../hooks/useStudentProgressStats';
 import { useStudentHistoricalSessions } from '../../hooks/useStudentHistoricalSessions';
+import { useMyStudentId } from '../../hooks/useStudents';
+import { useProgramsForStudent } from '../../hooks/useProgram';
 import { useI18n } from '../../hooks/useI18n';
 import SessionCalendar from './SessionCalendar';
 import ExerciseProgressChart from './ExerciseProgressChart';
+import ProgramScopeSelector from './ProgramScopeSelector';
 
 function StatCard({ label, value, sub }) {
   return (
@@ -60,8 +64,32 @@ function SectionHeading({ id, children }) {
 export default function StudentDashboard() {
   const { t } = useI18n();
   const { profile, signOut } = useAuth();
-  const { data, isLoading } = useStudentProgressStats();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Scope persisted in the URL as ?scope=. Default = 'all' (cross-block view).
+  // Stale ids (a deleted program) fall back to 'all' rather than fetching ∅.
+  const { data: myStudentId } = useMyStudentId();
+  const { data: programs } = useProgramsForStudent(myStudentId);
+  const rawScope = searchParams.get('scope') || 'all';
+  const scopeIsValid =
+    rawScope === 'all'
+    || rawScope === 'active'
+    || (Array.isArray(programs) && programs.some((p) => p.id === rawScope));
+  const scope = scopeIsValid ? rawScope : 'all';
+
+  function handleScopeChange(next) {
+    const sp = new URLSearchParams(searchParams);
+    if (next === 'all') sp.delete('scope');
+    else sp.set('scope', next);
+    setSearchParams(sp, { replace: true });
+  }
+
+  const { data, isLoading } = useStudentProgressStats(undefined, scope);
+  // Historical-sessions overlay only adds value when stats are scoped to the
+  // active block — in 'all' or specific-program scope, the calendar already
+  // includes everything in scope, so the overlay would be redundant noise.
   const { data: historicalSessions } = useStudentHistoricalSessions();
+  const showHistoricalOverlay = scope === 'active';
 
   const recentWeeklyVolume = useMemo(
     () => (data?.weeklyVolume || []).slice(-4),
@@ -111,6 +139,14 @@ export default function StudentDashboard() {
         <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
       </div>
 
+      {Array.isArray(programs) && programs.length > 0 && (
+        <ProgramScopeSelector
+          programs={programs}
+          value={scope}
+          onChange={handleScopeChange}
+        />
+      )}
+
       {!hasProgram && <EmptyState message={t('student.home.noProgram')} />}
 
       {hasProgram && (
@@ -139,7 +175,11 @@ export default function StudentDashboard() {
           <section aria-labelledby="calendar-heading">
             <SectionHeading id="calendar-heading">{t('student.stats.calendar')}</SectionHeading>
             <SessionCalendar
-              sessions={[...(stats.sessionCalendar || []), ...(historicalSessions || [])]}
+              sessions={
+                showHistoricalOverlay
+                  ? [...(stats.sessionCalendar || []), ...(historicalSessions || [])]
+                  : (stats.sessionCalendar || [])
+              }
             />
           </section>
 

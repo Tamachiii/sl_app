@@ -4,28 +4,33 @@ import { useAuth } from './useAuth';
 import { computeSessionVolume } from '../lib/volume';
 
 /**
- * Aggregates everything the Student Dashboard needs in a single fetch:
+ * Aggregates everything the Student Stats page needs in a single fetch:
  *   - weeks[] with sessions + slots + exercise metadata (for volume maths)
  *   - confirmedSessionIds (Set)
  *   - setLogsBySlotId (for counting done sets, avg RPE, and weight history)
  *
- * Returns an object with derived stats:
+ * Stats are scoped via the `scope` parameter:
+ *   - 'all'      → every program the student has ever been enrolled in (default)
+ *   - 'active'   → only the currently-active program (legacy block-local view)
+ *   - <programId> → a single specific program (active or past)
+ *
+ * Returns derived stats:
  *   - totalSessionsConfirmed, totalSessions
  *   - totalSetsDone, totalSets
  *   - weeksActive       (weeks that have >= 1 confirmation)
  *   - avgRpe            (across sets with rpe logged)
  *   - recentConfirmations[] (last 5, newest first)
- *   - weeklyVolume[]    [{ week_number, label, pull, push, sessions_confirmed, sessions_total }]
+ *   - weeklyVolume[]    [{ week_id, week_number, label, program_id, program_name, pull, push, sessions_confirmed, sessions_total }]
  *   - sessionCalendar[] [{ session_id, title, date, completed }] — sessions w/ scheduled_date
  *
  * Pass a `studentId` (students.id row id) to stat any student — used by the
  * coach Students view. Omit it to stat the signed-in user (student flow).
  */
-export function useStudentProgressStats(studentId) {
+export function useStudentProgressStats(studentId, scope = 'all') {
   const { user } = useAuth();
 
   return useQuery({
-    queryKey: ['student-progress-stats', studentId ?? user?.id],
+    queryKey: ['student-progress-stats', studentId ?? user?.id, scope],
     queryFn: async () => {
       // 1. Resolve the student row. Coach view passes studentId directly;
       //    student view looks it up via profile_id.
@@ -40,14 +45,15 @@ export function useStudentProgressStats(studentId) {
         resolvedStudentId = student.id;
       }
 
-      // 2. Fetch the active program → weeks → sessions → slots → exercise meta.
-      //    Stats are scoped to the currently-active program (the block the
-      //    student is training right now). Prior blocks don't roll into these
-      //    aggregates so progress feels block-local.
-      const { data: programs, error: pErr } = await supabase
+      // 2. Fetch program(s) → weeks → sessions → slots → exercise meta.
+      //    The scope parameter swaps the program filter:
+      //      - specific id  → single program by id (RLS enforces ownership)
+      //      - 'active'     → only the active block (block-local stats)
+      //      - 'all'        → every program for this student
+      let q = supabase
         .from('programs')
         .select(`
-          id,
+          id, name, sort_order, is_active,
           weeks(
             id, week_number, label,
             sessions(
@@ -60,22 +66,45 @@ export function useStudentProgressStats(studentId) {
             )
           )
         `)
-        .eq('student_id', resolvedStudentId)
-        .eq('is_active', true);
+        .eq('student_id', resolvedStudentId);
+
+      if (scope === 'active') {
+        q = q.eq('is_active', true);
+      } else if (scope !== 'all') {
+        // Treat any other value as a specific program id.
+        q = q.eq('id', scope);
+      }
+      q = q.order('sort_order', { ascending: true });
+
+      const { data: programs, error: pErr } = await q;
       if (pErr) throw pErr;
 
-      // Flatten weeks / sessions / slots.
+      // Flatten weeks / sessions / slots, preserving program order so weeks
+      // from older blocks come before weeks from newer blocks (matters when
+      // scope === 'all' — the chart's "recent N" then naturally surfaces the
+      // most recent block's tail).
       const weeks = [];
       const allSessions = [];
       const allSlotIds = [];
 
       for (const prog of programs || []) {
-        for (const w of prog.weeks || []) {
+        const sortedWeeks = (prog.weeks || [])
+          .slice()
+          .sort((a, b) => a.week_number - b.week_number);
+        for (const w of sortedWeeks) {
           // Include archived sessions in every aggregate — completed work
           // shouldn't vanish from stats if the coach later archives the session.
           const allWeekSessions = w.sessions || [];
 
-          weeks.push({ ...w, sessions: allWeekSessions, volumeSessions: allWeekSessions });
+          weeks.push({
+            ...w,
+            sessions: allWeekSessions,
+            volumeSessions: allWeekSessions,
+            program_id: prog.id,
+            program_name: prog.name,
+            program_sort_order: prog.sort_order,
+            program_is_active: !!prog.is_active,
+          });
 
           for (const s of allWeekSessions) {
             allSessions.push(s);
@@ -85,7 +114,13 @@ export function useStudentProgressStats(studentId) {
           }
         }
       }
-      weeks.sort((a, b) => a.week_number - b.week_number);
+      // Stable order: program sort_order, then week_number within each program.
+      weeks.sort((a, b) => {
+        if (a.program_sort_order !== b.program_sort_order) {
+          return a.program_sort_order - b.program_sort_order;
+        }
+        return a.week_number - b.week_number;
+      });
 
       // 3. Fetch confirmations for this student's sessions.
       const sessionIds = allSessions.map((s) => s.id);
@@ -152,6 +187,9 @@ export function useStudentProgressStats(studentId) {
           week_id: w.id,
           week_number: w.week_number,
           label: w.label,
+          program_id: w.program_id,
+          program_name: w.program_name,
+          program_is_active: w.program_is_active,
           pull,
           push,
           sessions_confirmed: sessionsConfirmed,
@@ -162,12 +200,15 @@ export function useStudentProgressStats(studentId) {
       const weeksActive = weeklyVolume.filter((w) => w.sessions_confirmed > 0).length;
 
       // ─── Per-exercise weekly tonnage ─────────────────────────────────────
-      // For each exercise used anywhere in the program, build a point per
-      // week: tonnage = Σ(target_reps × target_weight_kg) over every set_log
-      // (per-set target) of every slot using that exercise in that week.
-      // Bodyweight (null/0) counts as 1kg so the curve stays visible.
+      // For each exercise used anywhere in the in-scope programs, build one
+      // point per week: tonnage = Σ(target_reps × target_weight_kg) over
+      // every set_log of every slot using that exercise in that week.
+      // Bodyweight (null/0) counts as 1kg so the curve stays visible. Each
+      // point carries program_id/program_name + a stable `key` so the chart
+      // can render multiple programs side-by-side without colliding on
+      // week_number.
       const exerciseMeta = {};   // id → { id, name, type }
-      const byExercise = {};     // id → [{ week_number, label, tonnage }]
+      const byExercise = {};     // id → [{ week_id, week_number, label, program_id, program_name, tonnage, key }]
       for (const w of weeks) {
         const perExerciseTonnage = {};
         for (const s of w.sessions || []) {
@@ -195,9 +236,15 @@ export function useStudentProgressStats(studentId) {
         for (const exId of Object.keys(perExerciseTonnage)) {
           if (!byExercise[exId]) byExercise[exId] = [];
           byExercise[exId].push({
+            week_id: w.id,
             week_number: w.week_number,
             label: w.label,
+            program_id: w.program_id,
+            program_name: w.program_name,
             tonnage: perExerciseTonnage[exId],
+            // Unique key for the chart — week_number alone collides across
+            // programs (W1 of block A vs W1 of block B).
+            key: `${w.program_id}:${w.id}`,
           });
         }
       }
@@ -215,6 +262,7 @@ export function useStudentProgressStats(studentId) {
             day_number: s.day_number,
             week_number: w.week_number,
             week_label: w.label,
+            program_name: w.program_name,
           };
         }
       }

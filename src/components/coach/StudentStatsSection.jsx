@@ -1,9 +1,12 @@
 import { useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
 import { useStudentProgressStats } from '../../hooks/useStudentProgressStats';
+import { useProgramsForStudent } from '../../hooks/useProgram';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import ExerciseProgressChart from '../student/ExerciseProgressChart';
+import ProgramScopeSelector from '../student/ProgramScopeSelector';
 
 function StatCard({ label, value, sub }) {
   return (
@@ -47,7 +50,27 @@ function VolumeWeekRow({ week, maxTotal }) {
 
 export default function StudentStatsSection({ studentId }) {
   const { t } = useI18n();
-  const { data, isLoading } = useStudentProgressStats(studentId);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { data: programs } = useProgramsForStudent(studentId);
+
+  // `statsScope` (separate from `program`, which the editor's ProgramSwitcher
+  // already owns) so the coach's "what program am I editing" and "what scope
+  // am I viewing stats for" stay independent.
+  const rawScope = searchParams.get('statsScope') || 'all';
+  const scopeIsValid =
+    rawScope === 'all'
+    || rawScope === 'active'
+    || (Array.isArray(programs) && programs.some((p) => p.id === rawScope));
+  const scope = scopeIsValid ? rawScope : 'all';
+
+  function handleScopeChange(next) {
+    const sp = new URLSearchParams(searchParams);
+    if (next === 'all') sp.delete('statsScope');
+    else sp.set('statsScope', next);
+    setSearchParams(sp, { replace: true });
+  }
+
+  const { data, isLoading } = useStudentProgressStats(studentId, scope);
 
   const recentWeeklyVolume = useMemo(
     () => (data?.weeklyVolume || []).slice(-4),
@@ -73,14 +96,37 @@ export default function StudentStatsSection({ studentId }) {
     exerciseProgress: { exercises: [], byExercise: {} },
   };
 
-  if (stats.totalSessions === 0) {
-    return <EmptyState message={t('student.home.noProgram')} />;
-  }
+  const completionPct = stats.totalSessions === 0
+    ? 0
+    : Math.round((stats.totalSessionsConfirmed / stats.totalSessions) * 100);
 
-  const completionPct = Math.round(
-    (stats.totalSessionsConfirmed / stats.totalSessions) * 100
+  const hasPrograms = Array.isArray(programs) && programs.length > 0;
+  const hasData = stats.totalSessions > 0;
+
+  return (
+    <div className="space-y-4">
+      {hasPrograms && (
+        <ProgramScopeSelector
+          programs={programs}
+          value={scope}
+          onChange={handleScopeChange}
+        />
+      )}
+
+      {!hasData && <EmptyState message={t('student.home.noProgram')} />}
+
+      {hasData && <CoachStatsBody
+        stats={stats}
+        completionPct={completionPct}
+        recentWeeklyVolume={recentWeeklyVolume}
+        maxWeeklyTotal={maxWeeklyTotal}
+        t={t}
+      />}
+    </div>
   );
+}
 
+function CoachStatsBody({ stats, completionPct, recentWeeklyVolume, maxWeeklyTotal, t }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-2">

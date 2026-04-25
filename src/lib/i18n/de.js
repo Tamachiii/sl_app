@@ -87,6 +87,9 @@ const de = {
       legendDone: 'ERL.',
       legendUpcoming: 'GEPLANT',
       legendHistory: 'VERLAUF',
+      scopeLabel: 'Stats-Bereich',
+      scopeAll: 'Alle Programme',
+      scopeActiveOption: '{name} (aktiv)',
     },
   },
   coach: {

@@ -68,7 +68,7 @@ Jump straight to the relevant files. For *behavior* details, open the file — t
 | Coach exercise library | `coach/ExerciseLibrary`, `hooks/useExerciseLibrary` |
 | Student home | `student/StudentHome`, `student/SessionCard`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation` |
 | Student sessions list | `student/StudentSessions`, `student/SessionCard`, `hooks/useStudentProgramDetails` |
-| Student stats | `student/StudentDashboard`, `student/SessionCalendar`, `student/ExerciseProgressChart`, `hooks/useStudentProgressStats`, `hooks/useStudentHistoricalSessions` |
+| Student stats | `student/StudentDashboard`, `student/SessionCalendar`, `student/ExerciseProgressChart`, `student/ProgramScopeSelector`, `hooks/useStudentProgressStats`, `hooks/useStudentHistoricalSessions`, `hooks/useStudents` (`useMyStudentId`) |
 | Student session logging | `student/SessionView`, `student/SetRow`, `student/RpeInput`, `hooks/useSession`, `hooks/useSetLogs` |
 | Coach goals (per student) | `coach/StudentGoalsSection`, `hooks/useGoals` |
 | Student goals | `student/MyGoals`, `hooks/useGoals` |

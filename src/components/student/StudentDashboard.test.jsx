@@ -1,16 +1,29 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ThemeProvider } from '../../hooks/useTheme';
 
 let mockStats = { data: null, isLoading: true };
+let lastScope = null;
+let mockPrograms = [];
 
 vi.mock('../../hooks/useStudentProgressStats', () => ({
-  useStudentProgressStats: () => mockStats,
+  useStudentProgressStats: (_studentId, scope) => {
+    lastScope = scope;
+    return mockStats;
+  },
 }));
 
 vi.mock('../../hooks/useStudentHistoricalSessions', () => ({
   useStudentHistoricalSessions: () => ({ data: [] }),
+}));
+
+vi.mock('../../hooks/useStudents', () => ({
+  useMyStudentId: () => ({ data: 'student-1' }),
+}));
+
+vi.mock('../../hooks/useProgram', () => ({
+  useProgramsForStudent: () => ({ data: mockPrograms }),
 }));
 
 vi.mock('../../hooks/useAuth', () => ({
@@ -19,10 +32,10 @@ vi.mock('../../hooks/useAuth', () => ({
 
 import StudentDashboard from './StudentDashboard';
 
-function renderDashboard() {
+function renderDashboard(initialPath = '/student/stats') {
   return render(
     <ThemeProvider>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[initialPath]}>
         <StudentDashboard />
       </MemoryRouter>
     </ThemeProvider>
@@ -41,6 +54,8 @@ const sampleData = {
       week_id: 'w-1',
       week_number: 1,
       label: 'Intro',
+      program_id: 'p-1',
+      program_name: 'Block A',
       pull: 50,
       push: 30,
       sessions_confirmed: 3,
@@ -50,29 +65,28 @@ const sampleData = {
       week_id: 'w-2',
       week_number: 2,
       label: null,
+      program_id: 'p-1',
+      program_name: 'Block A',
       pull: 60,
       push: 40,
       sessions_confirmed: 2,
       sessions_total: 3,
     },
   ],
-  recentConfirmations: [
-    {
-      id: 'c-1',
-      session_id: 'sess-1',
-      session_title: 'Push Day',
-      day_number: 1,
-      week_number: 1,
-      week_label: 'Intro',
-      confirmed_at: '2026-04-16T10:00:00Z',
-    },
-  ],
+  recentConfirmations: [],
+  sessionCalendar: [],
+  exerciseProgress: { exercises: [], byExercise: {} },
 };
 
 describe('StudentDashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStats = { data: null, isLoading: true };
+    lastScope = null;
+    mockPrograms = [
+      { id: 'p-1', name: 'Block A', is_active: true, sort_order: 0 },
+      { id: 'p-2', name: 'Block B', is_active: false, sort_order: 1 },
+    ];
   });
 
   it('renders the Stats header', () => {
@@ -96,6 +110,8 @@ describe('StudentDashboard', () => {
         avgRpe: null,
         weeklyVolume: [],
         recentConfirmations: [],
+        sessionCalendar: [],
+        exerciseProgress: { exercises: [], byExercise: {} },
       },
       isLoading: false,
     };
@@ -134,5 +150,46 @@ describe('StudentDashboard', () => {
     };
     renderDashboard();
     expect(screen.getByText('—')).toBeInTheDocument();
+  });
+
+  it('defaults the program scope to "all" and renders the scope selector', () => {
+    mockStats = { data: sampleData, isLoading: false };
+    renderDashboard();
+    expect(lastScope).toBe('all');
+    const select = screen.getByLabelText(/stats scope/i);
+    expect(select).toHaveValue('all');
+    expect(screen.getByRole('option', { name: /all programs/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('option', { name: /Block A \(active\)/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Block B' })).toBeInTheDocument();
+  });
+
+  it('reads the scope from the ?scope= URL param', () => {
+    mockStats = { data: sampleData, isLoading: false };
+    renderDashboard('/student/stats?scope=p-2');
+    expect(lastScope).toBe('p-2');
+  });
+
+  it('falls back to "all" when ?scope= references an unknown program', () => {
+    mockStats = { data: sampleData, isLoading: false };
+    renderDashboard('/student/stats?scope=ghost-program-id');
+    expect(lastScope).toBe('all');
+  });
+
+  it('switches scope and rerenders when the user picks an option', () => {
+    mockStats = { data: sampleData, isLoading: false };
+    renderDashboard();
+    fireEvent.change(screen.getByLabelText(/stats scope/i), {
+      target: { value: 'p-2' },
+    });
+    expect(lastScope).toBe('p-2');
+  });
+
+  it('hides the scope selector when the student has no programs', () => {
+    mockPrograms = [];
+    mockStats = { data: sampleData, isLoading: false };
+    renderDashboard();
+    expect(screen.queryByLabelText(/stats scope/i)).not.toBeInTheDocument();
   });
 });
