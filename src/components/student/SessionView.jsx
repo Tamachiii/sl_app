@@ -58,7 +58,11 @@ export default function SessionView() {
 
   const [notes, setNotes] = useState('');
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
-  const [manualOpen, setManualOpen] = useState({});
+  // Accordion-style manual override:
+  //   null      → no manual override; defer to auto (firstOpenIdx).
+  //   string    → that group key is the only open one (closes any auto-open).
+  //   false     → user manually closed the auto-open group; nothing is open.
+  const [openKey, setOpenKey] = useState(null);
 
   useEffect(() => {
     if (slots.length > 0 && logs !== undefined) {
@@ -81,11 +85,11 @@ export default function SessionView() {
 
   // Manual open/close overrides are single-shot: once the natural auto-open
   // target shifts (e.g. student cancels/undoes a set, or finishes the last
-  // set of the current group), drop the overrides so auto-open/close resumes.
+  // set of the current group), drop the override so auto-open/close resumes.
   // Without this reset, revisiting a completed group and then reverting state
-  // would leave `manualOpen` sticky and starve subsequent auto transitions.
+  // would leave `openKey` sticky and starve subsequent auto transitions.
   useEffect(() => {
-    setManualOpen({});
+    setOpenKey(null);
   }, [firstOpenIdx]);
 
   if (sessLoading || logsLoading) {
@@ -99,13 +103,17 @@ export default function SessionView() {
   }
 
   function isGroupOpen(group, idx) {
-    if (manualOpen[group.key] !== undefined) return manualOpen[group.key];
-    return idx === firstOpenIdx;
+    // No manual override → auto behavior (only firstOpenIdx is open).
+    if (openKey === null) return idx === firstOpenIdx;
+    // Manual override → only the chosen key (or none, if `false`) is open.
+    return openKey === group.key;
   }
 
+  // Accordion: opening a group closes whichever was previously open. Tapping
+  // the currently-open group collapses it (mirrors the Sessions page).
   function toggleGroup(group, idx) {
-    const currently = isGroupOpen(group, idx);
-    setManualOpen((prev) => ({ ...prev, [group.key]: !currently }));
+    const wasOpen = isGroupOpen(group, idx);
+    setOpenKey(wasOpen ? false : group.key);
   }
 
   const isConfirmed = !!confirmation;
@@ -182,70 +190,56 @@ export default function SessionView() {
         />
       ))}
 
-      {!confLoading && (
+      {!confLoading && (isConfirmed ? (
         <div
-          className={`sl-card p-4 space-y-3 ${
-            isConfirmed ? '!bg-success/5' : ''
-          }`}
-          style={isConfirmed ? { borderLeft: '3px solid var(--color-success)' } : undefined}
+          className="sl-card p-4 space-y-3 !bg-success/5"
+          style={{ borderLeft: '3px solid var(--color-success)' }}
         >
-          {isConfirmed ? (
-            <>
-              <div className="flex items-start gap-3">
-                <div
-                  className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                  style={{ background: 'var(--color-success)', color: 'var(--color-ink-900)' }}
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="sl-display text-[16px] text-gray-900">Session confirmed</p>
-                  <p className="sl-mono text-[11px] text-ink-400 mt-0.5">
-                    {new Date(confirmation.confirmed_at).toLocaleString()}
-                  </p>
-                  {confirmation.notes && (
-                    <p className="mt-2 text-[13px] text-gray-700 whitespace-pre-wrap">
-                      {confirmation.notes}
-                    </p>
-                  )}
-                </div>
-              </div>
-              {isArchived ? (
-                <p className="sl-mono text-[11px] text-ink-400 text-center">
-                  Archived by your coach — confirmation is locked.
+          <div className="flex items-start gap-3">
+            <div
+              className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+              style={{ background: 'var(--color-success)', color: 'var(--color-ink-900)' }}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="sl-display text-[16px] text-gray-900">Session confirmed</p>
+              <p className="sl-mono text-[11px] text-ink-400 mt-0.5">
+                {new Date(confirmation.confirmed_at).toLocaleString()}
+              </p>
+              {confirmation.notes && (
+                <p className="mt-2 text-[13px] text-gray-700 whitespace-pre-wrap">
+                  {confirmation.notes}
                 </p>
-              ) : (
-                <button
-                  onClick={handleUnconfirm}
-                  disabled={unconfirmSession.isPending}
-                  className="sl-mono text-[11px] text-ink-400 hover:text-danger underline w-full"
-                >
-                  Undo confirmation
-                </button>
               )}
-            </>
+            </div>
+          </div>
+          {isArchived ? (
+            <p className="sl-mono text-[11px] text-ink-400 text-center">
+              Archived by your coach — confirmation is locked.
+            </p>
           ) : (
-            <>
-              <div>
-                <p className="sl-display text-[18px] text-gray-900">Confirm session</p>
-                <p className="sl-mono text-[11px] text-ink-400 mt-1">
-                  Let your coach know you've completed this session.
-                </p>
-              </div>
-              <button
-                onClick={() => setConfirmDialogOpen(true)}
-                disabled={confirmSession.isPending}
-                className="sl-btn-primary w-full text-[13px] disabled:opacity-50"
-                style={{ padding: '10px 16px' }}
-              >
-                {confirmSession.isPending ? 'Confirming…' : 'Confirm session'}
-              </button>
-            </>
+            <button
+              onClick={handleUnconfirm}
+              disabled={unconfirmSession.isPending}
+              className="sl-mono text-[11px] text-ink-400 hover:text-danger underline w-full"
+            >
+              Undo confirmation
+            </button>
           )}
         </div>
-      )}
+      ) : (
+        <button
+          onClick={() => setConfirmDialogOpen(true)}
+          disabled={confirmSession.isPending}
+          className="sl-btn-primary w-full text-[13px] disabled:opacity-50"
+          style={{ padding: '10px 16px' }}
+        >
+          {confirmSession.isPending ? 'Confirming…' : 'Confirm session'}
+        </button>
+      ))}
 
       <Dialog
         open={confirmDialogOpen}

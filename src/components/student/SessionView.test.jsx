@@ -325,6 +325,68 @@ describe('SessionView', () => {
     expect(screen.getByRole('button', { expanded: false, name: /Dip/i })).toBeInTheDocument();
   });
 
+  it('accordion: opening another slot closes the currently-open one', async () => {
+    const user = userEvent.setup();
+    mockSessionData = {
+      data: {
+        title: 'Multi',
+        exercise_slots: [
+          {
+            id: 'slot-a',
+            sets: 1,
+            reps: 5,
+            weight_kg: 50,
+            sort_order: 0,
+            exercise: { name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
+          },
+          {
+            id: 'slot-b',
+            sets: 1,
+            reps: 5,
+            weight_kg: 50,
+            sort_order: 1,
+            exercise: { name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
+          },
+          {
+            id: 'slot-c',
+            sets: 1,
+            reps: 5,
+            weight_kg: 50,
+            sort_order: 2,
+            exercise: { name: 'Row', type: 'pull', difficulty: 1, volume_weight: 1 },
+          },
+        ],
+      },
+      isLoading: false,
+    };
+    mockSetLogsData = {
+      data: [
+        { id: 'l-a', exercise_slot_id: 'slot-a', set_number: 1, done: false, rpe: null },
+        { id: 'l-b', exercise_slot_id: 'slot-b', set_number: 1, done: false, rpe: null },
+        { id: 'l-c', exercise_slot_id: 'slot-c', set_number: 1, done: false, rpe: null },
+      ],
+      isLoading: false,
+    };
+    renderSessionView();
+
+    // Initially Squat (firstOpenIdx) is auto-open; Bench and Row collapsed.
+    expect(screen.getByRole('button', { expanded: true, name: /Squat/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { expanded: false, name: /Bench/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { expanded: false, name: /Row/i })).toBeInTheDocument();
+
+    // Tapping Row opens it and closes Squat.
+    await user.click(screen.getByRole('button', { expanded: false, name: /Row/i }));
+    expect(screen.getByRole('button', { expanded: false, name: /Squat/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { expanded: false, name: /Bench/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { expanded: true, name: /Row/i })).toBeInTheDocument();
+
+    // Tapping Bench closes Row and opens Bench (still single-open accordion).
+    await user.click(screen.getByRole('button', { expanded: false, name: /Bench/i }));
+    expect(screen.getByRole('button', { expanded: false, name: /Squat/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { expanded: true, name: /Bench/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { expanded: false, name: /Row/i })).toBeInTheDocument();
+  });
+
   it('manual toggle on an auto-open slot collapses it', async () => {
     const user = userEvent.setup();
     mockSessionData = {
