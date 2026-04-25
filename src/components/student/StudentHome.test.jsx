@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { ThemeProvider } from '../../hooks/useTheme';
@@ -48,7 +48,16 @@ const sampleWeeks = [
     week_number: 1,
     label: 'Intro',
     sessions: [
-      { id: 'sess-1', title: 'Push Day', day_number: 1, sort_order: 0, archived_at: null },
+      {
+        id: 'sess-1',
+        title: 'Push Day',
+        day_number: 1,
+        sort_order: 0,
+        archived_at: null,
+        exercise_slots: [
+          { id: 'slot-1', sets: 3, reps: 8, weight_kg: 40, exercise: { id: 'ex-1', name: 'Bench Press' } },
+        ],
+      },
       { id: 'sess-2', title: 'Pull Day', day_number: 3, sort_order: 1, archived_at: null },
     ],
   },
@@ -97,6 +106,18 @@ describe('StudentHome', () => {
     expect(screen.getByText('Next session')).toBeInTheDocument();
     // Earliest unconfirmed session (by weekday) becomes the Next session card.
     expect(screen.getByText('Push Day')).toBeInTheDocument();
+  });
+
+  it('renders the Next session exercise list expanded by default (no toggle)', () => {
+    mockWeeks = { data: sampleWeeks, isLoading: false };
+    renderHome();
+    // Exercise from the Push Day slot is visible without any interaction.
+    expect(screen.getByText('Bench Press')).toBeInTheDocument();
+    // The Next session card is non-collapsible — no expand/collapse toggle inside the section.
+    const section = screen.getByRole('region', { name: /next session/i });
+    const inSection = within(section);
+    expect(inSection.queryByRole('button', { expanded: true })).toBeNull();
+    expect(inSection.queryByRole('button', { expanded: false })).toBeNull();
   });
 
   it('surfaces the next unconfirmed session when the first is confirmed', () => {

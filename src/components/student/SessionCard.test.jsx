@@ -104,6 +104,15 @@ describe('SessionCard', () => {
     expect(screen.getByText('4 sets · varied')).toBeInTheDocument();
   });
 
+  it('collapsible={false}: content always renders and no toggle button is exposed', () => {
+    render(<SessionCard session={baseSession} collapsible={false} />);
+    // Exercise list visible without any user interaction.
+    expect(screen.getByText('Front Squat')).toBeInTheDocument();
+    // No expandable header button (the chevron / toggle is suppressed).
+    expect(screen.queryByRole('button', { expanded: true })).toBeNull();
+    expect(screen.queryByRole('button', { expanded: false })).toBeNull();
+  });
+
   it('controlled mode: parent "open" wins and onToggle fires', async () => {
     const user = userEvent.setup();
     const onToggle = vi.fn();

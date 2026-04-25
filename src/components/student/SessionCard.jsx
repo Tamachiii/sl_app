@@ -27,60 +27,66 @@ export default function SessionCard({
   subtitle,
   open: controlledOpen,
   onToggle,
+  collapsible = true,
 }) {
   const { t } = useI18n();
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
   const isControlled = controlledOpen !== undefined;
-  const open = isControlled ? controlledOpen : uncontrolledOpen;
+  const open = collapsible ? (isControlled ? controlledOpen : uncontrolledOpen) : true;
   const toggle = () => {
     if (isControlled) onToggle?.();
     else setUncontrolledOpen((v) => !v);
   };
   const slots = session.exercise_slots || [];
 
-  return (
-    <div className="sl-card overflow-hidden">
-      <button
-        className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-ink-50 transition-colors"
-        onClick={toggle}
-        aria-expanded={open}
+  let statusPill = null;
+  if (confirmed) {
+    statusPill = (
+      <span
+        className="sl-pill"
+        style={{ background: 'color-mix(in srgb, var(--color-success) 20%, transparent)', color: 'var(--color-success)' }}
       >
-        <div className="min-w-0 flex-1">
-          <p
-            className={`sl-display text-[17px] truncate ${
-              archived ? 'text-ink-400' : 'text-gray-900'
-            }`}
-          >
-            {session.title || `Session ${session.sort_order + 1}`}
-          </p>
-          <p className="sl-mono text-[11px] text-ink-400 mt-0.5 flex items-center gap-1.5">
-            {subtitle && <span>{subtitle}</span>}
-            {subtitle && <span aria-hidden>·</span>}
-            <span>
-              {slots.length} {t('common.ex')}
-            </span>
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {confirmed ? (
-            <span
-              className="sl-pill"
-              style={{ background: 'color-mix(in srgb, var(--color-success) 20%, transparent)', color: 'var(--color-success)' }}
-            >
-              {t('common.done')}
-            </span>
-          ) : archived ? (
-            <span className="sl-pill" style={{ background: 'color-mix(in srgb, var(--color-warn) 15%, transparent)', color: 'var(--color-warn)' }}>
-              {t('common.archived')}
-            </span>
-          ) : (
-            <span
-              className="sl-pill"
-              style={{ background: 'color-mix(in srgb, var(--color-accent) 15%, transparent)', color: 'var(--color-accent)' }}
-            >
-              {t('common.start')}
-            </span>
-          )}
+        {t('common.done')}
+      </span>
+    );
+  } else if (archived) {
+    statusPill = (
+      <span className="sl-pill" style={{ background: 'color-mix(in srgb, var(--color-warn) 15%, transparent)', color: 'var(--color-warn)' }}>
+        {t('common.archived')}
+      </span>
+    );
+  } else if (collapsible) {
+    statusPill = (
+      <span
+        className="sl-pill"
+        style={{ background: 'color-mix(in srgb, var(--color-accent) 15%, transparent)', color: 'var(--color-accent)' }}
+      >
+        {t('common.start')}
+      </span>
+    );
+  }
+
+  const headerInner = (
+    <>
+      <div className="min-w-0 flex-1">
+        <p
+          className={`sl-display text-[17px] truncate ${
+            archived ? 'text-ink-400' : 'text-gray-900'
+          }`}
+        >
+          {session.title || `Session ${session.sort_order + 1}`}
+        </p>
+        <p className="sl-mono text-[11px] text-ink-400 mt-0.5 flex items-center gap-1.5">
+          {subtitle && <span>{subtitle}</span>}
+          {subtitle && <span aria-hidden>·</span>}
+          <span>
+            {slots.length} {t('common.ex')}
+          </span>
+        </p>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {statusPill}
+        {collapsible && (
           <svg
             className={`w-4 h-4 text-ink-400 transition-transform ${open ? 'rotate-180' : ''}`}
             fill="none"
@@ -89,8 +95,26 @@ export default function SessionCard({
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
+        )}
+      </div>
+    </>
+  );
+
+  return (
+    <div className="sl-card overflow-hidden">
+      {collapsible ? (
+        <button
+          className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-ink-50 transition-colors"
+          onClick={toggle}
+          aria-expanded={open}
+        >
+          {headerInner}
+        </button>
+      ) : (
+        <div className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left">
+          {headerInner}
         </div>
-      </button>
+      )}
 
       {open && (
         <div className="border-t border-ink-100">

@@ -120,7 +120,7 @@ Deep architectural details — RLS helpers, React Query invalidation, routing/pe
 4. **Library tab** — exercise CRUD with search + type filter.
 
 **Student**
-1. Logs in → **Home tab** (`/student`) — current training week: 7-day strip, expandable "Next session" preview, upcoming and completed sessions this week.
+1. Logs in → **Home tab** (`/student`) — current training week: 7-day strip and an always-expanded "Next session" preview (full exercise list visible by default; no collapse) with a Start CTA.
 2. **Sessions tab** (`/student/sessions`) — full program by week; accordion session cards (one open at a time); tap "Start session" to open `SessionView`.
 3. **Stats tab** (`/student/stats`) — sessions confirmed, sets done, weekly volume bars, per-exercise progression, calendar (active block + muted history dots).
 4. **Goals tab** (`/student/goals`) — `MyGoals`.

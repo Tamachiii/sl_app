@@ -258,7 +258,7 @@ export default function StudentHome() {
                 session={upcoming[0]}
                 confirmed={false}
                 archived={false}
-                defaultOpen
+                collapsible={false}
                 subtitle={(() => {
                   const dn = sessionDayNumber(upcoming[0]);
                   return dn >= 1 && dn <= 7 ? DAY_FULL[dn - 1] : null;
