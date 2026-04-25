@@ -1,16 +1,127 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import ConfirmDialog from '../ui/ConfirmDialog';
+import { isSlotUniform } from '../../lib/volume';
 
-export default function ExerciseSlotRow({ slot, onUpdate, onDelete, children }) {
+const inputCls =
+  'w-full rounded-lg border border-ink-200 bg-white px-2 py-1.5 sl-mono text-[16px] text-center text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
+
+function PerSetRow({ log, isTimeBased, onUpdateSet }) {
+  const [reps, setReps] = useState(log.target_reps ?? '');
+  const [seconds, setSeconds] = useState(log.target_duration_seconds ?? '');
+  const [weight, setWeight] = useState(log.target_weight_kg ?? '');
+  const [rest, setRest] = useState(log.target_rest_seconds ?? '');
+
+  useEffect(() => {
+    setReps(log.target_reps ?? '');
+    setSeconds(log.target_duration_seconds ?? '');
+    setWeight(log.target_weight_kg ?? '');
+    setRest(log.target_rest_seconds ?? '');
+  }, [log.id, log.target_reps, log.target_duration_seconds, log.target_weight_kg, log.target_rest_seconds]);
+
+  function commitField(field, current, prev) {
+    const v = current === '' ? null : Number(current);
+    const prevNum = prev == null ? null : Number(prev);
+    if (v !== prevNum) onUpdateSet(log.id, { [field]: v });
+  }
+
+  return (
+    <tr>
+      <td className="sl-mono text-[11px] text-ink-400 pr-2 text-center w-8">{log.set_number}</td>
+      {isTimeBased ? (
+        <td className="px-1">
+          <input
+            type="number"
+            min={1}
+            value={seconds}
+            onChange={(e) => setSeconds(e.target.value)}
+            onBlur={() => commitField('duration_seconds', seconds, log.target_duration_seconds)}
+            aria-label={`Set ${log.set_number} seconds`}
+            className={inputCls}
+          />
+        </td>
+      ) : (
+        <td className="px-1">
+          <input
+            type="number"
+            min={1}
+            value={reps}
+            onChange={(e) => setReps(e.target.value)}
+            onBlur={() => commitField('reps', reps, log.target_reps)}
+            aria-label={`Set ${log.set_number} reps`}
+            className={inputCls}
+          />
+        </td>
+      )}
+      <td className="px-1">
+        <input
+          type="number"
+          min={0}
+          step={0.5}
+          value={weight}
+          onChange={(e) => setWeight(e.target.value)}
+          onBlur={() => commitField('weight_kg', weight, log.target_weight_kg)}
+          placeholder="BW"
+          aria-label={`Set ${log.set_number} weight`}
+          className={inputCls}
+        />
+      </td>
+      <td className="px-1">
+        <input
+          type="number"
+          min={0}
+          step={15}
+          value={rest}
+          onChange={(e) => setRest(e.target.value)}
+          onBlur={() => commitField('rest_seconds', rest, log.target_rest_seconds)}
+          placeholder="—"
+          aria-label={`Set ${log.set_number} rest`}
+          className={inputCls}
+        />
+      </td>
+    </tr>
+  );
+}
+
+export default function ExerciseSlotRow({
+  slot,
+  onUpdate,
+  onDelete,
+  onUpdateSet,
+  onResetToUniform,
+  children,
+}) {
   const ex = slot.exercise;
   const isTimeBased = slot.duration_seconds != null;
+  const logs = useMemo(
+    () => (slot.set_logs || []).slice().sort((a, b) => a.set_number - b.set_number),
+    [slot.set_logs]
+  );
+  const uniform = isSlotUniform(slot);
+  const [showCustom, setShowCustom] = useState(!uniform);
+
+  // If the slot becomes non-uniform from outside (another tab edits it),
+  // surface the per-set editor automatically. The reverse — uniform → compact
+  // — is left to the explicit "Reset to uniform" action so the coach doesn't
+  // get yanked back unexpectedly mid-edit.
+  useEffect(() => {
+    if (!uniform) setShowCustom(true);
+  }, [uniform]);
+
+  const headLog = logs[0] || null;
+  const initialReps = headLog ? (headLog.target_reps ?? '') : (slot.reps ?? '');
+  const initialSeconds = headLog
+    ? (headLog.target_duration_seconds ?? '')
+    : (slot.duration_seconds ?? '');
+  const initialWeight = headLog ? (headLog.target_weight_kg ?? '') : (slot.weight_kg ?? '');
+  const initialRest = headLog ? (headLog.target_rest_seconds ?? '') : (slot.rest_seconds ?? '');
+
   const [sets, setSets] = useState(slot.sets);
-  const [reps, setReps] = useState(slot.reps ?? '');
-  const [seconds, setSeconds] = useState(slot.duration_seconds ?? '');
-  const [weight, setWeight] = useState(slot.weight_kg ?? '');
-  const [rest, setRest] = useState(slot.rest_seconds ?? '');
+  const [reps, setReps] = useState(initialReps);
+  const [seconds, setSeconds] = useState(initialSeconds);
+  const [weight, setWeight] = useState(initialWeight);
+  const [rest, setRest] = useState(initialRest);
   const [notes, setNotes] = useState(slot.notes ?? '');
   const [showNotes, setShowNotes] = useState(!!slot.notes);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -33,27 +144,45 @@ export default function ExerciseSlotRow({ slot, onUpdate, onDelete, children }) 
 
   useEffect(() => {
     setSets(slot.sets);
-    setReps(slot.reps ?? '');
-    setSeconds(slot.duration_seconds ?? '');
-    setWeight(slot.weight_kg ?? '');
-    setRest(slot.rest_seconds ?? '');
+    setReps(headLog ? (headLog.target_reps ?? '') : (slot.reps ?? ''));
+    setSeconds(headLog ? (headLog.target_duration_seconds ?? '') : (slot.duration_seconds ?? ''));
+    setWeight(headLog ? (headLog.target_weight_kg ?? '') : (slot.weight_kg ?? ''));
+    setRest(headLog ? (headLog.target_rest_seconds ?? '') : (slot.rest_seconds ?? ''));
     setNotes(slot.notes ?? '');
-  }, [slot.id, slot.sets, slot.reps, slot.duration_seconds, slot.weight_kg, slot.rest_seconds, slot.notes]);
+  }, [
+    slot.id,
+    slot.sets,
+    slot.reps,
+    slot.duration_seconds,
+    slot.weight_kg,
+    slot.rest_seconds,
+    slot.notes,
+    headLog?.id,
+    headLog?.target_reps,
+    headLog?.target_duration_seconds,
+    headLog?.target_weight_kg,
+    headLog?.target_rest_seconds,
+  ]);
 
   function handleBlur() {
     const updates = {};
     if (sets !== slot.sets) updates.sets = sets;
     if (isTimeBased) {
       const s = seconds === '' ? null : Number(seconds);
-      if (s !== slot.duration_seconds) updates.duration_seconds = s;
+      const prev = headLog ? headLog.target_duration_seconds : slot.duration_seconds;
+      if (s !== (prev ?? null)) updates.duration_seconds = s;
     } else {
       const r = reps === '' ? null : Number(reps);
-      if (r !== slot.reps) updates.reps = r;
+      const prev = headLog ? headLog.target_reps : slot.reps;
+      if (r !== (prev ?? null)) updates.reps = r;
     }
     const w = weight === '' ? null : Number(weight);
-    if (w !== slot.weight_kg) updates.weight_kg = w;
+    const prevW = headLog ? headLog.target_weight_kg : slot.weight_kg;
+    const prevWNum = prevW == null ? null : Number(prevW);
+    if (w !== prevWNum) updates.weight_kg = w;
     const rs = rest === '' ? null : Number(rest);
-    if (rs !== (slot.rest_seconds ?? null)) updates.rest_seconds = rs;
+    const prevR = headLog ? headLog.target_rest_seconds : slot.rest_seconds;
+    if (rs !== (prevR ?? null)) updates.rest_seconds = rs;
     if (Object.keys(updates).length > 0) onUpdate(updates);
   }
 
@@ -82,8 +211,10 @@ export default function ExerciseSlotRow({ slot, onUpdate, onDelete, children }) 
     if (n !== (slot.notes ?? null)) onUpdate({ notes: n });
   }
 
-  const inputCls =
-    'w-full rounded-lg border border-ink-200 bg-white px-2 py-1.5 sl-mono text-[16px] text-center text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
+  function handleResetToUniform() {
+    if (onResetToUniform) onResetToUniform();
+    setShowCustom(false);
+  }
 
   return (
     <div ref={setNodeRef} style={sortableStyle} className="sl-card p-4 space-y-3">
@@ -130,75 +261,142 @@ export default function ExerciseSlotRow({ slot, onUpdate, onDelete, children }) 
         </div>
       </div>
 
-      <div className="flex gap-2">
-        <div className="flex-1">
-          <label htmlFor={`sets-${slot.id}`} className="sl-label text-ink-400 block mb-1">Sets</label>
-          <input
-            id={`sets-${slot.id}`}
-            type="number"
-            min={1}
-            value={sets}
-            onChange={(e) => setSets(Number(e.target.value))}
-            onBlur={handleBlur}
-            className={inputCls}
-          />
-        </div>
-        {isTimeBased ? (
-          <div className="flex-1">
-            <label htmlFor={`seconds-${slot.id}`} className="sl-label text-ink-400 block mb-1">Seconds</label>
-            <input
-              id={`seconds-${slot.id}`}
-              type="number"
-              min={1}
-              value={seconds}
-              onChange={(e) => setSeconds(e.target.value)}
-              onBlur={handleBlur}
-              className={inputCls}
-            />
+      {showCustom ? (
+        <div className="space-y-2">
+          <div className="flex gap-2 items-end">
+            <div className="flex-1 max-w-[6rem]">
+              <label htmlFor={`sets-${slot.id}`} className="sl-label text-ink-400 block mb-1">Sets</label>
+              <input
+                id={`sets-${slot.id}`}
+                type="number"
+                min={1}
+                value={sets}
+                onChange={(e) => setSets(Number(e.target.value))}
+                onBlur={handleBlur}
+                className={inputCls}
+              />
+            </div>
+            <div className="flex-1 text-right">
+              {uniform ? (
+                <button
+                  type="button"
+                  onClick={() => setShowCustom(false)}
+                  className="sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)] underline"
+                >
+                  back to uniform
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleResetToUniform}
+                  className="sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)] underline"
+                >
+                  reset to uniform
+                </button>
+              )}
+            </div>
           </div>
-        ) : (
-          <div className="flex-1">
-            <label htmlFor={`reps-${slot.id}`} className="sl-label text-ink-400 block mb-1">Reps</label>
-            <input
-              id={`reps-${slot.id}`}
-              type="number"
-              min={1}
-              value={reps}
-              onChange={(e) => setReps(e.target.value)}
-              onBlur={handleBlur}
-              className={inputCls}
-            />
+          <table className="w-full" aria-label={`Per-set targets for ${ex.name}`}>
+            <thead>
+              <tr>
+                <th className="sl-label text-ink-400 pr-2 text-center w-8">#</th>
+                <th className="sl-label text-ink-400">{isTimeBased ? 'Sec' : 'Reps'}</th>
+                <th className="sl-label text-ink-400">Weight</th>
+                <th className="sl-label text-ink-400">Rest</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map((log) => (
+                <PerSetRow
+                  key={log.id}
+                  log={log}
+                  isTimeBased={isTimeBased}
+                  onUpdateSet={onUpdateSet}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label htmlFor={`sets-${slot.id}`} className="sl-label text-ink-400 block mb-1">Sets</label>
+              <input
+                id={`sets-${slot.id}`}
+                type="number"
+                min={1}
+                value={sets}
+                onChange={(e) => setSets(Number(e.target.value))}
+                onBlur={handleBlur}
+                className={inputCls}
+              />
+            </div>
+            {isTimeBased ? (
+              <div className="flex-1">
+                <label htmlFor={`seconds-${slot.id}`} className="sl-label text-ink-400 block mb-1">Seconds</label>
+                <input
+                  id={`seconds-${slot.id}`}
+                  type="number"
+                  min={1}
+                  value={seconds}
+                  onChange={(e) => setSeconds(e.target.value)}
+                  onBlur={handleBlur}
+                  className={inputCls}
+                />
+              </div>
+            ) : (
+              <div className="flex-1">
+                <label htmlFor={`reps-${slot.id}`} className="sl-label text-ink-400 block mb-1">Reps</label>
+                <input
+                  id={`reps-${slot.id}`}
+                  type="number"
+                  min={1}
+                  value={reps}
+                  onChange={(e) => setReps(e.target.value)}
+                  onBlur={handleBlur}
+                  className={inputCls}
+                />
+              </div>
+            )}
+            <div className="flex-1">
+              <label htmlFor={`weight-${slot.id}`} className="sl-label text-ink-400 block mb-1">Weight</label>
+              <input
+                id={`weight-${slot.id}`}
+                type="number"
+                min={0}
+                step={0.5}
+                value={weight}
+                onChange={(e) => setWeight(e.target.value)}
+                onBlur={handleBlur}
+                placeholder="BW"
+                className={inputCls}
+              />
+            </div>
+            <div className="flex-1">
+              <label htmlFor={`rest-${slot.id}`} className="sl-label text-ink-400 block mb-1">Rest (s)</label>
+              <input
+                id={`rest-${slot.id}`}
+                type="number"
+                min={0}
+                step={15}
+                value={rest}
+                onChange={(e) => setRest(e.target.value)}
+                onBlur={handleBlur}
+                placeholder="—"
+                className={inputCls}
+              />
+            </div>
           </div>
-        )}
-        <div className="flex-1">
-          <label htmlFor={`weight-${slot.id}`} className="sl-label text-ink-400 block mb-1">Weight</label>
-          <input
-            id={`weight-${slot.id}`}
-            type="number"
-            min={0}
-            step={0.5}
-            value={weight}
-            onChange={(e) => setWeight(e.target.value)}
-            onBlur={handleBlur}
-            placeholder="BW"
-            className={inputCls}
-          />
-        </div>
-        <div className="flex-1">
-          <label htmlFor={`rest-${slot.id}`} className="sl-label text-ink-400 block mb-1">Rest (s)</label>
-          <input
-            id={`rest-${slot.id}`}
-            type="number"
-            min={0}
-            step={15}
-            value={rest}
-            onChange={(e) => setRest(e.target.value)}
-            onBlur={handleBlur}
-            placeholder="—"
-            className={inputCls}
-          />
-        </div>
-      </div>
+          <button
+            type="button"
+            onClick={() => setShowCustom(true)}
+            className="sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)]"
+          >
+            + Customize sets
+          </button>
+        </>
+      )}
 
       <div className="flex items-center gap-2 flex-wrap">
         <span className="sl-label text-ink-400">Record</span>

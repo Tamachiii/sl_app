@@ -13,7 +13,15 @@ import { useSetVideos } from '../../hooks/useSetVideo';
 import { useArchiveSession } from '../../hooks/useWeek';
 import { useSessionConfirmation } from '../../hooks/useSessionConfirmation';
 import SlotProgress from './SlotProgress';
-import { formatSlotPrescription, formatRestSeconds, groupSlotsBySuperset } from '../../lib/volume';
+import {
+  formatSlotPrescription,
+  formatRestSeconds,
+  groupSlotsBySuperset,
+  isSlotUniform,
+  formatSetTarget,
+  getSlotTargetWeight,
+  getSlotTargetRest,
+} from '../../lib/volume';
 
 function SlotVideoStrip({ videos, onPlay }) {
   if (!videos || videos.length === 0) return null;
@@ -164,8 +172,15 @@ export default function SessionReview() {
         {slotGroups.map((group) => {
           const renderSlot = (slot) => {
             const ex = slot.exercise;
-            const slotLogs = (setLogs || []).filter((l) => l.exercise_slot_id === slot.id);
+            const slotLogs = (setLogs || [])
+              .filter((l) => l.exercise_slot_id === slot.id)
+              .slice()
+              .sort((a, b) => a.set_number - b.set_number);
             const comment = (slotComments || []).find((x) => x.exercise_slot_id === slot.id);
+            const composed = { ...slot, set_logs: slotLogs };
+            const uniform = isSlotUniform(composed);
+            const headWeight = getSlotTargetWeight(composed);
+            const headRest = getSlotTargetRest(composed);
             return (
               <div key={slot.id} className="sl-card p-4 space-y-2">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -179,13 +194,31 @@ export default function SessionReview() {
                   </span>
                   <span className="sl-mono text-[10px] text-ink-400">D{ex.difficulty}</span>
                 </div>
-                <p className="sl-mono text-[11px] text-ink-400">
-                  PLANNED: {formatSlotPrescription(slot)}
-                  {slot.weight_kg ? ` @ ${slot.weight_kg}KG` : ' (BW)'}
-                  {slot.rest_seconds != null && (
-                    <span className="ml-2">· REST {formatRestSeconds(slot.rest_seconds)}</span>
-                  )}
-                </p>
+                {uniform ? (
+                  <p className="sl-mono text-[11px] text-ink-400">
+                    PLANNED: {formatSlotPrescription(composed)}
+                    {headWeight ? ` @ ${headWeight}KG` : ' (BW)'}
+                    {headRest != null && (
+                      <span className="ml-2">· REST {formatRestSeconds(headRest)}</span>
+                    )}
+                  </p>
+                ) : (
+                  <div className="sl-mono text-[11px] text-ink-400">
+                    <p>PLANNED: {slot.sets} sets · varied</p>
+                    <ul className="mt-1 space-y-0.5">
+                      {slotLogs.map((log) => {
+                        const rest = formatRestSeconds(log.target_rest_seconds);
+                        return (
+                          <li key={log.id}>
+                            <span className="sl-label mr-1">Set {log.set_number}</span>
+                            {formatSetTarget(log)}
+                            {rest && <span className="ml-2">· REST {rest}</span>}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
                 <SlotProgress logs={slotLogs} plannedSets={slot.sets} />
                 <SlotVideoStrip
                   videos={videosBySlot.get(slot.id)}

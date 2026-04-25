@@ -103,7 +103,11 @@ set_logs (…)
 set_log_videos (set_log_id UNIQUE, storage_path, mime_type, size_bytes)
 ```
 
-Each coach has their own exercise library; each student can have many **programs** (periodization blocks) but only one is active at a time. Students see only the active program; coaches browse all. Deep architectural details — RLS helpers, React Query invalidation, routing/persistence, set-video storage, calendar history overlay — live in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Each coach has their own exercise library; each student can have many **programs** (periodization blocks) but only one is active at a time. Students see only the active program; coaches browse all.
+
+`set_logs` doubles as both prescription and log: each row carries the coach's per-set targets (`target_reps`, `target_duration_seconds`, `target_weight_kg`, `target_rest_seconds`) alongside the student's actuals (`done`, `rpe`, `weight_kg`). The compact "3 × 10 @ 80kg" UI is shown when every set's target matches; otherwise a per-set list appears (drop sets, back-offs). Coaches toggle "Customize sets" in the editor to expose a per-set table; "Reset to uniform" syncs every row back to set 1.
+
+Deep architectural details — RLS helpers, React Query invalidation, routing/persistence, set-video storage, calendar history overlay — live in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
@@ -146,7 +150,7 @@ Quick summary:
 - Tests live alongside components as `*.test.jsx` / `*.test.js`.
 - `src/test/utils.jsx` exports `renderWithProviders(ui, { auth, route, queryClient })` which wraps with `ThemeProvider` + `QueryClientProvider` + `AuthContext` + `MemoryRouter`.
 - Mocks: child hooks are stubbed with `vi.mock('../../hooks/useX', () => ({ ... }))` per file.
-- ~130 tests across 24 files cover every interactive button, the volume helper, hook layers, and auth/nav flows.
+- 172 tests across 24 files cover every interactive button, the volume helper, hook layers, and auth/nav flows.
 
 Run:
 ```bash

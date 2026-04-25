@@ -91,16 +91,28 @@ CREATE TABLE public.exercise_slots (
 );
 
 -- Set logs (student fills these in)
+-- Each row is BOTH the prescription (target_*) and the student's actuals
+-- (done, rpe, weight_kg). Per-set targets let one exercise have heterogeneous
+-- sets (drop sets, back-offs) without a separate slot. exercise_slots.{reps,
+-- weight_kg, duration_seconds, rest_seconds} remain as deprecated mirrors of
+-- set 1 — slated for removal in a follow-up migration.
 CREATE TABLE public.set_logs (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  exercise_slot_id uuid NOT NULL REFERENCES public.exercise_slots(id) ON DELETE CASCADE,
-  set_number       int  NOT NULL CHECK (set_number > 0),
-  done             boolean NOT NULL DEFAULT false,
-  rpe              int CHECK (rpe IS NULL OR (rpe BETWEEN 1 AND 10)),
-  weight_kg        numeric(6,2),
-  logged_at        timestamptz,
-  created_at       timestamptz NOT NULL DEFAULT now(),
-  UNIQUE(exercise_slot_id, set_number)
+  id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  exercise_slot_id         uuid NOT NULL REFERENCES public.exercise_slots(id) ON DELETE CASCADE,
+  set_number               int  NOT NULL CHECK (set_number > 0),
+  done                     boolean NOT NULL DEFAULT false,
+  rpe                      int CHECK (rpe IS NULL OR (rpe BETWEEN 1 AND 10)),
+  weight_kg                numeric(6,2),
+  target_reps              int,
+  target_duration_seconds  int,
+  target_weight_kg         numeric(6,2),
+  target_rest_seconds      int,
+  logged_at                timestamptz,
+  created_at               timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(exercise_slot_id, set_number),
+  CONSTRAINT set_logs_target_unit_one_of CHECK (
+    target_reps IS NULL OR target_duration_seconds IS NULL
+  )
 );
 
 -- ============================================================
@@ -275,9 +287,20 @@ CREATE POLICY "Students read own exercise slots"
   );
 
 -- SET LOGS
-CREATE POLICY "Coaches read set logs"
-  ON public.set_logs FOR SELECT
+-- Coaches own per-set prescriptions (target_* columns) for their students'
+-- slots; students own their actuals (done, rpe, weight_kg). The DB grants
+-- both sides FOR ALL on the same table — column separation is enforced by
+-- client discipline (coach UI never writes actuals; student UI never writes
+-- targets). If this proves insufficient we can split actuals to a child
+-- table.
+CREATE POLICY "Coaches manage set log prescriptions"
+  ON public.set_logs FOR ALL
   USING (
+    public.student_profile_for_slot(exercise_slot_id) IN (
+      SELECT profile_id FROM public.students WHERE coach_id = auth.uid()
+    )
+  )
+  WITH CHECK (
     public.student_profile_for_slot(exercise_slot_id) IN (
       SELECT profile_id FROM public.students WHERE coach_id = auth.uid()
     )

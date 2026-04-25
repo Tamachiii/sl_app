@@ -28,13 +28,16 @@ sessions (id, week_id, title, day_number 1..7, scheduled_date, sort_order, archi
 exercise_slots (…, sets, reps, weight_kg,        session_confirmations
                 rest_seconds, superset_group,     (session_id UNIQUE, student_id,
                 notes, record_video_set_numbers)   confirmed_at, notes)
-  │ exercise_id                                    │
-  ▼                                                ▼
+  │ exercise_id    -- reps/weight_kg/duration_seconds/rest_seconds are now
+  │                -- DEPRECATED mirrors of set 1; per-set targets live on set_logs
+  ▼                                                │
 exercises (library:  name, type 'pull'|'push',   slot_comments (student-authored
            difficulty, volume_weight)             comments per slot per session)
   │
   ▼
-set_logs (exercise_slot_id, set_number, weight, reps, rpe, done)
+set_logs (exercise_slot_id, set_number,
+          target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds,
+          weight_kg, rpe, done, logged_at)
   │
   ▼ 1:1
 set_log_videos (set_log_id UNIQUE, storage_path, mime_type, size_bytes)
@@ -45,7 +48,18 @@ Side tables:
 - **`goals`** + `goal_progress` — student-chosen target lifts, coach can also author them. See [src/hooks/useGoals.js](../src/hooks/useGoals.js).
 - **`exercises`** — each coach owns a library; slots reference by `exercise_id`.
 
-Volume helper [src/lib/volume.js](../src/lib/volume.js) aggregates `difficulty × sets × reps × volume_weight` per `type` across a session, skipping time-under-tension slots.
+Volume helper [src/lib/volume.js](../src/lib/volume.js) aggregates `difficulty × Σ(target_reps) × volume_weight` per `type` across a session, summing per-set targets out of `set_logs`. Time-under-tension entries (`target_duration_seconds` set, `target_reps` null) are skipped. Slots with no per-set logs yet fall back to `slot.sets × slot.reps`.
+
+## Per-set targets
+
+Prescription used to live on `exercise_slots` as a single `{sets, reps, weight_kg, rest_seconds}` row that multiplied across every set. As of migration `2026_04_25_per_set_targets.sql`, each `set_logs` row carries both the prescription (`target_reps`, `target_duration_seconds`, `target_weight_kg`, `target_rest_seconds`) and the student's actuals (`done`, `rpe`, `weight_kg`). One exercise card can now hold heterogeneous sets — drop sets, back-offs, ramped weight — without spawning multiple slots.
+
+- The legacy `exercise_slots.{reps, weight_kg, duration_seconds, rest_seconds}` columns are kept as deprecated mirrors of set 1, slated for removal in a follow-up migration.
+- The reps/seconds **unit** is still slot-level — `exercise_slots_unit_one_of` enforces exactly one of the deprecated mirror columns is set, and a parallel `set_logs_target_unit_one_of` enforces it per-row.
+- `useAddSlot` materializes one `set_logs` row per planned set with uniform targets. `useUpdateSlot` fans uniform target edits out to every log; changing `sets` reconciles count by inserting from the last row's targets or deleting orphans. `useUpdateSetTarget` writes to a single log. `useResetSlotToUniform` re-syncs every log to set 1's values.
+- `useDuplicate` copies `set_logs` targets across (not actuals) — a duplicated session arrives clean.
+- `lib/volume.js` exports `isSlotUniform(slot)`, `formatSlotPrescription(slot)`, `formatSetTarget(log)`, `getSlotTargetWeight(slot)`, `getSlotTargetRest(slot)`. Compact "3 × 10 @ 80kg" rendering only fires when uniform; the heterogeneous case shows a per-set list. All helpers fall back to slot scalars when set_logs lack target_* (legacy / mocks).
+- Coach editor (`ExerciseSlotRow`) auto-expands the per-set table when targets diverge. "Reset to uniform" requires explicit click — there is no implicit "if matching, collapse"; the coach controls when to leave custom mode.
 
 `day_number` on sessions: `1=Monday … 7=Sunday`. `StudentHome` maps these to the 7-day week strip; values outside 1–7 still appear in Upcoming/Completed lists but not the strip.
 

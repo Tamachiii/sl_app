@@ -54,7 +54,8 @@ export function useStudentProgressStats(studentId) {
               id, title, day_number, sort_order, scheduled_date, archived_at,
               exercise_slots(
                 id, sets, reps, duration_seconds, weight_kg,
-                exercise:exercise_library(id, name, type, difficulty, volume_weight)
+                exercise:exercise_library(id, name, type, difficulty, volume_weight),
+                set_logs(set_number, target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds)
               )
             )
           )
@@ -162,9 +163,9 @@ export function useStudentProgressStats(studentId) {
 
       // ─── Per-exercise weekly tonnage ─────────────────────────────────────
       // For each exercise used anywhere in the program, build a point per
-      // week: tonnage = Σ(sets × reps × weight_kg) across every slot using
-      // that exercise in that week. Uses prescribed numbers so the curve
-      // shows the programmed progression even before sets are logged.
+      // week: tonnage = Σ(target_reps × target_weight_kg) over every set_log
+      // (per-set target) of every slot using that exercise in that week.
+      // Bodyweight (null/0) counts as 1kg so the curve stays visible.
       const exerciseMeta = {};   // id → { id, name, type }
       const byExercise = {};     // id → [{ week_number, label, tonnage }]
       for (const w of weeks) {
@@ -173,11 +174,19 @@ export function useStudentProgressStats(studentId) {
           for (const slot of s.exercise_slots || []) {
             const ex = slot.exercise;
             if (!ex) continue;
-            const reps = slot.reps || 0;
-            // Bodyweight exercises (null/0 weight) count as 1 kg so they
-            // still produce a visible progression curve.
-            const weight = slot.weight_kg && slot.weight_kg > 0 ? slot.weight_kg : 1;
-            const tonnage = (slot.sets || 0) * reps * weight;
+            let tonnage = 0;
+            const logs = slot.set_logs || [];
+            if (logs.length > 0) {
+              for (const l of logs) {
+                if (l.target_reps == null) continue;
+                const w_ = l.target_weight_kg && l.target_weight_kg > 0 ? Number(l.target_weight_kg) : 1;
+                tonnage += l.target_reps * w_;
+              }
+            } else {
+              const reps = slot.reps || 0;
+              const w_ = slot.weight_kg && slot.weight_kg > 0 ? Number(slot.weight_kg) : 1;
+              tonnage = (slot.sets || 0) * reps * w_;
+            }
             if (tonnage <= 0) continue;
             exerciseMeta[ex.id] = { id: ex.id, name: ex.name, type: ex.type };
             perExerciseTonnage[ex.id] = (perExerciseTonnage[ex.id] || 0) + tonnage;

@@ -112,4 +112,75 @@ describe('ExerciseSlotRow', () => {
     fireEvent.blur(textarea);
     expect(props.onUpdate).toHaveBeenCalledWith({ notes: 'Focus on the negative' });
   });
+
+  it('clicking "+ Customize sets" reveals a per-set table', async () => {
+    const user = userEvent.setup();
+    renderSlotRow({
+      slot: {
+        ...defaultSlot,
+        set_logs: [
+          { id: 'l1', set_number: 1, target_reps: 10, target_weight_kg: 50 },
+          { id: 'l2', set_number: 2, target_reps: 10, target_weight_kg: 50 },
+          { id: 'l3', set_number: 3, target_reps: 10, target_weight_kg: 50 },
+        ],
+      },
+    });
+    expect(screen.queryByLabelText(/per-set targets/i)).toBeNull();
+    await user.click(screen.getByRole('button', { name: /customize sets/i }));
+    expect(screen.getByRole('table', { name: /per-set targets/i })).toBeInTheDocument();
+    expect(screen.getByLabelText('Set 1 reps')).toHaveValue(10);
+    expect(screen.getByLabelText('Set 3 weight')).toHaveValue(50);
+  });
+
+  it('editing a per-set field calls onUpdateSet with that log id', async () => {
+    const user = userEvent.setup();
+    const onUpdateSet = vi.fn();
+    renderSlotRow({
+      slot: {
+        ...defaultSlot,
+        set_logs: [
+          { id: 'l1', set_number: 1, target_reps: 10, target_weight_kg: 50 },
+          { id: 'l2', set_number: 2, target_reps: 10, target_weight_kg: 50 },
+          { id: 'l3', set_number: 3, target_reps: 10, target_weight_kg: 50 },
+        ],
+      },
+      onUpdateSet,
+    });
+    await user.click(screen.getByRole('button', { name: /customize sets/i }));
+    const repsInput = screen.getByLabelText('Set 3 reps');
+    await user.clear(repsInput);
+    await user.type(repsInput, '6');
+    fireEvent.blur(repsInput);
+    expect(onUpdateSet).toHaveBeenCalledWith('l3', { reps: 6 });
+  });
+
+  it('opens the per-set editor automatically when sets are heterogeneous', () => {
+    renderSlotRow({
+      slot: {
+        ...defaultSlot,
+        set_logs: [
+          { id: 'l1', set_number: 1, target_reps: 10, target_weight_kg: 80 },
+          { id: 'l2', set_number: 2, target_reps: 6, target_weight_kg: 100 },
+        ],
+      },
+    });
+    expect(screen.getByRole('table', { name: /per-set targets/i })).toBeInTheDocument();
+  });
+
+  it('clicking "reset to uniform" calls onResetToUniform', async () => {
+    const user = userEvent.setup();
+    const onResetToUniform = vi.fn();
+    renderSlotRow({
+      slot: {
+        ...defaultSlot,
+        set_logs: [
+          { id: 'l1', set_number: 1, target_reps: 10, target_weight_kg: 80 },
+          { id: 'l2', set_number: 2, target_reps: 6, target_weight_kg: 100 },
+        ],
+      },
+      onResetToUniform,
+    });
+    await user.click(screen.getByRole('button', { name: /reset to uniform/i }));
+    expect(onResetToUniform).toHaveBeenCalled();
+  });
 });

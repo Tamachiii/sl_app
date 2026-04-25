@@ -41,6 +41,8 @@ vi.mock('../../hooks/useSession', () => ({
   useAddSlot: () => mockAddSlot,
   useUpdateSlot: () => mockUpdateSlot,
   useDeleteSlot: () => mockDeleteSlot,
+  useUpdateSetTarget: () => ({ mutate: vi.fn(), isPending: false }),
+  useResetSlotToUniform: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock('../../hooks/useExerciseLibrary', () => ({

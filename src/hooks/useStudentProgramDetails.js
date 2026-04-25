@@ -32,7 +32,8 @@ export function useStudentProgramDetails(userId) {
               exercise_slots(
                 id, sets, reps, duration_seconds, weight_kg, sort_order,
                 record_video_set_numbers,
-                exercise:exercise_library(id, name, type)
+                exercise:exercise_library(id, name, type),
+                set_logs(set_number, target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds)
               )
             )
           )
@@ -47,9 +48,14 @@ export function useStudentProgramDetails(userId) {
           w.sessions = (w.sessions || [])
             .map((s) => ({
               ...s,
-              exercise_slots: (s.exercise_slots || []).sort(
-                (a, b) => a.sort_order - b.sort_order
-              ),
+              exercise_slots: (s.exercise_slots || [])
+                .map((sl) => ({
+                  ...sl,
+                  set_logs: (sl.set_logs || []).slice().sort(
+                    (a, b) => a.set_number - b.set_number
+                  ),
+                }))
+                .sort((a, b) => a.sort_order - b.sort_order),
             }))
             .sort((a, b) => a.sort_order - b.sort_order);
           weeks.push(w);

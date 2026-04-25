@@ -20,12 +20,15 @@ export function useSetLogs(sessionId, slots) {
   });
 }
 
+// Safety net for legacy slots that pre-date the per-set-targets migration:
+// inserts any missing set_log rows and seeds them with the slot's uniform
+// targets. New slots created via useAddSlot already materialize their logs,
+// so this is mostly a no-op now.
 export function useEnsureSetLogs() {
   const qc = useQueryClient();
 
   return useMutation({
     mutationFn: async ({ sessionId, slots }) => {
-      // For each slot, check if set_logs exist; if not, create them
       const slotIds = slots.map((s) => s.id);
       const { data: existing, error: existErr } = await supabase
         .from('set_logs')
@@ -45,6 +48,10 @@ export function useEnsureSetLogs() {
               exercise_slot_id: slot.id,
               set_number: i,
               done: false,
+              target_reps: slot.reps ?? null,
+              target_duration_seconds: slot.duration_seconds ?? null,
+              target_weight_kg: slot.weight_kg ?? null,
+              target_rest_seconds: slot.rest_seconds ?? null,
             });
           }
         }

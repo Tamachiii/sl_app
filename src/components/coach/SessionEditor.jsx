@@ -15,7 +15,14 @@ import {
   sortableKeyboardCoordinates,
   arrayMove,
 } from '@dnd-kit/sortable';
-import { useSession, useAddSlot, useUpdateSlot, useDeleteSlot } from '../../hooks/useSession';
+import {
+  useSession,
+  useAddSlot,
+  useUpdateSlot,
+  useDeleteSlot,
+  useUpdateSetTarget,
+  useResetSlotToUniform,
+} from '../../hooks/useSession';
 import { useUpdateSession } from '../../hooks/useWeek';
 import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
 import { useDuplicateSession } from '../../hooks/useDuplicate';
@@ -35,6 +42,8 @@ export default function SessionEditor() {
   const addSlot = useAddSlot();
   const updateSlot = useUpdateSlot();
   const deleteSlot = useDeleteSlot();
+  const updateSetTarget = useUpdateSetTarget();
+  const resetSlotToUniform = useResetSlotToUniform();
   const duplicateSession = useDuplicateSession();
   const updateSession = useUpdateSession();
 
@@ -200,6 +209,12 @@ export default function SessionEditor() {
                   slot={slot}
                   onUpdate={(updates) => updateSlot.mutate({ id: slot.id, sessionId, ...updates })}
                   onDelete={() => deleteSlot.mutate({ id: slot.id, sessionId })}
+                  onUpdateSet={(logId, updates) =>
+                    updateSetTarget.mutate({ logId, sessionId, ...updates })
+                  }
+                  onResetToUniform={() =>
+                    resetSlotToUniform.mutate({ slotId: slot.id, sessionId })
+                  }
                 />
               );
               if (group.slots.length > 1) {

@@ -1,6 +1,32 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 
+// Copies the per-set targets from each source slot's set_logs into fresh
+// rows on the destination slots. Actuals (done/rpe/weight_kg/logged_at) are
+// intentionally NOT carried over — duplication produces a clean session.
+async function copySetLogTargets(slotIdMap) {
+  const sourceIds = Object.keys(slotIdMap);
+  if (sourceIds.length === 0) return;
+  const { data: srcLogs, error } = await supabase
+    .from('set_logs')
+    .select('exercise_slot_id, set_number, target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds')
+    .in('exercise_slot_id', sourceIds);
+  if (error) throw error;
+  const rows = (srcLogs || []).map((l) => ({
+    exercise_slot_id: slotIdMap[l.exercise_slot_id],
+    set_number: l.set_number,
+    done: false,
+    target_reps: l.target_reps,
+    target_duration_seconds: l.target_duration_seconds,
+    target_weight_kg: l.target_weight_kg,
+    target_rest_seconds: l.target_rest_seconds,
+  }));
+  if (rows.length > 0) {
+    const { error: insErr } = await supabase.from('set_logs').insert(rows);
+    if (insErr) throw insErr;
+  }
+}
+
 export function useDuplicateWeek() {
   const qc = useQueryClient();
 
@@ -9,7 +35,6 @@ export function useDuplicateWeek() {
     // different program (e.g. another student's). `newWeekNumber` is optional
     // too; when omitted we pick max(week_number)+1 in the destination program.
     mutationFn: async ({ weekId, newWeekNumber, programId }) => {
-      // Fetch the source week with sessions and slots
       const { data: srcWeek, error: wErr } = await supabase
         .from('weeks')
         .select('*')
@@ -31,7 +56,6 @@ export function useDuplicateWeek() {
         destWeekNumber = (existing?.[0]?.week_number ?? 0) + 1;
       }
 
-      // Create the new week
       const { data: newWeek, error: nwErr } = await supabase
         .from('weeks')
         .insert({
@@ -43,7 +67,6 @@ export function useDuplicateWeek() {
         .single();
       if (nwErr) throw nwErr;
 
-      // Fetch sessions for source week
       const { data: sessions, error: sErr } = await supabase
         .from('sessions')
         .select('*, exercise_slots(*)')
@@ -51,7 +74,6 @@ export function useDuplicateWeek() {
         .order('sort_order');
       if (sErr) throw sErr;
 
-      // Batch-insert all sessions at once
       if (sessions.length === 0) return newWeek;
 
       const sessionRows = sessions.map((sess) => ({
@@ -66,40 +88,48 @@ export function useDuplicateWeek() {
         .select();
       if (nsErr) throw nsErr;
 
-      // Map old session IDs to new session IDs via sort_order
       const newBySort = new Map(newSessions.map((ns) => [ns.sort_order, ns.id]));
 
-      // Batch-insert all slots across all sessions
-      const allSlots = [];
+      // Insert slots one source-session at a time so we can map old→new ids
+      // by sort_order within the session, then copy set_log targets across.
+      const slotIdMap = {};
       for (const sess of sessions) {
         const newSessId = newBySort.get(sess.sort_order);
-        for (const sl of sess.exercise_slots || []) {
-          allSlots.push({
-            session_id: newSessId,
-            exercise_id: sl.exercise_id,
-            sets: sl.sets,
-            reps: sl.reps,
-            weight_kg: sl.weight_kg,
-            sort_order: sl.sort_order,
-            notes: sl.notes,
-            duration_seconds: sl.duration_seconds,
-            superset_group: sl.superset_group,
-            rest_seconds: sl.rest_seconds,
-          });
+        const sourceSlots = (sess.exercise_slots || []).slice().sort(
+          (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+        );
+        if (sourceSlots.length === 0) continue;
+        const slotRows = sourceSlots.map((sl) => ({
+          session_id: newSessId,
+          exercise_id: sl.exercise_id,
+          sets: sl.sets,
+          reps: sl.reps,
+          weight_kg: sl.weight_kg,
+          sort_order: sl.sort_order,
+          notes: sl.notes,
+          duration_seconds: sl.duration_seconds,
+          superset_group: sl.superset_group,
+          rest_seconds: sl.rest_seconds,
+        }));
+        const { data: newSlots, error: slErr } = await supabase
+          .from('exercise_slots')
+          .insert(slotRows)
+          .select('id, sort_order');
+        if (slErr) throw slErr;
+        const newBySortOrder = new Map(newSlots.map((s) => [s.sort_order, s.id]));
+        for (const src of sourceSlots) {
+          const destId = newBySortOrder.get(src.sort_order);
+          if (destId) slotIdMap[src.id] = destId;
         }
       }
-      if (allSlots.length > 0) {
-        const { error: slErr } = await supabase
-          .from('exercise_slots')
-          .insert(allSlots);
-        if (slErr) throw slErr;
-      }
+      await copySetLogTargets(slotIdMap);
 
       return newWeek;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['program'] });
       qc.invalidateQueries({ queryKey: ['week'] });
+      qc.invalidateQueries({ queryKey: ['set-logs'] });
       qc.invalidateQueries({ queryKey: ['student-weeks'] });
     },
   });
@@ -129,24 +159,34 @@ export function useDuplicateSession() {
         .single();
       if (nsErr) throw nsErr;
 
-      const slots = (src.exercise_slots || []).map((sl) => ({
-        session_id: newSess.id,
-        exercise_id: sl.exercise_id,
-        sets: sl.sets,
-        reps: sl.reps,
-        weight_kg: sl.weight_kg,
-        sort_order: sl.sort_order,
-        notes: sl.notes,
-        duration_seconds: sl.duration_seconds,
-        superset_group: sl.superset_group,
-        rest_seconds: sl.rest_seconds,
-      }));
-
-      if (slots.length > 0) {
-        const { error: slErr } = await supabase
+      const sourceSlots = (src.exercise_slots || []).slice().sort(
+        (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+      );
+      if (sourceSlots.length > 0) {
+        const slotRows = sourceSlots.map((sl) => ({
+          session_id: newSess.id,
+          exercise_id: sl.exercise_id,
+          sets: sl.sets,
+          reps: sl.reps,
+          weight_kg: sl.weight_kg,
+          sort_order: sl.sort_order,
+          notes: sl.notes,
+          duration_seconds: sl.duration_seconds,
+          superset_group: sl.superset_group,
+          rest_seconds: sl.rest_seconds,
+        }));
+        const { data: newSlots, error: slErr } = await supabase
           .from('exercise_slots')
-          .insert(slots);
+          .insert(slotRows)
+          .select('id, sort_order');
         if (slErr) throw slErr;
+        const newBySortOrder = new Map(newSlots.map((s) => [s.sort_order, s.id]));
+        const slotIdMap = {};
+        for (const src of sourceSlots) {
+          const destId = newBySortOrder.get(src.sort_order);
+          if (destId) slotIdMap[src.id] = destId;
+        }
+        await copySetLogTargets(slotIdMap);
       }
 
       return newSess;
@@ -154,6 +194,7 @@ export function useDuplicateSession() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['week'] });
       qc.invalidateQueries({ queryKey: ['session'] });
+      qc.invalidateQueries({ queryKey: ['set-logs'] });
       qc.invalidateQueries({ queryKey: ['program'] });
       qc.invalidateQueries({ queryKey: ['student-weeks'] });
     },

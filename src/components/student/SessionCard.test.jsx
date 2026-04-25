@@ -59,6 +59,28 @@ describe('SessionCard', () => {
     expect(screen.getByText('Front Squat')).toBeInTheDocument();
   });
 
+  it('shows "N sets · varied" instead of compact prescription when sets differ', () => {
+    const variedSlot = {
+      id: 'slot-2',
+      sets: 3,
+      reps: 6,
+      weight_kg: 100,
+      exercise: { id: 'ex-2', name: 'Deadlift', type: 'pull' },
+      set_logs: [
+        { set_number: 1, target_reps: 6, target_weight_kg: 100 },
+        { set_number: 2, target_reps: 6, target_weight_kg: 100 },
+        { set_number: 3, target_reps: 8, target_weight_kg: 80 },
+      ],
+    };
+    render(
+      <SessionCard
+        session={{ ...baseSession, exercise_slots: [variedSlot] }}
+        defaultOpen
+      />
+    );
+    expect(screen.getByText('3 sets · varied')).toBeInTheDocument();
+  });
+
   it('controlled mode: parent "open" wins and onToggle fires', async () => {
     const user = userEvent.setup();
     const onToggle = vi.fn();

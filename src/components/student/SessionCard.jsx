@@ -1,16 +1,25 @@
 import { useState } from 'react';
-import { formatSlotPrescription } from '../../lib/volume';
+import { formatSlotPrescription, isSlotUniform, getSlotTargetWeight } from '../../lib/volume';
 import { useI18n } from '../../hooks/useI18n';
 
 function SlotSummary({ slot }) {
   const ex = slot.exercise;
   if (!ex) return null;
+  const uniform = isSlotUniform(slot);
+  const compact = uniform ? formatSlotPrescription(slot) : null;
+  const headWeight = getSlotTargetWeight(slot);
   return (
     <div className="flex items-center gap-2.5">
       <span className="sl-display text-[14px] text-gray-900 truncate">{ex.name}</span>
       <span className="sl-mono text-[11px] text-ink-400 shrink-0 ml-auto">
-        {formatSlotPrescription(slot)}
-        {slot.weight_kg ? ` @ ${slot.weight_kg}kg` : ''}
+        {uniform ? (
+          <>
+            {compact}
+            {headWeight ? ` @ ${headWeight}kg` : ''}
+          </>
+        ) : (
+          `${slot.sets} sets · varied`
+        )}
       </span>
     </div>
   );

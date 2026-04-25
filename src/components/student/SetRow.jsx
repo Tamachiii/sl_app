@@ -11,10 +11,14 @@ function formatMMSS(sec) {
 
 /**
  * SetRow — one row per set_log entry inside a SessionView exercise card.
+ *
+ * Rest target is read from the per-set `target_rest_seconds` on the log;
+ * this lets a coach prescribe different rests per set within one exercise.
  */
-const SetRow = memo(function SetRow({ log, locked = false, restSeconds = null, recordVideo = false, video = null }) {
+const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, video = null }) {
   const toggleDone = useToggleSetDone();
   const setRpe = useSetRpe();
+  const restSeconds = log.target_rest_seconds ?? null;
 
   const [rpeOpen, setRpeOpen] = useState(false);
   const [remaining, setRemaining] = useState(null);

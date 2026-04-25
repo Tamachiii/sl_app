@@ -1,6 +1,31 @@
 import SetRow from './SetRow';
 import SlotCommentBox from './SlotCommentBox';
-import { formatSlotPrescription, formatRestSeconds } from '../../lib/volume';
+import {
+  formatSlotPrescription,
+  formatRestSeconds,
+  formatSetTarget,
+  isSlotUniform,
+  getSlotTargetWeight,
+  getSlotTargetRest,
+} from '../../lib/volume';
+
+function PerSetList({ slotLogs }) {
+  if (!slotLogs || slotLogs.length === 0) return null;
+  return (
+    <ul className="sl-mono text-[11px] text-ink-400 mt-1 space-y-0.5">
+      {slotLogs.map((log) => {
+        const rest = formatRestSeconds(log.target_rest_seconds);
+        return (
+          <li key={log.id}>
+            <span className="sl-label mr-1">Set {log.set_number}</span>
+            {formatSetTarget(log)}
+            {rest && <span className="ml-2">· Rest {rest}</span>}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
 
 function SlotBody({ slot, slotLogs, slotComments, sessionId, isConfirmed, isArchived, getVideoForLog }) {
   return (
@@ -23,7 +48,6 @@ function SlotBody({ slot, slotLogs, slotComments, sessionId, isConfirmed, isArch
             key={log.id}
             log={log}
             locked={isConfirmed}
-            restSeconds={slot.rest_seconds}
             recordVideo={(slot.record_video_set_numbers || []).includes(log.set_number)}
             video={getVideoForLog ? getVideoForLog(log.id) : null}
           />
@@ -39,8 +63,13 @@ function SlotBody({ slot, slotLogs, slotComments, sessionId, isConfirmed, isArch
   );
 }
 
-function SlotHeader({ slot, globalIdx }) {
+function SlotHeader({ slot, slotLogs, globalIdx }) {
   const ex = slot.exercise;
+  const composed = { ...slot, set_logs: slotLogs };
+  const uniform = isSlotUniform(composed);
+  const compact = uniform ? formatSlotPrescription(composed) : null;
+  const headWeight = getSlotTargetWeight(composed);
+  const headRest = getSlotTargetRest(composed);
   return (
     <div className="flex items-baseline gap-2.5 flex-1 min-w-0">
       <span className="sl-mono text-[12px]" style={{ color: 'var(--color-accent)' }}>{globalIdx}</span>
@@ -48,13 +77,19 @@ function SlotHeader({ slot, globalIdx }) {
         <div className="flex items-center gap-2 flex-wrap">
           <span className="sl-display text-[20px] text-gray-900">{ex.name}</span>
         </div>
-        <p className="sl-mono text-[11px] text-ink-400 mt-1">
-          {formatSlotPrescription(slot)}
-          {slot.weight_kg ? ` @ ${slot.weight_kg}kg` : ' (BW)'}
-          {slot.rest_seconds != null && (
-            <span className="ml-2">· Rest {formatRestSeconds(slot.rest_seconds)}</span>
-          )}
-        </p>
+        {uniform ? (
+          <p className="sl-mono text-[11px] text-ink-400 mt-1">
+            {compact}
+            {headWeight ? ` @ ${headWeight}kg` : ' (BW)'}
+            {headRest != null && (
+              <span className="ml-2">· Rest {formatRestSeconds(headRest)}</span>
+            )}
+          </p>
+        ) : (
+          <p className="sl-mono text-[11px] text-ink-400 mt-1">
+            {slot.sets} sets · varied
+          </p>
+        )}
       </div>
     </div>
   );
@@ -115,12 +150,15 @@ export default function SlotGroupCard({
         </button>
         {open && group.slots.map((slot, i) => {
           const globalIdx = String(groupIdx + i + 1).padStart(2, '0');
+          const slotLogs = getLogsForSlot(slot.id);
+          const uniform = isSlotUniform({ ...slot, set_logs: slotLogs });
           return (
             <div key={slot.id} className="sl-card p-4 space-y-3">
-              <SlotHeader slot={slot} globalIdx={globalIdx} />
+              <SlotHeader slot={slot} slotLogs={slotLogs} globalIdx={globalIdx} />
+              {!uniform && <PerSetList slotLogs={slotLogs} />}
               <SlotBody
                 slot={slot}
-                slotLogs={getLogsForSlot(slot.id)}
+                slotLogs={slotLogs}
                 slotComments={slotComments}
                 sessionId={sessionId}
                 isConfirmed={isConfirmed}
@@ -135,6 +173,8 @@ export default function SlotGroupCard({
   }
 
   const slot = group.slots[0];
+  const slotLogs = getLogsForSlot(slot.id);
+  const uniform = isSlotUniform({ ...slot, set_logs: slotLogs });
   const globalIdx = String(groupIdx + 1).padStart(2, '0');
   return (
     <div className="sl-card overflow-hidden">
@@ -144,7 +184,7 @@ export default function SlotGroupCard({
         aria-expanded={open}
         className="w-full flex items-baseline gap-2.5 p-4 text-left hover:bg-ink-50 transition-colors"
       >
-        <SlotHeader slot={slot} globalIdx={globalIdx} />
+        <SlotHeader slot={slot} slotLogs={slotLogs} globalIdx={globalIdx} />
         {total > 0 && (
           <span className="sl-mono text-[11px] text-ink-400 shrink-0 self-center">{done}/{total}</span>
         )}
@@ -152,9 +192,10 @@ export default function SlotGroupCard({
       </button>
       {open && (
         <div className="px-4 pb-4 pt-3 border-t border-ink-100">
+          {!uniform && <PerSetList slotLogs={slotLogs} />}
           <SlotBody
             slot={slot}
-            slotLogs={getLogsForSlot(slot.id)}
+            slotLogs={slotLogs}
             slotComments={slotComments}
             sessionId={sessionId}
             isConfirmed={isConfirmed}

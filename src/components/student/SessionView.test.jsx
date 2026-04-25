@@ -463,6 +463,38 @@ describe('SessionView', () => {
     expect(screen.getByText('Skullcrusher')).toBeInTheDocument();
   });
 
+  it('shows a per-set list when sets have heterogeneous targets', () => {
+    mockSessionData = {
+      data: {
+        title: 'Drop Set Day',
+        exercise_slots: [
+          {
+            id: 'slot-1',
+            sets: 3,
+            reps: 6,
+            weight_kg: 100,
+            sort_order: 0,
+            exercise: { name: 'Squat', type: 'push', difficulty: 2, volume_weight: 1 },
+          },
+        ],
+      },
+      isLoading: false,
+    };
+    mockSetLogsData = {
+      data: [
+        { id: 'log-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, rpe: null, target_reps: 6, target_weight_kg: 100 },
+        { id: 'log-2', exercise_slot_id: 'slot-1', set_number: 2, done: false, rpe: null, target_reps: 6, target_weight_kg: 100 },
+        { id: 'log-3', exercise_slot_id: 'slot-1', set_number: 3, done: false, rpe: null, target_reps: 8, target_weight_kg: 80 },
+      ],
+      isLoading: false,
+    };
+    renderSessionView();
+
+    expect(screen.getByText(/3 sets · varied/)).toBeInTheDocument();
+    expect(screen.getAllByText('6 @ 100kg')).toHaveLength(2);
+    expect(screen.getByText('8 @ 80kg')).toBeInTheDocument();
+  });
+
   it('shows confirmed banner and undo button when already confirmed', async () => {
     const user = userEvent.setup();
     mockConfirmation = {
