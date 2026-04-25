@@ -16,10 +16,12 @@ function PerSetList({ slotLogs }) {
       {slotLogs.map((log) => {
         const rest = formatRestSeconds(log.target_rest_seconds);
         return (
-          <li key={log.id}>
-            <span className="sl-label mr-1">Set {log.set_number}</span>
-            {formatSetTarget(log)}
-            {rest && <span className="ml-2">· Rest {rest}</span>}
+          <li key={log.id} className="flex gap-2">
+            <span className="sl-label shrink-0">Set {log.set_number}</span>
+            <span>
+              {formatSetTarget(log)}
+              {rest && <span className="ml-2">· Rest {rest}</span>}
+            </span>
           </li>
         );
       })}
