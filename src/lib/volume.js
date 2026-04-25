@@ -90,6 +90,45 @@ export function getSlotTargetRest(slot) {
 }
 
 /**
+ * Single-line slot summary covering both uniform and heterogeneous sets.
+ *   uniform 3×10 @ 80kg          → "3 × 10 @ 80kg"
+ *   drop set 3×3@120, 3×6@100    → "3 × 3 @ 120kg · 3 × 6 @ 100kg"
+ *   ramp 1×5@100, 1×3@110, 1×1@120 → "1 × 5 @ 100kg · 1 × 3 @ 110kg · 1 × 1 @ 120kg"
+ *   genuinely varied (>3 groups) → "6 sets · varied"   (fallback)
+ *
+ * Rest is intentionally NOT a grouping key — varying rest within a slot
+ * shouldn't fragment the headline; the expanded view shows it per row.
+ */
+export function summarizeSlotPrescription(slot) {
+  if (isSlotUniform(slot)) {
+    const compact = formatSlotPrescription(slot);
+    if (!compact) return null;
+    const w = getSlotTargetWeight(slot);
+    return compact + (w ? ` @ ${w}kg` : '');
+  }
+  const logs = logsForSlot(slot).filter(logHasTarget);
+  if (logs.length === 0) return null;
+  const groups = [];
+  for (const l of logs) {
+    const key = `${l.target_reps}|${l.target_duration_seconds}|${l.target_weight_kg ?? ''}`;
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) {
+      last.count += 1;
+    } else {
+      groups.push({ key, count: 1, log: l });
+    }
+  }
+  if (groups.length > 3) return `${slot.sets} sets · varied`;
+  return groups.map((g) => {
+    const isSeconds = g.log.target_duration_seconds != null;
+    const value = isSeconds ? `${g.log.target_duration_seconds}s` : g.log.target_reps;
+    const w = g.log.target_weight_kg == null ? null : Number(g.log.target_weight_kg);
+    const weightStr = w == null ? ' (BW)' : ` @ ${w}kg`;
+    return `${g.count} × ${value}${weightStr}`;
+  }).join(' · ');
+}
+
+/**
  * Format a single set's per-set prescription for the heterogeneous list view.
  *   { target_reps: 10, target_weight_kg: 80 }       → "10 @ 80kg"
  *   { target_duration_seconds: 30 }                  → "30s"

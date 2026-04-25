@@ -8,6 +8,7 @@ import {
   isSlotUniform,
   getSlotTargetWeight,
   getSlotTargetRest,
+  summarizeSlotPrescription,
 } from './volume';
 
 describe('computeSessionVolume (legacy slot scalars)', () => {
@@ -214,6 +215,74 @@ describe('getSlotTargetWeight / getSlotTargetRest', () => {
 
   it('returns null for bodyweight slots with no log targets', () => {
     expect(getSlotTargetWeight({ weight_kg: null })).toBe(null);
+  });
+});
+
+describe('summarizeSlotPrescription', () => {
+  it('formats uniform slot from scalars', () => {
+    expect(summarizeSlotPrescription({ sets: 3, reps: 10, weight_kg: 80 })).toBe('3 × 10 @ 80kg');
+  });
+
+  it('formats uniform slot without weight as bodyweight (no suffix)', () => {
+    // Bodyweight reads as no @ suffix in the headline (matches uniform shape).
+    expect(summarizeSlotPrescription({ sets: 3, reps: 10 })).toBe('3 × 10');
+  });
+
+  it('formats a drop-set with two groups', () => {
+    expect(
+      summarizeSlotPrescription({
+        sets: 6,
+        set_logs: [
+          { set_number: 1, target_reps: 3, target_weight_kg: 120 },
+          { set_number: 2, target_reps: 3, target_weight_kg: 120 },
+          { set_number: 3, target_reps: 3, target_weight_kg: 120 },
+          { set_number: 4, target_reps: 6, target_weight_kg: 100 },
+          { set_number: 5, target_reps: 6, target_weight_kg: 100 },
+          { set_number: 6, target_reps: 6, target_weight_kg: 100 },
+        ],
+      })
+    ).toBe('3 × 3 @ 120kg · 3 × 6 @ 100kg');
+  });
+
+  it('formats a 3-group ramp', () => {
+    expect(
+      summarizeSlotPrescription({
+        sets: 3,
+        set_logs: [
+          { set_number: 1, target_reps: 5, target_weight_kg: 100 },
+          { set_number: 2, target_reps: 3, target_weight_kg: 110 },
+          { set_number: 3, target_reps: 1, target_weight_kg: 120 },
+        ],
+      })
+    ).toBe('1 × 5 @ 100kg · 1 × 3 @ 110kg · 1 × 1 @ 120kg');
+  });
+
+  it('falls back to "N sets · varied" when more than three groups', () => {
+    expect(
+      summarizeSlotPrescription({
+        sets: 4,
+        set_logs: [
+          { set_number: 1, target_reps: 5, target_weight_kg: 60 },
+          { set_number: 2, target_reps: 4, target_weight_kg: 70 },
+          { set_number: 3, target_reps: 3, target_weight_kg: 80 },
+          { set_number: 4, target_reps: 2, target_weight_kg: 90 },
+        ],
+      })
+    ).toBe('4 sets · varied');
+  });
+
+  it('handles bodyweight in heterogeneous groups', () => {
+    expect(
+      summarizeSlotPrescription({
+        sets: 4,
+        set_logs: [
+          { set_number: 1, target_reps: 8, target_weight_kg: null },
+          { set_number: 2, target_reps: 8, target_weight_kg: null },
+          { set_number: 3, target_reps: 5, target_weight_kg: 20 },
+          { set_number: 4, target_reps: 5, target_weight_kg: 20 },
+        ],
+      })
+    ).toBe('2 × 8 (BW) · 2 × 5 @ 20kg');
   });
 });
 

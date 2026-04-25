@@ -463,7 +463,7 @@ describe('SessionView', () => {
     expect(screen.getByText('Skullcrusher')).toBeInTheDocument();
   });
 
-  it('shows a per-set list when sets have heterogeneous targets', () => {
+  it('shows a grouped summary in the header and per-set targets inline on SetRows when heterogeneous', () => {
     mockSessionData = {
       data: {
         title: 'Drop Set Day',
@@ -490,7 +490,9 @@ describe('SessionView', () => {
     };
     renderSessionView();
 
-    expect(screen.getByText(/3 sets · varied/)).toBeInTheDocument();
+    // Header: grouped summary (no separate per-set list).
+    expect(screen.getByText('2 × 6 @ 100kg · 1 × 8 @ 80kg')).toBeInTheDocument();
+    // SetRows render their own target inline when sets are heterogeneous.
     expect(screen.getAllByText('6 @ 100kg')).toHaveLength(2);
     expect(screen.getByText('8 @ 80kg')).toBeInTheDocument();
   });

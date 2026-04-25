@@ -59,7 +59,7 @@ describe('SessionCard', () => {
     expect(screen.getByText('Front Squat')).toBeInTheDocument();
   });
 
-  it('shows "N sets · varied" instead of compact prescription when sets differ', () => {
+  it('shows a grouped summary instead of compact prescription when sets differ', () => {
     const variedSlot = {
       id: 'slot-2',
       sets: 3,
@@ -78,7 +78,30 @@ describe('SessionCard', () => {
         defaultOpen
       />
     );
-    expect(screen.getByText('3 sets · varied')).toBeInTheDocument();
+    expect(screen.getByText('2 × 6 @ 100kg · 1 × 8 @ 80kg')).toBeInTheDocument();
+  });
+
+  it('falls back to "N sets · varied" when more than three distinct groups', () => {
+    const wildSlot = {
+      id: 'slot-3',
+      sets: 4,
+      reps: 5,
+      weight_kg: 100,
+      exercise: { id: 'ex-3', name: 'Snatch', type: 'pull' },
+      set_logs: [
+        { set_number: 1, target_reps: 5, target_weight_kg: 60 },
+        { set_number: 2, target_reps: 4, target_weight_kg: 70 },
+        { set_number: 3, target_reps: 3, target_weight_kg: 80 },
+        { set_number: 4, target_reps: 2, target_weight_kg: 90 },
+      ],
+    };
+    render(
+      <SessionCard
+        session={{ ...baseSession, exercise_slots: [wildSlot] }}
+        defaultOpen
+      />
+    );
+    expect(screen.getByText('4 sets · varied')).toBeInTheDocument();
   });
 
   it('controlled mode: parent "open" wins and onToggle fires', async () => {

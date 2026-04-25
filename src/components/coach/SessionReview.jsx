@@ -14,13 +14,12 @@ import { useArchiveSession } from '../../hooks/useWeek';
 import { useSessionConfirmation } from '../../hooks/useSessionConfirmation';
 import SlotProgress from './SlotProgress';
 import {
-  formatSlotPrescription,
   formatRestSeconds,
   groupSlotsBySuperset,
   isSlotUniform,
   formatSetTarget,
-  getSlotTargetWeight,
   getSlotTargetRest,
+  summarizeSlotPrescription,
 } from '../../lib/volume';
 
 function SlotVideoStrip({ videos, onPlay }) {
@@ -179,8 +178,8 @@ export default function SessionReview() {
             const comment = (slotComments || []).find((x) => x.exercise_slot_id === slot.id);
             const composed = { ...slot, set_logs: slotLogs };
             const uniform = isSlotUniform(composed);
-            const headWeight = getSlotTargetWeight(composed);
-            const headRest = getSlotTargetRest(composed);
+            const summary = summarizeSlotPrescription(composed);
+            const headRest = uniform ? getSlotTargetRest(composed) : null;
             return (
               <div key={slot.id} className="sl-card p-4 space-y-2">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -194,17 +193,18 @@ export default function SessionReview() {
                   </span>
                   <span className="sl-mono text-[10px] text-ink-400">D{ex.difficulty}</span>
                 </div>
-                {uniform ? (
-                  <p className="sl-mono text-[11px] text-ink-400">
-                    PLANNED: {formatSlotPrescription(composed)}
-                    {headWeight ? ` @ ${headWeight}KG` : ' (BW)'}
+                <div className="sl-mono text-[11px] text-ink-400">
+                  <p>
+                    PLANNED: {summary || `${slot.sets} sets`}
                     {headRest != null && (
                       <span className="ml-2">· REST {formatRestSeconds(headRest)}</span>
                     )}
                   </p>
-                ) : (
-                  <div className="sl-mono text-[11px] text-ink-400">
-                    <p>PLANNED: {slot.sets} sets · varied</p>
+                  {/* Coach-side audit list: SlotProgress shows actuals only,
+                      so the planned-per-set detail lives here when sets diverge.
+                      Student SessionView drops this list because each SetRow
+                      carries its own target inline (showTarget). */}
+                  {!uniform && (
                     <ul className="mt-1 space-y-0.5">
                       {slotLogs.map((log) => {
                         const rest = formatRestSeconds(log.target_rest_seconds);
@@ -219,8 +219,8 @@ export default function SessionReview() {
                         );
                       })}
                     </ul>
-                  </div>
-                )}
+                  )}
+                </div>
                 <SlotProgress logs={slotLogs} plannedSets={slot.sets} />
                 <SlotVideoStrip
                   videos={videosBySlot.get(slot.id)}

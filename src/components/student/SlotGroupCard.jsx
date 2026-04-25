@@ -1,35 +1,13 @@
 import SetRow from './SetRow';
 import SlotCommentBox from './SlotCommentBox';
 import {
-  formatSlotPrescription,
   formatRestSeconds,
-  formatSetTarget,
   isSlotUniform,
-  getSlotTargetWeight,
   getSlotTargetRest,
+  summarizeSlotPrescription,
 } from '../../lib/volume';
 
-function PerSetList({ slotLogs }) {
-  if (!slotLogs || slotLogs.length === 0) return null;
-  return (
-    <ul className="sl-mono text-[11px] text-ink-400 mt-1 space-y-0.5">
-      {slotLogs.map((log) => {
-        const rest = formatRestSeconds(log.target_rest_seconds);
-        return (
-          <li key={log.id} className="flex gap-2">
-            <span className="sl-label shrink-0">Set {log.set_number}</span>
-            <span>
-              {formatSetTarget(log)}
-              {rest && <span className="ml-2">· Rest {rest}</span>}
-            </span>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-function SlotBody({ slot, slotLogs, slotComments, sessionId, isConfirmed, isArchived, getVideoForLog }) {
+function SlotBody({ slot, slotLogs, slotComments, sessionId, isConfirmed, isArchived, getVideoForLog, uniform }) {
   return (
     <div className="space-y-3">
       {slot.notes && (
@@ -50,6 +28,7 @@ function SlotBody({ slot, slotLogs, slotComments, sessionId, isConfirmed, isArch
             key={log.id}
             log={log}
             locked={isConfirmed}
+            showTarget={!uniform}
             recordVideo={(slot.record_video_set_numbers || []).includes(log.set_number)}
             video={getVideoForLog ? getVideoForLog(log.id) : null}
           />
@@ -68,10 +47,11 @@ function SlotBody({ slot, slotLogs, slotComments, sessionId, isConfirmed, isArch
 function SlotHeader({ slot, slotLogs, globalIdx }) {
   const ex = slot.exercise;
   const composed = { ...slot, set_logs: slotLogs };
+  const summary = summarizeSlotPrescription(composed);
+  // Rest is shown alongside the headline only when uniform across all sets;
+  // when sets diverge the per-row display owns rest so the headline stays terse.
   const uniform = isSlotUniform(composed);
-  const compact = uniform ? formatSlotPrescription(composed) : null;
-  const headWeight = getSlotTargetWeight(composed);
-  const headRest = getSlotTargetRest(composed);
+  const headRest = uniform ? getSlotTargetRest(composed) : null;
   return (
     <div className="flex items-baseline gap-2.5 flex-1 min-w-0">
       <span className="sl-mono text-[12px]" style={{ color: 'var(--color-accent)' }}>{globalIdx}</span>
@@ -79,17 +59,12 @@ function SlotHeader({ slot, slotLogs, globalIdx }) {
         <div className="flex items-center gap-2 flex-wrap">
           <span className="sl-display text-[20px] text-gray-900">{ex.name}</span>
         </div>
-        {uniform ? (
+        {summary && (
           <p className="sl-mono text-[11px] text-ink-400 mt-1">
-            {compact}
-            {headWeight ? ` @ ${headWeight}kg` : ' (BW)'}
+            {summary}
             {headRest != null && (
               <span className="ml-2">· Rest {formatRestSeconds(headRest)}</span>
             )}
-          </p>
-        ) : (
-          <p className="sl-mono text-[11px] text-ink-400 mt-1">
-            {slot.sets} sets · varied
           </p>
         )}
       </div>
@@ -157,7 +132,6 @@ export default function SlotGroupCard({
           return (
             <div key={slot.id} className="sl-card p-4 space-y-3">
               <SlotHeader slot={slot} slotLogs={slotLogs} globalIdx={globalIdx} />
-              {!uniform && <PerSetList slotLogs={slotLogs} />}
               <SlotBody
                 slot={slot}
                 slotLogs={slotLogs}
@@ -166,6 +140,7 @@ export default function SlotGroupCard({
                 isConfirmed={isConfirmed}
                 isArchived={isArchived}
                 getVideoForLog={getVideoForLog}
+                uniform={uniform}
               />
             </div>
           );
@@ -194,7 +169,6 @@ export default function SlotGroupCard({
       </button>
       {open && (
         <div className="px-4 pb-4 pt-3 border-t border-ink-100">
-          {!uniform && <PerSetList slotLogs={slotLogs} />}
           <SlotBody
             slot={slot}
             slotLogs={slotLogs}
@@ -203,6 +177,7 @@ export default function SlotGroupCard({
             isConfirmed={isConfirmed}
             isArchived={isArchived}
             getVideoForLog={getVideoForLog}
+            uniform={uniform}
           />
         </div>
       )}

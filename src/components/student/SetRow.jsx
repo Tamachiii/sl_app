@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { useToggleSetDone, useSetRpe } from '../../hooks/useSetLogs';
+import { formatSetTarget } from '../../lib/volume';
 import RpeInput from './RpeInput';
 import VideoUploadButton from './VideoUploadButton';
 
@@ -14,8 +15,12 @@ function formatMMSS(sec) {
  *
  * Rest target is read from the per-set `target_rest_seconds` on the log;
  * this lets a coach prescribe different rests per set within one exercise.
+ *
+ * `showTarget` is set by the parent when the slot's sets are heterogeneous —
+ * uniform slots already display the target in the SlotHeader, so duplicating
+ * it on every row would be noise.
  */
-const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, video = null }) {
+const SetRow = memo(function SetRow({ log, locked = false, showTarget = false, recordVideo = false, video = null }) {
   const toggleDone = useToggleSetDone();
   const setRpe = useSetRpe();
   const restSeconds = log.target_rest_seconds ?? null;
@@ -74,6 +79,10 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
         </button>
 
         <span className="sl-label">{`Set ${log.set_number}`}</span>
+
+        {showTarget && (
+          <span className="sl-mono text-[11px] text-ink-500">{formatSetTarget(log)}</span>
+        )}
 
         <div className="flex-1" />
 
