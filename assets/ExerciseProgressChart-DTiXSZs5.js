@@ -1,4 +1,4 @@
-import{c as L,j as o}from"./query-BK75LP8B.js";import{u as O,s as C}from"./index-DRgD9EXy.js";import{c as R}from"./volume-DI_WzvjE.js";import{r as F}from"./router-CSyjsHCV.js";function V(c){const{user:d}=O();return L({queryKey:["student-progress-stats",c??(d==null?void 0:d.id)],queryFn:async()=>{let f=c;if(!f){const{data:e,error:t}=await C.from("students").select("id").eq("profile_id",d.id).single();if(t)throw t;f=e.id}const{data:S,error:r}=await C.from("programs").select(`
+import{c as L,j as o}from"./query-BK75LP8B.js";import{u as O,s as C}from"./index-qZP3MkIk.js";import{c as R}from"./volume-DI_WzvjE.js";import{r as F}from"./router-CSyjsHCV.js";function V(c){const{user:d}=O();return L({queryKey:["student-progress-stats",c??(d==null?void 0:d.id)],queryFn:async()=>{let f=c;if(!f){const{data:e,error:t}=await C.from("students").select("id").eq("profile_id",d.id).single();if(t)throw t;f=e.id}const{data:S,error:r}=await C.from("programs").select(`
           id,
           weeks(
             id, week_number, label,
