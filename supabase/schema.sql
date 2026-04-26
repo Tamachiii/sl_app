@@ -325,16 +325,36 @@ CREATE POLICY "Coaches manage set log prescriptions"
     )
   );
 
--- Students may only mutate their actuals while the parent program is still
--- active. Once a program is deactivated (the student moves to the next
--- block), historical sessions become read-only at the DB level.
-CREATE POLICY "Students manage own set logs"
-  ON public.set_logs FOR ALL
+-- Students always read their own logs (so history viewed from the stats
+-- calendar shows RPEs / done flags). Writes only land on slots whose parent
+-- program is still active — once deactivated, historical sessions become
+-- read-only at the DB level. SELECT is split out so the read gate can stay
+-- permissive while the write gates restrict.
+CREATE POLICY "Students read own set logs"
+  ON public.set_logs FOR SELECT
+  USING (public.student_profile_for_slot(exercise_slot_id) = auth.uid());
+
+CREATE POLICY "Students insert own set logs"
+  ON public.set_logs FOR INSERT
+  WITH CHECK (
+    public.student_profile_for_slot(exercise_slot_id) = auth.uid()
+    AND public.program_active_for_slot(exercise_slot_id) = true
+  );
+
+CREATE POLICY "Students update own set logs"
+  ON public.set_logs FOR UPDATE
   USING (
     public.student_profile_for_slot(exercise_slot_id) = auth.uid()
     AND public.program_active_for_slot(exercise_slot_id) = true
   )
   WITH CHECK (
+    public.student_profile_for_slot(exercise_slot_id) = auth.uid()
+    AND public.program_active_for_slot(exercise_slot_id) = true
+  );
+
+CREATE POLICY "Students delete own set logs"
+  ON public.set_logs FOR DELETE
+  USING (
     public.student_profile_for_slot(exercise_slot_id) = auth.uid()
     AND public.program_active_for_slot(exercise_slot_id) = true
   );
@@ -376,10 +396,31 @@ $$ LANGUAGE sql SECURITY DEFINER STABLE;
 
 ALTER TABLE public.session_confirmations ENABLE ROW LEVEL SECURITY;
 
--- Students cannot create / undo confirmations on archived sessions OR on
--- sessions whose parent program has been deactivated (block boundary).
-CREATE POLICY "Students manage own session confirmations"
-  ON public.session_confirmations FOR ALL
+-- SELECT is permissive so students can view the timestamp / notes of their
+-- own old confirmations on archived or past-program sessions. Writes are
+-- gated: students cannot create / undo confirmations on archived sessions
+-- OR on sessions whose parent program has been deactivated.
+CREATE POLICY "Students read own session confirmations"
+  ON public.session_confirmations FOR SELECT
+  USING (
+    student_id = auth.uid()
+    AND public.student_profile_for_session(session_id) = auth.uid()
+  );
+
+CREATE POLICY "Students insert own session confirmations"
+  ON public.session_confirmations FOR INSERT
+  WITH CHECK (
+    student_id = auth.uid()
+    AND public.student_profile_for_session(session_id) = auth.uid()
+    AND NOT EXISTS (
+      SELECT 1 FROM public.sessions s
+      WHERE s.id = session_confirmations.session_id AND s.archived_at IS NOT NULL
+    )
+    AND public.program_active_for_session(session_id) = true
+  );
+
+CREATE POLICY "Students update own session confirmations"
+  ON public.session_confirmations FOR UPDATE
   USING (
     student_id = auth.uid()
     AND public.student_profile_for_session(session_id) = auth.uid()
@@ -390,6 +431,18 @@ CREATE POLICY "Students manage own session confirmations"
     AND public.program_active_for_session(session_id) = true
   )
   WITH CHECK (
+    student_id = auth.uid()
+    AND public.student_profile_for_session(session_id) = auth.uid()
+    AND NOT EXISTS (
+      SELECT 1 FROM public.sessions s
+      WHERE s.id = session_confirmations.session_id AND s.archived_at IS NOT NULL
+    )
+    AND public.program_active_for_session(session_id) = true
+  );
+
+CREATE POLICY "Students delete own session confirmations"
+  ON public.session_confirmations FOR DELETE
+  USING (
     student_id = auth.uid()
     AND public.student_profile_for_session(session_id) = auth.uid()
     AND NOT EXISTS (
@@ -510,10 +563,30 @@ CREATE INDEX IF NOT EXISTS idx_slot_comments_slot_id ON public.slot_comments(exe
 
 ALTER TABLE public.slot_comments ENABLE ROW LEVEL SECURITY;
 
--- Students cannot edit slot comments on archived sessions OR on sessions
--- whose parent program has been deactivated.
-CREATE POLICY "Students manage own slot comments"
-  ON public.slot_comments FOR ALL
+-- SELECT permissive so students can still see their own old notes on
+-- archived / past-program sessions. Writes blocked under the same gates.
+CREATE POLICY "Students read own slot comments"
+  ON public.slot_comments FOR SELECT
+  USING (
+    student_id = auth.uid()
+    AND public.student_profile_for_slot(exercise_slot_id) = auth.uid()
+  );
+
+CREATE POLICY "Students insert own slot comments"
+  ON public.slot_comments FOR INSERT
+  WITH CHECK (
+    student_id = auth.uid()
+    AND public.student_profile_for_slot(exercise_slot_id) = auth.uid()
+    AND NOT EXISTS (
+      SELECT 1 FROM public.exercise_slots es
+      JOIN public.sessions s ON s.id = es.session_id
+      WHERE es.id = slot_comments.exercise_slot_id AND s.archived_at IS NOT NULL
+    )
+    AND public.program_active_for_slot(exercise_slot_id) = true
+  );
+
+CREATE POLICY "Students update own slot comments"
+  ON public.slot_comments FOR UPDATE
   USING (
     student_id = auth.uid()
     AND public.student_profile_for_slot(exercise_slot_id) = auth.uid()
@@ -525,6 +598,19 @@ CREATE POLICY "Students manage own slot comments"
     AND public.program_active_for_slot(exercise_slot_id) = true
   )
   WITH CHECK (
+    student_id = auth.uid()
+    AND public.student_profile_for_slot(exercise_slot_id) = auth.uid()
+    AND NOT EXISTS (
+      SELECT 1 FROM public.exercise_slots es
+      JOIN public.sessions s ON s.id = es.session_id
+      WHERE es.id = slot_comments.exercise_slot_id AND s.archived_at IS NOT NULL
+    )
+    AND public.program_active_for_slot(exercise_slot_id) = true
+  );
+
+CREATE POLICY "Students delete own slot comments"
+  ON public.slot_comments FOR DELETE
+  USING (
     student_id = auth.uid()
     AND public.student_profile_for_slot(exercise_slot_id) = auth.uid()
     AND NOT EXISTS (

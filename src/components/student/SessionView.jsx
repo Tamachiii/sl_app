@@ -64,11 +64,18 @@ export default function SessionView() {
   //   false     → user manually closed the auto-open group; nothing is open.
   const [openKey, setOpenKey] = useState(null);
 
+  // Only run the safety-net materialization on writeable sessions. Past-
+  // program / coach-archived sessions reject INSERT under RLS, so calling
+  // ensureLogs would only generate silent failures. The backfill migration
+  // (2026_04_26_backfill_missing_set_logs.sql) covers legacy past-program
+  // slots once at deploy time.
+  const canMaterializeLogs =
+    !!session && session.program_is_active !== false && !session.archived_at;
   useEffect(() => {
-    if (slots.length > 0 && logs !== undefined) {
+    if (canMaterializeLogs && slots.length > 0 && logs !== undefined) {
       ensureLogs.mutate({ sessionId, slots });
     }
-  }, [sessionId, slots.length, logs !== undefined]);
+  }, [sessionId, slots.length, logs !== undefined, canMaterializeLogs]);
 
   // Auto-open only the first group that still has incomplete sets (or whose
   // logs haven't been ensured yet). Once the user finishes the last set of
