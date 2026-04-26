@@ -521,4 +521,89 @@ describe('SessionView', () => {
     expect(mockUnconfirm.mutate).toHaveBeenCalledWith({ sessionId: 'sess-1' });
     window.confirm.mockRestore();
   });
+
+  // Past-program sessions reach SessionView via the stats calendar history
+  // overlay. They must be read-only — no Confirm, no Undo, locked sets — so
+  // historical training data can't be retroactively rewritten.
+  it('past-program session: hides Confirm and shows read-only banner when unconfirmed', () => {
+    mockSessionData = {
+      data: { title: 'Old Day', exercise_slots: [], program_is_active: false },
+      isLoading: false,
+    };
+    mockSetLogsData = { data: [], isLoading: false };
+    renderSessionView();
+
+    expect(screen.queryByRole('button', { name: /confirm session/i })).toBeNull();
+    expect(screen.getByText(/from a past program/i)).toBeInTheDocument();
+    expect(screen.getByText(/read-only/i)).toBeInTheDocument();
+  });
+
+  it('past-program session: hides Undo and shows confirmation-locked banner when confirmed', () => {
+    mockConfirmation = {
+      data: {
+        id: 'c-1',
+        session_id: 'sess-1',
+        student_id: 'u-1',
+        confirmed_at: '2026-04-14T10:00:00Z',
+        notes: null,
+      },
+      isLoading: false,
+    };
+    mockSessionData = {
+      data: { title: 'Old Day', exercise_slots: [], program_is_active: false },
+      isLoading: false,
+    };
+    mockSetLogsData = { data: [], isLoading: false };
+    renderSessionView();
+
+    expect(screen.queryByRole('button', { name: /undo confirmation/i })).toBeNull();
+    expect(screen.getByText(/from a past program/i)).toBeInTheDocument();
+    expect(screen.getByText(/confirmation is locked/i)).toBeInTheDocument();
+  });
+
+  it('past-program session: SetRow toggle button is disabled', () => {
+    mockSessionData = {
+      data: {
+        title: 'Old Day',
+        program_is_active: false,
+        exercise_slots: [
+          {
+            id: 'slot-1',
+            sets: 1,
+            reps: 5,
+            weight_kg: 50,
+            sort_order: 0,
+            exercise: { name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
+          },
+        ],
+      },
+      isLoading: false,
+    };
+    mockSetLogsData = {
+      data: [{ id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, rpe: null }],
+      isLoading: false,
+    };
+    renderSessionView();
+
+    expect(screen.getByRole('button', { name: /mark set done/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /set rpe/i })).toBeDisabled();
+  });
+
+  it('coach-archived unconfirmed session: hides Confirm and shows archive read-only banner', () => {
+    mockSessionData = {
+      data: {
+        title: 'Day 1',
+        exercise_slots: [],
+        program_is_active: true,
+        archived_at: '2026-04-20T10:00:00Z',
+      },
+      isLoading: false,
+    };
+    mockSetLogsData = { data: [], isLoading: false };
+    renderSessionView();
+
+    expect(screen.queryByRole('button', { name: /confirm session/i })).toBeNull();
+    expect(screen.getByText(/archived by your coach/i)).toBeInTheDocument();
+    expect(screen.getByText(/read-only/i)).toBeInTheDocument();
+  });
 });

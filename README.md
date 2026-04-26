@@ -103,7 +103,7 @@ set_logs (…)
 set_log_videos (set_log_id UNIQUE, storage_path, mime_type, size_bytes)
 ```
 
-Each coach has their own exercise library; each student can have many **programs** (periodization blocks) but only one is active at a time. Students see only the active program; coaches browse all.
+Each coach has their own exercise library; each student can have many **programs** (periodization blocks) but only one is active at a time. Students see only the active program; coaches browse all. When a program becomes inactive, its sessions become read-only on the student surface — Confirm/Undo are hidden, set logs lock, and the student-side RLS policies on `set_logs`, `session_confirmations`, and `slot_comments` reject writes. Coach edits stay open across all blocks.
 
 `set_logs` doubles as both prescription and log: each row carries the coach's per-set targets (`target_reps`, `target_duration_seconds`, `target_weight_kg`, `target_rest_seconds`) alongside the student's actuals (`done`, `rpe`, `weight_kg`). The compact "3 × 10 @ 80kg" UI is shown when every set's target matches; otherwise a per-set list appears (drop sets, back-offs). Coaches toggle "Customize sets" in the editor to expose a per-set table; "Reset to uniform" syncs every row back to set 1.
 

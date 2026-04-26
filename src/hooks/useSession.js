@@ -5,10 +5,14 @@ export function useSession(sessionId) {
   return useQuery({
     queryKey: ['session', sessionId],
     queryFn: async () => {
+      // Pull the parent program's is_active so the student SessionView can
+      // lock writes once the block is no longer the active one — see
+      // SessionView's `isReadOnly` derivation. Coach views ignore this flag.
       const { data, error } = await supabase
         .from('sessions')
         .select(`
           *,
+          weeks!inner(programs!inner(is_active)),
           exercise_slots(
             *,
             exercise:exercise_library(*),
@@ -18,6 +22,8 @@ export function useSession(sessionId) {
         .eq('id', sessionId)
         .single();
       if (error) throw error;
+      data.program_is_active = !!data.weeks?.programs?.is_active;
+      delete data.weeks;
       data.exercise_slots = (data.exercise_slots || [])
         .map((sl) => ({
           ...sl,

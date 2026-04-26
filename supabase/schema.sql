@@ -148,6 +148,25 @@ RETURNS uuid AS $$
   WHERE es.id = slot_id
 $$ LANGUAGE sql SECURITY DEFINER STABLE;
 
+-- True iff the session's parent program is still the student's active block.
+-- Drives the student-side write gate on past-program sessions: once a coach
+-- swaps blocks, history becomes read-only.
+CREATE OR REPLACE FUNCTION public.program_active_for_session(sess_id uuid)
+RETURNS boolean AS $$
+  SELECT p.is_active
+  FROM public.sessions sess
+  JOIN public.weeks w    ON w.id = sess.week_id
+  JOIN public.programs p ON p.id = w.program_id
+  WHERE sess.id = sess_id
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+CREATE OR REPLACE FUNCTION public.program_active_for_slot(slot_id uuid)
+RETURNS boolean AS $$
+  SELECT public.program_active_for_session(es.session_id)
+  FROM public.exercise_slots es
+  WHERE es.id = slot_id
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
 -- ============================================================
 -- ROW LEVEL SECURITY
 -- ============================================================
@@ -306,10 +325,18 @@ CREATE POLICY "Coaches manage set log prescriptions"
     )
   );
 
+-- Students may only mutate their actuals while the parent program is still
+-- active. Once a program is deactivated (the student moves to the next
+-- block), historical sessions become read-only at the DB level.
 CREATE POLICY "Students manage own set logs"
   ON public.set_logs FOR ALL
   USING (
     public.student_profile_for_slot(exercise_slot_id) = auth.uid()
+    AND public.program_active_for_slot(exercise_slot_id) = true
+  )
+  WITH CHECK (
+    public.student_profile_for_slot(exercise_slot_id) = auth.uid()
+    AND public.program_active_for_slot(exercise_slot_id) = true
   );
 
 -- ============================================================
@@ -349,6 +376,8 @@ $$ LANGUAGE sql SECURITY DEFINER STABLE;
 
 ALTER TABLE public.session_confirmations ENABLE ROW LEVEL SECURITY;
 
+-- Students cannot create / undo confirmations on archived sessions OR on
+-- sessions whose parent program has been deactivated (block boundary).
 CREATE POLICY "Students manage own session confirmations"
   ON public.session_confirmations FOR ALL
   USING (
@@ -358,6 +387,7 @@ CREATE POLICY "Students manage own session confirmations"
       SELECT 1 FROM public.sessions s
       WHERE s.id = session_confirmations.session_id AND s.archived_at IS NOT NULL
     )
+    AND public.program_active_for_session(session_id) = true
   )
   WITH CHECK (
     student_id = auth.uid()
@@ -366,6 +396,7 @@ CREATE POLICY "Students manage own session confirmations"
       SELECT 1 FROM public.sessions s
       WHERE s.id = session_confirmations.session_id AND s.archived_at IS NOT NULL
     )
+    AND public.program_active_for_session(session_id) = true
   );
 
 CREATE POLICY "Coaches read confirmations for their students"
@@ -479,6 +510,8 @@ CREATE INDEX IF NOT EXISTS idx_slot_comments_slot_id ON public.slot_comments(exe
 
 ALTER TABLE public.slot_comments ENABLE ROW LEVEL SECURITY;
 
+-- Students cannot edit slot comments on archived sessions OR on sessions
+-- whose parent program has been deactivated.
 CREATE POLICY "Students manage own slot comments"
   ON public.slot_comments FOR ALL
   USING (
@@ -489,6 +522,7 @@ CREATE POLICY "Students manage own slot comments"
       JOIN public.sessions s ON s.id = es.session_id
       WHERE es.id = slot_comments.exercise_slot_id AND s.archived_at IS NOT NULL
     )
+    AND public.program_active_for_slot(exercise_slot_id) = true
   )
   WITH CHECK (
     student_id = auth.uid()
@@ -498,6 +532,7 @@ CREATE POLICY "Students manage own slot comments"
       JOIN public.sessions s ON s.id = es.session_id
       WHERE es.id = slot_comments.exercise_slot_id AND s.archived_at IS NOT NULL
     )
+    AND public.program_active_for_slot(exercise_slot_id) = true
   );
 
 CREATE POLICY "Coaches read slot comments for their students"

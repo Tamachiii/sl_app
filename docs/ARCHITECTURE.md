@@ -87,6 +87,15 @@ CREATE UNIQUE INDEX programs_one_active_per_student
 
 Under any other scope (`'all'` or a specific past program), the history overlay is suppressed — `useStudentProgressStats` already returns every in-scope session, so layering historical sessions on top would be redundant noise. The hook stays separate because it's the lightest possible fetch (no aggregation) and is fast to skip when not needed.
 
+### Read-only gate on past-program sessions
+
+A session is read-only on the student surface iff `programs.is_active = false` OR `sessions.archived_at IS NOT NULL`. Both conditions are enforced at two layers:
+
+- **UI gate** — `useSession` hydrates `session.program_is_active` from the embedded `weeks(programs(is_active))`. `SessionView` derives `isReadOnly` from that and `archived_at`, then hides Confirm / Undo, swaps in a "From a past program — read-only." (or "Archived by your coach — read-only.") banner, and locks `SetRow` toggles + `SlotCommentBox`. `VideoUploadButton` inherits via the same `locked` prop.
+- **RLS gate** — student-side policies on `set_logs`, `session_confirmations`, and `slot_comments` reject writes when the parent program is inactive (or the session is archived). Helpers `program_active_for_session(sess_id)` and `program_active_for_slot(slot_id)` walk session → week → program. Migration: `2026_04_26_lock_inactive_program_writes.sql`. Coach-side policies are unchanged so coaches can still edit past blocks.
+
+This is the boundary that keeps history immutable when a coach swaps the active program — without it, a student can open an old confirmed session via Stats → Calendar and re-write its `confirmed_at`, distorting recent-confirmations ordering and any timestamp-driven aggregates.
+
 ## React Query — who owns which key
 
 Invalidation is scoped intentionally to avoid over-fetching. When you add a mutation, mirror the nearest existing hook.

@@ -118,6 +118,13 @@ export default function SessionView() {
 
   const isConfirmed = !!confirmation;
   const isArchived = !!session?.archived_at;
+  // Sessions become read-only once the parent program is no longer the
+  // student's active block (so history viewed via the stats calendar can't
+  // be retroactively confirmed/undone) or once the coach has individually
+  // archived the session. RLS enforces the same rule server-side; this is
+  // the UI gate.
+  const isPastProgram = session ? session.program_is_active === false : false;
+  const isReadOnly = isPastProgram || isArchived;
 
   function handleConfirm() {
     confirmSession.mutate({ sessionId, notes: notes.trim() || null }, {
@@ -185,7 +192,7 @@ export default function SessionView() {
           slotComments={slotComments}
           sessionId={sessionId}
           isConfirmed={isConfirmed}
-          isArchived={isArchived}
+          isReadOnly={isReadOnly}
           getVideoForLog={(logId) => videosByLogId.get(logId) || null}
         />
       ))}
@@ -216,9 +223,11 @@ export default function SessionView() {
               )}
             </div>
           </div>
-          {isArchived ? (
+          {isReadOnly ? (
             <p className="sl-mono text-[11px] text-ink-400 text-center">
-              Archived by your coach — confirmation is locked.
+              {isArchived
+                ? 'Archived by your coach — confirmation is locked.'
+                : 'From a past program — confirmation is locked.'}
             </p>
           ) : (
             <button
@@ -229,6 +238,17 @@ export default function SessionView() {
               Undo confirmation
             </button>
           )}
+        </div>
+      ) : isReadOnly ? (
+        <div
+          className="sl-card p-4 text-center"
+          style={{ borderLeft: '3px solid var(--color-ink-300)' }}
+        >
+          <p className="sl-mono text-[11px] text-ink-400">
+            {isArchived
+              ? 'Archived by your coach — read-only.'
+              : 'From a past program — read-only.'}
+          </p>
         </div>
       ) : (
         <button

@@ -7,7 +7,12 @@ import {
   summarizeSlotPrescription,
 } from '../../lib/volume';
 
-function SlotBody({ slot, slotLogs, slotComments, sessionId, isConfirmed, isArchived, getVideoForLog, uniform }) {
+function SlotBody({ slot, slotLogs, slotComments, sessionId, isConfirmed, isReadOnly, getVideoForLog, uniform }) {
+  // Sets lock when the student has confirmed the session OR when the session
+  // is read-only (past program / coach-archived). The comment box only locks
+  // on read-only — students can still add notes to a confirmed-but-not-yet-
+  // archived session.
+  const setsLocked = isConfirmed || isReadOnly;
   return (
     <div className="space-y-3">
       {slot.notes && (
@@ -27,7 +32,7 @@ function SlotBody({ slot, slotLogs, slotComments, sessionId, isConfirmed, isArch
           <SetRow
             key={log.id}
             log={log}
-            locked={isConfirmed}
+            locked={setsLocked}
             showTarget={!uniform}
             recordVideo={(slot.record_video_set_numbers || []).includes(log.set_number)}
             video={getVideoForLog ? getVideoForLog(log.id) : null}
@@ -38,7 +43,7 @@ function SlotBody({ slot, slotLogs, slotComments, sessionId, isConfirmed, isArch
         sessionId={sessionId}
         slotId={slot.id}
         comment={(slotComments || []).find((c) => c.exercise_slot_id === slot.id)}
-        locked={isArchived}
+        locked={isReadOnly}
       />
     </div>
   );
@@ -94,7 +99,7 @@ export default function SlotGroupCard({
   slotComments,
   sessionId,
   isConfirmed,
-  isArchived,
+  isReadOnly,
   getVideoForLog,
 }) {
   const groupLogs = group.slots.flatMap((s) => getLogsForSlot(s.id));
@@ -138,7 +143,7 @@ export default function SlotGroupCard({
                 slotComments={slotComments}
                 sessionId={sessionId}
                 isConfirmed={isConfirmed}
-                isArchived={isArchived}
+                isReadOnly={isReadOnly}
                 getVideoForLog={getVideoForLog}
                 uniform={uniform}
               />
@@ -175,7 +180,7 @@ export default function SlotGroupCard({
             slotComments={slotComments}
             sessionId={sessionId}
             isConfirmed={isConfirmed}
-            isArchived={isArchived}
+            isReadOnly={isReadOnly}
             getVideoForLog={getVideoForLog}
             uniform={uniform}
           />
