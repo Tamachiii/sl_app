@@ -34,7 +34,13 @@ $$ LANGUAGE sql SECURITY DEFINER STABLE;
 -- Replace the previous FOR ALL student policy with SELECT (permissive) +
 -- INSERT/UPDATE/DELETE (gated by program-active). The previous policy
 -- already gated only on ownership; the gate here adds program-active.
+-- Also drop the new split-policy names to make this migration idempotent —
+-- safe to re-run if a partial earlier version was applied.
 DROP POLICY IF EXISTS "Students manage own set logs" ON public.set_logs;
+DROP POLICY IF EXISTS "Students read own set logs" ON public.set_logs;
+DROP POLICY IF EXISTS "Students insert own set logs" ON public.set_logs;
+DROP POLICY IF EXISTS "Students update own set logs" ON public.set_logs;
+DROP POLICY IF EXISTS "Students delete own set logs" ON public.set_logs;
 
 CREATE POLICY "Students read own set logs"
   ON public.set_logs FOR SELECT
@@ -70,6 +76,10 @@ CREATE POLICY "Students delete own set logs"
 -- and notes of an old confirmation on archived/past-program sessions.
 -- Writes are blocked when the session is archived OR the program inactive.
 DROP POLICY IF EXISTS "Students manage own session confirmations" ON public.session_confirmations;
+DROP POLICY IF EXISTS "Students read own session confirmations" ON public.session_confirmations;
+DROP POLICY IF EXISTS "Students insert own session confirmations" ON public.session_confirmations;
+DROP POLICY IF EXISTS "Students update own session confirmations" ON public.session_confirmations;
+DROP POLICY IF EXISTS "Students delete own session confirmations" ON public.session_confirmations;
 
 CREATE POLICY "Students read own session confirmations"
   ON public.session_confirmations FOR SELECT
@@ -127,6 +137,10 @@ CREATE POLICY "Students delete own session confirmations"
 -- SELECT permissive so students can still view their own old comments on
 -- archived/past sessions. Writes blocked under the same conditions.
 DROP POLICY IF EXISTS "Students manage own slot comments" ON public.slot_comments;
+DROP POLICY IF EXISTS "Students read own slot comments" ON public.slot_comments;
+DROP POLICY IF EXISTS "Students insert own slot comments" ON public.slot_comments;
+DROP POLICY IF EXISTS "Students update own slot comments" ON public.slot_comments;
+DROP POLICY IF EXISTS "Students delete own slot comments" ON public.slot_comments;
 
 CREATE POLICY "Students read own slot comments"
   ON public.slot_comments FOR SELECT
