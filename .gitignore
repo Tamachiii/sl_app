@@ -1,3 +1,9 @@
 node_modules
 dist
 .env
+
+# Supabase CLI link cache (local-only; regenerated on `supabase link`).
+supabase/.temp/
+
+# Local audit / scratch notes.
+TEST_AUDIT.md
