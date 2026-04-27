@@ -1,4 +1,4 @@
-import{c as k,u as g,b as f}from"./query-BK75LP8B.js";import{s as _}from"./index-Fs_2glxy.js";function F(s){return k({queryKey:["session",s],queryFn:async()=>{var n,i;const{data:e,error:o}=await _.from("sessions").select(`
+import{c as k,u as g,b as f}from"./query-BK75LP8B.js";import{s as _}from"./index-DiEvOu_l.js";function F(s){return k({queryKey:["session",s],queryFn:async()=>{var n,i;const{data:e,error:o}=await _.from("sessions").select(`
           *,
           weeks!inner(programs!inner(is_active)),
           exercise_slots(
