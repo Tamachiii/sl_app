@@ -44,7 +44,7 @@ Apply `supabase/schema.sql` to a fresh Supabase project (creates tables, RLS pol
 npm run dev       # dev server
 npm run build     # production build → dist/
 npm run preview   # serve dist/
-npm test          # run vitest (~130 tests)
+npm test          # run vitest (~370 tests)
 npm run deploy    # publishes dist/ to gh-pages branch
 ```
 
@@ -150,7 +150,7 @@ Quick summary:
 - Tests live alongside components as `*.test.jsx` / `*.test.js`.
 - `src/test/utils.jsx` exports `renderWithProviders(ui, { auth, route, queryClient })` which wraps with `ThemeProvider` + `QueryClientProvider` + `AuthContext` + `MemoryRouter`.
 - Mocks: child hooks are stubbed with `vi.mock('../../hooks/useX', () => ({ ... }))` per file.
-- 172 tests across 24 files cover every interactive button, the volume helper, hook layers, and auth/nav flows.
+- 370 tests across 49 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations.
 
 Run:
 ```bash
