@@ -1,1 +1,0 @@
-import{j as e}from"./query-BK75LP8B.js";function r({message:t}){return e.jsx("div",{className:"flex flex-col items-center justify-center py-16 text-gray-400",children:e.jsx("p",{className:"text-sm",children:t})})}export{r as E};
