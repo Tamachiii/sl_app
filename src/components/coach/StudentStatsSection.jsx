@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useOutletContext, useSearchParams } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
 import { useStudentProgressStats } from '../../hooks/useStudentProgressStats';
 import { useProgramsForStudent } from '../../hooks/useProgram';
@@ -48,7 +48,9 @@ function VolumeWeekRow({ week, maxTotal }) {
   );
 }
 
-export default function StudentStatsSection({ studentId }) {
+export default function StudentStatsSection() {
+  const { student } = useOutletContext();
+  const studentId = student.id;
   const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: programs } = useProgramsForStudent(studentId);

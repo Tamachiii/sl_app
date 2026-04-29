@@ -125,6 +125,22 @@ const de = {
       cannotDeleteActive: 'Aktiviere ein anderes Programm, bevor du dieses löschst.',
       reorderProgram: '{name} neu anordnen',
     },
+    tabs: {
+      profile: 'Profil',
+      programming: 'Programm',
+      goals: 'Ziele',
+      stats: 'Stats',
+      messaging: 'Nachrichten',
+    },
+    profile: {
+      coachingSinceLabel: 'Coaching seit',
+      roleLabel: 'Rolle',
+      roleStudent: 'Athlet',
+    },
+    messaging: {
+      comingSoon: 'Nachrichten kommen bald.',
+      description: 'Sobald die Funktion verfügbar ist, kannst du hier mit diesem Athleten chatten.',
+    },
     dashboard: {
       kicker: 'Coach',
       title: 'Übersicht.',

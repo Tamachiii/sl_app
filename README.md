@@ -63,9 +63,10 @@ src/
   components/
     auth/              LoginPage, ProtectedRoute, RoleGate
     layout/            AppShell, BottomNav, SideNav, navItems
-    coach/             CoachDashboard, CoachHome, ProgramSwitcher,
-                       StudentGoalsSection, StudentStatsSection,
-                       WeekTimeline, WeekView, SessionEditor, SessionReview,
+    coach/             CoachDashboard, CoachHome (Students-tab layout),
+                       StudentProfileSection, StudentProgrammingSection,
+                       StudentGoalsSection, StudentStatsSection, StudentMessagingSection,
+                       ProgramSwitcher, WeekTimeline, WeekView, SessionEditor, SessionReview,
                        ExerciseSlotRow, ExerciseLibrary, SessionsFeed, SlotProgress
     student/           StudentHome, StudentSessions, SessionCard, SessionView, SetRow,
                        RpeInput, StudentDashboard (Stats), SessionCalendar,
@@ -115,7 +116,7 @@ Deep architectural details — RLS helpers, React Query invalidation, routing/pe
 
 **Coach**
 1. Logs in → `CoachDashboard` — athletes list + recent confirmations feed. Tap an athlete to open their single-student view.
-2. **Students tab** (`/coach/students`, `/coach/students/:studentId`) — dropdown selector + **Program** (`WeekTimeline` → `WeekView` → `SessionEditor`), **Goals**, **Stats** in one scroll.
+2. **Students tab** (`/coach/students`, `/coach/students/:studentId/{profile,programming,goals,stats,messaging}`) — dropdown selector picks a student, then a five-tab pill strip splits the per-student view into **Profile**, **Programming** (`ProgramSwitcher` + `WeekTimeline` → `WeekView` → `SessionEditor`), **Goals**, **Stats**, and **Messaging** (placeholder). Bare `/coach/students/:id` redirects to `…/programming`.
 3. **Sessions tab** (`/coach/sessions`) — all students' confirmed sessions in one feed; tap a card to open `SessionReview`.
 4. **Library tab** — exercise CRUD with search + type filter.
 

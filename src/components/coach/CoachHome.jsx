@@ -1,20 +1,11 @@
-import { useEffect, useMemo, useRef } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useEffect } from 'react';
+import { NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { useStudents } from '../../hooks/useStudents';
-import {
-  useProgramsForStudent,
-  useProgram,
-  useEnsureProgram,
-} from '../../hooks/useProgram';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
-import WeekTimeline from './WeekTimeline';
-import ProgramSwitcher from './ProgramSwitcher';
-import StudentGoalsSection from './StudentGoalsSection';
-import StudentStatsSection from './StudentStatsSection';
 import {
   useRememberCoachStudentsPath,
   getLastCoachStudentsPath,
@@ -51,13 +42,9 @@ function StudentSelector({ students, studentId, onChange, t }) {
   );
 }
 
-function StudentHeader({ student, program, t }) {
+function StudentHeader({ student, t }) {
   const navigate = useNavigate();
   const fullName = student.profile?.full_name || 'Student';
-  const weekCount = program?.weeks?.length ?? 0;
-  const weeksLabel = weekCount === 0
-    ? ''
-    : t(weekCount === 1 ? 'coach.home.weeksOne' : 'coach.home.weeksMany', { n: weekCount });
 
   return (
     <div className="sl-card px-4 py-4 md:px-6 md:py-5">
@@ -77,9 +64,6 @@ function StudentHeader({ student, program, t }) {
           <h2 className="sl-display text-[22px] md:text-[26px] text-gray-900 leading-none truncate">
             {fullName}
           </h2>
-          {weeksLabel && (
-            <p className="sl-mono text-[11px] text-ink-400 mt-1.5">{weeksLabel.toUpperCase()}</p>
-          )}
         </div>
         <button
           type="button"
@@ -94,127 +78,58 @@ function StudentHeader({ student, program, t }) {
   );
 }
 
-function ProgramCard({ studentId, programs, selectedProgramId, program, onSelect, onProgramDeleted }) {
-  const hasPrograms = Array.isArray(programs) && programs.length > 0;
+const TABS = [
+  { key: 'profile', i18n: 'coach.tabs.profile' },
+  { key: 'programming', i18n: 'coach.tabs.programming' },
+  { key: 'goals', i18n: 'coach.tabs.goals' },
+  { key: 'stats', i18n: 'coach.tabs.stats' },
+  { key: 'messaging', i18n: 'coach.tabs.messaging' },
+];
 
+function StudentTabStrip({ studentId, t }) {
   return (
-    <div className="sl-card p-3 md:p-4 space-y-3">
-      {hasPrograms && (
-        <ProgramSwitcher
-          studentId={studentId}
-          programs={programs}
-          selectedId={selectedProgramId}
-          onSelect={onSelect}
-          onProgramDeleted={onProgramDeleted}
-        />
-      )}
-
-      {hasPrograms && program && <div className="sl-hairline -mx-3 md:-mx-4" />}
-
-      {!program ? (
-        <div className="flex justify-center py-4"><Spinner /></div>
-      ) : (
-        <WeekTimeline studentId={studentId} program={program} />
-      )}
-    </div>
+    <nav
+      role="tablist"
+      aria-label={t('nav.students')}
+      className="sl-no-scrollbar -mx-1 px-1 flex gap-2 overflow-x-auto pb-1"
+    >
+      {TABS.map(({ key, i18n }) => (
+        <NavLink
+          key={key}
+          to={`/coach/students/${studentId}/${key}`}
+          role="tab"
+          end
+          className={({ isActive }) =>
+            `sl-pill shrink-0 transition-colors ${
+              isActive
+                ? 'text-gray-900'
+                : 'bg-ink-100 text-ink-700 hover:bg-ink-200'
+            }`
+          }
+          style={({ isActive }) =>
+            isActive
+              ? {
+                  background: 'color-mix(in srgb, var(--color-accent) 18%, transparent)',
+                  border: '1px solid color-mix(in srgb, var(--color-accent) 35%, transparent)',
+                }
+              : undefined
+          }
+        >
+          {t(i18n)}
+        </NavLink>
+      ))}
+    </nav>
   );
 }
 
 function SelectedStudentView({ student, t }) {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const { data: programs, isSuccess } = useProgramsForStudent(student.id);
-  const ensureProgram = useEnsureProgram();
-  const ensuredRef = useRef(false);
-
-  // First-visit auto-seed: no programs → create a default active one.
-  useEffect(() => {
-    if (
-      isSuccess
-      && Array.isArray(programs)
-      && programs.length === 0
-      && !ensuredRef.current
-      && !ensureProgram.isPending
-    ) {
-      ensuredRef.current = true;
-      ensureProgram.mutate({ studentId: student.id });
-    }
-  }, [isSuccess, programs, student.id, ensureProgram]);
-
-  useEffect(() => {
-    ensuredRef.current = false;
-  }, [student.id]);
-
-  const activeProgram = useMemo(
-    () => (programs || []).find((p) => p.is_active) ?? (programs || [])[0] ?? null,
-    [programs],
-  );
-
-  const urlProgramId = searchParams.get('program');
-  const urlProgramExists = urlProgramId && (programs || []).some((p) => p.id === urlProgramId);
-  const selectedProgramId = urlProgramExists ? urlProgramId : activeProgram?.id ?? null;
-
-  // Drop a stale ?program= from the URL (e.g. after deletion) so back/forward
-  // doesn't resurrect a dead id.
-  useEffect(() => {
-    if (urlProgramId && !urlProgramExists && isSuccess && (programs || []).length > 0) {
-      const next = new URLSearchParams(searchParams);
-      next.delete('program');
-      setSearchParams(next, { replace: true });
-    }
-  }, [urlProgramId, urlProgramExists, isSuccess, programs, searchParams, setSearchParams]);
-
-  const { data: selectedProgram } = useProgram(selectedProgramId);
-
-  function handleSelectProgram(programId) {
-    const next = new URLSearchParams(searchParams);
-    if (programId && programId !== activeProgram?.id) {
-      next.set('program', programId);
-    } else {
-      next.delete('program');
-    }
-    setSearchParams(next, { replace: true });
-  }
-
-  function handleProgramDeleted(deletedId) {
-    if (deletedId === selectedProgramId) {
-      const next = new URLSearchParams(searchParams);
-      next.delete('program');
-      setSearchParams(next, { replace: true });
-    }
-  }
-
   return (
-    <div className="space-y-6">
-      <StudentHeader student={student} program={selectedProgram} t={t} />
-
-      <section aria-labelledby="program-heading" className="space-y-2">
-        <h3 id="program-heading" className="sl-label text-ink-400">
-          {t('coach.home.program')}
-        </h3>
-
-        <ProgramCard
-          studentId={student.id}
-          programs={isSuccess ? (programs || []) : []}
-          selectedProgramId={selectedProgramId}
-          program={selectedProgram}
-          onSelect={handleSelectProgram}
-          onProgramDeleted={handleProgramDeleted}
-        />
-      </section>
-
-      <section aria-labelledby="goals-heading" className="space-y-2">
-        <h3 id="goals-heading" className="sl-label text-ink-400">
-          {t('coach.home.goals')}
-        </h3>
-        <StudentGoalsSection studentId={student.id} />
-      </section>
-
-      <section aria-labelledby="stats-heading" className="space-y-2">
-        <h3 id="stats-heading" className="sl-label text-ink-400">
-          {t('coach.home.stats')}
-        </h3>
-        <StudentStatsSection studentId={student.id} />
-      </section>
+    <div className="space-y-4">
+      <StudentHeader student={student} t={t} />
+      <StudentTabStrip studentId={student.id} t={t} />
+      <div>
+        <Outlet context={{ student }} />
+      </div>
     </div>
   );
 }
@@ -248,7 +163,7 @@ export default function CoachHome() {
 
   function handleSelect(id) {
     if (id) {
-      navigate(`/coach/students/${id}`);
+      navigate(`/coach/students/${id}/programming`);
     } else {
       // Explicit "— Select a student —" pick → forget the saved path so we
       // don't immediately re-redirect via the restore effect above.

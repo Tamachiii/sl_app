@@ -1,9 +1,9 @@
 import { lazy, Suspense } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 
-function RedirectToStudent() {
+function RedirectToStudentGoals() {
   const { studentId } = useParams();
-  return <Navigate to={`/coach/students/${studentId}`} replace />;
+  return <Navigate to={`/coach/students/${studentId}/goals`} replace />;
 }
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import RoleGate from './components/auth/RoleGate';
@@ -13,6 +13,11 @@ import Spinner from './components/ui/Spinner';
 const LoginPage = lazy(() => import('./components/auth/LoginPage'));
 const CoachDashboard = lazy(() => import('./components/coach/CoachDashboard'));
 const CoachHome = lazy(() => import('./components/coach/CoachHome'));
+const StudentProfileSection = lazy(() => import('./components/coach/StudentProfileSection'));
+const StudentProgrammingSection = lazy(() => import('./components/coach/StudentProgrammingSection'));
+const StudentGoalsSection = lazy(() => import('./components/coach/StudentGoalsSection'));
+const StudentStatsSection = lazy(() => import('./components/coach/StudentStatsSection'));
+const StudentMessagingSection = lazy(() => import('./components/coach/StudentMessagingSection'));
 const SessionsFeed = lazy(() => import('./components/coach/SessionsFeed'));
 const WeekView = lazy(() => import('./components/coach/WeekView'));
 const SessionEditor = lazy(() => import('./components/coach/SessionEditor'));
@@ -50,8 +55,19 @@ export const routes = [
               { path: '/coach', element: <Navigate to="/coach/dashboard" replace /> },
               { path: '/coach/dashboard', element: <Lazy><CoachDashboard /></Lazy> },
               { path: '/coach/students', element: <Lazy><CoachHome /></Lazy> },
-              { path: '/coach/students/:studentId', element: <Lazy><CoachHome /></Lazy> },
-              { path: '/coach/student/:studentId/goals', element: <RedirectToStudent /> },
+              {
+                path: '/coach/students/:studentId',
+                element: <Lazy><CoachHome /></Lazy>,
+                children: [
+                  { index: true, element: <Navigate to="programming" replace /> },
+                  { path: 'profile', element: <Lazy><StudentProfileSection /></Lazy> },
+                  { path: 'programming', element: <Lazy><StudentProgrammingSection /></Lazy> },
+                  { path: 'goals', element: <Lazy><StudentGoalsSection /></Lazy> },
+                  { path: 'stats', element: <Lazy><StudentStatsSection /></Lazy> },
+                  { path: 'messaging', element: <Lazy><StudentMessagingSection /></Lazy> },
+                ],
+              },
+              { path: '/coach/student/:studentId/goals', element: <RedirectToStudentGoals /> },
               { path: '/coach/sessions', element: <Lazy><SessionsFeed /></Lazy> },
               { path: '/coach/student/:studentId/session/:sessionId/review', element: <Lazy><SessionReview /></Lazy> },
               { path: '/coach/student/:studentId/week/:weekId', element: <Lazy><WeekView /></Lazy> },

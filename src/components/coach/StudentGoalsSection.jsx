@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
@@ -23,7 +24,9 @@ const EMPTY_FORM = {
 const inputCls =
   'w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
 
-export default function StudentGoalsSection({ studentId }) {
+export default function StudentGoalsSection() {
+  const { student } = useOutletContext();
+  const studentId = student.id;
   const { t } = useI18n();
   const { data: studentProfileId, isLoading: pidLoading } = useStudentProfileId(studentId);
   const { data: library } = useExerciseLibrary();

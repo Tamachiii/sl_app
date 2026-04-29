@@ -125,6 +125,22 @@ const fr = {
       cannotDeleteActive: 'Active un autre programme avant de supprimer celui-ci.',
       reorderProgram: 'Réorganiser {name}',
     },
+    tabs: {
+      profile: 'Profil',
+      programming: 'Programme',
+      goals: 'Objectifs',
+      stats: 'Stats',
+      messaging: 'Messagerie',
+    },
+    profile: {
+      coachingSinceLabel: 'Coaché depuis le',
+      roleLabel: 'Rôle',
+      roleStudent: 'Athlète',
+    },
+    messaging: {
+      comingSoon: 'La messagerie arrive bientôt.',
+      description: 'Tu pourras discuter avec cet athlète ici dès que la fonctionnalité sera disponible.',
+    },
     dashboard: {
       kicker: 'Coach',
       title: 'Tableau.',

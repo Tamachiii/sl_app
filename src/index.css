@@ -88,6 +88,13 @@ body {
   .dark .sl-hairline {
     background: var(--color-ink-700);
   }
+  .sl-no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .sl-no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
   .sl-card {
     background: #fff;
     border-radius: 16px;

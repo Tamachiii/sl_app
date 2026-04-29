@@ -125,6 +125,22 @@ const en = {
       cannotDeleteActive: 'Activate another program before deleting this one.',
       reorderProgram: 'Reorder {name}',
     },
+    tabs: {
+      profile: 'Profile',
+      programming: 'Programming',
+      goals: 'Goals',
+      stats: 'Stats',
+      messaging: 'Messaging',
+    },
+    profile: {
+      coachingSinceLabel: 'Coaching since',
+      roleLabel: 'Role',
+      roleStudent: 'Student',
+    },
+    messaging: {
+      comingSoon: 'Messaging is coming soon.',
+      description: 'You’ll be able to chat with this student here once the feature ships.',
+    },
     dashboard: {
       kicker: 'Coach',
       title: 'Dashboard.',
