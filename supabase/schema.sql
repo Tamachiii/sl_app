@@ -191,6 +191,15 @@ CREATE POLICY "Coaches read their students profiles"
     id IN (SELECT profile_id FROM public.students WHERE coach_id = auth.uid())
   );
 
+-- Mirror of the policy above for the student → coach direction. Needed so the
+-- "your coach" surface (e.g. Student Messages tab) can read coach.full_name
+-- via an embedded select; without it, Supabase silently returns coach: null.
+CREATE POLICY "Students read their coach profile"
+  ON public.profiles FOR SELECT
+  USING (
+    id IN (SELECT coach_id FROM public.students WHERE profile_id = auth.uid())
+  );
+
 -- STUDENTS
 CREATE POLICY "Coaches see their students"
   ON public.students FOR SELECT
