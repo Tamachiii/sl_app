@@ -1,37 +1,30 @@
+import { useOutletContext } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
+import EmptyState from '../ui/EmptyState';
+import MessageThread from '../messaging/MessageThread';
 
-const MailIcon = (
-  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={1.75}
-      d="M3 8l7.89 5.26a2 2 0 0 0 2.22 0L21 8M5 19h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2z"
-    />
-  </svg>
-);
-
+/**
+ * Coach-side messaging tab inside a single student's view. Renders the
+ * thread between the signed-in coach and the selected student.
+ *
+ * Sized to fit inside the rest of the Students-tab layout: the column has a
+ * fixed visual height so the thread scroller (a flex-1 child) is bounded —
+ * MessageThread is a flex column that needs a height to scroll.
+ */
 export default function StudentMessagingSection() {
+  const { student } = useOutletContext();
   const { t } = useI18n();
+
+  if (!student?.profile_id) {
+    return <EmptyState message={t('messaging.noStudentLink')} />;
+  }
+
   return (
-    <div
-      className="sl-card p-6 md:p-8 flex flex-col items-center text-center gap-3"
-      role="region"
-      aria-label={t('coach.tabs.messaging')}
-    >
-      <div
-        className="w-12 h-12 rounded-full flex items-center justify-center"
-        style={{
-          background: 'color-mix(in srgb, var(--color-accent) 15%, transparent)',
-          color: 'var(--color-accent)',
-        }}
-      >
-        {MailIcon}
-      </div>
-      <div className="sl-display text-[18px] text-gray-900">{t('coach.messaging.comingSoon')}</div>
-      <p className="sl-mono text-[12px] text-ink-400 max-w-md leading-relaxed">
-        {t('coach.messaging.description')}
-      </p>
+    <div className="sl-card p-3 md:p-4 flex flex-col" style={{ height: '60vh', minHeight: 360 }}>
+      <MessageThread
+        otherProfileId={student.profile_id}
+        otherFullName={student.profile?.full_name}
+      />
     </div>
   );
 }

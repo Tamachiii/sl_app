@@ -67,10 +67,13 @@ src/
                        StudentProfileSection, StudentProgrammingSection,
                        StudentGoalsSection, StudentStatsSection, StudentMessagingSection,
                        ProgramSwitcher, WeekTimeline, WeekView, SessionEditor, SessionReview,
-                       ExerciseSlotRow, ExerciseLibrary, SessionsFeed, SlotProgress
+                       ExerciseSlotRow, ExerciseLibrary, SessionsFeed, SlotProgress,
+                       CoachMessages
+    messaging/         MessageThread, MessageComposer, ConversationList,
+                       UnreadMessagesBadge
     student/           StudentHome, StudentSessions, SessionCard, SessionView, SetRow,
                        RpeInput, StudentDashboard (Stats), SessionCalendar,
-                       ExerciseProgressChart, MyGoals, VideoUploadButton
+                       ExerciseProgressChart, MyGoals, VideoUploadButton, StudentMessages
     ui/                EditableText, ThemeToggle, LanguageSelect, UserMenu, Dialog,
                        VideoPlayer, Spinner, EmptyState, CopyDialog, ConfirmDialog,
                        ErrorBoundary
@@ -116,15 +119,17 @@ Deep architectural details — RLS helpers, React Query invalidation, routing/pe
 
 **Coach**
 1. Logs in → `CoachDashboard` — athletes list + recent confirmations feed. Tap an athlete to open their single-student view.
-2. **Students tab** (`/coach/students`, `/coach/students/:studentId/{profile,programming,goals,stats,messaging}`) — dropdown selector picks a student, then a five-tab pill strip splits the per-student view into **Profile**, **Programming** (`ProgramSwitcher` + `WeekTimeline` → `WeekView` → `SessionEditor`), **Goals**, **Stats**, and **Messaging** (placeholder). Bare `/coach/students/:id` redirects to `…/programming`.
+2. **Students tab** (`/coach/students`, `/coach/students/:studentId/{profile,programming,goals,stats,messaging}`) — dropdown selector picks a student, then a five-tab pill strip splits the per-student view into **Profile**, **Programming** (`ProgramSwitcher` + `WeekTimeline` → `WeekView` → `SessionEditor`), **Goals**, **Stats**, and **Messaging** (in-context thread with that student). Bare `/coach/students/:id` redirects to `…/programming`.
 3. **Sessions tab** (`/coach/sessions`) — all students' confirmed sessions in one feed; tap a card to open `SessionReview`.
-4. **Library tab** — exercise CRUD with search + type filter.
+4. **Messages tab** (`/coach/messages`, `/coach/messages/:otherProfileId`) — conversation rollup over every student, plus "start a conversation" cards for students with no thread yet. Unread count appears as a dot on the bottom-nav icon (count chip in the side-nav). Realtime updates via the Supabase `messages` channel keep threads + the badge live across tabs.
+5. **Library tab** — exercise CRUD with search + type filter.
 
 **Student**
 1. Logs in → **Home tab** (`/student`) — current training week: 7-day strip and an always-expanded "Next session" preview (full exercise list visible by default; no collapse) with a Start CTA.
 2. **Sessions tab** (`/student/sessions`) — full program by week; accordion session cards (one open at a time); tap "Start session" to open `SessionView`.
 3. **Stats tab** (`/student/stats`) — sessions confirmed, sets done, weekly volume bars, per-exercise progression, calendar (active block + muted history dots).
-4. **Goals tab** (`/student/goals`) — `MyGoals`.
+4. **Messages tab** (`/student/messages`) — single thread with the assigned coach (resolved via `students.coach_id`). Realtime + unread-count badge same as the coach side.
+5. **Goals tab** (`/student/goals`) — `MyGoals`.
 
 ---
 

@@ -12,6 +12,7 @@ const de = {
     dashboard: 'Übersicht',
     students: 'Athleten',
     library: 'Katalog',
+    messages: 'Nachrichten',
   },
   common: {
     start: 'start',
@@ -188,6 +189,27 @@ const de = {
     review: {
       kicker: 'Review',
     },
+  },
+  messaging: {
+    title: 'Nachrichten.',
+    coach: 'Coach',
+    threadLabel: 'Unterhaltung mit {name}',
+    composerLabel: 'Nachricht eingeben',
+    placeholder: 'Nachricht eingeben…',
+    send: 'Senden',
+    sending: 'Sende…',
+    empty: 'Noch keine Nachrichten — sag Hallo.',
+    noConversations: 'Noch keine Nachrichten.',
+    coachNoConversations: 'Keine Unterhaltungen — wähle unten einen Athleten.',
+    startNew: 'Unterhaltung starten',
+    tapToOpen: 'Zum Öffnen tippen',
+    youPrefix: 'Du:',
+    unreadAria: '{n} ungelesen',
+    loadError: 'Nachrichten konnten nicht geladen werden.',
+    sendError: 'Senden fehlgeschlagen. Bitte erneut versuchen.',
+    tooLong: 'Nachricht zu lang (max. {n} Zeichen).',
+    noStudentLink: 'Dieser Athlet ist nicht verknüpft — bitte erneut auswählen.',
+    noCoach: 'Du bist noch keinem Coach zugeordnet.',
   },
 };
 

@@ -40,6 +40,12 @@ const StatsIcon = (
   </svg>
 );
 
+const MessagesIcon = (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+  </svg>
+);
+
 // Under the Students tab, deep routes live at `/coach/student/:sid/week/…` and
 // `/coach/student/:sid/week/…/session/…`. Sessions-tab drill-down lives at
 // `/coach/student/:sid/session/…/review`. They share the `/coach/student/`
@@ -69,6 +75,13 @@ export function getNavItems(role, t) {
         end: true,
         matches: isCoachSessionsPath,
       },
+      {
+        to: '/coach/messages',
+        label: t('nav.messages'),
+        icon: MessagesIcon,
+        end: false,
+        badge: 'unread-messages',
+      },
       { to: '/coach/exercises', label: t('nav.library'), icon: LibraryIcon, end: true },
     ];
   }
@@ -76,6 +89,13 @@ export function getNavItems(role, t) {
     { to: '/student', label: t('nav.home'), icon: HomeIcon, end: true },
     { to: '/student/sessions', label: t('nav.sessions'), icon: SessionsIcon, end: false },
     { to: '/student/stats', label: t('nav.stats'), icon: StatsIcon, end: false },
+    {
+      to: '/student/messages',
+      label: t('nav.messages'),
+      icon: MessagesIcon,
+      end: false,
+      badge: 'unread-messages',
+    },
     { to: '/student/goals', label: t('nav.goals'), icon: GoalIcon, end: false },
   ];
 }

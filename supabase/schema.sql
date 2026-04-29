@@ -760,3 +760,86 @@ CREATE POLICY "Coaches read student set videos"
       SELECT profile_id::text FROM public.students WHERE coach_id = auth.uid()
     )
   );
+
+-- ============================================================
+-- MESSAGES (coach ↔ student direct messaging)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.messages (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  sender_id    uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  recipient_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  body         text NOT NULL CHECK (char_length(btrim(body)) > 0 AND char_length(body) <= 4000),
+  read_at      timestamptz,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT messages_no_self_send CHECK (sender_id <> recipient_id)
+);
+
+CREATE INDEX IF NOT EXISTS messages_pair_created_idx
+  ON public.messages (LEAST(sender_id, recipient_id), GREATEST(sender_id, recipient_id), created_at DESC);
+
+CREATE INDEX IF NOT EXISTS messages_recipient_unread_idx
+  ON public.messages (recipient_id) WHERE read_at IS NULL;
+
+CREATE OR REPLACE FUNCTION public.profiles_are_coach_student(a uuid, b uuid)
+RETURNS boolean AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.students s
+    WHERE (s.coach_id = a AND s.profile_id = b)
+       OR (s.coach_id = b AND s.profile_id = a)
+  );
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- Lock body/sender/recipient on UPDATE so the recipient-update policy can
+-- only flip read_at (RLS can't restrict per-column otherwise).
+CREATE OR REPLACE FUNCTION public.lock_message_fields_on_update()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.id           := OLD.id;
+  NEW.sender_id    := OLD.sender_id;
+  NEW.recipient_id := OLD.recipient_id;
+  NEW.body         := OLD.body;
+  NEW.created_at   := OLD.created_at;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_lock_message_fields ON public.messages;
+CREATE TRIGGER trg_lock_message_fields
+  BEFORE UPDATE ON public.messages
+  FOR EACH ROW EXECUTE FUNCTION public.lock_message_fields_on_update();
+
+ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Read own messages"
+  ON public.messages FOR SELECT
+  USING (sender_id = auth.uid() OR recipient_id = auth.uid());
+
+CREATE POLICY "Send to coach-student counterpart"
+  ON public.messages FOR INSERT
+  WITH CHECK (
+    sender_id = auth.uid()
+    AND public.profiles_are_coach_student(sender_id, recipient_id)
+  );
+
+CREATE POLICY "Recipient marks messages read"
+  ON public.messages FOR UPDATE
+  USING (recipient_id = auth.uid())
+  WITH CHECK (recipient_id = auth.uid());
+
+-- Realtime: broadcast inserts/updates to subscribed clients (REPLICA IDENTITY
+-- FULL so UPDATEs carry the old row).
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_publication_tables
+      WHERE pubname = 'supabase_realtime'
+        AND schemaname = 'public'
+        AND tablename = 'messages'
+    ) THEN
+      ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
+    END IF;
+  END IF;
+END $$;
+
+ALTER TABLE public.messages REPLICA IDENTITY FULL;

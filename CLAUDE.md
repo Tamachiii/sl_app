@@ -37,9 +37,12 @@ src/
                  ExerciseSlotRow  ExerciseLibrary  SessionsFeed  SlotProgress
                  StudentProfileSection  StudentProgrammingSection
                  StudentGoalsSection  StudentStatsSection  StudentMessagingSection
+                 CoachMessages
     student/     StudentHome  StudentSessions  SessionCard  SessionView  SetRow
                  RpeInput  StudentDashboard(Stats)  SessionCalendar
-                 ExerciseProgressChart  MyGoals  VideoUploadButton
+                 ExerciseProgressChart  MyGoals  VideoUploadButton  StudentMessages
+    messaging/   MessageThread  MessageComposer  ConversationList
+                 UnreadMessagesBadge
     ui/          EditableText  ThemeToggle  LanguageSelect  UserMenu  Dialog
                  VideoPlayer  Spinner  EmptyState  CopyDialog  ConfirmDialog
                  ErrorBoundary
@@ -77,6 +80,7 @@ Jump straight to the relevant files. For *behavior* details, open the file — t
 | Theming | `hooks/useTheme`, `ui/ThemeToggle`, `index.css` |
 | i18n (EN/FR/DE) | `hooks/useI18n`, `lib/i18n/`, `ui/LanguageSelect` |
 | Day-number helpers | `lib/day.js` |
+| Messaging (coach ↔ student) | `messaging/MessageThread`, `messaging/MessageComposer`, `messaging/ConversationList`, `messaging/UnreadMessagesBadge`, `coach/CoachMessages`, `coach/StudentMessagingSection`, `student/StudentMessages`, `hooks/useMessages` |
 
 Periodization, confirmations, video storage/RLS, routing persistence, and React Query invalidation details are in `docs/ARCHITECTURE.md`. Design primitives, dark-mode rules, responsive layout, and the editorial page-header pattern are in `docs/DESIGN_SYSTEM.md`.
 
@@ -90,6 +94,7 @@ Periodization, confirmations, video storage/RLS, routing persistence, and React 
 - **`useWeek.js` owns `useUpdateWeek` AND `useUpdateSession`** — not `useSession.js`.
 - **Per-set targets live on `set_logs`, not `exercise_slots`.** Each set_log row stores both prescription (`target_reps`, `target_duration_seconds`, `target_weight_kg`, `target_rest_seconds`) and student actuals (`done`, `rpe`, `weight_kg`). The legacy `exercise_slots.{reps, weight_kg, duration_seconds, rest_seconds}` columns are kept as deprecated mirrors of set 1 — slated for removal in a follow-up migration. `useAddSlot` materializes one set_log per planned set; `useUpdateSlot` fans uniform target edits to all logs; `useUpdateSetTarget` writes to a single log; `useResetSlotToUniform` re-syncs every log to set 1. `isSlotUniform(slot)` and `formatSlotPrescription(slot)` in `lib/volume.js` decide compact vs. per-set rendering.
 - **RLS is strict.** New tables need both student- and coach-side policies walking session → profile via `student_profile_for_session()` / `coach_profile_for_session()` helpers in `schema.sql`. Migrations go in `supabase/migrations/<date>_<name>.sql` *and* append to `schema.sql`.
+- **Messaging is realtime + RLS-scoped.** `messages` rows have `sender_id` and `recipient_id` (both `profiles.id`). RLS lets either party SELECT, only the sender INSERT (and only when the pair is coach-student via `profiles_are_coach_student()`), and only the recipient UPDATE — and a `BEFORE UPDATE` trigger pins every column except `read_at` so "mark read" can't be used to mutate the body. The table is in the `supabase_realtime` publication with `REPLICA IDENTITY FULL`; [hooks/useMessages.js](src/hooks/useMessages.js) opens **one** channel from `AppShell` (`useMessagesRealtime`) and invalidates the `[messages]` React Query subtree on INSERT/UPDATE. The Messages nav tab carries an unread-count badge fed by `useUnreadMessageCount`. Conversations roll-up is a client-side fold over recent rows — fine at coach scale, swap for an RPC if the table grows.
 - **Coach Students-page layout owns the student lookup.** [CoachHome.jsx](src/components/coach/CoachHome.jsx) resolves the `:studentId` from `useStudents()` and exposes the resolved student to all five sub-tabs via `<Outlet context={{ student }} />`. Each tab section reads it with `useOutletContext()`. `/coach/students/:id` redirects to `…/programming` (the index sub-route) to preserve the prior landing UX. The legacy `/coach/student/:id/goals` URL redirects to `…/students/:id/goals`.
 - **Past-program sessions are read-only on the student surface.** A session is locked iff `programs.is_active = false` OR `sessions.archived_at IS NOT NULL`. Enforced UI-side in `SessionView` via `isReadOnly` (derived from `session.program_is_active` + `archived_at`) and DB-side by student RLS on `set_logs` / `session_confirmations` / `slot_comments` (helpers `program_active_for_session`, `program_active_for_slot`). Coach writes are never gated this way.
 - **Rules of Hooks:** never call `useMemo` (or any hook) after an early return like `if (isLoading) return <Spinner/>`.

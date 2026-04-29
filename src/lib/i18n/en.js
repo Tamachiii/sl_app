@@ -12,6 +12,7 @@ const en = {
     dashboard: 'Dashboard',
     students: 'Students',
     library: 'Library',
+    messages: 'Messages',
   },
   common: {
     start: 'start',
@@ -188,6 +189,27 @@ const en = {
     review: {
       kicker: 'Review',
     },
+  },
+  messaging: {
+    title: 'Messages.',
+    coach: 'Coach',
+    threadLabel: 'Conversation with {name}',
+    composerLabel: 'Type a message',
+    placeholder: 'Type a message…',
+    send: 'Send',
+    sending: 'Sending…',
+    empty: 'No messages yet — say hi.',
+    noConversations: 'No messages yet.',
+    coachNoConversations: 'No conversations yet — pick a student below to start one.',
+    startNew: 'Start a conversation',
+    tapToOpen: 'Tap to open',
+    youPrefix: 'You:',
+    unreadAria: '{n} unread',
+    loadError: 'Couldn’t load messages. Pull to refresh.',
+    sendError: 'Couldn’t send the message. Try again.',
+    tooLong: 'Message too long (max {n} chars).',
+    noStudentLink: 'This student isn’t linked yet — re-pick from the list.',
+    noCoach: 'You aren’t linked to a coach yet.',
   },
 };
 

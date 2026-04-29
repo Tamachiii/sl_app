@@ -1,21 +1,30 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 let mockRole = 'coach';
 
 vi.mock('../../hooks/useAuth', () => ({
-  useAuth: () => ({ role: mockRole }),
+  useAuth: () => ({ role: mockRole, user: { id: 'me' } }),
+}));
+
+// The Messages tab now reads an unread-count via React Query. Stub the hook
+// so we don't need a fake supabase chain; tests below just care about layout.
+vi.mock('../../hooks/useMessages', () => ({
+  useUnreadMessageCount: () => ({ data: 0 }),
 }));
 
 import BottomNav from './BottomNav';
 
 function renderBottomNav(route = '/coach/dashboard') {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <MemoryRouter initialEntries={[route]}>
-      <BottomNav />
-    </MemoryRouter>
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[route]}>
+        <BottomNav />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -25,11 +34,12 @@ describe('BottomNav', () => {
     mockRole = 'coach';
   });
 
-  it('renders all 4 coach nav tabs', () => {
+  it('renders all 5 coach nav tabs (incl. Messages)', () => {
     renderBottomNav();
     expect(screen.getByText('Dashboard')).toBeInTheDocument();
     expect(screen.getByText('Students')).toBeInTheDocument();
     expect(screen.getByText('Sessions')).toBeInTheDocument();
+    expect(screen.getByText('Messages')).toBeInTheDocument();
     expect(screen.getByText('Library')).toBeInTheDocument();
   });
 
@@ -38,12 +48,13 @@ describe('BottomNav', () => {
     expect(screen.queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument();
   });
 
-  it('renders student nav with Home, Sessions, Stats and Goals links', () => {
+  it('renders student nav with Home, Sessions, Stats, Messages and Goals links', () => {
     mockRole = 'student';
     renderBottomNav('/student');
     expect(screen.getByText('Home')).toBeInTheDocument();
     expect(screen.getByText('Sessions')).toBeInTheDocument();
     expect(screen.getByText('Stats')).toBeInTheDocument();
+    expect(screen.getByText('Messages')).toBeInTheDocument();
     expect(screen.getByText('Goals')).toBeInTheDocument();
     expect(screen.queryByText('Students')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument();

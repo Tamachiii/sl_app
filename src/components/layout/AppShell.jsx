@@ -2,10 +2,15 @@ import { useEffect, useRef } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import BottomNav from './BottomNav';
 import SideNav from './SideNav';
+import { useMessagesRealtime } from '../../hooks/useMessages';
 
 export default function AppShell() {
   const mainRef = useRef(null);
   const { pathname } = useLocation();
+
+  // Single global realtime channel for messages — every page sees fresh
+  // threads + nav-tab badges without each having to subscribe individually.
+  useMessagesRealtime();
 
   useEffect(() => {
     mainRef.current?.scrollTo({ top: 0, left: 0 });

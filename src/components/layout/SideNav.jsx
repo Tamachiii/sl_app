@@ -2,8 +2,9 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { getNavItems } from './navItems';
+import UnreadMessagesBadge from '../messaging/UnreadMessagesBadge';
 
-function SideNavItem({ to, label, icon, end = false, matches }) {
+function SideNavItem({ to, label, icon, end = false, matches, badge }) {
   const { pathname } = useLocation();
   const customActive = matches ? matches(pathname) : null;
   return (
@@ -27,6 +28,7 @@ function SideNavItem({ to, label, icon, end = false, matches }) {
     >
       {icon}
       <span className="sl-display text-[14px] tracking-tight">{label}</span>
+      {badge === 'unread-messages' && <UnreadMessagesBadge variant="count" />}
     </NavLink>
   );
 }

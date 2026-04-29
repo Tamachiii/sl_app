@@ -12,6 +12,7 @@ const fr = {
     dashboard: 'Tableau',
     students: 'Athlètes',
     library: 'Librairie',
+    messages: 'Messages',
   },
   common: {
     start: 'démarrer',
@@ -188,6 +189,27 @@ const fr = {
     review: {
       kicker: 'Revue',
     },
+  },
+  messaging: {
+    title: 'Messages.',
+    coach: 'Coach',
+    threadLabel: 'Conversation avec {name}',
+    composerLabel: 'Écris un message',
+    placeholder: 'Écris un message…',
+    send: 'Envoyer',
+    sending: 'Envoi…',
+    empty: 'Aucun message — lance la conversation.',
+    noConversations: 'Aucun message.',
+    coachNoConversations: 'Aucune conversation — choisis un athlète ci-dessous pour démarrer.',
+    startNew: 'Démarrer une conversation',
+    tapToOpen: 'Appuie pour ouvrir',
+    youPrefix: 'Toi :',
+    unreadAria: '{n} non lus',
+    loadError: 'Impossible de charger les messages. Réessaie.',
+    sendError: 'Échec de l’envoi. Réessaie.',
+    tooLong: 'Message trop long (max {n} caractères).',
+    noStudentLink: 'Cet athlète n’est pas encore lié — choisis-le à nouveau.',
+    noCoach: 'Tu n’as pas encore de coach.',
   },
 };
 
