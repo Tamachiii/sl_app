@@ -155,6 +155,34 @@ export function useSendMessage() {
 }
 
 /**
+ * Fetch the (at most one) coach-feedback message attached to `sessionId`, or
+ * null if none exists. Used by SessionReview to swap the composer for a
+ * read-only "feedback sent" card so the coach can't submit twice.
+ *
+ * Why a `messages` lookup is sufficient: the INSERT policy on `messages`
+ * permits `session_id IS NOT NULL` only when sender = that session's coach
+ * and recipient = its student, and a UNIQUE partial index on `session_id`
+ * caps it to one row. So a hit here is, by construction, the coach's
+ * feedback for this session.
+ */
+export function useSessionFeedback(sessionId) {
+  return useQuery({
+    queryKey: [MESSAGES_ROOT, 'session-feedback', sessionId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('id, sender_id, recipient_id, body, session_id, created_at')
+        .eq('session_id', sessionId)
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data || null;
+    },
+    enabled: !!sessionId,
+  });
+}
+
+/**
  * Fetch lightweight session metadata (title, scheduled_date) for the unique
  * `session_id`s referenced by visible feedback messages. Returns a Map keyed
  * by session id — empty map until the query resolves. The thread query

@@ -796,7 +796,9 @@ CREATE INDEX IF NOT EXISTS messages_pair_created_idx
 CREATE INDEX IF NOT EXISTS messages_recipient_unread_idx
   ON public.messages (recipient_id) WHERE read_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS messages_session_idx
+-- UNIQUE so the DB rejects a second coach-feedback insert for the same
+-- session. (See 2026_04_30_unique_session_feedback.sql.)
+CREATE UNIQUE INDEX IF NOT EXISTS messages_session_idx
   ON public.messages (session_id) WHERE session_id IS NOT NULL;
 
 CREATE OR REPLACE FUNCTION public.profiles_are_coach_student(a uuid, b uuid)

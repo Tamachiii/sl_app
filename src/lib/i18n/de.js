@@ -240,6 +240,8 @@ const de = {
     openThread: 'Unterhaltung öffnen',
     backToSessions: 'Zurück zu den Sessions',
     sendError: 'Senden fehlgeschlagen. Bitte erneut versuchen.',
+    alreadySentTitle: 'Feedback bereits gesendet.',
+    alreadySentAt: 'Gesendet {when}.',
   },
 };
 

@@ -240,6 +240,8 @@ const en = {
     openThread: 'Open thread',
     backToSessions: 'Back to sessions',
     sendError: 'Couldn’t send the feedback. Try again.',
+    alreadySentTitle: 'Feedback already sent.',
+    alreadySentAt: 'Sent {when}.',
   },
 };
 

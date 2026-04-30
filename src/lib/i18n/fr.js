@@ -240,6 +240,8 @@ const fr = {
     openThread: 'Ouvrir la conversation',
     backToSessions: 'Retour aux séances',
     sendError: 'Échec de l’envoi du retour. Réessaie.',
+    alreadySentTitle: 'Retour déjà envoyé.',
+    alreadySentAt: 'Envoyé {when}.',
   },
 };
 

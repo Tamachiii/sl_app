@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 let mockSessionData = { data: null, isLoading: false };
 let mockSetLogsData = { data: [], isLoading: false };
 let mockConfirmation = { data: null, isLoading: false };
+let mockSessionFeedback = { data: null, isLoading: false };
 const mockNavigate = vi.fn();
 const mockArchive = { mutate: vi.fn(), isPending: false };
 
@@ -41,6 +42,8 @@ vi.mock('../../hooks/useStudents', () => ({
 }));
 vi.mock('../../hooks/useMessages', () => ({
   useSendMessage: () => ({ mutate: vi.fn(), isPending: false }),
+  useSessionFeedback: () => mockSessionFeedback,
+  formatMessageStamp: () => 'Apr 30',
 }));
 
 import SessionReview from './SessionReview';
@@ -57,6 +60,7 @@ beforeEach(() => {
   mockSessionData = { data: null, isLoading: false };
   mockSetLogsData = { data: [], isLoading: false };
   mockConfirmation = { data: null, isLoading: false };
+  mockSessionFeedback = { data: null, isLoading: false };
   mockNavigate.mockReset();
   mockArchive.mutate.mockReset();
   window.localStorage.clear();
@@ -142,5 +146,50 @@ describe('<SessionReview />', () => {
     renderReview();
     expect(screen.getByText('unarchive')).toBeInTheDocument();
     expect(screen.getByText(/Archived on/i)).toBeInTheDocument();
+  });
+
+  it('renders the feedback composer when no feedback exists yet', () => {
+    mockSessionData = {
+      data: { id: 'sess-1', title: 'Push', archived_at: null, exercise_slots: [] },
+      isLoading: false,
+    };
+    renderReview();
+    expect(screen.getByPlaceholderText(/What went well/i)).toBeInTheDocument();
+    expect(screen.queryByText(/already sent/i)).not.toBeInTheDocument();
+  });
+
+  it('replaces the composer with a read-only card when feedback already exists', () => {
+    mockSessionData = {
+      data: { id: 'sess-1', title: 'Push', archived_at: null, exercise_slots: [] },
+      isLoading: false,
+    };
+    mockSessionFeedback = {
+      data: {
+        id: 'm-1',
+        sender_id: 'coach-1',
+        recipient_id: 'p-1',
+        body: 'Solid session, push the rep cap next week.',
+        session_id: 'sess-1',
+        created_at: '2026-04-29T10:00:00Z',
+      },
+      isLoading: false,
+    };
+    renderReview();
+    expect(screen.getByText(/already sent/i)).toBeInTheDocument();
+    expect(screen.getByText('Solid session, push the rep cap next week.')).toBeInTheDocument();
+    // Composer must be gone — no textarea, no "Send feedback" button.
+    expect(screen.queryByPlaceholderText(/What went well/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /send feedback/i })).not.toBeInTheDocument();
+  });
+
+  it('hides both composer and read-only card while feedback is loading', () => {
+    mockSessionData = {
+      data: { id: 'sess-1', title: 'Push', archived_at: null, exercise_slots: [] },
+      isLoading: false,
+    };
+    mockSessionFeedback = { data: null, isLoading: true };
+    renderReview();
+    expect(screen.queryByPlaceholderText(/What went well/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/already sent/i)).not.toBeInTheDocument();
   });
 });

@@ -13,8 +13,10 @@ import { useSetVideos } from '../../hooks/useSetVideo';
 import { useArchiveSession } from '../../hooks/useWeek';
 import { useSessionConfirmation } from '../../hooks/useSessionConfirmation';
 import { useStudents } from '../../hooks/useStudents';
+import { useSessionFeedback } from '../../hooks/useMessages';
 import SlotProgress from './SlotProgress';
 import SessionFeedbackComposer from './SessionFeedbackComposer';
+import SessionFeedbackSent from './SessionFeedbackSent';
 import {
   formatRestSeconds,
   groupSlotsBySuperset,
@@ -80,6 +82,7 @@ export default function SessionReview() {
     return m;
   }, [videos]);
   const { data: confirmation } = useSessionConfirmation(sessionId);
+  const { data: existingFeedback, isLoading: feedbackLoading } = useSessionFeedback(sessionId);
   const archiveSession = useArchiveSession();
   const { data: students } = useStudents();
   const student = useMemo(
@@ -277,16 +280,27 @@ export default function SessionReview() {
         })}
       </div>
 
-      {/* Feedback step — optional. The "skip" path just navigates the coach
-          back, matching the previous Review-flow exit. Sending posts a
-          message into the existing thread with session_id attached, which
-          fires a notification on the student via the DB trigger. */}
-      <SessionFeedbackComposer
-        sessionId={sessionId}
-        studentProfileId={student?.profile_id}
-        studentFullName={student?.profile?.full_name}
-        onFinish={handleBack}
-      />
+      {/* Feedback step — optional. If a feedback message already exists for
+          this session (UNIQUE index on messages.session_id keeps it ≤ 1), we
+          render a read-only card so the coach can't submit twice. Otherwise
+          the composer is shown and "skip" just navigates back, matching the
+          previous Review-flow exit. */}
+      {!feedbackLoading && (
+        existingFeedback ? (
+          <SessionFeedbackSent
+            feedback={existingFeedback}
+            studentProfileId={student?.profile_id}
+            onFinish={handleBack}
+          />
+        ) : (
+          <SessionFeedbackComposer
+            sessionId={sessionId}
+            studentProfileId={student?.profile_id}
+            studentFullName={student?.profile?.full_name}
+            onFinish={handleBack}
+          />
+        )
+      )}
 
       <VideoLightbox open={!!playing} onClose={() => setPlaying(null)}>
         {playing && <VideoPlayer storagePath={playing.storage_path} />}
