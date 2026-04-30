@@ -12,8 +12,17 @@ vi.mock('../../hooks/useSetLogs', () => ({
   useSetRpe: () => mockSetRpe,
 }));
 
+vi.mock('../../hooks/useRestTimer', async () => {
+  const actual = await vi.importActual('../../hooks/useRestTimer');
+  return {
+    ...actual,
+    startRestTimer: vi.fn(),
+    clearRestTimer: vi.fn(),
+  };
+});
+
 import SetRow from './SetRow';
-import { resetRestTimer } from '../../hooks/useRestTimer';
+import { resetRestTimer, startRestTimer, clearRestTimer } from '../../hooks/useRestTimer';
 
 const baseLog = {
   id: 'log-1',
@@ -143,6 +152,38 @@ describe('SetRow', () => {
     const { rerender } = render(<SetRow log={baseLog} />);
     rerender(<SetRow log={{ ...baseLog, failed: true }} />);
     expect(screen.queryByRole('button', { name: /^RPE 5$/i })).not.toBeInTheDocument();
+  });
+
+  it('starts the rest timer on pending → done transition', () => {
+    const log = { ...baseLog, target_rest_seconds: 90 };
+    const { rerender } = render(<SetRow log={log} />);
+    expect(startRestTimer).not.toHaveBeenCalled();
+    rerender(<SetRow log={{ ...log, done: true }} />);
+    expect(startRestTimer).toHaveBeenCalledWith('log-1', 90);
+  });
+
+  it('starts the rest timer on pending → failed transition', () => {
+    const log = { ...baseLog, target_rest_seconds: 90 };
+    const { rerender } = render(<SetRow log={log} />);
+    expect(startRestTimer).not.toHaveBeenCalled();
+    rerender(<SetRow log={{ ...log, failed: true }} />);
+    expect(startRestTimer).toHaveBeenCalledWith('log-1', 90);
+  });
+
+  it('clears the rest timer on failed → pending transition', () => {
+    const log = { ...baseLog, target_rest_seconds: 90, failed: true };
+    const { rerender } = render(<SetRow log={log} />);
+    rerender(<SetRow log={{ ...log, failed: false }} />);
+    expect(clearRestTimer).toHaveBeenCalledWith('log-1');
+  });
+
+  it('does NOT restart the rest timer on done → failed (timer already running)', () => {
+    const log = { ...baseLog, target_rest_seconds: 90, done: true };
+    const { rerender } = render(<SetRow log={log} />);
+    expect(startRestTimer).not.toHaveBeenCalled();
+    rerender(<SetRow log={{ ...log, done: false, failed: true }} />);
+    expect(startRestTimer).not.toHaveBeenCalled();
+    expect(clearRestTimer).not.toHaveBeenCalled();
   });
 
   it('auto-collapses the RPE selector after a value is selected', async () => {

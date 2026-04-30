@@ -33,6 +33,7 @@ const SetRow = memo(function SetRow({ log, locked = false, showTarget = false, r
 
   const [rpeOpen, setRpeOpen] = useState(false);
   const prevDone = useRef(log.done);
+  const prevFailed = useRef(!!log.failed);
 
   // Swipe state lives in a ref to avoid re-rendering on every touchmove;
   // the visible offset/intent are mirrored into useState only when intent
@@ -41,26 +42,32 @@ const SetRow = memo(function SetRow({ log, locked = false, showTarget = false, r
   const [swipeOffset, setSwipeOffset] = useState(0);
 
   // Rest timer is rendered globally by RestTimerBanner (mounted in
-  // SessionView). SetRow only writes to the singleton on done/undone
-  // transitions — it doesn't read or display remaining time itself, so the
-  // indicator survives exercise-card transitions.
+  // SessionView). SetRow only writes to the singleton on outcome transitions
+  // — it doesn't read or display remaining time itself, so the indicator
+  // survives exercise-card transitions.
   const failed = !!log.failed;
 
   useEffect(() => {
-    if (!prevDone.current && log.done) {
-      if (restSeconds && restSeconds > 0) {
-        startRestTimer(log.id, restSeconds);
-      }
-      // Auto-expand the RPE selector so the student can log it without an
-      // extra tap. `done` and `failed` are DB-mutually-exclusive, so this
-      // branch never opens RPE for a failed set.
-      setRpeOpen(true);
+    const wasResolved = prevDone.current || prevFailed.current;
+    const isResolved = log.done || failed;
+
+    // Pending → resolved (either done OR failed): start the rest timer. The
+    // student needs to recover regardless of outcome.
+    if (!wasResolved && isResolved && restSeconds && restSeconds > 0) {
+      startRestTimer(log.id, restSeconds);
     }
-    if (prevDone.current && !log.done) {
+    // Resolved → pending: clear the timer.
+    if (wasResolved && !isResolved) {
       clearRestTimer(log.id);
     }
+    // Auto-expand the RPE selector only for the done transition — RPE is
+    // locked for failed sets, so opening it would just show a disabled UI.
+    if (!prevDone.current && log.done) {
+      setRpeOpen(true);
+    }
     prevDone.current = log.done;
-  }, [log.done, log.id, restSeconds]);
+    prevFailed.current = failed;
+  }, [log.done, failed, log.id, restSeconds]);
 
   const rpeLocked = locked || failed;
 
