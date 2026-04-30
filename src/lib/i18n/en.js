@@ -131,16 +131,12 @@ const en = {
       programming: 'Programming',
       goals: 'Goals',
       stats: 'Stats',
-      messaging: 'Messaging',
     },
     profile: {
       coachingSinceLabel: 'Coaching since',
       roleLabel: 'Role',
       roleStudent: 'Student',
-    },
-    messaging: {
-      comingSoon: 'Messaging is coming soon.',
-      description: 'You’ll be able to chat with this student here once the feature ships.',
+      message: 'Message',
     },
     dashboard: {
       kicker: 'Coach',

@@ -43,16 +43,11 @@ function StatsStub() {
   const { student } = useOutletContext();
   return <div data-testid="stats-section">stats:{student.id}</div>;
 }
-function MessagingStub() {
-  const { student } = useOutletContext();
-  return <div data-testid="messaging-section">messaging:{student.id}</div>;
-}
 
 vi.mock('./StudentProfileSection', () => ({ default: ProfileStub }));
 vi.mock('./StudentProgrammingSection', () => ({ default: ProgrammingStub }));
 vi.mock('./StudentGoalsSection', () => ({ default: GoalsStub }));
 vi.mock('./StudentStatsSection', () => ({ default: StatsStub }));
-vi.mock('./StudentMessagingSection', () => ({ default: MessagingStub }));
 
 import CoachHome from './CoachHome';
 
@@ -67,7 +62,8 @@ function renderCoachHome(path = '/coach/students') {
           <Route path="programming" element={<ProgrammingStub />} />
           <Route path="goals" element={<GoalsStub />} />
           <Route path="stats" element={<StatsStub />} />
-          <Route path="messaging" element={<MessagingStub />} />
+          {/* Legacy /messaging deep links bounce to profile. */}
+          <Route path="messaging" element={<Navigate to="../profile" replace />} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -119,12 +115,12 @@ describe('CoachHome', () => {
       };
     });
 
-    it('renders the student header and tab strip', () => {
+    it('renders the tab strip with four tabs (no Messaging)', () => {
       renderCoachHome('/coach/students/s-1/programming');
-      expect(screen.getByRole('heading', { level: 2, name: 'Alice' })).toBeInTheDocument();
       expect(screen.getByRole('tablist')).toBeInTheDocument();
-      // Five tab links — one for each sub-section.
-      expect(screen.getAllByRole('tab')).toHaveLength(5);
+      // Profile, Programming, Goals, Stats — Messaging was folded into Profile.
+      expect(screen.getAllByRole('tab')).toHaveLength(4);
+      expect(screen.queryByRole('tab', { name: /messaging/i })).not.toBeInTheDocument();
     });
 
     it('redirects bare /coach/students/:id to programming', () => {
@@ -153,9 +149,9 @@ describe('CoachHome', () => {
       expect(screen.queryByTestId('goals-section')).not.toBeInTheDocument();
     });
 
-    it('renders the messaging placeholder on /messaging', () => {
+    it('redirects legacy /messaging to /profile', () => {
       renderCoachHome('/coach/students/s-1/messaging');
-      expect(screen.getByTestId('messaging-section')).toHaveTextContent('messaging:s-1');
+      expect(screen.getByTestId('profile-section')).toBeInTheDocument();
     });
   });
 });

@@ -13,15 +13,6 @@ import {
   studentIdFromPath,
 } from '../../hooks/useRememberCoachStudentsPath';
 
-function initialsOf(fullName) {
-  return (fullName || '')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() ?? '')
-    .join('');
-}
-
 function StudentSelector({ students, studentId, onChange, t }) {
   return (
     <label className="block">
@@ -42,48 +33,13 @@ function StudentSelector({ students, studentId, onChange, t }) {
   );
 }
 
-function StudentHeader({ student, t }) {
-  const navigate = useNavigate();
-  const fullName = student.profile?.full_name || 'Student';
-
-  return (
-    <div className="sl-card px-4 py-4 md:px-6 md:py-5">
-      <div className="flex items-center gap-3">
-        <div
-          className="w-12 h-12 rounded-full flex items-center justify-center sl-display text-[15px] shrink-0"
-          style={{
-            background: 'color-mix(in srgb, var(--color-accent) 15%, transparent)',
-            color: 'var(--color-accent)',
-            border: '1px solid color-mix(in srgb, var(--color-accent) 35%, transparent)',
-          }}
-          aria-hidden="true"
-        >
-          {initialsOf(fullName) || '—'}
-        </div>
-        <div className="min-w-0 flex-1">
-          <h2 className="sl-display text-[22px] md:text-[26px] text-gray-900 leading-none truncate">
-            {fullName}
-          </h2>
-        </div>
-        <button
-          type="button"
-          onClick={() => navigate(`/coach/sessions?student=${student.id}`)}
-          className="sl-pill shrink-0 bg-ink-100 text-ink-700 hover:bg-ink-200"
-          aria-label={t('coach.home.viewSessions')}
-        >
-          {t('coach.home.viewSessions')}
-        </button>
-      </div>
-    </div>
-  );
-}
-
+// Profile owns the "view sessions" + "message" actions and shows the avatar +
+// name, so we no longer render a separate header card above the tab strip.
 const TABS = [
   { key: 'profile', i18n: 'coach.tabs.profile' },
   { key: 'programming', i18n: 'coach.tabs.programming' },
   { key: 'goals', i18n: 'coach.tabs.goals' },
   { key: 'stats', i18n: 'coach.tabs.stats' },
-  { key: 'messaging', i18n: 'coach.tabs.messaging' },
 ];
 
 function StudentTabStrip({ studentId, t }) {
@@ -125,7 +81,6 @@ function StudentTabStrip({ studentId, t }) {
 function SelectedStudentView({ student, t }) {
   return (
     <div className="space-y-4">
-      <StudentHeader student={student} t={t} />
       <StudentTabStrip studentId={student.id} t={t} />
       <div>
         <Outlet context={{ student }} />

@@ -17,7 +17,6 @@ const StudentProfileSection = lazy(() => import('./components/coach/StudentProfi
 const StudentProgrammingSection = lazy(() => import('./components/coach/StudentProgrammingSection'));
 const StudentGoalsSection = lazy(() => import('./components/coach/StudentGoalsSection'));
 const StudentStatsSection = lazy(() => import('./components/coach/StudentStatsSection'));
-const StudentMessagingSection = lazy(() => import('./components/coach/StudentMessagingSection'));
 const SessionsFeed = lazy(() => import('./components/coach/SessionsFeed'));
 const WeekView = lazy(() => import('./components/coach/WeekView'));
 const SessionEditor = lazy(() => import('./components/coach/SessionEditor'));
@@ -66,7 +65,9 @@ export const routes = [
                   { path: 'programming', element: <Lazy><StudentProgrammingSection /></Lazy> },
                   { path: 'goals', element: <Lazy><StudentGoalsSection /></Lazy> },
                   { path: 'stats', element: <Lazy><StudentStatsSection /></Lazy> },
-                  { path: 'messaging', element: <Lazy><StudentMessagingSection /></Lazy> },
+                  // Legacy /messaging deep links: bounce to profile, where the
+                  // "Message" action now lives.
+                  { path: 'messaging', element: <Navigate to="../profile" replace /> },
                 ],
               },
               { path: '/coach/student/:studentId/goals', element: <RedirectToStudentGoals /> },

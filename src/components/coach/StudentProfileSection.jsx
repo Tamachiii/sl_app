@@ -1,4 +1,4 @@
-import { useOutletContext } from 'react-router-dom';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
 
 function initialsOf(fullName) {
@@ -21,9 +21,19 @@ function formatDate(iso, lang) {
 export default function StudentProfileSection() {
   const { student } = useOutletContext();
   const { t, lang } = useI18n();
+  const navigate = useNavigate();
 
   const fullName = student.profile?.full_name || 'Student';
   const since = formatDate(student.created_at, lang);
+  // Profile owns both surfaces:
+  //  - "View sessions" → SessionsFeed pre-filtered to this student (uses
+  //    students.id, the row id used in coach URLs)
+  //  - "Message"       → opens the thread on the dedicated Messages tab
+  //    (uses profiles.id, the recipient/sender key the messages table runs on)
+  const sessionsHref = `/coach/sessions?student=${student.id}`;
+  const messageHref = student.profile_id
+    ? `/coach/messages/${student.profile_id}`
+    : null;
 
   return (
     <div className="sl-card p-4 md:p-6 space-y-4">
@@ -47,6 +57,24 @@ export default function StudentProfileSection() {
             {t('coach.profile.roleStudent')}
           </div>
         </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => navigate(sessionsHref)}
+          className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200"
+        >
+          {t('coach.home.viewSessions')}
+        </button>
+        <button
+          type="button"
+          onClick={() => messageHref && navigate(messageHref)}
+          disabled={!messageHref}
+          className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 disabled:opacity-50"
+        >
+          {t('coach.profile.message')}
+        </button>
       </div>
 
       <div className="sl-hairline -mx-4 md:-mx-6" />

@@ -36,8 +36,7 @@ src/
                  WeekTimeline  WeekView  SessionEditor  SessionReview
                  ExerciseSlotRow  ExerciseLibrary  SessionsFeed  SlotProgress
                  StudentProfileSection  StudentProgrammingSection
-                 StudentGoalsSection  StudentStatsSection  StudentMessagingSection
-                 CoachMessages
+                 StudentGoalsSection  StudentStatsSection  CoachMessages
     student/     StudentHome  StudentSessions  SessionCard  SessionView  SetRow
                  RpeInput  StudentDashboard(Stats)  SessionCalendar
                  ExerciseProgressChart  MyGoals  VideoUploadButton  StudentMessages
@@ -62,7 +61,7 @@ Jump straight to the relevant files. For *behavior* details, open the file — t
 |---|---|
 | Auth / login | `auth/LoginPage`, `hooks/useAuth`, `routes.jsx` |
 | Coach dashboard | `coach/CoachDashboard`, `hooks/useStudents`, `hooks/useSessionConfirmation`, `hooks/useProgram` |
-| Coach single-student view (tabbed) | `coach/CoachHome` (layout + tab strip), `coach/StudentProfileSection`, `coach/StudentProgrammingSection`, `coach/StudentGoalsSection`, `coach/StudentStatsSection`, `coach/StudentMessagingSection`, `routes.jsx` (nested `/coach/students/:id/{profile,programming,goals,stats,messaging}`) |
+| Coach single-student view (tabbed) | `coach/CoachHome` (layout + tab strip), `coach/StudentProfileSection` (owns "View sessions" + "Message" actions), `coach/StudentProgrammingSection`, `coach/StudentGoalsSection`, `coach/StudentStatsSection`, `routes.jsx` (nested `/coach/students/:id/{profile,programming,goals,stats}`) |
 | Coach programs CRUD | `coach/ProgramSwitcher`, `hooks/useProgram` |
 | Coach week reordering | `coach/WeekTimeline`, `hooks/useWeek` (`useReorderWeeks`) |
 | Coach sessions feed | `coach/SessionsFeed`, `hooks/useSessionConfirmation` |
@@ -81,7 +80,7 @@ Jump straight to the relevant files. For *behavior* details, open the file — t
 | Theming | `hooks/useTheme`, `ui/ThemeToggle`, `index.css` |
 | i18n (EN/FR/DE) | `hooks/useI18n`, `lib/i18n/`, `ui/LanguageSelect` |
 | Day-number helpers | `lib/day.js` |
-| Messaging (coach ↔ student) | `messaging/MessageThread`, `messaging/MessageComposer`, `messaging/ConversationList`, `messaging/UnreadMessagesBadge`, `coach/CoachMessages`, `coach/StudentMessagingSection`, `student/StudentMessages`, `hooks/useMessages` |
+| Messaging (coach ↔ student) | `messaging/MessageThread`, `messaging/MessageComposer`, `messaging/ConversationList`, `messaging/UnreadMessagesBadge`, `coach/CoachMessages`, `student/StudentMessages`, `hooks/useMessages`. The Coach surface enters a thread either from `/coach/messages` or via the **Message** button on the per-student Profile tab. |
 | Notifications | `notifications/NotificationBell` (rendered inside `ui/UserMenu`), `hooks/useNotifications`, DB trigger `notify_coach_on_session_confirm` |
 
 Periodization, confirmations, video storage/RLS, routing persistence, and React Query invalidation details are in `docs/ARCHITECTURE.md`. Design primitives, dark-mode rules, responsive layout, and the editorial page-header pattern are in `docs/DESIGN_SYSTEM.md`.
@@ -98,7 +97,7 @@ Periodization, confirmations, video storage/RLS, routing persistence, and React 
 - **RLS is strict.** New tables need both student- and coach-side policies walking session → profile via `student_profile_for_session()` / `coach_profile_for_session()` helpers in `schema.sql`. Migrations go in `supabase/migrations/<date>_<name>.sql` *and* append to `schema.sql`.
 - **Notifications are SECURITY DEFINER trigger-driven.** The `notifications` table has SELECT/UPDATE policies for the recipient only — there is **no client INSERT policy**. Events get into the table exclusively via DB triggers (currently `notify_coach_on_session_confirm` on `session_confirmations`). Adding a new event type = new trigger + new client `describeNotification` branch + new i18n key. The bell lives inside `ui/UserMenu` so every top-level page gets it for free; realtime updates are wired through `useNotificationsRealtime` mounted once in `AppShell`. Like messages, the table is in `supabase_realtime` with `REPLICA IDENTITY FULL`.
 - **Messaging is realtime + RLS-scoped.** `messages` rows have `sender_id` and `recipient_id` (both `profiles.id`). RLS lets either party SELECT, only the sender INSERT (and only when the pair is coach-student via `profiles_are_coach_student()`), and only the recipient UPDATE — and a `BEFORE UPDATE` trigger pins every column except `read_at` so "mark read" can't be used to mutate the body. The table is in the `supabase_realtime` publication with `REPLICA IDENTITY FULL`; [hooks/useMessages.js](src/hooks/useMessages.js) opens **one** channel from `AppShell` (`useMessagesRealtime`) and invalidates the `[messages]` React Query subtree on INSERT/UPDATE. The Messages nav tab carries an unread-count badge fed by `useUnreadMessageCount`. Conversations roll-up is a client-side fold over recent rows — fine at coach scale, swap for an RPC if the table grows.
-- **Coach Students-page layout owns the student lookup.** [CoachHome.jsx](src/components/coach/CoachHome.jsx) resolves the `:studentId` from `useStudents()` and exposes the resolved student to all five sub-tabs via `<Outlet context={{ student }} />`. Each tab section reads it with `useOutletContext()`. `/coach/students/:id` redirects to `…/programming` (the index sub-route) to preserve the prior landing UX. The legacy `/coach/student/:id/goals` URL redirects to `…/students/:id/goals`.
+- **Coach Students-page layout owns the student lookup.** [CoachHome.jsx](src/components/coach/CoachHome.jsx) resolves the `:studentId` from `useStudents()` and exposes the resolved student to all four sub-tabs (Profile, Programming, Goals, Stats) via `<Outlet context={{ student }} />`. Each tab section reads it with `useOutletContext()`. `/coach/students/:id` redirects to `…/programming` (the index sub-route) to preserve the prior landing UX. The legacy `/coach/student/:id/goals` URL redirects to `…/students/:id/goals`. The legacy `…/students/:id/messaging` deep link redirects to `…/profile` (where the **Message** action now lives, alongside **View sessions**).
 - **Past-program sessions are read-only on the student surface.** A session is locked iff `programs.is_active = false` OR `sessions.archived_at IS NOT NULL`. Enforced UI-side in `SessionView` via `isReadOnly` (derived from `session.program_is_active` + `archived_at`) and DB-side by student RLS on `set_logs` / `session_confirmations` / `slot_comments` (helpers `program_active_for_session`, `program_active_for_slot`). Coach writes are never gated this way.
 - **Rules of Hooks:** never call `useMemo` (or any hook) after an early return like `if (isLoading) return <Spinner/>`.
 - **Test wrapper:** use `renderWithProviders` from `src/test/utils.jsx` (wraps ThemeProvider + QueryClientProvider + AuthContext + MemoryRouter). `matchMedia` polyfill lives in `src/test/setup.js`.

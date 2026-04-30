@@ -131,16 +131,12 @@ const fr = {
       programming: 'Programme',
       goals: 'Objectifs',
       stats: 'Stats',
-      messaging: 'Messagerie',
     },
     profile: {
       coachingSinceLabel: 'Coaché depuis le',
       roleLabel: 'Rôle',
       roleStudent: 'Athlète',
-    },
-    messaging: {
-      comingSoon: 'La messagerie arrive bientôt.',
-      description: 'Tu pourras discuter avec cet athlète ici dès que la fonctionnalité sera disponible.',
+      message: 'Message',
     },
     dashboard: {
       kicker: 'Coach',
