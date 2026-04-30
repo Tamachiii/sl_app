@@ -190,6 +190,15 @@ const fr = {
       kicker: 'Revue',
     },
   },
+  notifications: {
+    title: 'Notifications',
+    open: 'Ouvrir les notifications',
+    openWithUnread: 'Ouvrir les notifications, {n} non lues',
+    markAllRead: 'Tout marquer comme lu',
+    empty: 'Aucune notification.',
+    sessionCompleted: '{student} a terminé {session}.',
+    unknown: 'Nouvelle activité ({kind}).',
+  },
   messaging: {
     title: 'Messages.',
     coach: 'Coach',

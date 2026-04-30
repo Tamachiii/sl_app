@@ -190,6 +190,15 @@ const en = {
       kicker: 'Review',
     },
   },
+  notifications: {
+    title: 'Notifications',
+    open: 'Open notifications',
+    openWithUnread: 'Open notifications, {n} unread',
+    markAllRead: 'Mark all read',
+    empty: 'No notifications yet.',
+    sessionCompleted: '{student} completed {session}.',
+    unknown: 'New activity ({kind}).',
+  },
   messaging: {
     title: 'Messages.',
     coach: 'Coach',

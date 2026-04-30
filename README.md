@@ -71,6 +71,7 @@ src/
                        CoachMessages
     messaging/         MessageThread, MessageComposer, ConversationList,
                        UnreadMessagesBadge
+    notifications/     NotificationBell
     student/           StudentHome, StudentSessions, SessionCard, SessionView, SetRow,
                        RpeInput, StudentDashboard (Stats), SessionCalendar,
                        ExerciseProgressChart, MyGoals, VideoUploadButton, StudentMessages
@@ -142,6 +143,7 @@ Quick summary:
 - **Theme**: `ThemeProvider` (`src/hooks/useTheme.jsx`) toggles `.dark` on `<html>`, persists to `localStorage.sl_app_theme`. CSS-override based — don't sprinkle `dark:` classes.
 - **i18n**: `I18nProvider` (`src/hooks/useI18n.jsx`) with EN/FR/DE dictionaries in `src/lib/i18n/`. Title-case values; `sl-label` uppercases via CSS. Language persists in `localStorage.sl_app_lang` and mirrors to `<html lang>`. `useI18n()` has a no-op English fallback for isolated tests.
 - **Toggles**: `ThemeToggle` + `LanguageSelect` live inside `ui/UserMenu` (the avatar-initials popover rendered on every top-level page), and next to the `LoginPage` kicker.
+- **Notifications**: a `NotificationBell` lives next to the avatar in `ui/UserMenu` so every top-level page surfaces them. Currently fires when a student inserts a `session_confirmations` row (a SECURITY DEFINER trigger inserts into the `notifications` table; the recipient coach gets a "X completed Y" entry with a deep link to the session review). Realtime via the same Supabase channel pattern as messages. Adding a new event type = new trigger + new `describeNotification` case + new i18n key.
 
 ---
 

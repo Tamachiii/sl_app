@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import BottomNav from './BottomNav';
 import SideNav from './SideNav';
 import { useMessagesRealtime } from '../../hooks/useMessages';
+import { useNotificationsRealtime } from '../../hooks/useNotifications';
 
 /**
  * Keep `--kb-inset` on the document root in sync with the soft keyboard's
@@ -46,6 +47,8 @@ export default function AppShell() {
   // Single global realtime channel for messages — every page sees fresh
   // threads + nav-tab badges without each having to subscribe individually.
   useMessagesRealtime();
+  // Same pattern for notifications — feeds the bell badge live.
+  useNotificationsRealtime();
 
   // Soft-keyboard tracking → `--kb-inset` CSS var (see hook docstring).
   useKeyboardInset();

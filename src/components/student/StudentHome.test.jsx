@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from '../../hooks/useTheme';
 
 const mockNavigate = vi.fn();
@@ -19,6 +20,18 @@ vi.mock('../../hooks/useAuth', () => ({
   }),
 }));
 
+// UserMenu now mounts the NotificationBell which calls a React Query hook;
+// stub it to a constant so we don't need to fake the supabase chain.
+vi.mock('../../hooks/useNotifications', () => ({
+  useNotifications: () => ({ data: [], isLoading: false }),
+  useUnreadNotificationCount: () => ({ data: 0 }),
+  useMarkNotificationRead: () => ({ mutate: vi.fn(), isPending: false }),
+  useMarkAllNotificationsRead: () => ({ mutate: vi.fn(), isPending: false }),
+  useNotificationsRealtime: () => {},
+  describeNotification: () => ({ i18nKey: 'notifications.unknown', params: {}, path: null }),
+  formatNotificationStamp: () => '',
+}));
+
 let mockWeeks = { data: null, isLoading: true };
 let mockConfirmedIds = { data: new Set() };
 
@@ -33,12 +46,15 @@ vi.mock('../../hooks/useSessionConfirmation', () => ({
 import StudentHome from './StudentHome';
 
 function renderHome() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <ThemeProvider>
-      <MemoryRouter>
-        <StudentHome />
-      </MemoryRouter>
-    </ThemeProvider>
+    <QueryClientProvider client={qc}>
+      <ThemeProvider>
+        <MemoryRouter>
+          <StudentHome />
+        </MemoryRouter>
+      </ThemeProvider>
+    </QueryClientProvider>
   );
 }
 
