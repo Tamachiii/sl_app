@@ -114,19 +114,46 @@ describe('StudentSessions', () => {
 
     expect(screen.queryByText('Old Session')).toBeNull();
 
-    // Collapsed: only the bottom toggle is rendered.
-    const initialToggles = screen.getAllByRole('button', { name: /Show 1 archived session/i });
-    expect(initialToggles).toHaveLength(1);
-    await user.click(initialToggles[0]);
+    const showToggle = screen.getByRole('button', { name: /Show 1 archived session/i });
+    await user.click(showToggle);
     expect(screen.getByText('Old Session')).toBeInTheDocument();
 
-    // Expanded: a second toggle is rendered above the archived weeks so a
-    // student scrolled up to read them can collapse without scrolling back.
-    const expandedToggles = screen.getAllByRole('button', { name: /Hide 1 archived session/i });
-    expect(expandedToggles).toHaveLength(2);
-
-    // Either toggle collapses.
-    await user.click(expandedToggles[0]);
+    const hideToggle = screen.getByRole('button', { name: /Hide 1 archived session/i });
+    expect(hideToggle).toHaveAttribute('aria-pressed', 'true');
+    await user.click(hideToggle);
     expect(screen.queryByText('Old Session')).toBeNull();
+  });
+
+  it('renders weeks in reverse order — newest week_number first', () => {
+    mockWeeks = {
+      data: [
+        {
+          id: 'w-1',
+          week_number: 1,
+          label: 'Bloc 1/2',
+          sessions: [makeSession('s-1a', 'A1'), makeSession('s-1b', 'A2')],
+        },
+        {
+          id: 'w-2',
+          week_number: 2,
+          label: 'Bloc 2/2',
+          sessions: [makeSession('s-2a', 'B1'), makeSession('s-2b', 'B2')],
+        },
+      ],
+      isLoading: false,
+    };
+    renderSessions();
+
+    const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+    expect(headings[0]).toMatch(/Week\s*2/i);
+    expect(headings[1]).toMatch(/Week\s*1/i);
+
+    // Sessions inside each week stay in their original order, and week 2's
+    // sessions precede week 1's in the DOM (because week 2 is newer).
+    const [a1, a2, b1, b2] = ['A1', 'A2', 'B1', 'B2'].map((tt) => screen.getByText(tt));
+    const FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING;
+    expect(b1.compareDocumentPosition(b2) & FOLLOWING).toBeTruthy();
+    expect(a1.compareDocumentPosition(a2) & FOLLOWING).toBeTruthy();
+    expect(b2.compareDocumentPosition(a1) & FOLLOWING).toBeTruthy();
   });
 });

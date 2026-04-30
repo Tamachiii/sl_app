@@ -19,6 +19,8 @@ export default function StudentSessions() {
   const [showArchived, setShowArchived] = useState(false);
   const [openSessionId, setOpenSessionId] = useState(null);
 
+  // Most recent weeks first — students care about what's current, not where
+  // they started. Within each week, session order is preserved.
   const visibleWeeks = useMemo(() => {
     if (!weeks) return [];
     return weeks
@@ -26,7 +28,8 @@ export default function StudentSessions() {
         ...w,
         sessions: (w.sessions || []).filter((s) => showArchived || !s.archived_at),
       }))
-      .filter((w) => w.sessions.length > 0);
+      .filter((w) => w.sessions.length > 0)
+      .reverse();
   }, [weeks, showArchived]);
 
   const archivedCount = useMemo(
@@ -59,17 +62,18 @@ export default function StudentSessions() {
 
       {!weeks?.length && <EmptyState message={t('student.home.noProgram')} />}
 
-      {/* Archived weeks render at the top (older week_number sorts first), so
-          when expanded we mirror the toggle above them — otherwise the user
-          who scrolled up to read older sessions has to scroll all the way
-          back down to find the only "Hide" button. */}
-      {archivedCount > 0 && showArchived && (
-        <ArchivedToggle
-          count={archivedCount}
-          expanded={showArchived}
-          onToggle={() => setShowArchived((v) => !v)}
-          t={t}
-        />
+      {/* Single right-aligned toggle, on the same row level as the first week
+          heading. Always visible at the top of the list so it's reachable
+          without scrolling regardless of expand state. */}
+      {archivedCount > 0 && (
+        <div className="flex justify-end -mb-2">
+          <ArchivedToggle
+            count={archivedCount}
+            expanded={showArchived}
+            onToggle={() => setShowArchived((v) => !v)}
+            t={t}
+          />
+        </div>
       )}
 
       {visibleWeeks.map((week) => (
@@ -100,15 +104,6 @@ export default function StudentSessions() {
           </div>
         </section>
       ))}
-
-      {archivedCount > 0 && (
-        <ArchivedToggle
-          count={archivedCount}
-          expanded={showArchived}
-          onToggle={() => setShowArchived((v) => !v)}
-          t={t}
-        />
-      )}
     </div>
   );
 }
@@ -120,7 +115,8 @@ function ArchivedToggle({ count, expanded, onToggle, t }) {
   return (
     <button
       onClick={onToggle}
-      className="w-full sl-mono text-[11px] text-ink-400 hover:text-gray-700 py-2 underline"
+      aria-pressed={expanded}
+      className="sl-mono text-[11px] text-ink-400 hover:text-gray-700 underline py-1"
     >
       {label}
     </button>
