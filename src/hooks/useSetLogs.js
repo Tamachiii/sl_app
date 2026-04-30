@@ -68,6 +68,21 @@ export function useEnsureSetLogs() {
   });
 }
 
+// done and failed are mutually exclusive (DB CHECK set_logs_done_xor_failed).
+// Marking a set done clears any prior failed flag, and vice versa, so the
+// student can flip outcomes via swipe without having to "reset" first.
+function patchForDone(done) {
+  return done
+    ? { done: true, failed: false, logged_at: new Date().toISOString(), failed_at: null }
+    : { done: false, logged_at: null };
+}
+
+function patchForFailed(failed) {
+  return failed
+    ? { failed: true, done: false, failed_at: new Date().toISOString(), logged_at: null }
+    : { failed: false, failed_at: null };
+}
+
 export function useToggleSetDone() {
   const qc = useQueryClient();
 
@@ -75,10 +90,7 @@ export function useToggleSetDone() {
     mutationFn: async ({ logId, done }) => {
       const { data, error } = await supabase
         .from('set_logs')
-        .update({
-          done,
-          logged_at: done ? new Date().toISOString() : null,
-        })
+        .update(patchForDone(done))
         .eq('id', logId)
         .select()
         .single();
@@ -86,20 +98,48 @@ export function useToggleSetDone() {
       return data;
     },
     onMutate: async ({ logId, done }) => {
-      // Cancel any outgoing refetches so they don't overwrite optimistic update
       await qc.cancelQueries({ queryKey: ['set-logs'] });
-      
-      // We don't have the exact query key (which includes sessionId and slotIds),
-      // so we iterate over all matching caches.
       const previousQueries = qc.getQueriesData({ queryKey: ['set-logs'] });
-      
+      const patch = patchForDone(done);
       qc.setQueriesData({ queryKey: ['set-logs'] }, (old) => {
         if (!old) return old;
-        return old.map((log) => 
-          log.id === logId ? { ...log, done, logged_at: done ? new Date().toISOString() : null } : log
-        );
+        return old.map((log) => (log.id === logId ? { ...log, ...patch } : log));
       });
-      
+      return { previousQueries };
+    },
+    onError: (err, newLog, context) => {
+      context.previousQueries.forEach(([queryKey, oldData]) => {
+        qc.setQueryData(queryKey, oldData);
+      });
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['set-logs'] });
+    },
+  });
+}
+
+export function useSetFailed() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ logId, failed }) => {
+      const { data, error } = await supabase
+        .from('set_logs')
+        .update(patchForFailed(failed))
+        .eq('id', logId)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onMutate: async ({ logId, failed }) => {
+      await qc.cancelQueries({ queryKey: ['set-logs'] });
+      const previousQueries = qc.getQueriesData({ queryKey: ['set-logs'] });
+      const patch = patchForFailed(failed);
+      qc.setQueriesData({ queryKey: ['set-logs'] }, (old) => {
+        if (!old) return old;
+        return old.map((log) => (log.id === logId ? { ...log, ...patch } : log));
+      });
       return { previousQueries };
     },
     onError: (err, newLog, context) => {

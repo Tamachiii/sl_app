@@ -101,6 +101,7 @@ CREATE TABLE public.set_logs (
   exercise_slot_id         uuid NOT NULL REFERENCES public.exercise_slots(id) ON DELETE CASCADE,
   set_number               int  NOT NULL CHECK (set_number > 0),
   done                     boolean NOT NULL DEFAULT false,
+  failed                   boolean NOT NULL DEFAULT false,
   rpe                      int CHECK (rpe IS NULL OR (rpe BETWEEN 1 AND 10)),
   weight_kg                numeric(6,2),
   target_reps              int,
@@ -108,11 +109,13 @@ CREATE TABLE public.set_logs (
   target_weight_kg         numeric(6,2),
   target_rest_seconds      int,
   logged_at                timestamptz,
+  failed_at                timestamptz,
   created_at               timestamptz NOT NULL DEFAULT now(),
   UNIQUE(exercise_slot_id, set_number),
   CONSTRAINT set_logs_target_unit_one_of CHECK (
     target_reps IS NULL OR target_duration_seconds IS NULL
-  )
+  ),
+  CONSTRAINT set_logs_done_xor_failed CHECK (NOT (done AND failed))
 );
 
 -- ============================================================

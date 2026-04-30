@@ -5,6 +5,7 @@ import {
   useSetLogs,
   useEnsureSetLogs,
   useToggleSetDone,
+  useSetFailed,
   useSetRpe,
 } from './useSetLogs';
 import { supabase } from '../lib/supabase';
@@ -142,7 +143,7 @@ describe('useToggleSetDone', () => {
     };
   }
 
-  it('writes done + a logged_at timestamp on done=true', async () => {
+  it('writes done + a logged_at timestamp + clears any prior failed flag', async () => {
     const chain = makeUpdateChain({ data: { id: 'l-1', done: true }, error: null });
     supabase.from.mockReturnValue(chain);
 
@@ -154,9 +155,11 @@ describe('useToggleSetDone', () => {
     const payload = chain.update.mock.calls[0][0];
     expect(payload.done).toBe(true);
     expect(typeof payload.logged_at).toBe('string');
+    expect(payload.failed).toBe(false);
+    expect(payload.failed_at).toBeNull();
   });
 
-  it('clears logged_at when done=false', async () => {
+  it('clears logged_at when done=false (without touching failed)', async () => {
     const chain = makeUpdateChain({ data: { id: 'l-1', done: false }, error: null });
     supabase.from.mockReturnValue(chain);
 
@@ -168,6 +171,7 @@ describe('useToggleSetDone', () => {
     const payload = chain.update.mock.calls[0][0];
     expect(payload.done).toBe(false);
     expect(payload.logged_at).toBeNull();
+    expect('failed' in payload).toBe(false);
   });
 
   it('optimistically flips done across all matching ["set-logs"] caches', async () => {
@@ -238,6 +242,83 @@ describe('useToggleSetDone', () => {
 
     const restored = qc.getQueryData(['set-logs', 'sess-1', ['sl-1']]);
     expect(restored.find((l) => l.id === 'l-1').done).toBe(false);
+  });
+});
+
+describe('useSetFailed', () => {
+  function makeUpdateChain(result) {
+    return {
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue(result),
+    };
+  }
+
+  it('writes failed=true + failed_at + clears any prior done', async () => {
+    const chain = makeUpdateChain({ data: { id: 'l-1', failed: true }, error: null });
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useSetFailed(), { wrapper: withClient(qc) });
+    result.current.mutate({ logId: 'l-1', failed: true });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const payload = chain.update.mock.calls[0][0];
+    expect(payload.failed).toBe(true);
+    expect(typeof payload.failed_at).toBe('string');
+    expect(payload.done).toBe(false);
+    expect(payload.logged_at).toBeNull();
+  });
+
+  it('clears failed_at when failed=false', async () => {
+    const chain = makeUpdateChain({ data: { id: 'l-1', failed: false }, error: null });
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useSetFailed(), { wrapper: withClient(qc) });
+    result.current.mutate({ logId: 'l-1', failed: false });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const payload = chain.update.mock.calls[0][0];
+    expect(payload.failed).toBe(false);
+    expect(payload.failed_at).toBeNull();
+    expect('done' in payload).toBe(false);
+  });
+
+  it('optimistically flips failed in matching ["set-logs"] caches', async () => {
+    let resolveUpdate;
+    const chain = {
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn(() =>
+        new Promise((res) => {
+          resolveUpdate = res;
+        }),
+      ),
+    };
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    qc.setQueryData(['set-logs', 'sess-1', ['sl-1']], [
+      { id: 'l-1', done: false, failed: false, logged_at: null, failed_at: null },
+    ]);
+
+    const { result } = renderHook(() => useSetFailed(), { wrapper: withClient(qc) });
+    act(() => {
+      result.current.mutate({ logId: 'l-1', failed: true });
+    });
+
+    await waitFor(() => {
+      const cache = qc.getQueryData(['set-logs', 'sess-1', ['sl-1']]);
+      expect(cache.find((l) => l.id === 'l-1').failed).toBe(true);
+    });
+
+    act(() => {
+      resolveUpdate({ data: { id: 'l-1', failed: true }, error: null });
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
   });
 });
 

@@ -85,7 +85,10 @@ export default function SessionView() {
       const gl = slotGroups[i].slots.flatMap((s) =>
         (logs || []).filter((l) => l.exercise_slot_id === s.id)
       );
-      if (gl.length === 0 || gl.some((l) => !l.done)) return i;
+      // A set counts as "resolved" once the student has explicitly marked it
+      // done OR failed; either outcome ends the set, so the next group can
+      // auto-open. Otherwise a slot of failed sets would never advance.
+      if (gl.length === 0 || gl.some((l) => !l.done && !l.failed)) return i;
     }
     return -1;
   }, [slotGroups, logs]);

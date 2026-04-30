@@ -19,6 +19,7 @@ vi.mock('../../hooks/useSetLogs', () => ({
   useSetLogs: () => mockSetLogsData,
   useEnsureSetLogs: () => ({ mutate: vi.fn() }),
   useToggleSetDone: () => ({ mutate: vi.fn() }),
+  useSetFailed: () => ({ mutate: vi.fn() }),
   useSetRpe: () => ({ mutate: vi.fn() }),
 }));
 
