@@ -1,20 +1,9 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { useToggleSetDone, useSetFailed, useSetRpe } from '../../hooks/useSetLogs';
-import {
-  useRestTimer,
-  startRestTimer,
-  clearRestTimer,
-  remainingSecondsFor,
-} from '../../hooks/useRestTimer';
+import { startRestTimer, clearRestTimer } from '../../hooks/useRestTimer';
 import { formatSetTarget } from '../../lib/volume';
 import RpeInput from './RpeInput';
 import VideoUploadButton from './VideoUploadButton';
-
-function formatMMSS(sec) {
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
 
 // Touch-swipe thresholds for the mobile outcome gestures (right-to-left
 // commits the set as done, left-to-right marks it failed). Two checks gate
@@ -51,12 +40,10 @@ const SetRow = memo(function SetRow({ log, locked = false, showTarget = false, r
   const swipe = useRef({ active: false, startX: 0, startY: 0, dx: 0, dy: 0, captured: false });
   const [swipeOffset, setSwipeOffset] = useState(0);
 
-  // Rest timer is a single app-wide singleton (see hooks/useRestTimer): the
-  // most recent done set owns it. Validating a different set replaces, never
-  // queues. `remaining` reads through Date.now() so background/lock drift is
-  // a non-issue — every render recomputes from the stored endsAt timestamp.
-  const restSnapshot = useRestTimer();
-  const remaining = remainingSecondsFor(restSnapshot, log.id);
+  // Rest timer is rendered globally by RestTimerBanner (mounted in
+  // SessionView). SetRow only writes to the singleton on done/undone
+  // transitions — it doesn't read or display remaining time itself, so the
+  // indicator survives exercise-card transitions.
   const failed = !!log.failed;
 
   useEffect(() => {
@@ -75,8 +62,6 @@ const SetRow = memo(function SetRow({ log, locked = false, showTarget = false, r
     prevDone.current = log.done;
   }, [log.done, log.id, restSeconds]);
 
-  const showTimer = remaining != null && remaining > 0;
-  const timerDone = remaining === 0;
   const rpeLocked = locked || failed;
 
   function handleIndicatorTap() {
@@ -235,21 +220,6 @@ const SetRow = memo(function SetRow({ log, locked = false, showTarget = false, r
           )}
 
           <div className="flex-1" />
-
-          {showTimer && (
-            <span
-              className="sl-mono text-[11px] text-ink-900 rounded px-1.5 py-0.5 tabular-nums"
-              style={{ background: 'var(--color-accent)' }}
-              aria-label={`Rest remaining ${remaining} seconds`}
-            >
-              {formatMMSS(remaining)}
-            </span>
-          )}
-          {timerDone && (
-            <span className="sl-mono text-[11px] font-semibold" style={{ color: 'var(--color-success)' }}>
-              Rest done
-            </span>
-          )}
 
           {recordVideo && (
             <VideoUploadButton

@@ -14,6 +14,7 @@ import Dialog from '../ui/Dialog';
 import { groupSlotsBySuperset } from '../../lib/volume';
 import { DAY_FULL } from '../../lib/day';
 import SlotGroupCard from './SlotGroupCard';
+import RestTimerBanner from './RestTimerBanner';
 
 function SessionTopBar({ title, meta, onBack }) {
   return (
@@ -77,18 +78,18 @@ export default function SessionView() {
     }
   }, [sessionId, slots.length, logs !== undefined, canMaterializeLogs]);
 
-  // Auto-open only the first group that still has incomplete sets (or whose
-  // logs haven't been ensured yet). Once the user finishes the last set of
-  // group N, the next group with incomplete work auto-expands.
+  // Auto-open only the first group that still has unresolved sets. A set is
+  // "resolved" iff failed OR (done AND rpe != null). The RPE requirement
+  // pairs with SetRow's auto-expand on the done transition: without it, the
+  // last set's auto-expanded RPE panel would collapse before the student
+  // can record a value, because the group would advance the moment the set
+  // flips to done. Failed sets bypass — RPE is locked there by design.
   const firstOpenIdx = useMemo(() => {
     for (let i = 0; i < slotGroups.length; i++) {
       const gl = slotGroups[i].slots.flatMap((s) =>
         (logs || []).filter((l) => l.exercise_slot_id === s.id)
       );
-      // A set counts as "resolved" once the student has explicitly marked it
-      // done OR failed; either outcome ends the set, so the next group can
-      // auto-open. Otherwise a slot of failed sets would never advance.
-      if (gl.length === 0 || gl.some((l) => !l.done && !l.failed)) return i;
+      if (gl.length === 0 || gl.some((l) => !(l.failed || (l.done && l.rpe != null)))) return i;
     }
     return -1;
   }, [slotGroups, logs]);
@@ -174,6 +175,8 @@ export default function SessionView() {
         meta={metaBits.join(' · ')}
         onBack={() => navigate(-1)}
       />
+
+      <RestTimerBanner />
 
       {/* Progress bar */}
       {totalCount > 0 && (

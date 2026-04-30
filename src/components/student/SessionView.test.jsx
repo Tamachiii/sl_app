@@ -46,6 +46,7 @@ vi.mock('../../hooks/useSessionConfirmation', () => ({
 }));
 
 import SessionView from './SessionView';
+import { resetRestTimer } from '../../hooks/useRestTimer';
 
 function renderSessionView() {
   return render(
@@ -59,6 +60,7 @@ describe('SessionView', () => {
   beforeEach(() => {
     mockConfirmation = { data: null, isLoading: false };
     vi.clearAllMocks();
+    resetRestTimer();
   });
 
   it('renders loading spinner', () => {
@@ -199,8 +201,10 @@ describe('SessionView', () => {
     };
     mockSetLogsData = {
       data: [
-        { id: 'l-1', exercise_slot_id: 'slot-done', set_number: 1, done: true, rpe: null },
-        { id: 'l-2', exercise_slot_id: 'slot-done', set_number: 2, done: true, rpe: null },
+        // Done sets need an RPE to count as resolved (so the auto-expanded
+        // RPE panel on the last set has a chance to be filled in).
+        { id: 'l-1', exercise_slot_id: 'slot-done', set_number: 1, done: true, rpe: 7 },
+        { id: 'l-2', exercise_slot_id: 'slot-done', set_number: 2, done: true, rpe: 8 },
         { id: 'l-3', exercise_slot_id: 'slot-open', set_number: 1, done: false, rpe: null },
         { id: 'l-4', exercise_slot_id: 'slot-open', set_number: 2, done: false, rpe: null },
       ],
@@ -282,10 +286,12 @@ describe('SessionView', () => {
         exercise: { name: 'Dip', type: 'push', difficulty: 2, volume_weight: 1 },
       },
     ];
-    // Start: the one set is already done → firstOpenIdx = -1, group auto-closed.
+    // Start: the one set is already done AND has an RPE → firstOpenIdx = -1,
+    // group auto-closed. (A done-without-RPE set keeps the group open so the
+    // auto-expanded RPE panel doesn't collapse before the student records it.)
     mockSessionData = { data: { title: 'Back Nav', exercise_slots: slots }, isLoading: false };
     mockSetLogsData = {
-      data: [{ id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: true, rpe: null }],
+      data: [{ id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: true, rpe: 8 }],
       isLoading: false,
     };
     const { rerender } = renderSessionView();
@@ -311,10 +317,10 @@ describe('SessionView', () => {
     );
     expect(screen.getByText('Set 1')).toBeInTheDocument();
 
-    // Student re-completes the set. firstOpenIdx flips 0 → -1.
+    // Student re-completes the set AND records RPE. firstOpenIdx flips 0 → -1.
     // Before the fix, sticky manualOpen kept the group expanded; now it should auto-close.
     mockSetLogsData = {
-      data: [{ id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: true, rpe: null }],
+      data: [{ id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: true, rpe: 8 }],
       isLoading: false,
     };
     rerender(
@@ -324,6 +330,85 @@ describe('SessionView', () => {
     );
     expect(screen.queryByText('Set 1')).toBeNull();
     expect(screen.getByRole('button', { expanded: false, name: /Dip/i })).toBeInTheDocument();
+  });
+
+  it('done set without RPE keeps the group open (so auto-expanded RPE panel survives)', () => {
+    mockSessionData = {
+      data: {
+        title: 'Last Set',
+        exercise_slots: [
+          {
+            id: 'slot-1',
+            sets: 1,
+            reps: 5,
+            weight_kg: 50,
+            sort_order: 0,
+            exercise: { name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
+          },
+          {
+            id: 'slot-2',
+            sets: 1,
+            reps: 5,
+            weight_kg: 50,
+            sort_order: 1,
+            exercise: { name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
+          },
+        ],
+      },
+      isLoading: false,
+    };
+    // Squat is done but rpe is null — under the new rule, the group is
+    // unresolved, so Squat (not Bench) stays auto-open.
+    mockSetLogsData = {
+      data: [
+        { id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: true, rpe: null },
+        { id: 'l-2', exercise_slot_id: 'slot-2', set_number: 1, done: false, rpe: null },
+      ],
+      isLoading: false,
+    };
+    renderSessionView();
+
+    expect(screen.getByRole('button', { expanded: true, name: /Squat/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { expanded: false, name: /Bench/i })).toBeInTheDocument();
+  });
+
+  it('failed set bypasses the RPE requirement and lets the group resolve', () => {
+    mockSessionData = {
+      data: {
+        title: 'Failed Bypass',
+        exercise_slots: [
+          {
+            id: 'slot-1',
+            sets: 1,
+            reps: 5,
+            weight_kg: 50,
+            sort_order: 0,
+            exercise: { name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
+          },
+          {
+            id: 'slot-2',
+            sets: 1,
+            reps: 5,
+            weight_kg: 50,
+            sort_order: 1,
+            exercise: { name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
+          },
+        ],
+      },
+      isLoading: false,
+    };
+    // Squat is failed (no rpe needed) → group resolves → auto-open advances to Bench.
+    mockSetLogsData = {
+      data: [
+        { id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, failed: true, rpe: null },
+        { id: 'l-2', exercise_slot_id: 'slot-2', set_number: 1, done: false, rpe: null },
+      ],
+      isLoading: false,
+    };
+    renderSessionView();
+
+    expect(screen.getByRole('button', { expanded: false, name: /Squat/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { expanded: true, name: /Bench/i })).toBeInTheDocument();
   });
 
   it('accordion: opening another slot closes the currently-open one', async () => {
