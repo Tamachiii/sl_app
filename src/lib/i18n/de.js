@@ -201,6 +201,7 @@ const de = {
     markAllRead: 'Alle als gelesen markieren',
     empty: 'Keine Benachrichtigungen.',
     sessionCompleted: '{student} hat {session} abgeschlossen.',
+    sessionFeedback: '{coach} hat Feedback zu {session} hinterlassen.',
     unknown: 'Neue Aktivität ({kind}).',
   },
   messaging: {
@@ -223,6 +224,22 @@ const de = {
     tooLong: 'Nachricht zu lang (max. {n} Zeichen).',
     noStudentLink: 'Dieser Athlet ist nicht verknüpft — bitte erneut auswählen.',
     noCoach: 'Du bist noch keinem Coach zugeordnet.',
+    sessionRefLabel: 'Re: {title}',
+    sessionRefOpen: 'Session öffnen',
+  },
+  feedback: {
+    sectionLabel: 'Feedback',
+    coachKicker: 'Feedback an deinen Athleten',
+    description: 'Schließe diese Auswertung mit einer kurzen Notiz ab. Sie erscheint in deinem Nachrichten-Verlauf mit Link zu dieser Session.',
+    placeholder: 'Was lief gut, woran weiter arbeiten…',
+    finishWithoutFeedback: 'Ohne Feedback beenden',
+    sendFeedback: 'Feedback senden',
+    sending: 'Sende…',
+    sentTitle: 'Feedback gesendet.',
+    sentBody: 'Dein Athlet sieht es im Nachrichten-Tab.',
+    openThread: 'Unterhaltung öffnen',
+    backToSessions: 'Zurück zu den Sessions',
+    sendError: 'Senden fehlgeschlagen. Bitte erneut versuchen.',
   },
 };
 

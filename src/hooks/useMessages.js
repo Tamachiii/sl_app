@@ -30,7 +30,7 @@ export function useMessageThread(otherProfileId) {
       const orFilter = `and(sender_id.eq.${me},recipient_id.eq.${otherProfileId}),and(sender_id.eq.${otherProfileId},recipient_id.eq.${me})`;
       const { data, error } = await supabase
         .from('messages')
-        .select('id, sender_id, recipient_id, body, read_at, created_at')
+        .select('id, sender_id, recipient_id, body, session_id, read_at, created_at')
         .or(orFilter)
         .order('created_at', { ascending: true })
         .limit(500);
@@ -59,7 +59,7 @@ export function useConversations() {
     queryFn: async () => {
       const { data: rows, error } = await supabase
         .from('messages')
-        .select('id, sender_id, recipient_id, body, read_at, created_at')
+        .select('id, sender_id, recipient_id, body, session_id, read_at, created_at')
         .or(`sender_id.eq.${me},recipient_id.eq.${me}`)
         .order('created_at', { ascending: false })
         .limit(2000);
@@ -128,13 +128,22 @@ export function useSendMessage() {
   const qc = useQueryClient();
   const { user } = useAuth();
   return useMutation({
-    mutationFn: async ({ recipientProfileId, body }) => {
+    mutationFn: async ({ recipientProfileId, body, sessionId = null }) => {
       const trimmed = (body || '').trim();
       if (!trimmed) throw new Error('Message body is empty.');
+      const row = {
+        sender_id: user.id,
+        recipient_id: recipientProfileId,
+        body: trimmed,
+      };
+      // Only attach session_id when set — keeps the row payload identical to
+      // pre-feedback inserts for ordinary chat messages and lets the test
+      // suite continue asserting the unattached shape.
+      if (sessionId) row.session_id = sessionId;
       const { data, error } = await supabase
         .from('messages')
-        .insert({ sender_id: user.id, recipient_id: recipientProfileId, body: trimmed })
-        .select('id, sender_id, recipient_id, body, read_at, created_at')
+        .insert(row)
+        .select('id, sender_id, recipient_id, body, session_id, read_at, created_at')
         .single();
       if (error) throw error;
       return data;
@@ -143,6 +152,44 @@ export function useSendMessage() {
       qc.invalidateQueries({ queryKey: [MESSAGES_ROOT] });
     },
   });
+}
+
+/**
+ * Fetch lightweight session metadata (title, scheduled_date) for the unique
+ * `session_id`s referenced by visible feedback messages. Returns a Map keyed
+ * by session id — empty map until the query resolves. The thread query
+ * already has session_id; this hook fills in the title/date the reference
+ * card needs without round-tripping a full session payload.
+ */
+export function useSessionRefsForMessages(messages) {
+  const ids = useMemo(() => {
+    const set = new Set();
+    for (const m of messages || []) {
+      if (m.session_id) set.add(m.session_id);
+    }
+    return Array.from(set).sort();
+  }, [messages]);
+
+  const { data } = useQuery({
+    queryKey: [MESSAGES_ROOT, 'session-refs', ids],
+    queryFn: async () => {
+      if (ids.length === 0) return [];
+      const { data: rows, error } = await supabase
+        .from('sessions')
+        .select('id, title, scheduled_date, archived_at, day_number')
+        .in('id', ids);
+      if (error) throw error;
+      return rows || [];
+    },
+    enabled: ids.length > 0,
+    staleTime: 60_000,
+  });
+
+  return useMemo(() => {
+    const map = new Map();
+    for (const r of data || []) map.set(r.id, r);
+    return map;
+  }, [data]);
 }
 
 /**

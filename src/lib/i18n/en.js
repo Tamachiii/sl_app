@@ -201,6 +201,7 @@ const en = {
     markAllRead: 'Mark all read',
     empty: 'No notifications yet.',
     sessionCompleted: '{student} completed {session}.',
+    sessionFeedback: '{coach} left feedback on {session}.',
     unknown: 'New activity ({kind}).',
   },
   messaging: {
@@ -223,6 +224,22 @@ const en = {
     tooLong: 'Message too long (max {n} chars).',
     noStudentLink: 'This student isn’t linked yet — re-pick from the list.',
     noCoach: 'You aren’t linked to a coach yet.',
+    sessionRefLabel: 'Re: {title}',
+    sessionRefOpen: 'Open session',
+  },
+  feedback: {
+    sectionLabel: 'Feedback',
+    coachKicker: 'Send feedback to your student',
+    description: 'Wrap up this review with a short note. It posts in your messages thread with a link back to this session.',
+    placeholder: 'What went well, what to work on…',
+    finishWithoutFeedback: 'Finish without feedback',
+    sendFeedback: 'Send feedback',
+    sending: 'Sending…',
+    sentTitle: 'Feedback sent.',
+    sentBody: 'Your student will see it in the messages tab.',
+    openThread: 'Open thread',
+    backToSessions: 'Back to sessions',
+    sendError: 'Couldn’t send the feedback. Try again.',
   },
 };
 

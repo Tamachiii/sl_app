@@ -781,6 +781,9 @@ CREATE TABLE IF NOT EXISTS public.messages (
   sender_id    uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   recipient_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   body         text NOT NULL CHECK (char_length(btrim(body)) > 0 AND char_length(body) <= 4000),
+  -- Optional reference to a session; non-null means this message is the coach's
+  -- "session feedback" attached to the end of SessionReview.
+  session_id   uuid REFERENCES public.sessions(id) ON DELETE SET NULL,
   read_at      timestamptz,
   created_at   timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT messages_no_self_send CHECK (sender_id <> recipient_id)
@@ -791,6 +794,9 @@ CREATE INDEX IF NOT EXISTS messages_pair_created_idx
 
 CREATE INDEX IF NOT EXISTS messages_recipient_unread_idx
   ON public.messages (recipient_id) WHERE read_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS messages_session_idx
+  ON public.messages (session_id) WHERE session_id IS NOT NULL;
 
 CREATE OR REPLACE FUNCTION public.profiles_are_coach_student(a uuid, b uuid)
 RETURNS boolean AS $$
@@ -810,6 +816,7 @@ BEGIN
   NEW.sender_id    := OLD.sender_id;
   NEW.recipient_id := OLD.recipient_id;
   NEW.body         := OLD.body;
+  NEW.session_id   := OLD.session_id;
   NEW.created_at   := OLD.created_at;
   RETURN NEW;
 END;
@@ -826,11 +833,22 @@ CREATE POLICY "Read own messages"
   ON public.messages FOR SELECT
   USING (sender_id = auth.uid() OR recipient_id = auth.uid());
 
+-- Send: must be self + the pair must be coach/student. If session_id is
+-- attached, sender must be the coach for that session and recipient the
+-- student — keeps "feedback link" rows from being forged into unrelated
+-- threads.
 CREATE POLICY "Send to coach-student counterpart"
   ON public.messages FOR INSERT
   WITH CHECK (
     sender_id = auth.uid()
     AND public.profiles_are_coach_student(sender_id, recipient_id)
+    AND (
+      session_id IS NULL
+      OR (
+        sender_id    = public.coach_profile_for_session(session_id)
+        AND recipient_id = public.student_profile_for_session(session_id)
+      )
+    )
   );
 
 CREATE POLICY "Recipient marks messages read"
@@ -959,6 +977,48 @@ DROP TRIGGER IF EXISTS trg_notify_coach_on_session_confirm ON public.session_con
 CREATE TRIGGER trg_notify_coach_on_session_confirm
   AFTER INSERT ON public.session_confirmations
   FOR EACH ROW EXECUTE FUNCTION public.notify_coach_on_session_confirm();
+
+-- Trigger: notify the student when their coach attaches a feedback message
+-- to a reviewed session. Fires only when messages.session_id IS NOT NULL.
+CREATE OR REPLACE FUNCTION public.notify_student_on_session_feedback()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_coach_name    text;
+  v_session_title text;
+BEGIN
+  IF NEW.session_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT p.full_name INTO v_coach_name
+    FROM public.profiles p
+   WHERE p.id = NEW.sender_id;
+
+  SELECT COALESCE(NULLIF(BTRIM(s.title), ''), 'Session') INTO v_session_title
+    FROM public.sessions s
+   WHERE s.id = NEW.session_id;
+
+  INSERT INTO public.notifications (recipient_id, kind, payload)
+  VALUES (
+    NEW.recipient_id,
+    'session_feedback',
+    jsonb_build_object(
+      'session_id',       NEW.session_id,
+      'session_title',    v_session_title,
+      'coach_profile_id', NEW.sender_id,
+      'coach_name',       v_coach_name,
+      'message_id',       NEW.id
+    )
+  );
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_notify_student_on_session_feedback ON public.messages;
+CREATE TRIGGER trg_notify_student_on_session_feedback
+  AFTER INSERT ON public.messages
+  FOR EACH ROW EXECUTE FUNCTION public.notify_student_on_session_feedback();
 
 -- Realtime broadcast (REPLICA IDENTITY FULL so UPDATEs carry the old row).
 DO $$

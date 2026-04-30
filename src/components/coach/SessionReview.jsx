@@ -12,7 +12,9 @@ import { useSlotComments } from '../../hooks/useSlotComments';
 import { useSetVideos } from '../../hooks/useSetVideo';
 import { useArchiveSession } from '../../hooks/useWeek';
 import { useSessionConfirmation } from '../../hooks/useSessionConfirmation';
+import { useStudents } from '../../hooks/useStudents';
 import SlotProgress from './SlotProgress';
+import SessionFeedbackComposer from './SessionFeedbackComposer';
 import {
   formatRestSeconds,
   groupSlotsBySuperset,
@@ -79,6 +81,11 @@ export default function SessionReview() {
   }, [videos]);
   const { data: confirmation } = useSessionConfirmation(sessionId);
   const archiveSession = useArchiveSession();
+  const { data: students } = useStudents();
+  const student = useMemo(
+    () => (students || []).find((s) => s.id === studentId) || null,
+    [students, studentId],
+  );
   const slotGroups = useMemo(() => groupSlotsBySuperset(slots), [slots]);
   const isArchived = !!session?.archived_at;
   const [playing, setPlaying] = useState(null);
@@ -269,6 +276,17 @@ export default function SessionReview() {
           return renderSlot(group.slots[0]);
         })}
       </div>
+
+      {/* Feedback step — optional. The "skip" path just navigates the coach
+          back, matching the previous Review-flow exit. Sending posts a
+          message into the existing thread with session_id attached, which
+          fires a notification on the student via the DB trigger. */}
+      <SessionFeedbackComposer
+        sessionId={sessionId}
+        studentProfileId={student?.profile_id}
+        studentFullName={student?.profile?.full_name}
+        onFinish={handleBack}
+      />
 
       <VideoLightbox open={!!playing} onClose={() => setPlaying(null)}>
         {playing && <VideoPlayer storagePath={playing.storage_path} />}

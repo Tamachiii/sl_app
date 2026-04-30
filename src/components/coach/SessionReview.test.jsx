@@ -36,6 +36,12 @@ vi.mock('../../hooks/useWeek', () => ({
 vi.mock('../../hooks/useSessionConfirmation', () => ({
   useSessionConfirmation: () => mockConfirmation,
 }));
+vi.mock('../../hooks/useStudents', () => ({
+  useStudents: () => ({ data: [{ id: 'st-1', profile_id: 'p-1', profile: { full_name: 'Sam' } }] }),
+}));
+vi.mock('../../hooks/useMessages', () => ({
+  useSendMessage: () => ({ mutate: vi.fn(), isPending: false }),
+}));
 
 import SessionReview from './SessionReview';
 

@@ -201,6 +201,7 @@ const fr = {
     markAllRead: 'Tout marquer comme lu',
     empty: 'Aucune notification.',
     sessionCompleted: '{student} a terminé {session}.',
+    sessionFeedback: '{coach} a laissé un retour sur {session}.',
     unknown: 'Nouvelle activité ({kind}).',
   },
   messaging: {
@@ -223,6 +224,22 @@ const fr = {
     tooLong: 'Message trop long (max {n} caractères).',
     noStudentLink: 'Cet athlète n’est pas encore lié — choisis-le à nouveau.',
     noCoach: 'Tu n’as pas encore de coach.',
+    sessionRefLabel: 'Réf : {title}',
+    sessionRefOpen: 'Ouvrir la séance',
+  },
+  feedback: {
+    sectionLabel: 'Retour',
+    coachKicker: 'Envoie un retour à ton athlète',
+    description: 'Termine cette revue par un mot. Il sera publié dans ton fil de messages avec un lien vers cette séance.',
+    placeholder: 'Ce qui a marché, ce qu’il faut travailler…',
+    finishWithoutFeedback: 'Terminer sans retour',
+    sendFeedback: 'Envoyer le retour',
+    sending: 'Envoi…',
+    sentTitle: 'Retour envoyé.',
+    sentBody: 'Ton athlète le verra dans l’onglet messages.',
+    openThread: 'Ouvrir la conversation',
+    backToSessions: 'Retour aux séances',
+    sendError: 'Échec de l’envoi du retour. Réessaie.',
   },
 };
 

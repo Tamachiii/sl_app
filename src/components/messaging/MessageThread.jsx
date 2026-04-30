@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import {
@@ -6,10 +7,13 @@ import {
   useMarkThreadRead,
   useGroupedThread,
   formatMessageStamp,
+  useSessionRefsForMessages,
 } from '../../hooks/useMessages';
+import { useStudents } from '../../hooks/useStudents';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import MessageComposer from './MessageComposer';
+import SessionReferenceCard from './SessionReferenceCard';
 
 /**
  * Renders the message history with `otherProfileId` plus a sticky composer.
@@ -21,14 +25,35 @@ import MessageComposer from './MessageComposer';
  * archive pill there. Inside a tab body we render with no header.
  */
 export default function MessageThread({ otherProfileId, otherFullName, headerSlot, className = '' }) {
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const me = user?.id;
   const { t, lang } = useI18n();
+  const navigate = useNavigate();
 
   const { data: messages, isLoading, isError } = useMessageThread(otherProfileId);
   const markRead = useMarkThreadRead();
   const { mutate: markReadMutate } = markRead;
   const groups = useGroupedThread(messages);
+  const sessionRefs = useSessionRefsForMessages(messages);
+
+  // Coach-side deep-links to a session reference need the students.id row id
+  // (the URL is /coach/student/:studentId/session/:sessionId/review). Student-
+  // side links go to /student/session/:sessionId — no row id needed.
+  const { data: students } = useStudents();
+  const studentRowId = useMemo(() => {
+    if (role !== 'coach') return null;
+    const s = (students || []).find((x) => x.profile_id === otherProfileId);
+    return s?.id || null;
+  }, [role, students, otherProfileId]);
+
+  function openSessionRef(sessionId) {
+    if (!sessionId) return;
+    if (role === 'coach' && studentRowId) {
+      navigate(`/coach/student/${studentRowId}/session/${sessionId}/review`);
+    } else {
+      navigate(`/student/session/${sessionId}`);
+    }
+  }
 
   const scrollerRef = useRef(null);
   const lastSeenIdRef = useRef(null);
@@ -105,26 +130,37 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
                 >
                   {group.messages.map((m, mi) => {
                     const isLastInGroup = mi === group.messages.length - 1;
+                    const sessionRef = m.session_id ? sessionRefs.get(m.session_id) : null;
                     return (
-                      <div
-                        key={m.id}
-                        className={`max-w-[80%] md:max-w-[70%] rounded-2xl px-3.5 py-2 text-[14px] leading-snug whitespace-pre-wrap ${
-                          fromMe
-                            ? 'bg-[var(--color-accent)] text-[var(--color-ink-900)]'
-                            : 'bg-ink-100 text-ink-800'
-                        }`}
-                        style={fromMe ? { borderBottomRightRadius: 6 } : { borderBottomLeftRadius: 6 }}
-                      >
-                        {m.body}
-                        {isLastInGroup && (
-                          <div
-                            className={`sl-mono text-[10px] mt-1 tabular-nums ${
-                              fromMe ? 'opacity-70' : 'text-ink-400'
-                            }`}
-                          >
-                            {formatMessageStamp(m.created_at, lang)}
-                          </div>
+                      <div key={m.id} className={`flex flex-col gap-1 max-w-[80%] md:max-w-[70%] ${fromMe ? 'items-end' : 'items-start'}`}>
+                        {m.session_id && (
+                          <SessionReferenceCard
+                            sessionId={m.session_id}
+                            session={sessionRef}
+                            fromMe={fromMe}
+                            onOpen={() => openSessionRef(m.session_id)}
+                            lang={lang}
+                          />
                         )}
+                        <div
+                          className={`rounded-2xl px-3.5 py-2 text-[14px] leading-snug whitespace-pre-wrap ${
+                            fromMe
+                              ? 'bg-[var(--color-accent)] text-[var(--color-ink-900)]'
+                              : 'bg-ink-100 text-ink-800'
+                          }`}
+                          style={fromMe ? { borderBottomRightRadius: 6 } : { borderBottomLeftRadius: 6 }}
+                        >
+                          {m.body}
+                          {isLastInGroup && (
+                            <div
+                              className={`sl-mono text-[10px] mt-1 tabular-nums ${
+                                fromMe ? 'opacity-70' : 'text-ink-400'
+                              }`}
+                            >
+                              {formatMessageStamp(m.created_at, lang)}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

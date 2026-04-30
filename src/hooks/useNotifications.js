@@ -146,6 +146,19 @@ export function describeNotification(notif) {
         path,
       };
     }
+    case 'session_feedback': {
+      // Student-side: deep-link straight to the reviewed session in
+      // read-only/normal mode (the session view itself decides).
+      const path = p.session_id ? `/student/session/${p.session_id}` : null;
+      return {
+        i18nKey: 'notifications.sessionFeedback',
+        params: {
+          coach: p.coach_name || '—',
+          session: p.session_title || '—',
+        },
+        path,
+      };
+    }
     default:
       return {
         i18nKey: 'notifications.unknown',
