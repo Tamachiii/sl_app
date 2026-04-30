@@ -1,0 +1,1 @@
+const r=["M","T","W","T","F","S","S"],d=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];function o(){const e=new Date().getDay();return e===0?7:e}function D(e){if(e!=null&&e.scheduled_date){const[a,n,u]=e.scheduled_date.split("-").map(Number),t=new Date(a,n-1,u).getDay();return t===0?7:t}return e==null?void 0:e.day_number}export{r as D,d as a,D as s,o as t};
