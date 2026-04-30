@@ -16,8 +16,11 @@ export default function StudentMessages() {
   const { data: coach, isLoading } = useMyCoach();
 
   return (
-    <div className="p-4 pb-6 md:p-8 flex flex-col min-h-0" style={{ height: '100%' }}>
-      <div className="pt-3 pb-3 flex items-start justify-between gap-4 shrink-0">
+    <div
+      className="flex-1 flex flex-col min-h-0 px-4 md:px-8 pt-3 pb-3"
+      style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + var(--kb-inset, 0px) + 12px)' }}
+    >
+      <div className="pb-3 flex items-start justify-between gap-4 shrink-0">
         <div className="min-w-0">
           <div className="sl-label text-ink-400">{t('messaging.title')}</div>
           <h1 className="sl-display text-[26px] md:text-[34px] text-gray-900 leading-none mt-1 truncate">

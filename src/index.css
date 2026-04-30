@@ -49,6 +49,14 @@ html, body, #root {
   width: 100%;
 }
 
+/* Soft-keyboard inset, populated by `useKeyboardInset` (mounted in AppShell)
+   on browsers that don't honor `interactive-widget=resizes-content`. Pages
+   with bottom-anchored input bars (Messages thread) read this and pad
+   themselves so the composer rides above the keyboard. */
+:root {
+  --kb-inset: 0px;
+}
+
 body {
   font-family: var(--font-body);
   -webkit-tap-highlight-color: transparent;

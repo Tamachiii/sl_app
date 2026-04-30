@@ -56,9 +56,15 @@ export default function CoachMessages() {
   }, [students, conversations, otherProfileId]);
 
   if (otherProfileId) {
+    // Outer container fills main (flex-1 of the AppShell wrapper), then a
+    // bottom padding equal to the keyboard inset lifts the composer above
+    // the soft keyboard on iOS.
     return (
-      <div className="p-4 pb-6 md:p-8 flex flex-col min-h-0" style={{ height: '100%' }}>
-        <div className="pt-3 pb-3 flex items-center justify-between gap-3 shrink-0">
+      <div
+        className="flex-1 flex flex-col min-h-0 px-4 md:px-8 pt-3 pb-3"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + var(--kb-inset, 0px) + 12px)' }}
+      >
+        <div className="pb-3 flex items-center justify-between gap-3 shrink-0">
           <button
             type="button"
             onClick={() => navigate('/coach/messages')}
