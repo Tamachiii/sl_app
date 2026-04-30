@@ -1,5 +1,11 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { useToggleSetDone, useSetFailed, useSetRpe } from '../../hooks/useSetLogs';
+import {
+  useRestTimer,
+  startRestTimer,
+  clearRestTimer,
+  remainingSecondsFor,
+} from '../../hooks/useRestTimer';
 import { formatSetTarget } from '../../lib/volume';
 import RpeInput from './RpeInput';
 import VideoUploadButton from './VideoUploadButton';
@@ -37,7 +43,6 @@ const SetRow = memo(function SetRow({ log, locked = false, showTarget = false, r
   const restSeconds = log.target_rest_seconds ?? null;
 
   const [rpeOpen, setRpeOpen] = useState(false);
-  const [remaining, setRemaining] = useState(null);
   const prevDone = useRef(log.done);
 
   // Swipe state lives in a ref to avoid re-rendering on every touchmove;
@@ -46,27 +51,32 @@ const SetRow = memo(function SetRow({ log, locked = false, showTarget = false, r
   const swipe = useRef({ active: false, startX: 0, startY: 0, dx: 0, dy: 0, captured: false });
   const [swipeOffset, setSwipeOffset] = useState(0);
 
-  useEffect(() => {
-    if (!prevDone.current && log.done && restSeconds && restSeconds > 0) {
-      setRemaining(restSeconds);
-    }
-    if (prevDone.current && !log.done) {
-      setRemaining(null);
-    }
-    prevDone.current = log.done;
-  }, [log.done, restSeconds]);
+  // Rest timer is a single app-wide singleton (see hooks/useRestTimer): the
+  // most recent done set owns it. Validating a different set replaces, never
+  // queues. `remaining` reads through Date.now() so background/lock drift is
+  // a non-issue — every render recomputes from the stored endsAt timestamp.
+  const restSnapshot = useRestTimer();
+  const remaining = remainingSecondsFor(restSnapshot, log.id);
+  const failed = !!log.failed;
 
   useEffect(() => {
-    if (remaining == null || remaining <= 0) return;
-    const t = setInterval(() => {
-      setRemaining((r) => (r != null && r > 0 ? r - 1 : 0));
-    }, 1000);
-    return () => clearInterval(t);
-  }, [remaining]);
+    if (!prevDone.current && log.done) {
+      if (restSeconds && restSeconds > 0) {
+        startRestTimer(log.id, restSeconds);
+      }
+      // Auto-expand the RPE selector so the student can log it without an
+      // extra tap. `done` and `failed` are DB-mutually-exclusive, so this
+      // branch never opens RPE for a failed set.
+      setRpeOpen(true);
+    }
+    if (prevDone.current && !log.done) {
+      clearRestTimer(log.id);
+    }
+    prevDone.current = log.done;
+  }, [log.done, log.id, restSeconds]);
 
   const showTimer = remaining != null && remaining > 0;
   const timerDone = remaining === 0;
-  const failed = !!log.failed;
   const rpeLocked = locked || failed;
 
   function handleIndicatorTap() {

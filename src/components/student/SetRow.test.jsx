@@ -13,6 +13,7 @@ vi.mock('../../hooks/useSetLogs', () => ({
 }));
 
 import SetRow from './SetRow';
+import { resetRestTimer } from '../../hooks/useRestTimer';
 
 const baseLog = {
   id: 'log-1',
@@ -29,6 +30,7 @@ function renderSetRow(log = baseLog, props = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetRestTimer();
 });
 
 describe('SetRow', () => {
@@ -124,5 +126,33 @@ describe('SetRow', () => {
     const row = screen.getByText('Set 1').closest('div.relative.rounded-xl, div.rounded-xl');
     swipe(row, 80);
     expect(mockSetFailed.mutate).not.toHaveBeenCalled();
+  });
+
+  it('auto-expands the RPE selector when the set transitions to done', () => {
+    const { rerender } = render(<SetRow log={baseLog} />);
+    // RpeInput is identifiable by its 1..10 grid; before transition, none are
+    // visible because rpeOpen is false.
+    expect(screen.queryByRole('button', { name: /^RPE 5$/i })).not.toBeInTheDocument();
+
+    rerender(<SetRow log={{ ...baseLog, done: true }} />);
+    // Auto-open: the 10-button RPE grid is now mounted.
+    expect(screen.getByRole('button', { name: /^RPE 5$/i })).toBeInTheDocument();
+  });
+
+  it('does NOT auto-expand the RPE selector when the set is marked failed', () => {
+    const { rerender } = render(<SetRow log={baseLog} />);
+    rerender(<SetRow log={{ ...baseLog, failed: true }} />);
+    expect(screen.queryByRole('button', { name: /^RPE 5$/i })).not.toBeInTheDocument();
+  });
+
+  it('auto-collapses the RPE selector after a value is selected', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<SetRow log={baseLog} />);
+    rerender(<SetRow log={{ ...baseLog, done: true }} />);
+    const rpe7 = screen.getByRole('button', { name: /^RPE 7$/i });
+    await user.click(rpe7);
+    expect(mockSetRpe.mutate).toHaveBeenCalledWith({ logId: 'log-1', rpe: 7 });
+    // After selection the panel closes — the inner RpeInput grid is gone.
+    expect(screen.queryByRole('button', { name: /^RPE 5$/i })).not.toBeInTheDocument();
   });
 });
