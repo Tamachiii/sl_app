@@ -4,21 +4,11 @@ import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { useStudentProgramDetails } from '../../hooks/useStudentProgramDetails';
 import { useMyConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
-import { DAY_LABELS, DAY_FULL, todayDayNumber } from '../../lib/day';
+import { DAY_LABELS, DAY_FULL, todayDayNumber, sessionDayNumber } from '../../lib/day';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
 import SessionCard from './SessionCard';
-
-/** Weekday slot for a session. Prefer scheduled_date (actual calendar day) over day_number. */
-function sessionDayNumber(s) {
-  if (s?.scheduled_date) {
-    const [y, m, d] = s.scheduled_date.split('-').map(Number);
-    const jsDay = new Date(y, m - 1, d).getDay();
-    return jsDay === 0 ? 7 : jsDay;
-  }
-  return s?.day_number;
-}
 
 /** First week that still has at least one unconfirmed non-archived session. */
 function findActiveWeek(weeks, confirmedIds) {

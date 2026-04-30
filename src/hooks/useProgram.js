@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
+import { sessionDayNumber } from '../lib/day';
 
 /**
  * List all programs for a student (periodization blocks), ordered by sort_order.
@@ -276,11 +277,15 @@ export function useReorderPrograms() {
 
 /**
  * Coach dashboard summary: for each student the coach manages, resolve
- * { programName, activeWeek } in a single pass. RLS scopes the programs
- * query to this coach's students.
+ * { programName, activeWeek, weekDays } in a single pass. RLS scopes the
+ * programs query to this coach's students.
  *
  * "Active week" mirrors the student-side `findActiveWeek`: first week with
  * an unconfirmed non-archived session, falling back to the last week.
+ *
+ * `weekDays` is a 7-slot M..S array (training-day convention) carrying the
+ * mapped session and its confirmation flag. Powers the `StudentWeekStrip`
+ * on each athlete card without an N+1 fetch.
  */
 export function useCoachDashboardPrograms() {
   const { user } = useAuth();
@@ -292,7 +297,7 @@ export function useCoachDashboardPrograms() {
         .select(`
           student_id, name,
           weeks(id, week_number, label,
-            sessions(id, archived_at))
+            sessions(id, title, day_number, scheduled_date, archived_at))
         `)
         .eq('is_active', true);
       if (pErr) throw pErr;
@@ -327,11 +332,42 @@ export function useCoachDashboardPrograms() {
           if (hasOpen) { active = w; break; }
         }
         if (!active && weeks.length > 0) active = weeks[weeks.length - 1];
+
+        const weekDays = Array.from({ length: 7 }, (_, i) => ({
+          dayNumber: i + 1,
+          session: null,
+          confirmed: false,
+        }));
+        if (active) {
+          const byDay = {};
+          for (const s of active.sessions || []) {
+            const d = sessionDayNumber(s);
+            if (d < 1 || d > 7) continue;
+            const existing = byDay[d];
+            // Prefer active sessions over archived when both fall on the same day.
+            if (!existing || (existing.archived_at && !s.archived_at)) {
+              byDay[d] = s;
+            }
+          }
+          for (let i = 0; i < 7; i++) {
+            const s = byDay[i + 1];
+            if (s) {
+              weekDays[i].session = {
+                id: s.id,
+                title: s.title,
+                archived_at: s.archived_at,
+              };
+              weekDays[i].confirmed = confirmedIds.has(s.id);
+            }
+          }
+        }
+
         summary[p.student_id] = {
           programName: p.name || null,
           activeWeek: active
             ? { week_number: active.week_number, label: active.label }
             : null,
+          weekDays,
         };
       }
       return summary;

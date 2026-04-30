@@ -8,3 +8,13 @@ export function todayDayNumber() {
   const d = new Date().getDay();
   return d === 0 ? 7 : d;
 }
+
+// Weekday slot for a session. Prefer scheduled_date (actual calendar day) over day_number.
+export function sessionDayNumber(s) {
+  if (s?.scheduled_date) {
+    const [y, m, d] = s.scheduled_date.split('-').map(Number);
+    const jsDay = new Date(y, m - 1, d).getDay();
+    return jsDay === 0 ? 7 : jsDay;
+  }
+  return s?.day_number;
+}

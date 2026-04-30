@@ -7,6 +7,7 @@ import { useCoachDashboardPrograms } from '../../hooks/useProgram';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
+import StudentWeekStrip from './StudentWeekStrip';
 
 function StudentListItem({ student, summary, t }) {
   const fullName = student.profile?.full_name || 'Student';
@@ -42,13 +43,16 @@ function StudentListItem({ student, summary, t }) {
         >
           {initials || '—'}
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="sl-display text-[16px] text-gray-900 truncate">{fullName}</p>
           {subtitle && (
             <p className="sl-mono text-[11px] text-ink-400 mt-1.5 truncate">{subtitle}</p>
           )}
         </div>
       </div>
+      {summary?.weekDays && (
+        <StudentWeekStrip weekDays={summary.weekDays} className="mt-3" />
+      )}
     </Link>
   );
 }

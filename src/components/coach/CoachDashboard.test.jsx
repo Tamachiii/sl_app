@@ -32,6 +32,12 @@ vi.mock('../../hooks/useI18n', () => ({
       'coach.dashboard.noConfirmations': 'No recent confirmations',
       'coach.dashboard.openStudent': `Open ${params?.name ?? ''}`,
       'coach.home.noStudentsExt': 'No students yet',
+      'coach.dashboard.weekStripAria': 'Week at a glance',
+      'coach.dashboard.dayStatus.completed': 'Completed',
+      'coach.dashboard.dayStatus.today': 'Today',
+      'coach.dashboard.dayStatus.upcoming': 'Upcoming',
+      'coach.dashboard.dayStatus.missed': 'Missed',
+      'coach.dashboard.dayStatus.rest': 'Rest',
     };
     return map[k] || k;
   } }),
@@ -88,6 +94,54 @@ describe('CoachDashboard', () => {
     };
     renderDashboard();
     expect(screen.getByText('W3 · BLOC 1/4')).toBeInTheDocument();
+  });
+
+  it('renders the weekly activity strip when the dashboard summary supplies weekDays', () => {
+    mockStudents = {
+      data: [{ id: 's-1', profile: { full_name: 'Alice' } }],
+      isLoading: false,
+    };
+    mockDashboardPrograms = {
+      data: {
+        's-1': {
+          programName: 'Block A',
+          activeWeek: { week_number: 1, label: null },
+          weekDays: [
+            { dayNumber: 1, session: { id: 'a', title: 'Push', archived_at: null }, confirmed: true },
+            { dayNumber: 2, session: null, confirmed: false },
+            { dayNumber: 3, session: { id: 'b', title: 'Pull', archived_at: null }, confirmed: false },
+            { dayNumber: 4, session: null, confirmed: false },
+            { dayNumber: 5, session: { id: 'c', title: 'Legs', archived_at: null }, confirmed: false },
+            { dayNumber: 6, session: null, confirmed: false },
+            { dayNumber: 7, session: null, confirmed: false },
+          ],
+        },
+      },
+      isLoading: false,
+    };
+    renderDashboard();
+    const strip = screen.getByRole('list', { name: /week at a glance/i });
+    expect(strip).toBeInTheDocument();
+    // 7 day cells (Mon..Sun)
+    const cells = screen.getAllByRole('listitem');
+    expect(cells).toHaveLength(7);
+    // Mon is confirmed → status label 'Completed'
+    expect(cells[0]).toHaveAttribute('aria-label', expect.stringMatching(/completed/i));
+    // Tue is rest
+    expect(cells[1]).toHaveAttribute('aria-label', expect.stringMatching(/rest/i));
+  });
+
+  it('omits the weekly strip when the summary has no weekDays', () => {
+    mockStudents = {
+      data: [{ id: 's-1', profile: { full_name: 'Alice' } }],
+      isLoading: false,
+    };
+    mockDashboardPrograms = {
+      data: { 's-1': { programName: 'X', activeWeek: null } },
+      isLoading: false,
+    };
+    renderDashboard();
+    expect(screen.queryByRole('list', { name: /week at a glance/i })).not.toBeInTheDocument();
   });
 
   it('shows empty students state when no students', () => {

@@ -149,6 +149,14 @@ const en = {
       athletes_plural: 'students',
       recent: 'RECENT',
       openStudent: 'Open {name}',
+      weekStripAria: 'This week at a glance',
+      dayStatus: {
+        completed: 'Completed',
+        today: 'Today',
+        upcoming: 'Upcoming',
+        missed: 'Missed',
+        rest: 'Rest',
+      },
     },
     sessions: {
       kicker: 'Feed',

@@ -149,6 +149,14 @@ const de = {
       athletes_plural: 'Athleten',
       recent: 'LETZTE',
       openStudent: '{name} öffnen',
+      weekStripAria: 'Wochenübersicht',
+      dayStatus: {
+        completed: 'Erledigt',
+        today: 'Heute',
+        upcoming: 'Ausstehend',
+        missed: 'Verpasst',
+        rest: 'Ruhetag',
+      },
     },
     sessions: {
       kicker: 'Feed',

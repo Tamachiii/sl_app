@@ -63,7 +63,7 @@ src/
   components/
     auth/              LoginPage, ProtectedRoute, RoleGate
     layout/            AppShell, BottomNav, SideNav, navItems
-    coach/             CoachDashboard, CoachHome (Students-tab layout),
+    coach/             CoachDashboard, StudentWeekStrip, CoachHome (Students-tab layout),
                        StudentProfileSection, StudentProgrammingSection,
                        StudentGoalsSection, StudentStatsSection,
                        ProgramSwitcher, WeekTimeline, WeekView, SessionEditor, SessionReview,
@@ -119,7 +119,7 @@ Deep architectural details — RLS helpers, React Query invalidation, routing/pe
 ## Roles & Flows
 
 **Coach**
-1. Logs in → `CoachDashboard` — athletes list + recent confirmations feed. Tap an athlete to open their single-student view.
+1. Logs in → `CoachDashboard` — athletes list (each card carrying a compact M..S `StudentWeekStrip` showing completed / today / upcoming / missed / rest at a glance for the active week) + recent confirmations feed. Tap an athlete to open their single-student view.
 2. **Students tab** (`/coach/students`, `/coach/students/:studentId/{profile,programming,goals,stats}`) — dropdown selector picks a student, then a four-tab pill strip splits the per-student view into **Profile** (avatar, role, coaching-since date, plus **View sessions** and **Message** action buttons), **Programming** (`ProgramSwitcher` + `WeekTimeline` → `WeekView` → `SessionEditor`), **Goals**, and **Stats**. Bare `/coach/students/:id` redirects to `…/programming`. Legacy `…/messaging` deep links redirect to `…/profile`.
 3. **Sessions tab** (`/coach/sessions`) — all students' confirmed sessions in one feed; tap a card to open `SessionReview`.
 4. **Messages tab** (`/coach/messages`, `/coach/messages/:otherProfileId`) — conversation rollup over every student, plus "start a conversation" cards for students with no thread yet. Unread count appears as a dot on the bottom-nav icon (count chip in the side-nav). Realtime updates via the Supabase `messages` channel keep threads + the badge live across tabs.

@@ -149,6 +149,14 @@ const fr = {
       athletes_plural: 'athlètes',
       recent: 'RÉCENTS',
       openStudent: 'Ouvrir {name}',
+      weekStripAria: 'Aperçu de la semaine',
+      dayStatus: {
+        completed: 'Terminé',
+        today: 'Aujourd’hui',
+        upcoming: 'À venir',
+        missed: 'Manqué',
+        rest: 'Repos',
+      },
     },
     sessions: {
       kicker: 'Fil',

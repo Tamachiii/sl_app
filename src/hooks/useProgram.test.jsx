@@ -394,15 +394,15 @@ describe('useCoachDashboardPrograms', () => {
                 week_number: 1,
                 label: 'Acc',
                 sessions: [
-                  { id: 's-1', archived_at: null },
-                  { id: 's-2', archived_at: null },
+                  { id: 's-1', archived_at: null, day_number: 1 },
+                  { id: 's-2', archived_at: null, day_number: 3 },
                 ],
               },
               {
                 id: 'w-2',
                 week_number: 2,
                 label: 'Hyp',
-                sessions: [{ id: 's-3', archived_at: null }],
+                sessions: [{ id: 's-3', archived_at: null, day_number: 2 }],
               },
             ],
           },
@@ -426,7 +426,7 @@ describe('useCoachDashboardPrograms', () => {
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     // Week 1 fully confirmed → active week is W2.
-    expect(result.current.data['st-1']).toEqual({
+    expect(result.current.data['st-1']).toMatchObject({
       programName: 'Block A',
       activeWeek: { week_number: 2, label: 'Hyp' },
     });
@@ -441,8 +441,8 @@ describe('useCoachDashboardPrograms', () => {
             student_id: 'st-1',
             name: 'Done',
             weeks: [
-              { id: 'w-1', week_number: 1, label: 'A', sessions: [{ id: 's-1', archived_at: null }] },
-              { id: 'w-2', week_number: 2, label: 'B', sessions: [{ id: 's-2', archived_at: null }] },
+              { id: 'w-1', week_number: 1, label: 'A', sessions: [{ id: 's-1', archived_at: null, day_number: 1 }] },
+              { id: 'w-2', week_number: 2, label: 'B', sessions: [{ id: 's-2', archived_at: null, day_number: 1 }] },
             ],
           },
         ],
@@ -468,6 +468,96 @@ describe('useCoachDashboardPrograms', () => {
       week_number: 2,
       label: 'B',
     });
+  });
+
+  it('builds a 7-slot weekDays array from the active week, mapped by day_number', async () => {
+    const programsChain = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({
+        data: [
+          {
+            student_id: 'st-1',
+            name: 'Block A',
+            weeks: [
+              {
+                id: 'w-1',
+                week_number: 1,
+                label: null,
+                sessions: [
+                  { id: 's-mon', title: 'Push', day_number: 1, archived_at: null },
+                  { id: 's-wed', title: 'Pull', day_number: 3, archived_at: null },
+                  { id: 's-fri', title: 'Legs', day_number: 5, archived_at: null },
+                ],
+              },
+            ],
+          },
+        ],
+        error: null,
+      }),
+    };
+    const confChain = {
+      select: vi.fn().mockReturnThis(),
+      in: vi.fn().mockResolvedValue({
+        data: [{ session_id: 's-mon' }],
+        error: null,
+      }),
+    };
+    let call = 0;
+    supabase.from.mockImplementation(() => (call++ === 0 ? programsChain : confChain));
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useCoachDashboardPrograms(), {
+      wrapper: withClient(qc),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const days = result.current.data['st-1'].weekDays;
+    expect(days).toHaveLength(7);
+    expect(days[0]).toMatchObject({ dayNumber: 1, confirmed: true });
+    expect(days[0].session).toMatchObject({ id: 's-mon', title: 'Push' });
+    expect(days[2]).toMatchObject({ dayNumber: 3, confirmed: false });
+    expect(days[2].session).toMatchObject({ id: 's-wed' });
+    expect(days[1].session).toBeNull();
+    expect(days[6].session).toBeNull();
+  });
+
+  it('weekDays prefers the active session when an archived sibling shares the same day', async () => {
+    const programsChain = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({
+        data: [
+          {
+            student_id: 'st-1',
+            name: 'P',
+            weeks: [
+              {
+                id: 'w-1',
+                week_number: 1,
+                label: null,
+                sessions: [
+                  { id: 's-old', title: 'Old', day_number: 1, archived_at: '2026-01-01' },
+                  { id: 's-new', title: 'New', day_number: 1, archived_at: null },
+                ],
+              },
+            ],
+          },
+        ],
+        error: null,
+      }),
+    };
+    const confChain = {
+      select: vi.fn().mockReturnThis(),
+      in: vi.fn().mockResolvedValue({ data: [], error: null }),
+    };
+    let call = 0;
+    supabase.from.mockImplementation(() => (call++ === 0 ? programsChain : confChain));
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useCoachDashboardPrograms(), {
+      wrapper: withClient(qc),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data['st-1'].weekDays[0].session).toMatchObject({ id: 's-new' });
   });
 });
 
