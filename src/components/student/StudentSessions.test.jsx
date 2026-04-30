@@ -114,9 +114,19 @@ describe('StudentSessions', () => {
 
     expect(screen.queryByText('Old Session')).toBeNull();
 
-    const toggle = screen.getByRole('button', { name: /Show 1 archived session/i });
-    await user.click(toggle);
+    // Collapsed: only the bottom toggle is rendered.
+    const initialToggles = screen.getAllByRole('button', { name: /Show 1 archived session/i });
+    expect(initialToggles).toHaveLength(1);
+    await user.click(initialToggles[0]);
     expect(screen.getByText('Old Session')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Hide 1 archived session/i })).toBeInTheDocument();
+
+    // Expanded: a second toggle is rendered above the archived weeks so a
+    // student scrolled up to read them can collapse without scrolling back.
+    const expandedToggles = screen.getAllByRole('button', { name: /Hide 1 archived session/i });
+    expect(expandedToggles).toHaveLength(2);
+
+    // Either toggle collapses.
+    await user.click(expandedToggles[0]);
+    expect(screen.queryByText('Old Session')).toBeNull();
   });
 });

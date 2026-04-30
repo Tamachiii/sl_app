@@ -59,6 +59,19 @@ export default function StudentSessions() {
 
       {!weeks?.length && <EmptyState message={t('student.home.noProgram')} />}
 
+      {/* Archived weeks render at the top (older week_number sorts first), so
+          when expanded we mirror the toggle above them — otherwise the user
+          who scrolled up to read older sessions has to scroll all the way
+          back down to find the only "Hide" button. */}
+      {archivedCount > 0 && showArchived && (
+        <ArchivedToggle
+          count={archivedCount}
+          expanded={showArchived}
+          onToggle={() => setShowArchived((v) => !v)}
+          t={t}
+        />
+      )}
+
       {visibleWeeks.map((week) => (
         <section key={week.id} aria-labelledby={`week-${week.id}-heading`} className="space-y-2.5">
           <h2
@@ -89,15 +102,27 @@ export default function StudentSessions() {
       ))}
 
       {archivedCount > 0 && (
-        <button
-          onClick={() => setShowArchived((v) => !v)}
-          className="w-full sl-mono text-[11px] text-ink-400 hover:text-gray-700 py-2 underline"
-        >
-          {showArchived
-            ? t(archivedCount === 1 ? 'student.sessions.hideArchivedOne' : 'student.sessions.hideArchivedMany', { n: archivedCount })
-            : t(archivedCount === 1 ? 'student.sessions.showArchivedOne' : 'student.sessions.showArchivedMany', { n: archivedCount })}
-        </button>
+        <ArchivedToggle
+          count={archivedCount}
+          expanded={showArchived}
+          onToggle={() => setShowArchived((v) => !v)}
+          t={t}
+        />
       )}
     </div>
+  );
+}
+
+function ArchivedToggle({ count, expanded, onToggle, t }) {
+  const label = expanded
+    ? t(count === 1 ? 'student.sessions.hideArchivedOne' : 'student.sessions.hideArchivedMany', { n: count })
+    : t(count === 1 ? 'student.sessions.showArchivedOne' : 'student.sessions.showArchivedMany', { n: count });
+  return (
+    <button
+      onClick={onToggle}
+      className="w-full sl-mono text-[11px] text-ink-400 hover:text-gray-700 py-2 underline"
+    >
+      {label}
+    </button>
   );
 }
