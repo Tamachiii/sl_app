@@ -115,7 +115,8 @@ CREATE TABLE public.set_logs (
   CONSTRAINT set_logs_target_unit_one_of CHECK (
     target_reps IS NULL OR target_duration_seconds IS NULL
   ),
-  CONSTRAINT set_logs_done_xor_failed CHECK (NOT (done AND failed))
+  CONSTRAINT set_logs_done_xor_failed CHECK (NOT (done AND failed)),
+  CONSTRAINT set_logs_no_rpe_when_failed CHECK (NOT (failed AND rpe IS NOT NULL))
 );
 
 -- ============================================================

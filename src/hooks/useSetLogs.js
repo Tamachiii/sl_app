@@ -78,8 +78,12 @@ function patchForDone(done) {
 }
 
 function patchForFailed(failed) {
+  // RPE is meaningless on a set the student didn't complete — null it out on
+  // the same write so a student who rated then later marked failed doesn't
+  // leave an orphan rating. The DB CHECK set_logs_no_rpe_when_failed enforces
+  // this server-side too.
   return failed
-    ? { failed: true, done: false, failed_at: new Date().toISOString(), logged_at: null }
+    ? { failed: true, done: false, failed_at: new Date().toISOString(), logged_at: null, rpe: null }
     : { failed: false, failed_at: null };
 }
 

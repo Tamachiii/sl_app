@@ -255,7 +255,7 @@ describe('useSetFailed', () => {
     };
   }
 
-  it('writes failed=true + failed_at + clears any prior done', async () => {
+  it('writes failed=true + failed_at + clears any prior done + nulls rpe', async () => {
     const chain = makeUpdateChain({ data: { id: 'l-1', failed: true }, error: null });
     supabase.from.mockReturnValue(chain);
 
@@ -269,9 +269,10 @@ describe('useSetFailed', () => {
     expect(typeof payload.failed_at).toBe('string');
     expect(payload.done).toBe(false);
     expect(payload.logged_at).toBeNull();
+    expect(payload.rpe).toBeNull();
   });
 
-  it('clears failed_at when failed=false', async () => {
+  it('clears failed_at when failed=false (rpe is left alone)', async () => {
     const chain = makeUpdateChain({ data: { id: 'l-1', failed: false }, error: null });
     supabase.from.mockReturnValue(chain);
 
@@ -284,6 +285,7 @@ describe('useSetFailed', () => {
     expect(payload.failed).toBe(false);
     expect(payload.failed_at).toBeNull();
     expect('done' in payload).toBe(false);
+    expect('rpe' in payload).toBe(false);
   });
 
   it('optimistically flips failed in matching ["set-logs"] caches', async () => {
@@ -302,7 +304,7 @@ describe('useSetFailed', () => {
 
     const qc = makeClient();
     qc.setQueryData(['set-logs', 'sess-1', ['sl-1']], [
-      { id: 'l-1', done: false, failed: false, logged_at: null, failed_at: null },
+      { id: 'l-1', done: false, failed: false, logged_at: null, failed_at: null, rpe: 8 },
     ]);
 
     const { result } = renderHook(() => useSetFailed(), { wrapper: withClient(qc) });
@@ -312,7 +314,10 @@ describe('useSetFailed', () => {
 
     await waitFor(() => {
       const cache = qc.getQueryData(['set-logs', 'sess-1', ['sl-1']]);
-      expect(cache.find((l) => l.id === 'l-1').failed).toBe(true);
+      const log = cache.find((l) => l.id === 'l-1');
+      expect(log.failed).toBe(true);
+      // The orphan RPE is wiped optimistically on the same patch.
+      expect(log.rpe).toBeNull();
     });
 
     act(() => {
