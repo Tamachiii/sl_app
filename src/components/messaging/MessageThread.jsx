@@ -72,12 +72,12 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
   return (
     <div className={`flex flex-col min-h-0 flex-1 ${className}`}>
       {headerSlot && (
-        <div className="shrink-0 pb-3">{headerSlot}</div>
+        <div className="shrink-0 pb-3 px-4 md:px-8">{headerSlot}</div>
       )}
 
       <div
         ref={scrollerRef}
-        className="flex-1 min-h-0 overflow-y-auto pr-1"
+        className="flex-1 min-h-0 overflow-y-auto px-4 md:px-8"
         role="log"
         aria-live="polite"
         aria-label={t('messaging.threadLabel', { name: otherFullName || '—' })}
@@ -135,7 +135,7 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
         )}
       </div>
 
-      <div className="shrink-0 pt-3">
+      <div className="shrink-0" style={{ paddingBottom: 'var(--kb-inset, 0px)' }}>
         <MessageComposer recipientProfileId={otherProfileId} />
       </div>
     </div>

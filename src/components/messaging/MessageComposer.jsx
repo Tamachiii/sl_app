@@ -53,15 +53,15 @@ export default function MessageComposer({ recipientProfileId, autoFocus = false 
   }
 
   return (
-    <div className="space-y-1">
+    <div className="bg-white border-t border-ink-100">
       {(error || tooLong) && (
-        <div role="alert" className="sl-mono text-[11px] text-danger px-1">
+        <div role="alert" className="sl-mono text-[11px] text-danger px-4 md:px-8 pt-1.5">
           {error || t('messaging.tooLong', { n: MAX_LEN })}
         </div>
       )}
       <form
         onSubmit={handleSubmit}
-        className="sl-card p-2 flex items-end gap-2"
+        className="flex items-end gap-2 px-4 md:px-8 py-2.5"
       >
         <textarea
           ref={textareaRef}
@@ -73,7 +73,7 @@ export default function MessageComposer({ recipientProfileId, autoFocus = false 
           disabled={!recipientProfileId}
           placeholder={t('messaging.placeholder')}
           aria-label={t('messaging.composerLabel')}
-          className="flex-1 resize-none rounded-lg bg-transparent px-3 py-2 text-[16px] text-gray-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] disabled:opacity-50"
+          className="flex-1 resize-none rounded-2xl bg-ink-100 px-3 py-2 text-[16px] text-gray-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] disabled:opacity-50"
         />
         <button
           type="submit"
