@@ -230,7 +230,6 @@ const en = {
   feedback: {
     sectionLabel: 'Feedback',
     coachKicker: 'Send feedback to your student',
-    description: 'Wrap up this review with a short note. It posts in your messages thread with a link back to this session.',
     placeholder: 'What went well, what to work on…',
     finishWithoutFeedback: 'Finish without feedback',
     sendFeedback: 'Send feedback',

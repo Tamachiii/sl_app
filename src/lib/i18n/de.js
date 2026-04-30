@@ -230,7 +230,6 @@ const de = {
   feedback: {
     sectionLabel: 'Feedback',
     coachKicker: 'Feedback an deinen Athleten',
-    description: 'Schließe diese Auswertung mit einer kurzen Notiz ab. Sie erscheint in deinem Nachrichten-Verlauf mit Link zu dieser Session.',
     placeholder: 'Was lief gut, woran weiter arbeiten…',
     finishWithoutFeedback: 'Ohne Feedback beenden',
     sendFeedback: 'Feedback senden',

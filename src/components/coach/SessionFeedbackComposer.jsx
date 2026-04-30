@@ -108,9 +108,6 @@ export default function SessionFeedbackComposer({
           {t('feedback.coachKicker')}
           {studentFullName ? ` · ${studentFullName}` : ''}
         </h2>
-        <p className="text-[12px] text-ink-500 mt-1">
-          {t('feedback.description')}
-        </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-2">

@@ -230,7 +230,6 @@ const fr = {
   feedback: {
     sectionLabel: 'Retour',
     coachKicker: 'Envoie un retour à ton athlète',
-    description: 'Termine cette revue par un mot. Il sera publié dans ton fil de messages avec un lien vers cette séance.',
     placeholder: 'Ce qui a marché, ce qu’il faut travailler…',
     finishWithoutFeedback: 'Terminer sans retour',
     sendFeedback: 'Envoyer le retour',
