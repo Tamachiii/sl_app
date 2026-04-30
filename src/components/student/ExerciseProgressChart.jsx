@@ -1,15 +1,40 @@
 import { useEffect, useMemo, useState } from 'react';
 
-export default function ExerciseProgressChart({ exercises, byExercise }) {
-  const [selectedId, setSelectedId] = useState(exercises[0]?.id ?? '');
+function readStoredExerciseId(storageKey) {
+  if (!storageKey) return '';
+  try { return localStorage.getItem(storageKey) || ''; } catch { return ''; }
+}
+
+export default function ExerciseProgressChart({ exercises, byExercise, storageKey }) {
+  const [selectedId, setSelectedId] = useState(() => {
+    const stored = readStoredExerciseId(storageKey);
+    if (stored && exercises.some((e) => e.id === stored)) return stored;
+    return exercises[0]?.id ?? '';
+  });
 
   useEffect(() => {
     if (exercises.length === 0) {
       setSelectedId('');
-    } else if (!exercises.some((e) => e.id === selectedId)) {
-      setSelectedId(exercises[0].id);
+      return;
     }
-  }, [exercises, selectedId]);
+    if (!exercises.some((e) => e.id === selectedId)) {
+      const stored = readStoredExerciseId(storageKey);
+      if (stored && exercises.some((e) => e.id === stored)) {
+        setSelectedId(stored);
+      } else {
+        setSelectedId(exercises[0].id);
+      }
+    }
+  }, [exercises, selectedId, storageKey]);
+
+  function handleSelect(next) {
+    setSelectedId(next);
+    if (!storageKey) return;
+    try {
+      if (next) localStorage.setItem(storageKey, next);
+      else localStorage.removeItem(storageKey);
+    } catch { /* ignore — private mode, quota, etc. */ }
+  }
 
   const points = useMemo(() => {
     // Hook returns points already in (program order, week order). Don't
@@ -63,7 +88,7 @@ export default function ExerciseProgressChart({ exercises, byExercise }) {
         <span className="sr-only">Select exercise</span>
         <select
           value={selectedId}
-          onChange={(e) => setSelectedId(e.target.value)}
+          onChange={(e) => handleSelect(e.target.value)}
           className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-display text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
         >
           {exercises.map((ex) => (

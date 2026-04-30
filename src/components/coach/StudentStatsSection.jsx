@@ -1,8 +1,14 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
 import { useStudentProgressStats } from '../../hooks/useStudentProgressStats';
 import { useProgramsForStudent } from '../../hooks/useProgram';
+import {
+  exerciseStorageKey,
+  readStatsPrefs,
+  statsPrefsKey,
+  writeStatsPref,
+} from '../../lib/statsPrefs';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import ExerciseProgressChart from '../student/ExerciseProgressChart';
@@ -55,21 +61,43 @@ export default function StudentStatsSection() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: programs } = useProgramsForStudent(studentId);
 
+  const prefsKey = useMemo(
+    () => statsPrefsKey({ surface: 'coach', studentId }),
+    [studentId],
+  );
+  const exerciseKey = useMemo(() => exerciseStorageKey(prefsKey), [prefsKey]);
+
   // `statsScope` (separate from `program`, which the editor's ProgramSwitcher
   // already owns) so the coach's "what program am I editing" and "what scope
-  // am I viewing stats for" stay independent.
-  const rawScope = searchParams.get('statsScope') || 'all';
+  // am I viewing stats for" stay independent. URL holds it for refresh-on-page;
+  // localStorage mirrors it so it survives a tab switch (which drops the URL
+  // search params).
+  const rawScope = searchParams.get('statsScope') || '';
+
+  useEffect(() => {
+    if (rawScope) return;
+    const saved = readStatsPrefs(prefsKey)?.scope;
+    if (!saved || saved === 'all') return;
+    const sp = new URLSearchParams(searchParams);
+    sp.set('statsScope', saved);
+    setSearchParams(sp, { replace: true });
+    // Re-run when the student changes — the saved scope is per-student.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefsKey]);
+
+  const effectiveScope = rawScope || 'all';
   const scopeIsValid =
-    rawScope === 'all'
-    || rawScope === 'active'
-    || (Array.isArray(programs) && programs.some((p) => p.id === rawScope));
-  const scope = scopeIsValid ? rawScope : 'all';
+    effectiveScope === 'all'
+    || effectiveScope === 'active'
+    || (Array.isArray(programs) && programs.some((p) => p.id === effectiveScope));
+  const scope = scopeIsValid ? effectiveScope : 'all';
 
   function handleScopeChange(next) {
     const sp = new URLSearchParams(searchParams);
     if (next === 'all') sp.delete('statsScope');
     else sp.set('statsScope', next);
     setSearchParams(sp, { replace: true });
+    writeStatsPref(prefsKey, 'scope', next === 'all' ? null : next);
   }
 
   const { data, isLoading } = useStudentProgressStats(studentId, scope);
@@ -122,13 +150,14 @@ export default function StudentStatsSection() {
         completionPct={completionPct}
         recentWeeklyVolume={recentWeeklyVolume}
         maxWeeklyTotal={maxWeeklyTotal}
+        exerciseStorageKey={exerciseKey}
         t={t}
       />}
     </div>
   );
 }
 
-function CoachStatsBody({ stats, completionPct, recentWeeklyVolume, maxWeeklyTotal, t }) {
+function CoachStatsBody({ stats, completionPct, recentWeeklyVolume, maxWeeklyTotal, exerciseStorageKey, t }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-2">
@@ -179,6 +208,7 @@ function CoachStatsBody({ stats, completionPct, recentWeeklyVolume, maxWeeklyTot
         <ExerciseProgressChart
           exercises={stats.exerciseProgress?.exercises ?? []}
           byExercise={stats.exerciseProgress?.byExercise ?? {}}
+          storageKey={exerciseStorageKey}
         />
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
@@ -9,9 +9,18 @@ import { useStudentHistoricalSessions } from '../../hooks/useStudentHistoricalSe
 import { useMyStudentId } from '../../hooks/useStudents';
 import { useProgramsForStudent } from '../../hooks/useProgram';
 import { useI18n } from '../../hooks/useI18n';
+import {
+  exerciseStorageKey,
+  readStatsPrefs,
+  statsPrefsKey,
+  writeStatsPref,
+} from '../../lib/statsPrefs';
 import SessionCalendar from './SessionCalendar';
 import ExerciseProgressChart from './ExerciseProgressChart';
 import ProgramScopeSelector from './ProgramScopeSelector';
+
+const STATS_PREFS_KEY = statsPrefsKey({ surface: 'self' });
+const EXERCISE_STORAGE_KEY = exerciseStorageKey(STATS_PREFS_KEY);
 
 function StatCard({ label, value, sub }) {
   return (
@@ -66,22 +75,37 @@ export default function StudentDashboard() {
   const { profile, signOut } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Scope persisted in the URL as ?scope=. Default = 'all' (cross-block view).
-  // Stale ids (a deleted program) fall back to 'all' rather than fetching ∅.
+  // Scope is persisted in the URL as ?scope= for refresh-while-on-page, AND
+  // mirrored to localStorage so it survives a tab switch (the new URL has no
+  // search params). Stale ids fall back to 'all' rather than fetching ∅.
   const { data: myStudentId } = useMyStudentId();
   const { data: programs } = useProgramsForStudent(myStudentId);
-  const rawScope = searchParams.get('scope') || 'all';
+  const rawScope = searchParams.get('scope') || '';
+
+  useEffect(() => {
+    if (rawScope) return;
+    const saved = readStatsPrefs(STATS_PREFS_KEY)?.scope;
+    if (!saved || saved === 'all') return;
+    const sp = new URLSearchParams(searchParams);
+    sp.set('scope', saved);
+    setSearchParams(sp, { replace: true });
+    // Mount-only — subsequent changes flow through handleScopeChange.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const effectiveScope = rawScope || 'all';
   const scopeIsValid =
-    rawScope === 'all'
-    || rawScope === 'active'
-    || (Array.isArray(programs) && programs.some((p) => p.id === rawScope));
-  const scope = scopeIsValid ? rawScope : 'all';
+    effectiveScope === 'all'
+    || effectiveScope === 'active'
+    || (Array.isArray(programs) && programs.some((p) => p.id === effectiveScope));
+  const scope = scopeIsValid ? effectiveScope : 'all';
 
   function handleScopeChange(next) {
     const sp = new URLSearchParams(searchParams);
     if (next === 'all') sp.delete('scope');
     else sp.set('scope', next);
     setSearchParams(sp, { replace: true });
+    writeStatsPref(STATS_PREFS_KEY, 'scope', next === 'all' ? null : next);
   }
 
   const { data, isLoading } = useStudentProgressStats(undefined, scope);
@@ -213,6 +237,7 @@ export default function StudentDashboard() {
             <ExerciseProgressChart
               exercises={stats.exerciseProgress?.exercises ?? []}
               byExercise={stats.exerciseProgress?.byExercise ?? {}}
+              storageKey={EXERCISE_STORAGE_KEY}
             />
           </section>
         </>
