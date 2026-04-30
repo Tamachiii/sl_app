@@ -22,7 +22,7 @@ export default function SessionReferenceCard({ sessionId, session, fromMe, onOpe
       aria-label={t('messaging.sessionRefOpen')}
       className={`w-full text-left rounded-xl px-3 py-1.5 text-[12px] flex items-center gap-2 transition-colors ${
         fromMe
-          ? 'bg-[color-mix(in_srgb,var(--color-accent)_18%,transparent)] hover:bg-[color-mix(in_srgb,var(--color-accent)_28%,transparent)] text-[var(--color-ink-900)]'
+          ? 'bg-[color-mix(in_srgb,var(--color-accent)_18%,transparent)] hover:bg-[color-mix(in_srgb,var(--color-accent)_28%,transparent)] text-ink-900'
           : 'bg-ink-100 hover:bg-ink-200 text-ink-700'
       }`}
       style={{ border: '1px solid color-mix(in srgb, var(--color-accent) 30%, transparent)' }}
