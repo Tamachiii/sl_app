@@ -57,7 +57,7 @@ export default function StudentSessions() {
           <div className="sl-label text-ink-400">{t('student.sessions.kicker')}</div>
           <h1 className="sl-display text-[32px] md:text-[44px] text-gray-900 leading-none mt-1">{t('student.sessions.title')}</h1>
         </div>
-        <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
+        <UserMenu fullName={profile?.full_name} onSignOut={signOut} profileHref="/student/profile" />
       </div>
 
       {!weeks?.length && <EmptyState message={t('student.home.noProgram')} />}

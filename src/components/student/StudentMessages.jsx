@@ -31,7 +31,7 @@ export default function StudentMessages() {
             {t('messaging.title')}
           </h1>
         </div>
-        <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
+        <UserMenu fullName={profile?.full_name} onSignOut={signOut} profileHref="/student/profile" />
       </div>
 
       {isLoading && (

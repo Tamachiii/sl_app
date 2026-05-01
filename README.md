@@ -44,7 +44,7 @@ Apply `supabase/schema.sql` to a fresh Supabase project (creates tables, RLS pol
 npm run dev       # dev server
 npm run build     # production build → dist/
 npm run preview   # serve dist/
-npm test          # run vitest (~370 tests)
+npm test          # run vitest (~480 tests)
 npm run deploy    # publishes dist/ to gh-pages branch
 ```
 
@@ -74,7 +74,8 @@ src/
     notifications/     NotificationBell
     student/           StudentHome, StudentSessions, SessionCard, SessionView, SetRow,
                        RpeInput, StudentDashboard (Stats), SessionCalendar,
-                       ExerciseProgressChart, MyGoals, VideoUploadButton, StudentMessages
+                       ExerciseProgressChart, MyGoals, VideoUploadButton, StudentMessages,
+                       StudentProfile
     ui/                EditableText, ThemeToggle, LanguageSelect, UserMenu, Dialog,
                        VideoPlayer, Spinner, EmptyState, CopyDialog, ConfirmDialog,
                        ErrorBoundary
@@ -131,6 +132,7 @@ Deep architectural details — RLS helpers, React Query invalidation, routing/pe
 3. **Stats tab** (`/student/stats`) — sessions confirmed, sets done, weekly volume bars, per-exercise progression, calendar (active block + muted history dots).
 4. **Messages tab** (`/student/messages`) — single thread with the assigned coach (resolved via `students.coach_id`). Realtime + unread-count badge same as the coach side.
 5. **Goals tab** (`/student/goals`) — `MyGoals`.
+6. **Profile** (`/student/profile`, reached by tapping the avatar in the header — not a tab) — display name + initials avatar, "Your coach" card with a Message shortcut, lifetime totals (sessions completed, sets done, total volume), the active goal, theme/language preferences, and account controls (email, change password, sign out). The student-side `UserMenu` retired its popover when this page shipped; everything that used to live there now lives here. Coach-side `UserMenu` keeps the popover.
 
 ---
 
@@ -142,7 +144,7 @@ Quick summary:
 
 - **Theme**: `ThemeProvider` (`src/hooks/useTheme.jsx`) toggles `.dark` on `<html>`, persists to `localStorage.sl_app_theme`. CSS-override based — don't sprinkle `dark:` classes.
 - **i18n**: `I18nProvider` (`src/hooks/useI18n.jsx`) with EN/FR/DE dictionaries in `src/lib/i18n/`. Title-case values; `sl-label` uppercases via CSS. Language persists in `localStorage.sl_app_lang` and mirrors to `<html lang>`. `useI18n()` has a no-op English fallback for isolated tests.
-- **Toggles**: `ThemeToggle` + `LanguageSelect` live inside `ui/UserMenu` (the avatar-initials popover rendered on every top-level page), and next to the `LoginPage` kicker.
+- **Toggles**: `ThemeToggle` + `LanguageSelect` live next to the `LoginPage` kicker, and inside `ui/UserMenu`'s coach-side popover. On the student side the popover has been retired — both toggles live on the dedicated `StudentProfile` page (the avatar `<Link>`s to it directly when `profileHref` is passed).
 - **Notifications**: a `NotificationBell` lives next to the avatar in `ui/UserMenu` so every top-level page surfaces them. Two event kinds today: `session_completed` fires when a student inserts a `session_confirmations` row (notifies the coach); `session_feedback` fires when the coach submits a feedback message at the end of `SessionReview` — i.e. inserts a `messages` row with `session_id` set — and notifies the student with a deep link to the session view. Both use SECURITY DEFINER triggers writing to the `notifications` table (no client INSERT policy). Realtime via the same Supabase channel pattern as messages. Adding a new event type = new trigger + new `describeNotification` case + new i18n key.
 - **Coach feedback flow**: `SessionReview` ends with `SessionFeedbackComposer` — an optional textarea + "Send feedback" / "Finish without feedback" pair. On send, it inserts a normal `messages` row with `session_id` attached; the DB trigger fires the notification, and the message renders in the existing coach↔student thread with a "Re: <session>" reference card above the bubble. Tapping the card deep-links to the session (coach → review screen, student → session view). The card is rendered by `messaging/SessionReferenceCard` and metadata for visible refs is fetched in one batch by `useSessionRefsForMessages`.
 
@@ -159,7 +161,7 @@ Quick summary:
 - Tests live alongside components as `*.test.jsx` / `*.test.js`.
 - `src/test/utils.jsx` exports `renderWithProviders(ui, { auth, route, queryClient })` which wraps with `ThemeProvider` + `QueryClientProvider` + `AuthContext` + `MemoryRouter`.
 - Mocks: child hooks are stubbed with `vi.mock('../../hooks/useX', () => ({ ... }))` per file.
-- 370 tests across 49 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations.
+- 483 tests across 59 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations.
 
 Run:
 ```bash

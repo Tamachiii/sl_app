@@ -34,6 +34,7 @@ const fr = {
     doneUpper: 'FAIT',
     archivedUpper: 'ARCHIVÉE',
     openUserMenu: 'Ouvrir le menu utilisateur',
+    openProfile: 'Ouvrir ton profil',
   },
   login: {
     kicker: 'Street Lifting',
@@ -65,6 +66,45 @@ const fr = {
       showArchivedOne: 'Afficher {n} séance archivée',
       showArchivedMany: 'Afficher {n} séances archivées',
       noExercises: 'Aucun exercice attribué.',
+    },
+    profile: {
+      kicker: 'Profil',
+      header: {
+        displayName: 'Nom affiché',
+        namePlaceholder: 'Ton nom',
+        editName: 'Modifier ton nom',
+        renameError: 'Impossible de mettre à jour ton nom. Réessaie.',
+      },
+      coach: {
+        title: 'Ton coach',
+        message: 'Message',
+      },
+      lifetime: {
+        title: 'Totaux à vie',
+        sessions: 'Séances',
+        setsDone: 'Séries faites',
+        volumeKg: 'Volume (kg)',
+      },
+      goal: {
+        title: 'Objectif actif',
+        viewAll: 'TOUT VOIR →',
+        empty: 'Aucun objectif — ton coach en fixera bientôt.',
+        untitled: 'Objectif sans nom',
+      },
+      prefs: {
+        title: 'Préférences',
+      },
+      account: {
+        title: 'Compte',
+        email: 'E-mail',
+        changePassword: 'Changer le mot de passe',
+        newPassword: 'Nouveau mot de passe',
+        confirmPassword: 'Confirme le mot de passe',
+        pwTooShort: 'Le mot de passe doit faire au moins 8 caractères.',
+        pwMismatch: 'Les mots de passe ne correspondent pas.',
+        pwError: 'Impossible de changer ton mot de passe. Réessaie.',
+        pwChanged: 'Mot de passe mis à jour.',
+      },
     },
     stats: {
       kicker: 'Progression',

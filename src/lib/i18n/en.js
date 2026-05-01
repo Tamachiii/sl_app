@@ -34,6 +34,7 @@ const en = {
     doneUpper: 'DONE',
     archivedUpper: 'ARCHIVED',
     openUserMenu: 'Open user menu',
+    openProfile: 'Open your profile',
   },
   login: {
     kicker: 'Street Lifting',
@@ -65,6 +66,45 @@ const en = {
       showArchivedOne: 'Show {n} archived session',
       showArchivedMany: 'Show {n} archived sessions',
       noExercises: 'No exercises assigned yet.',
+    },
+    profile: {
+      kicker: 'Profile',
+      header: {
+        displayName: 'Display name',
+        namePlaceholder: 'Your name',
+        editName: 'Edit your name',
+        renameError: "Couldn't update your name. Try again.",
+      },
+      coach: {
+        title: 'Your coach',
+        message: 'Message',
+      },
+      lifetime: {
+        title: 'Lifetime totals',
+        sessions: 'Sessions',
+        setsDone: 'Sets done',
+        volumeKg: 'Volume (kg)',
+      },
+      goal: {
+        title: 'Active goal',
+        viewAll: 'VIEW ALL →',
+        empty: 'No goals yet — your coach will set some.',
+        untitled: 'Untitled goal',
+      },
+      prefs: {
+        title: 'Preferences',
+      },
+      account: {
+        title: 'Account',
+        email: 'Email',
+        changePassword: 'Change password',
+        newPassword: 'New password',
+        confirmPassword: 'Confirm new password',
+        pwTooShort: 'Password must be at least 8 characters.',
+        pwMismatch: "Passwords don't match.",
+        pwError: "Couldn't update your password. Try again.",
+        pwChanged: 'Password updated.',
+      },
     },
     stats: {
       kicker: 'Progress',

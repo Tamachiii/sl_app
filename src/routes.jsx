@@ -29,6 +29,7 @@ const StudentStats = lazy(() => import('./components/student/StudentDashboard'))
 const SessionView = lazy(() => import('./components/student/SessionView'));
 const MyGoals = lazy(() => import('./components/student/MyGoals'));
 const StudentMessages = lazy(() => import('./components/student/StudentMessages'));
+const StudentProfile = lazy(() => import('./components/student/StudentProfile'));
 
 function Lazy({ children }) {
   return (
@@ -91,6 +92,7 @@ export const routes = [
               { path: '/student/session/:sessionId', element: <Lazy><SessionView /></Lazy> },
               { path: '/student/goals', element: <Lazy><MyGoals /></Lazy> },
               { path: '/student/messages', element: <Lazy><StudentMessages /></Lazy> },
+              { path: '/student/profile', element: <Lazy><StudentProfile /></Lazy> },
             ],
           },
         ],

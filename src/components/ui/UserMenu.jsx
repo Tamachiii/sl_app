@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
 import ThemeToggle from './ThemeToggle';
 import LanguageSelect from './LanguageSelect';
@@ -9,8 +10,15 @@ import NotificationBell from '../notifications/NotificationBell';
  * The notification bell sits to the left of the avatar so any new event
  * (a student completing a session, etc.) surfaces on every screen without
  * each page needing to wire it in individually.
+ *
+ * Two avatar modes:
+ *   - `profileHref` set → avatar is a <Link> to that page (no popover).
+ *     Used by the student app to open the dedicated Profile page; theme,
+ *     language, and sign-out live there too.
+ *   - `profileHref` unset → avatar opens a popover with theme / language /
+ *     sign-out inline. Used on the coach side, which has no Profile page yet.
  */
-export default function UserMenu({ fullName, onSignOut }) {
+export default function UserMenu({ fullName, onSignOut, profileHref }) {
   const { t } = useI18n();
   const initials = (fullName || '')
     .split(/\s+/)
@@ -39,6 +47,23 @@ export default function UserMenu({ fullName, onSignOut }) {
   }, [open]);
 
   if (!initials) return null;
+
+  // Link-mode avatar: tap navigates straight to the Profile page.
+  if (profileHref) {
+    return (
+      <div className="flex items-center gap-2 shrink-0">
+        <NotificationBell />
+        <Link
+          to={profileHref}
+          aria-label={t('common.openProfile')}
+          className="w-10 h-10 rounded-full bg-ink-100 flex items-center justify-center sl-display text-[13px] text-ink-900 cursor-pointer hover:brightness-95 active:scale-95 transition-transform"
+          style={{ border: '1.5px solid var(--color-accent)' }}
+        >
+          {initials}
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-2 shrink-0">

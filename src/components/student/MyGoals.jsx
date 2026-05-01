@@ -220,7 +220,7 @@ export default function MyGoals() {
           <div className="sl-label text-ink-400">Milestones</div>
           <h1 className="sl-display text-[32px] md:text-[44px] text-gray-900 leading-none mt-1">Goals.</h1>
         </div>
-        <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
+        <UserMenu fullName={profile?.full_name} onSignOut={signOut} profileHref="/student/profile" />
       </div>
 
       {(!goals || goals.length === 0) && (

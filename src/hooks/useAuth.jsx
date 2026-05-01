@@ -59,11 +59,42 @@ export function AuthProvider({ children }) {
     setProfile(null);
   }, []);
 
+  /**
+   * Patch the signed-in user's `profiles` row and refresh the in-memory
+   * `profile` state on success. Callers pass only the columns they want to
+   * update (e.g. `{ full_name }`); the DB-side trigger pins `id`, `role`
+   * and `created_at` so a malicious payload can't escalate role.
+   */
+  const updateProfile = useCallback(
+    async (patch) => {
+      if (!user?.id) return { error: new Error('Not signed in') };
+      const { data, error } = await supabase
+        .from('profiles')
+        .update(patch)
+        .eq('id', user.id)
+        .select()
+        .single();
+      if (!error && data) setProfile(data);
+      return { error };
+    },
+    [user?.id]
+  );
+
+  /**
+   * Update the signed-in user's auth password. Wraps Supabase's
+   * `auth.updateUser` so the Profile page doesn't have to import supabase
+   * directly. Returns `{ error }` shaped like the rest of this context.
+   */
+  const updatePassword = useCallback(async (newPassword) => {
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    return { error };
+  }, []);
+
   const role = profile?.role ?? null;
 
   const value = useMemo(
-    () => ({ user, profile, role, isLoading, signIn, signOut }),
-    [user, profile, role, isLoading, signIn, signOut]
+    () => ({ user, profile, role, isLoading, signIn, signOut, updateProfile, updatePassword }),
+    [user, profile, role, isLoading, signIn, signOut, updateProfile, updatePassword]
   );
 
   return (

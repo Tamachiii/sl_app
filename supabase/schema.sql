@@ -208,6 +208,14 @@ CREATE POLICY "Students read their coach profile"
     id IN (SELECT coach_id FROM public.students WHERE profile_id = auth.uid())
   );
 
+-- Self-rename: lets the Student Profile page update its own full_name. The
+-- BEFORE UPDATE trigger below pins `id`, `role`, and `created_at` so a
+-- student cannot promote themselves to coach via the same payload.
+CREATE POLICY "Users update own profile"
+  ON public.profiles FOR UPDATE
+  USING (id = auth.uid())
+  WITH CHECK (id = auth.uid());
+
 -- STUDENTS
 CREATE POLICY "Coaches see their students"
   ON public.students FOR SELECT
@@ -666,6 +674,27 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW
   EXECUTE FUNCTION public.handle_new_user();
+
+-- ============================================================
+-- TRIGGER: pin profile id/role/created_at on UPDATE
+-- Defense in depth for the "Users update own profile" policy: even if a
+-- payload sets `role: 'coach'`, this trigger reverts it before the row hits
+-- the table, so a student can never promote themselves.
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.profiles_pin_immutable_columns()
+RETURNS trigger AS $$
+BEGIN
+  NEW.id := OLD.id;
+  NEW.role := OLD.role;
+  NEW.created_at := OLD.created_at;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER profiles_pin_immutable_columns
+  BEFORE UPDATE ON public.profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.profiles_pin_immutable_columns();
 
 -- ============================================================
 -- TRIGGER: restrict student goal updates to achieved/achieved_at only

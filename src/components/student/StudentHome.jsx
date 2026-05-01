@@ -105,7 +105,7 @@ function Greeting({ fullName, todayDN, todaysMessage, activeWeek, onSignOut }) {
           <div className="sl-display text-[32px] md:text-[44px] text-gray-900 truncate">{t('student.home.hey')}, {firstName}.</div>
           <p className="sl-mono text-[11px] text-ink-400 mt-2">{todaysMessage}</p>
         </div>
-        <UserMenu fullName={fullName} onSignOut={onSignOut} />
+        <UserMenu fullName={fullName} onSignOut={onSignOut} profileHref="/student/profile" />
       </div>
     </div>
   );
