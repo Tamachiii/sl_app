@@ -57,13 +57,14 @@ describe('SetRow', () => {
     expect(mockToggleDone.mutate).toHaveBeenCalledWith({ logId: 'log-1', done: true });
   });
 
-  it('tap on indicator clears done → pending', async () => {
+  it('tap on indicator advances done → failed', async () => {
     const user = userEvent.setup();
     renderSetRow({ ...baseLog, done: true });
 
-    const indicator = screen.getByRole('button', { name: /mark set undone/i });
+    const indicator = screen.getByRole('button', { name: /mark set failed/i });
     await user.click(indicator);
-    expect(mockToggleDone.mutate).toHaveBeenCalledWith({ logId: 'log-1', done: false });
+    expect(mockSetFailed.mutate).toHaveBeenCalledWith({ logId: 'log-1', failed: true });
+    expect(mockToggleDone.mutate).not.toHaveBeenCalled();
   });
 
   it('tap on indicator clears failed → pending', async () => {
@@ -73,6 +74,22 @@ describe('SetRow', () => {
     const indicator = screen.getByRole('button', { name: /clear failed/i });
     await user.click(indicator);
     expect(mockSetFailed.mutate).toHaveBeenCalledWith({ logId: 'log-1', failed: false });
+  });
+
+  it('tap cycles neutral → done → failed → neutral over successive renders', async () => {
+    const user = userEvent.setup();
+
+    const { rerender } = render(<SetRow log={baseLog} />);
+    await user.click(screen.getByRole('button', { name: /mark set done/i }));
+    expect(mockToggleDone.mutate).toHaveBeenLastCalledWith({ logId: 'log-1', done: true });
+
+    rerender(<SetRow log={{ ...baseLog, done: true }} />);
+    await user.click(screen.getByRole('button', { name: /mark set failed/i }));
+    expect(mockSetFailed.mutate).toHaveBeenLastCalledWith({ logId: 'log-1', failed: true });
+
+    rerender(<SetRow log={{ ...baseLog, failed: true }} />);
+    await user.click(screen.getByRole('button', { name: /clear failed/i }));
+    expect(mockSetFailed.mutate).toHaveBeenLastCalledWith({ logId: 'log-1', failed: false });
   });
 
   it('renders RPE buttons', () => {

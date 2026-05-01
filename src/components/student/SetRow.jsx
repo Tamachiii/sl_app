@@ -71,9 +71,13 @@ const SetRow = memo(function SetRow({ log, locked = false, showTarget = false, r
 
   const rpeLocked = locked || failed;
 
+  // Tap cycles neutral → done → failed → neutral, mirroring the swipe outcomes
+  // so both interactions reach every state. The done → failed step is one
+  // write: patchForFailed(true) clears `done` in the same UPDATE, so the DB
+  // CHECK set_logs_done_xor_failed never sees an intermediate both-true row.
   function handleIndicatorTap() {
     if (locked) return;
-    if (log.done) toggleDone.mutate({ logId: log.id, done: false });
+    if (log.done) setFailed.mutate({ logId: log.id, failed: true });
     else if (failed) setFailed.mutate({ logId: log.id, failed: false });
     else toggleDone.mutate({ logId: log.id, done: true });
   }
@@ -143,7 +147,7 @@ const SetRow = memo(function SetRow({ log, locked = false, showTarget = false, r
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
       </svg>
     );
-    indicatorAriaLabel = 'Mark set undone';
+    indicatorAriaLabel = 'Mark set failed';
   } else if (failed) {
     indicatorBg = 'text-white';
     indicatorContent = (
