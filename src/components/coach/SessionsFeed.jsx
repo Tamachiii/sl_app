@@ -96,6 +96,7 @@ export default function SessionsFeed() {
 
   function renderCard(c) {
     const isArchived = !!c.archived_at;
+    const isReviewed = !!c.reviewed_at;
     return (
       <Link
         key={c.id}
@@ -112,6 +113,17 @@ export default function SessionsFeed() {
             {c.student_name}
           </span>
           <div className="flex items-center gap-1.5 shrink-0">
+            {isReviewed && (
+              <span
+                className="sl-pill"
+                style={{
+                  background: 'color-mix(in srgb, var(--color-success) 18%, transparent)',
+                  color: 'var(--color-ink-900)',
+                }}
+              >
+                {t('coach.sessions.reviewed')}
+              </span>
+            )}
             {isArchived && (
               <span
                 className="sl-pill"

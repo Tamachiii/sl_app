@@ -48,7 +48,7 @@ export function useAllConfirmations() {
         .select(`
           id, student_id,
           weeks(id, week_number, label,
-            sessions(id, title, day_number, archived_at)
+            sessions(id, title, day_number, archived_at, reviewed_at)
           )
         `);
       if (pErr) throw pErr;
@@ -65,6 +65,7 @@ export function useAllConfirmations() {
               session_title: s.title,
               day_number: s.day_number,
               archived_at: s.archived_at,
+              reviewed_at: s.reviewed_at,
               week_number: w.week_number,
               week_label: w.label,
               student_id: prog.student_id,

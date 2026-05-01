@@ -58,8 +58,12 @@ CREATE TABLE public.sessions (
   sort_order     int  NOT NULL DEFAULT 0,
   scheduled_date date,
   archived_at    timestamptz,
+  reviewed_at    timestamptz,
   created_at     timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE INDEX IF NOT EXISTS sessions_reviewed_idx
+  ON public.sessions (reviewed_at) WHERE reviewed_at IS NOT NULL;
 
 -- Exercise library (shared per coach)
 CREATE TABLE public.exercise_library (
@@ -1000,6 +1004,12 @@ BEGIN
   SELECT COALESCE(NULLIF(BTRIM(s.title), ''), 'Session') INTO v_session_title
     FROM public.sessions s
    WHERE s.id = NEW.session_id;
+
+  -- Sending feedback also marks the session reviewed (idempotent).
+  UPDATE public.sessions
+     SET reviewed_at = NEW.created_at
+   WHERE id = NEW.session_id
+     AND reviewed_at IS NULL;
 
   INSERT INTO public.notifications (recipient_id, kind, payload)
   VALUES (

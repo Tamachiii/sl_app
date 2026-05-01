@@ -168,6 +168,7 @@ const en = {
       allArchived: 'No sessions to review — all confirmed sessions are archived.',
       hideArchived: 'Hide {n} archived',
       showArchived: 'Show {n} archived',
+      reviewed: 'Reviewed',
     },
     library: {
       kicker: 'Catalog',
@@ -241,6 +242,9 @@ const en = {
     sendError: 'Couldn’t send the feedback. Try again.',
     alreadySentTitle: 'Feedback already sent.',
     alreadySentAt: 'Sent {when}.',
+    reviewedNoFeedbackTitle: 'Already reviewed.',
+    reviewedNoFeedbackBody: 'You finished this review without leaving feedback.',
+    reviewedAt: 'Marked reviewed {when}.',
   },
 };
 

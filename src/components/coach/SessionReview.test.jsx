@@ -8,6 +8,7 @@ let mockConfirmation = { data: null, isLoading: false };
 let mockSessionFeedback = { data: null, isLoading: false };
 const mockNavigate = vi.fn();
 const mockArchive = { mutate: vi.fn(), isPending: false };
+const mockMarkReviewed = { mutate: vi.fn(), isPending: false };
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
@@ -20,6 +21,7 @@ vi.mock('react-router-dom', async () => {
 
 vi.mock('../../hooks/useSession', () => ({
   useSession: () => mockSessionData,
+  useMarkSessionReviewed: () => mockMarkReviewed,
 }));
 vi.mock('../../hooks/useSetLogs', () => ({
   useSetLogs: () => mockSetLogsData,
@@ -63,6 +65,7 @@ beforeEach(() => {
   mockSessionFeedback = { data: null, isLoading: false };
   mockNavigate.mockReset();
   mockArchive.mutate.mockReset();
+  mockMarkReviewed.mutate.mockReset();
   window.localStorage.clear();
 });
 
@@ -191,5 +194,41 @@ describe('<SessionReview />', () => {
     renderReview();
     expect(screen.queryByPlaceholderText(/What went well/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/already sent/i)).not.toBeInTheDocument();
+  });
+
+  it('renders the "reviewed without feedback" card when reviewed_at is set and no feedback exists', () => {
+    mockSessionData = {
+      data: {
+        id: 'sess-1',
+        title: 'Push',
+        archived_at: null,
+        reviewed_at: '2026-04-30T09:00:00Z',
+        exercise_slots: [],
+      },
+      isLoading: false,
+    };
+    renderReview();
+    expect(screen.getByText(/already reviewed/i)).toBeInTheDocument();
+    expect(screen.getByText(/finished this review without leaving feedback/i)).toBeInTheDocument();
+    // Composer must be gone.
+    expect(screen.queryByPlaceholderText(/What went well/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /send feedback/i })).not.toBeInTheDocument();
+  });
+
+  it('"Finish without feedback" stamps reviewed_at via the mutation before navigating back', () => {
+    mockSessionData = {
+      data: { id: 'sess-1', title: 'Push', archived_at: null, exercise_slots: [] },
+      isLoading: false,
+    };
+    renderReview();
+    fireEvent.click(screen.getByRole('button', { name: /finish without feedback/i }));
+    expect(mockMarkReviewed.mutate).toHaveBeenCalledWith(
+      { sessionId: 'sess-1' },
+      expect.objectContaining({ onSettled: expect.any(Function) }),
+    );
+    // Trigger the onSettled callback so the component navigates.
+    const [, opts] = mockMarkReviewed.mutate.mock.calls[0];
+    opts.onSettled();
+    expect(mockNavigate).toHaveBeenCalledWith('/coach/sessions');
   });
 });

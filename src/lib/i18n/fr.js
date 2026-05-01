@@ -168,6 +168,7 @@ const fr = {
       allArchived: 'Aucune séance à revoir — tout est archivé.',
       hideArchived: 'Masquer {n} archivées',
       showArchived: 'Afficher {n} archivées',
+      reviewed: 'Revue',
     },
     library: {
       kicker: 'Catalogue',
@@ -241,6 +242,9 @@ const fr = {
     sendError: 'Échec de l’envoi du retour. Réessaie.',
     alreadySentTitle: 'Retour déjà envoyé.',
     alreadySentAt: 'Envoyé {when}.',
+    reviewedNoFeedbackTitle: 'Déjà revue.',
+    reviewedNoFeedbackBody: 'Tu as terminé cette revue sans laisser de retour.',
+    reviewedAt: 'Marquée revue {when}.',
   },
 };
 

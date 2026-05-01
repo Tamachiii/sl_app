@@ -12,6 +12,7 @@ import {
   useRemoveSet,
   useResetSlotToUniform,
   useDeleteSlot,
+  useMarkSessionReviewed,
 } from './useSession';
 import { supabase } from '../lib/supabase';
 
@@ -501,6 +502,41 @@ describe('useDeleteSlot', () => {
 
     expect(chain.eq).toHaveBeenCalledWith('id', 'sl-1');
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['session', 's-1'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['week'] });
+  });
+});
+
+describe('useMarkSessionReviewed', () => {
+  it('UPDATEs sessions WHERE reviewed_at IS NULL and invalidates session + feed caches', async () => {
+    const chain = {
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      is: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({
+        data: { id: 's-1', reviewed_at: '2026-05-01T10:00:00Z' },
+        error: null,
+      }),
+    };
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useMarkSessionReviewed(), { wrapper: withClient(qc) });
+    result.current.mutate({ sessionId: 's-1' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(supabase.from).toHaveBeenCalledWith('sessions');
+    expect(chain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ reviewed_at: expect.any(String) }),
+    );
+    expect(chain.eq).toHaveBeenCalledWith('id', 's-1');
+    // Idempotency guard — the UPDATE is scoped to rows that aren't already
+    // reviewed, so re-firing the mutation can't rewind the timestamp.
+    expect(chain.is).toHaveBeenCalledWith('reviewed_at', null);
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['session', 's-1'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['all-confirmations'] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['week'] });
   });
 });

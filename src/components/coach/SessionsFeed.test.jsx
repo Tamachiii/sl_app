@@ -101,4 +101,23 @@ describe('SessionsFeed', () => {
     renderFeed();
     expect(screen.getByText('Felt really strong today')).toBeInTheDocument();
   });
+
+  it('shows a "Reviewed" pill on cards whose session has been reviewed', () => {
+    mockConfirmations = {
+      data: [
+        makeConfirmation({ id: 'c-r', session_id: 's-r', student_name: 'Reviewed Rita', session_title: 'Pulled', reviewed_at: '2026-04-30T09:00:00Z' }),
+        makeConfirmation({ id: 'c-u', session_id: 's-u', student_name: 'Unreviewed Una', session_title: 'Pushed' }),
+      ],
+      isLoading: false,
+    };
+    renderFeed();
+    // One pill, on the reviewed card only.
+    const pills = screen.getAllByText(/^Reviewed$/i);
+    expect(pills).toHaveLength(1);
+    // The pill is inside the same card link as the reviewed session.
+    const reviewedCard = screen.getByText('Pulled').closest('a');
+    expect(reviewedCard).toContainElement(pills[0]);
+    const unreviewedCard = screen.getByText('Pushed').closest('a');
+    expect(unreviewedCard).not.toContainElement(pills[0]);
+  });
 });

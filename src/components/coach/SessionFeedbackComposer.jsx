@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
 import { useSendMessage } from '../../hooks/useMessages';
+import { useMarkSessionReviewed } from '../../hooks/useSession';
 
 const MAX_LEN = 4000;
 
@@ -10,8 +11,10 @@ const MAX_LEN = 4000;
  *
  * Posts a message into the existing coach↔student thread with `session_id`
  * attached. The DB trigger fires a `session_feedback` notification on the
- * student. Coach can also "finish without feedback" — same skip path as
- * before, just navigates back.
+ * student AND stamps `sessions.reviewed_at` so the session is marked
+ * reviewed. The coach can also "finish without feedback" — that path stamps
+ * `reviewed_at` directly via useMarkSessionReviewed before navigating back,
+ * so a session can't be re-reviewed.
  *
  * Has three render states:
  *   1. composer (default)
@@ -27,6 +30,7 @@ export default function SessionFeedbackComposer({
   const { t } = useI18n();
   const navigate = useNavigate();
   const sendMessage = useSendMessage();
+  const markReviewed = useMarkSessionReviewed();
 
   const [body, setBody] = useState('');
   const [error, setError] = useState(null);
@@ -57,7 +61,19 @@ export default function SessionFeedbackComposer({
   }
 
   function handleSkip() {
-    if (onFinish) onFinish();
+    // "Finish without feedback" is the explicit completion gesture — stamp
+    // reviewed_at so the session can't be re-reviewed. The mutation is
+    // idempotent (no-op when reviewed_at is already set), and we navigate
+    // away regardless of success so a transient network blip doesn't strand
+    // the coach on the review page.
+    if (sessionId) {
+      markReviewed.mutate(
+        { sessionId },
+        { onSettled: () => onFinish?.() },
+      );
+    } else {
+      onFinish?.();
+    }
   }
 
   if (sentAt) {

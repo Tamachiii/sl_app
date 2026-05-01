@@ -363,6 +363,33 @@ export function useResetSlotToUniform() {
   });
 }
 
+// Stamp `sessions.reviewed_at = NOW()`. Coach-only — RLS scopes UPDATE to the
+// session's coach. Idempotent: the WHERE clause skips already-reviewed rows so
+// re-firing the mutation can't rewind the timestamp. Used by the "Finish
+// without feedback" path; sending feedback marks reviewed via the DB trigger.
+export function useMarkSessionReviewed() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ sessionId }) => {
+      const { data, error } = await supabase
+        .from('sessions')
+        .update({ reviewed_at: new Date().toISOString() })
+        .eq('id', sessionId)
+        .is('reviewed_at', null)
+        .select('id, reviewed_at')
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ['session', vars.sessionId] });
+      qc.invalidateQueries({ queryKey: ['all-confirmations'] });
+      qc.invalidateQueries({ queryKey: ['week'] });
+    },
+  });
+}
+
 export function useDeleteSlot() {
   const qc = useQueryClient();
 

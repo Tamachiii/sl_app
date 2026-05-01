@@ -168,6 +168,7 @@ const de = {
       allArchived: 'Keine Einheiten zu prüfen — alle bestätigten sind archiviert.',
       hideArchived: '{n} archivierte ausblenden',
       showArchived: '{n} archivierte anzeigen',
+      reviewed: 'Geprüft',
     },
     library: {
       kicker: 'Katalog',
@@ -241,6 +242,9 @@ const de = {
     sendError: 'Senden fehlgeschlagen. Bitte erneut versuchen.',
     alreadySentTitle: 'Feedback bereits gesendet.',
     alreadySentAt: 'Gesendet {when}.',
+    reviewedNoFeedbackTitle: 'Bereits geprüft.',
+    reviewedNoFeedbackBody: 'Du hast diese Auswertung ohne Feedback abgeschlossen.',
+    reviewedAt: 'Geprüft markiert {when}.',
   },
 };
 

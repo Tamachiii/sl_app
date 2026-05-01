@@ -17,6 +17,7 @@ import { useSessionFeedback } from '../../hooks/useMessages';
 import SlotProgress from './SlotProgress';
 import SessionFeedbackComposer from './SessionFeedbackComposer';
 import SessionFeedbackSent from './SessionFeedbackSent';
+import SessionReviewedNoFeedback from './SessionReviewedNoFeedback';
 import {
   formatRestSeconds,
   groupSlotsBySuperset,
@@ -280,15 +281,22 @@ export default function SessionReview() {
         })}
       </div>
 
-      {/* Feedback step — optional. If a feedback message already exists for
-          this session (UNIQUE index on messages.session_id keeps it ≤ 1), we
-          render a read-only card so the coach can't submit twice. Otherwise
-          the composer is shown and "skip" just navigates back, matching the
-          previous Review-flow exit. */}
+      {/* Feedback step — three branches based on `sessions.reviewed_at` and
+          whether a feedback message exists. Feedback is one-shot per session
+          (UNIQUE index on messages.session_id), and the review itself is
+          one-shot (reviewed_at, set either by the feedback trigger or by
+          "Finish without feedback"). The back-arrow at the top is NOT a
+          completion gesture — it leaves the session reviewable. */}
       {!feedbackLoading && (
         existingFeedback ? (
           <SessionFeedbackSent
             feedback={existingFeedback}
+            studentProfileId={student?.profile_id}
+            onFinish={handleBack}
+          />
+        ) : session?.reviewed_at ? (
+          <SessionReviewedNoFeedback
+            reviewedAt={session.reviewed_at}
             studentProfileId={student?.profile_id}
             onFinish={handleBack}
           />
