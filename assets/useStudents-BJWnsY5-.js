@@ -1,0 +1,4 @@
+import{u as n}from"./query-BvURaymP.js";import{u as s,s as o}from"./index-C_j74265.js";function a(){const{user:e}=s();return n({queryKey:["students"],queryFn:async()=>{const{data:r,error:t}=await o.from("students").select(`
+          *,
+          profile:profiles!students_profile_id_fkey(full_name)
+        `).order("created_at");if(t)throw t;return r},enabled:!!e})}function d(){const{user:e}=s();return n({queryKey:["my-student-id",e==null?void 0:e.id],queryFn:async()=>{const{data:r,error:t}=await o.from("students").select("id").eq("profile_id",e.id).single();if(t)throw t;return r.id},enabled:!!(e!=null&&e.id)})}function c(){const{user:e}=s();return n({queryKey:["my-coach",e==null?void 0:e.id],queryFn:async()=>{const{data:r,error:t}=await o.from("students").select("coach:profiles!students_coach_id_fkey(id, full_name)").eq("profile_id",e.id).single();if(t)throw t;return(r==null?void 0:r.coach)||null},enabled:!!(e!=null&&e.id)})}export{d as a,c as b,a as u};
