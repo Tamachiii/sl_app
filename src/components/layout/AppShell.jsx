@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import BottomNav from './BottomNav';
 import SideNav from './SideNav';
+import OfflineBanner from '../ui/OfflineBanner';
 import { useMessagesRealtime } from '../../hooks/useMessages';
 import { useNotificationsRealtime } from '../../hooks/useNotifications';
 
@@ -40,6 +42,23 @@ function useKeyboardInset() {
   }, []);
 }
 
+// React Query's online-mode resume only fires when its own focus/online
+// listeners trigger; if the browser fires `online` while we're hydrating or
+// the tab was backgrounded, paused mutations can sit forever. Force a resume
+// on every `online` event so a queued set/RPE/confirm always reaches the
+// server within a tick of reconnection.
+function useAutoResumeMutations() {
+  const qc = useQueryClient();
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onOnline = () => {
+      qc.resumePausedMutations();
+    };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [qc]);
+}
+
 export default function AppShell() {
   const mainRef = useRef(null);
   const { pathname } = useLocation();
@@ -52,6 +71,9 @@ export default function AppShell() {
 
   // Soft-keyboard tracking → `--kb-inset` CSS var (see hook docstring).
   useKeyboardInset();
+
+  // Drain any offline mutation queue the moment connectivity returns.
+  useAutoResumeMutations();
 
   useEffect(() => {
     mainRef.current?.scrollTo({ top: 0, left: 0 });
@@ -69,6 +91,7 @@ export default function AppShell() {
           paddingRight: 'env(safe-area-inset-right)',
         }}
       >
+        <OfflineBanner />
         <div className="mx-auto w-full max-w-5xl min-h-full flex flex-col">
           <Outlet />
         </div>

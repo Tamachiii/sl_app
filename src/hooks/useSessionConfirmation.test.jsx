@@ -219,9 +219,9 @@ describe('useWeekConfirmedSessionIds', () => {
 });
 
 describe('useConfirmSession / useUnconfirmSession', () => {
-  it('useConfirmSession inserts with student_id from auth', async () => {
+  it('useConfirmSession upserts with student_id from auth', async () => {
     const chain = {
-      insert: vi.fn().mockReturnThis(),
+      upsert: vi.fn().mockReturnThis(),
       select: vi.fn().mockReturnThis(),
       single: vi.fn().mockResolvedValue({ data: { id: 'c-1' }, error: null }),
     };
@@ -233,17 +233,19 @@ describe('useConfirmSession / useUnconfirmSession', () => {
     result.current.mutate({ sessionId: 's-1', notes: 'felt good' });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    const inserted = chain.insert.mock.calls[0][0];
-    expect(inserted.session_id).toBe('s-1');
-    expect(inserted.student_id).toBe('user-1');
-    expect(inserted.notes).toBe('felt good');
+    const [payload, options] = chain.upsert.mock.calls[0];
+    expect(payload.session_id).toBe('s-1');
+    expect(payload.student_id).toBe('user-1');
+    expect(payload.notes).toBe('felt good');
+    // onConflict on session_id keeps offline replay idempotent.
+    expect(options).toEqual({ onConflict: 'session_id' });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['my-confirmed-session-ids'] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['week-confirmed-session-ids'] });
   });
 
   it('useConfirmSession sends notes=null for empty/missing notes', async () => {
     const chain = {
-      insert: vi.fn().mockReturnThis(),
+      upsert: vi.fn().mockReturnThis(),
       select: vi.fn().mockReturnThis(),
       single: vi.fn().mockResolvedValue({ data: { id: 'c-1' }, error: null }),
     };
@@ -253,7 +255,7 @@ describe('useConfirmSession / useUnconfirmSession', () => {
     const { result } = renderHook(() => useConfirmSession(), { wrapper: withClient(qc) });
     result.current.mutate({ sessionId: 's-1' });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(chain.insert.mock.calls[0][0].notes).toBeNull();
+    expect(chain.upsert.mock.calls[0][0].notes).toBeNull();
   });
 
   it('useUnconfirmSession deletes by session_id and invalidates the confirmation caches', async () => {

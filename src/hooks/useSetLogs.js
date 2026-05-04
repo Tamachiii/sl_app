@@ -1,5 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import {
+  MUTATION_KEYS,
+  MUTATION_FNS,
+  patchForDone,
+  patchForFailed,
+} from '../lib/offlineMutations';
 
 export function useSetLogs(sessionId, slots) {
   const slotIds = (slots || []).map((s) => s.id).sort();
@@ -68,39 +74,12 @@ export function useEnsureSetLogs() {
   });
 }
 
-// done and failed are mutually exclusive (DB CHECK set_logs_done_xor_failed).
-// Marking a set done clears any prior failed flag, and vice versa, so the
-// student can flip outcomes via swipe without having to "reset" first.
-function patchForDone(done) {
-  return done
-    ? { done: true, failed: false, logged_at: new Date().toISOString(), failed_at: null }
-    : { done: false, logged_at: null };
-}
-
-function patchForFailed(failed) {
-  // RPE is meaningless on a set the student didn't complete — null it out on
-  // the same write so a student who rated then later marked failed doesn't
-  // leave an orphan rating. The DB CHECK set_logs_no_rpe_when_failed enforces
-  // this server-side too.
-  return failed
-    ? { failed: true, done: false, failed_at: new Date().toISOString(), logged_at: null, rpe: null }
-    : { failed: false, failed_at: null };
-}
-
 export function useToggleSetDone() {
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ logId, done }) => {
-      const { data, error } = await supabase
-        .from('set_logs')
-        .update(patchForDone(done))
-        .eq('id', logId)
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    },
+    mutationKey: MUTATION_KEYS.toggleDone,
+    mutationFn: MUTATION_FNS.toggleDone,
     onMutate: async ({ logId, done }) => {
       await qc.cancelQueries({ queryKey: ['set-logs'] });
       const previousQueries = qc.getQueriesData({ queryKey: ['set-logs'] });
@@ -126,16 +105,8 @@ export function useSetFailed() {
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ logId, failed }) => {
-      const { data, error } = await supabase
-        .from('set_logs')
-        .update(patchForFailed(failed))
-        .eq('id', logId)
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    },
+    mutationKey: MUTATION_KEYS.setFailed,
+    mutationFn: MUTATION_FNS.setFailed,
     onMutate: async ({ logId, failed }) => {
       await qc.cancelQueries({ queryKey: ['set-logs'] });
       const previousQueries = qc.getQueriesData({ queryKey: ['set-logs'] });
@@ -161,17 +132,23 @@ export function useSetRpe() {
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ logId, rpe }) => {
-      const { data, error } = await supabase
-        .from('set_logs')
-        .update({ rpe })
-        .eq('id', logId)
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
+    mutationKey: MUTATION_KEYS.setRpe,
+    mutationFn: MUTATION_FNS.setRpe,
+    onMutate: async ({ logId, rpe }) => {
+      await qc.cancelQueries({ queryKey: ['set-logs'] });
+      const previousQueries = qc.getQueriesData({ queryKey: ['set-logs'] });
+      qc.setQueriesData({ queryKey: ['set-logs'] }, (old) => {
+        if (!old) return old;
+        return old.map((log) => (log.id === logId ? { ...log, rpe } : log));
+      });
+      return { previousQueries };
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['set-logs'] }),
+    onError: (_err, _vars, context) => {
+      context?.previousQueries?.forEach(([queryKey, oldData]) => {
+        qc.setQueryData(queryKey, oldData);
+      });
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['set-logs'] }),
   });
 }
 

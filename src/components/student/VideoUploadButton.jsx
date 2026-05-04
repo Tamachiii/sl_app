@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react';
 import { useUploadSetVideo, useDeleteSetVideo } from '../../hooks/useSetVideo';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { useI18n } from '../../hooks/useI18n';
 import VideoLightbox from '../ui/VideoLightbox';
 import VideoPlayer from '../ui/VideoPlayer';
 
@@ -13,6 +15,8 @@ export default function VideoUploadButton({
   const inputRef = useRef(null);
   const upload = useUploadSetVideo();
   const deleteVideo = useDeleteSetVideo();
+  const isOnline = useOnlineStatus();
+  const { t } = useI18n();
   const [err, setErr] = useState(null);
   const [viewerOpen, setViewerOpen] = useState(false);
 
@@ -37,6 +41,10 @@ export default function VideoUploadButton({
   }
 
   const busy = upload.isPending || deleteVideo.isPending;
+  // Storage uploads need a live connection (Supabase Storage has no resumable
+  // background upload). Playback of already-uploaded videos still works
+  // offline via the existing signed-URL cache.
+  const uploadDisabled = disabled || busy || !isOnline;
 
   return (
     <>
@@ -46,7 +54,7 @@ export default function VideoUploadButton({
         accept="video/*"
         className="sr-only"
         onChange={handlePick}
-        disabled={disabled || busy}
+        disabled={uploadDisabled}
       />
       <div className="inline-flex items-center gap-2 flex-wrap">
         {existingVideo ? (
@@ -66,7 +74,8 @@ export default function VideoUploadButton({
             <button
               type="button"
               onClick={() => inputRef.current?.click()}
-              disabled={disabled || busy}
+              disabled={uploadDisabled}
+              title={!isOnline ? t('offline.videoNeedsOnline') : undefined}
               className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 disabled:opacity-50"
             >
               {upload.isPending ? 'Uploading…' : 'Replace'}
@@ -84,14 +93,19 @@ export default function VideoUploadButton({
           <button
             type="button"
             onClick={() => inputRef.current?.click()}
-            disabled={disabled || busy}
+            disabled={uploadDisabled}
+            title={!isOnline ? t('offline.videoNeedsOnline') : undefined}
             className="sl-pill disabled:opacity-50"
             style={{ background: 'var(--color-warn)', color: 'var(--color-ink-900)' }}
           >
             <svg className="w-3 h-3 inline-block mr-1" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
-            {upload.isPending ? 'Uploading…' : 'Upload video'}
+            {!isOnline
+              ? t('offline.videoNeedsOnline')
+              : upload.isPending
+                ? 'Uploading…'
+                : 'Upload video'}
           </button>
         )}
       </div>

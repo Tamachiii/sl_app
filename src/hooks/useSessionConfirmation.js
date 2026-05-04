@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
+import { MUTATION_KEYS, MUTATION_FNS } from '../lib/offlineMutations';
 
 /**
  * Fetch the confirmation (if any) for a single session.
@@ -150,36 +151,56 @@ function invalidateConfirmationQueries(qc) {
 export function useConfirmSession() {
   const qc = useQueryClient();
   const { user } = useAuth();
+  const studentId = user?.id;
 
-  return useMutation({
-    mutationFn: async ({ sessionId, notes }) => {
-      const { data, error } = await supabase
-        .from('session_confirmations')
-        .insert({
-          session_id: sessionId,
-          student_id: user.id,
-          notes: notes || null,
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
+  // Wrap the inner mutate so callers don't have to pass studentId (still
+  // serialized into the persisted variables so a resumed-after-reload mutation
+  // has every field it needs without re-reading from useAuth).
+  const m = useMutation({
+    mutationKey: MUTATION_KEYS.confirmSession,
+    mutationFn: MUTATION_FNS.confirmSession,
+    onMutate: async ({ sessionId, studentId: sid, notes }) => {
+      await qc.cancelQueries({ queryKey: ['session-confirmation', sessionId] });
+      const previous = qc.getQueryData(['session-confirmation', sessionId]);
+      qc.setQueryData(['session-confirmation', sessionId], {
+        session_id: sessionId,
+        student_id: sid,
+        notes: notes || null,
+        confirmed_at: new Date().toISOString(),
+      });
+      return { previous, sessionId };
     },
-    onSuccess: () => invalidateConfirmationQueries(qc),
+    onError: (_err, _vars, context) => {
+      if (context?.sessionId) {
+        qc.setQueryData(['session-confirmation', context.sessionId], context.previous);
+      }
+    },
+    onSettled: () => invalidateConfirmationQueries(qc),
   });
+  return {
+    ...m,
+    mutate: (vars, options) => m.mutate({ ...vars, studentId }, options),
+    mutateAsync: (vars, options) => m.mutateAsync({ ...vars, studentId }, options),
+  };
 }
 
 export function useUnconfirmSession() {
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ sessionId }) => {
-      const { error } = await supabase
-        .from('session_confirmations')
-        .delete()
-        .eq('session_id', sessionId);
-      if (error) throw error;
+    mutationKey: MUTATION_KEYS.unconfirmSession,
+    mutationFn: MUTATION_FNS.unconfirmSession,
+    onMutate: async ({ sessionId }) => {
+      await qc.cancelQueries({ queryKey: ['session-confirmation', sessionId] });
+      const previous = qc.getQueryData(['session-confirmation', sessionId]);
+      qc.setQueryData(['session-confirmation', sessionId], null);
+      return { previous, sessionId };
     },
-    onSuccess: () => invalidateConfirmationQueries(qc),
+    onError: (_err, _vars, context) => {
+      if (context?.sessionId) {
+        qc.setQueryData(['session-confirmation', context.sessionId], context.previous);
+      }
+    },
+    onSettled: () => invalidateConfirmationQueries(qc),
   });
 }

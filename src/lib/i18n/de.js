@@ -268,6 +268,14 @@ const de = {
     sessionRefLabel: 'Re: {title}',
     sessionRefOpen: 'Session öffnen',
   },
+  offline: {
+    bannerOffline: 'Offline — deine Änderungen werden synchronisiert, sobald du wieder online bist.',
+    bannerPending: '{n} Änderung wird synchronisiert…',
+    bannerPendingMany: '{n} Änderungen werden synchronisiert…',
+    bannerOfflineWithPending: 'Offline · {n} Änderung wartet auf Sync',
+    bannerOfflineWithPendingMany: 'Offline · {n} Änderungen warten auf Sync',
+    videoNeedsOnline: 'Online sein, um Video aufzunehmen',
+  },
   feedback: {
     sectionLabel: 'Feedback',
     coachKicker: 'Feedback an deinen Athleten',

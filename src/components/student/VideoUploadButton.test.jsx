@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 
 const mockUpload = { mutate: vi.fn(), isPending: false };
 const mockDelete = { mutate: vi.fn(), isPending: false };
@@ -12,9 +12,28 @@ vi.mock('../../hooks/useSetVideo', () => ({
 
 import VideoUploadButton from './VideoUploadButton';
 
+const onlineDescriptor = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(navigator),
+  'onLine'
+);
+
+function setOnline(value) {
+  Object.defineProperty(navigator, 'onLine', {
+    configurable: true,
+    get: () => value,
+  });
+}
+
+afterEach(() => {
+  if (onlineDescriptor) {
+    Object.defineProperty(Object.getPrototypeOf(navigator), 'onLine', onlineDescriptor);
+  }
+});
+
 beforeEach(() => {
   mockUpload.mutate.mockReset();
   mockDelete.mutate.mockReset();
+  setOnline(true);
 });
 
 describe('<VideoUploadButton />', () => {
@@ -69,6 +88,23 @@ describe('<VideoUploadButton />', () => {
     fireEvent.click(screen.getByText('Delete'));
     expect(mockDelete.mutate).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
+  });
+
+  it('disables the upload CTA and surfaces an offline hint when the device is offline', () => {
+    setOnline(false);
+    const { container } = render(
+      <VideoUploadButton setLogId="l-1" exerciseSlotId="sl-1" setNumber={1} />,
+    );
+    act(() => {
+      window.dispatchEvent(new Event('offline'));
+    });
+    // The CTA flips its label to the offline-hint message and goes disabled —
+    // a click should be a no-op while offline.
+    const cta = screen.getByRole('button');
+    expect(cta).toBeDisabled();
+    expect(cta).toHaveTextContent(/Connect to record video/i);
+    const fileInput = container.querySelector('input[type="file"]');
+    expect(fileInput).toBeDisabled();
   });
 
   it('calls useDeleteSetVideo when window.confirm returns true', () => {

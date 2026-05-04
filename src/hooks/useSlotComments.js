@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
+import { MUTATION_KEYS, MUTATION_FNS } from '../lib/offlineMutations';
 
 /**
  * Fetch all slot_comments for a session's slots in a single round-trip.
@@ -30,36 +31,18 @@ export function useSlotComments(sessionId, slots) {
 export function useSaveSlotComment() {
   const qc = useQueryClient();
   const { user } = useAuth();
+  const studentId = user?.id;
 
-  return useMutation({
-    mutationFn: async ({ sessionId, slotId, body }) => {
-      const trimmed = (body || '').trim();
-      if (!trimmed) {
-        const { error } = await supabase
-          .from('slot_comments')
-          .delete()
-          .eq('exercise_slot_id', slotId);
-        if (error) throw error;
-        return { sessionId, slotId, deleted: true };
-      }
-      const { data, error } = await supabase
-        .from('slot_comments')
-        .upsert(
-          {
-            exercise_slot_id: slotId,
-            student_id: user.id,
-            body: trimmed,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'exercise_slot_id' }
-        )
-        .select()
-        .single();
-      if (error) throw error;
-      return { sessionId, data };
-    },
-    onSuccess: ({ sessionId }) => {
-      qc.invalidateQueries({ queryKey: ['slot-comments', sessionId] });
+  const m = useMutation({
+    mutationKey: MUTATION_KEYS.saveSlotComment,
+    mutationFn: MUTATION_FNS.saveSlotComment,
+    onSettled: (_data, _err, vars) => {
+      qc.invalidateQueries({ queryKey: ['slot-comments', vars?.sessionId] });
     },
   });
+  return {
+    ...m,
+    mutate: (vars, options) => m.mutate({ ...vars, studentId }, options),
+    mutateAsync: (vars, options) => m.mutateAsync({ ...vars, studentId }, options),
+  };
 }

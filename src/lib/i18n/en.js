@@ -268,6 +268,14 @@ const en = {
     sessionRefLabel: 'Re: {title}',
     sessionRefOpen: 'Open session',
   },
+  offline: {
+    bannerOffline: 'Offline — your changes will sync when you reconnect.',
+    bannerPending: 'Syncing {n} change…',
+    bannerPendingMany: 'Syncing {n} changes…',
+    bannerOfflineWithPending: 'Offline · {n} change waiting to sync',
+    bannerOfflineWithPendingMany: 'Offline · {n} changes waiting to sync',
+    videoNeedsOnline: 'Connect to record video',
+  },
   feedback: {
     sectionLabel: 'Feedback',
     coachKicker: 'Send feedback to your student',
