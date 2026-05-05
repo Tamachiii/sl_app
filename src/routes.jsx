@@ -1,10 +1,22 @@
 import { lazy, Suspense } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
+import { useAuth } from './hooks/useAuth';
 
 function RedirectToStudentGoals() {
   const { studentId } = useParams();
   return <Navigate to={`/coach/students/${studentId}/goals`} replace />;
 }
+
+// Bare "/" lands here when an already-authenticated user opens the app
+// without a hash route — most commonly an iOS PWA cold launch, which
+// loads the manifest start_url (`/sl_app/`) with no hash. Without this,
+// HashRouter sees pathname `/` and the wildcard renders the 404 page.
+function RedirectToRoleHome() {
+  const { role } = useAuth();
+  if (!role) return <Navigate to="/login" replace />;
+  return <Navigate to={`/${role}`} replace />;
+}
+
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import RoleGate from './components/auth/RoleGate';
 import AppShell from './components/layout/AppShell';
@@ -51,6 +63,10 @@ export const routes = [
       {
         element: <AppShell />,
         children: [
+          // Bare "/" — send signed-in users to their role home so an iOS
+          // PWA cold launch (start_url `/sl_app/`, no hash) doesn't land
+          // on the 404 page.
+          { index: true, element: <RedirectToRoleHome /> },
           // Coach routes
           {
             element: <RoleGate allowed="coach" />,
