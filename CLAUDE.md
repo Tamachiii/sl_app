@@ -63,29 +63,29 @@ Jump straight to the relevant files. For *behavior* details, open the file — t
 |---|---|
 | Auth / login | `auth/LoginPage`, `hooks/useAuth`, `routes.jsx` |
 | Coach dashboard | `coach/CoachDashboard`, `coach/StudentWeekStrip`, `hooks/useStudents`, `hooks/useSessionConfirmation`, `hooks/useProgram` |
-| Coach single-student view (tabbed) | `coach/CoachHome` (layout + tab strip), `coach/StudentProfileSection` (owns "View sessions" + "Message" actions), `coach/StudentProgrammingSection`, `coach/StudentGoalsSection`, `coach/StudentStatsSection`, `routes.jsx` (nested `/coach/students/:id/{profile,programming,goals,stats}`) |
+| Coach single-student view (tabbed) | `coach/CoachHome`, `coach/StudentProfileSection`, `coach/StudentProgrammingSection`, `coach/StudentGoalsSection`, `coach/StudentStatsSection`, `routes.jsx` |
 | Coach programs CRUD | `coach/ProgramSwitcher`, `hooks/useProgram` |
 | Coach week reordering | `coach/WeekTimeline`, `hooks/useWeek` (`useReorderWeeks`) |
 | Coach sessions feed | `coach/SessionsFeed`, `hooks/useSessionConfirmation` |
 | Coach week view | `coach/WeekView`, `hooks/useWeek`, `hooks/useDuplicate` |
 | Coach session editor | `coach/SessionEditor`, `coach/ExerciseSlotRow`, `hooks/useSession`, `hooks/useExerciseLibrary` |
-| Coach session review | `coach/SessionReview`, `coach/SessionFeedbackComposer`, `coach/SessionFeedbackSent`, `coach/SessionReviewedNoFeedback`, `hooks/useSession` (`useMarkSessionReviewed`), `hooks/useSetLogs`, `hooks/useSlotComments`, `hooks/useSessionConfirmation`, `hooks/useMessages` (`useSessionFeedback`) |
+| Coach session review | `coach/SessionReview`, `coach/SessionFeedbackComposer`, `coach/SessionFeedbackSent`, `coach/SessionReviewedNoFeedback`, `hooks/useSession`, `hooks/useSetLogs`, `hooks/useSlotComments`, `hooks/useSessionConfirmation`, `hooks/useMessages` |
 | Set video upload/playback | `student/VideoUploadButton`, `ui/VideoPlayer`, `coach/SessionReview`, `hooks/useSetVideo` |
 | Coach exercise library | `coach/ExerciseLibrary`, `hooks/useExerciseLibrary` |
 | Student home | `student/StudentHome`, `student/SessionCard`, `hooks/useStudentProgramDetails`, `hooks/useSessionConfirmation` |
 | Student sessions list | `student/StudentSessions`, `student/SessionCard`, `hooks/useStudentProgramDetails` |
-| Student stats | `student/StudentDashboard`, `student/SessionCalendar`, `student/ExerciseProgressChart`, `student/ProgramScopeSelector`, `lib/statsPrefs.js` (program-scope + exercise-selection persistence), `hooks/useStudentProgressStats`, `hooks/useStudentHistoricalSessions`, `hooks/useStudents` (`useMyStudentId`) |
+| Student stats | `student/StudentDashboard`, `student/SessionCalendar`, `student/ExerciseProgressChart`, `student/ProgramScopeSelector`, `lib/statsPrefs.js`, `hooks/useStudentProgressStats`, `hooks/useStudentHistoricalSessions`, `hooks/useStudents` |
 | Student session logging | `student/SessionView`, `student/SetRow`, `student/RpeInput`, `hooks/useSession`, `hooks/useSetLogs` |
 | Coach goals (per student) | `coach/StudentGoalsSection`, `hooks/useGoals` |
-| Student goals | `student/MyGoals`, `hooks/useGoals`. Routed at `/student/goals` but **not** a bottom-nav tab — the student-side bar is 4 tabs (Home, Sessions, Stats, Messages); Goals is reached from the Profile page's "Active goal" card via "View all". Bookmarks and deep links to `/student/goals` still work. |
-| Student profile | `student/StudentProfile`, `hooks/useStudentLifetimeStats`, `hooks/useAuth` (`updateProfile`, `updatePassword`), `hooks/useStudents` (`useMyCoach`), `hooks/useGoals` (`useMyGoals`). Reached by tapping the avatar on any student page. Houses display-name edit, coach card, lifetime totals, the active goal, theme/language preferences, email + change-password + sign-out. The dedicated page is the **only** place these settings live on the student side — see the role-aware UserMenu invariant below. |
+| Student goals | `student/MyGoals`, `hooks/useGoals` |
+| Student profile | `student/StudentProfile`, `hooks/useStudentLifetimeStats`, `hooks/useAuth`, `hooks/useStudents` (`useMyCoach`), `hooks/useGoals` (`useMyGoals`) |
 | User menu popover | `ui/UserMenu` (every top-level page's right-aligned header action) |
 | Theming | `hooks/useTheme`, `ui/ThemeToggle`, `index.css` |
 | i18n (EN/FR/DE) | `hooks/useI18n`, `lib/i18n/`, `ui/LanguageSelect` |
 | Day-number helpers | `lib/day.js` |
-| Messaging (coach ↔ student) | `messaging/MessageThread`, `messaging/MessageComposer`, `messaging/ConversationList`, `messaging/UnreadMessagesBadge`, `messaging/SessionReferenceCard`, `coach/CoachMessages`, `student/StudentMessages`, `hooks/useMessages`. The Coach surface enters a thread either from `/coach/messages` or via the **Message** button on the per-student Profile tab. Coach-authored messages with `session_id` set render a tappable "Re: <session>" reference card above the bubble — coach-side it deep-links to `/coach/student/:studentId/session/:sessionId/review`, student-side to `/student/session/:sessionId`. |
+| Messaging (coach ↔ student) | `messaging/MessageThread`, `messaging/MessageComposer`, `messaging/ConversationList`, `messaging/UnreadMessagesBadge`, `messaging/SessionReferenceCard`, `coach/CoachMessages`, `student/StudentMessages`, `hooks/useMessages` |
 | Notifications | `notifications/NotificationBell` (rendered inside `ui/UserMenu`), `hooks/useNotifications`, DB trigger `notify_coach_on_session_confirm` |
-| Offline support (student writes) | `lib/queryClient.js` (PersistQueryClient + IDB store + `shouldPersistQuery` allow-list), `lib/offlineMutations.js` (shared mutationFns + `registerOfflineMutationDefaults`), `hooks/useOnlineStatus.js`, `components/ui/OfflineBanner.jsx` (mounted in `AppShell`), `vite.config.js` (`vite-plugin-pwa`), `main.jsx` (`registerSW`), `App.jsx` (`PersistQueryClientProvider`, `ClearOnUserChange`) |
+| Offline support (student writes) | `lib/queryClient.js`, `lib/offlineMutations.js`, `hooks/useOnlineStatus.js`, `components/ui/OfflineBanner.jsx`, `vite.config.js`, `main.jsx`, `App.jsx` |
 
 Periodization, confirmations, video storage/RLS, routing persistence, and React Query invalidation details are in `docs/ARCHITECTURE.md`. Design primitives, dark-mode rules, responsive layout, and the editorial page-header pattern are in `docs/DESIGN_SYSTEM.md`.
 
