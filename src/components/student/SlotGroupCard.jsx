@@ -102,7 +102,7 @@ function Chevron({ open }) {
 
 export default function SlotGroupCard({
   group,
-  groupIdx,
+  slotOffset,
   open,
   onToggle,
   getLogsForSlot,
@@ -145,7 +145,7 @@ export default function SlotGroupCard({
           <Chevron open={open} />
         </button>
         {open && group.slots.map((slot, i) => {
-          const globalIdx = String(groupIdx + i + 1).padStart(2, '0');
+          const globalIdx = String(slotOffset + i + 1).padStart(2, '0');
           const slotLogs = getLogsForSlot(slot.id);
           return (
             <div key={slot.id} className="sl-card p-4 space-y-3">
@@ -179,7 +179,7 @@ export default function SlotGroupCard({
 
   const slot = group.slots[0];
   const slotLogs = getLogsForSlot(slot.id);
-  const globalIdx = String(groupIdx + 1).padStart(2, '0');
+  const globalIdx = String(slotOffset + 1).padStart(2, '0');
   return (
     <div className="sl-card overflow-hidden">
       <button

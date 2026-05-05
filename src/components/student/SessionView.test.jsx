@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -551,6 +551,72 @@ describe('SessionView', () => {
     // one per exercise. Without this guarantee, students would see the
     // "Add note for coach" prompt N times for an N-exercise superset.
     expect(screen.getAllByRole('button', { name: /add note for coach/i })).toHaveLength(1);
+  });
+
+  // Per-slot numbering must reflect cumulative slot position, not group
+  // index. With a single → 2-slot superset → single layout, the trailing
+  // single slot used to render as 03 (group index + 1) instead of 04.
+  it('numbers slots by cumulative position so a slot after a superset advances by the superset length', () => {
+    mockSessionData = {
+      data: {
+        title: 'Numbering',
+        exercise_slots: [
+          {
+            id: 'slot-1',
+            sets: 1,
+            reps: 5,
+            weight_kg: 100,
+            sort_order: 0,
+            exercise: { name: 'Dips', type: 'push', difficulty: 1, volume_weight: 1 },
+          },
+          {
+            id: 'slot-2a',
+            sets: 1,
+            reps: 5,
+            weight_kg: 100,
+            sort_order: 1,
+            superset_group: 1,
+            exercise: { name: 'Dips', type: 'push', difficulty: 1, volume_weight: 1 },
+          },
+          {
+            id: 'slot-2b',
+            sets: 1,
+            reps: 5,
+            weight_kg: 100,
+            sort_order: 2,
+            superset_group: 1,
+            exercise: { name: 'Dips', type: 'push', difficulty: 1, volume_weight: 1 },
+          },
+          {
+            id: 'slot-3',
+            sets: 1,
+            reps: 5,
+            weight_kg: 90,
+            sort_order: 3,
+            exercise: { name: 'Bench Press', type: 'push', difficulty: 1, volume_weight: 1 },
+          },
+        ],
+      },
+      isLoading: false,
+    };
+    mockSetLogsData = {
+      data: [
+        { id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, rpe: null },
+        { id: 'l-2a', exercise_slot_id: 'slot-2a', set_number: 1, done: false, rpe: null },
+        { id: 'l-2b', exercise_slot_id: 'slot-2b', set_number: 1, done: false, rpe: null },
+        { id: 'l-3', exercise_slot_id: 'slot-3', set_number: 1, done: false, rpe: null },
+      ],
+      isLoading: false,
+    };
+    renderSessionView();
+
+    // The single slots show their globalIdx in the SlotHeader. Open the
+    // superset so its inner slots' indices render too.
+    fireEvent.click(screen.getByRole('button', { name: /Superset/i }));
+    expect(screen.getByText('01')).toBeInTheDocument();
+    expect(screen.getByText('02')).toBeInTheDocument();
+    expect(screen.getByText('03')).toBeInTheDocument();
+    expect(screen.getByText('04')).toBeInTheDocument();
   });
 
   it('shows a grouped summary in the header and per-set targets inline on SetRows when heterogeneous', () => {

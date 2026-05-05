@@ -57,6 +57,19 @@ export default function SessionView() {
     return m;
   }, [videos]);
   const slotGroups = useMemo(() => groupSlotsBySuperset(slots), [slots]);
+  // Per-group offset = cumulative slot count of all preceding groups. Lets
+  // SlotGroupCard label its rows with the global slot position (e.g. an
+  // entry after a 2-slot superset starts at 04, not 03 from the group
+  // index).
+  const groupSlotOffsets = useMemo(() => {
+    const offsets = [];
+    let acc = 0;
+    for (const g of slotGroups) {
+      offsets.push(acc);
+      acc += g.slots.length;
+    }
+    return offsets;
+  }, [slotGroups]);
   const ensureLogs = useEnsureSetLogs();
   const { data: confirmation, isLoading: confLoading } = useSessionConfirmation(sessionId);
   const confirmSession = useConfirmSession();
@@ -205,7 +218,7 @@ export default function SessionView() {
         <SlotGroupCard
           key={group.key}
           group={group}
-          groupIdx={groupIdx}
+          slotOffset={groupSlotOffsets[groupIdx]}
           open={isGroupOpen(group, groupIdx)}
           onToggle={() => toggleGroup(group, groupIdx)}
           getLogsForSlot={getLogsForSlot}
