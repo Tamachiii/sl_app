@@ -68,7 +68,7 @@ const en = {
       noExercises: 'No exercises assigned yet.',
     },
     goals: {
-      delete: 'del',
+      deleteConfirm: 'Delete',
       deleteAttemptAria: 'Delete attempt logged on {when}',
       deleteAttemptTitle: 'Delete attempt?',
       deleteAttemptMessage: "This attempt will be removed from your log. This can't be undone.",

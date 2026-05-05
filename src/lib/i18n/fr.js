@@ -68,7 +68,7 @@ const fr = {
       noExercises: 'Aucun exercice attribué.',
     },
     goals: {
-      delete: 'suppr',
+      deleteConfirm: 'Supprimer',
       deleteAttemptAria: 'Supprimer la tentative du {when}',
       deleteAttemptTitle: 'Supprimer la tentative ?',
       deleteAttemptMessage: 'Cette tentative sera retirée de ton journal. Action irréversible.',

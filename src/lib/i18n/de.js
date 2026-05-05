@@ -68,7 +68,7 @@ const de = {
       noExercises: 'Noch keine Übungen zugewiesen.',
     },
     goals: {
-      delete: 'lösch',
+      deleteConfirm: 'Löschen',
       deleteAttemptAria: 'Versuch vom {when} löschen',
       deleteAttemptTitle: 'Versuch löschen?',
       deleteAttemptMessage: 'Dieser Versuch wird aus deinem Log entfernt. Nicht rückgängig zu machen.',

@@ -131,10 +131,11 @@ function GoalCard({ goal }) {
                       aria-label={t('student.goals.deleteAttemptAria', {
                         when: new Date(e.recorded_at).toLocaleDateString(),
                       })}
-                      className="sl-mono text-[10px] uppercase px-1.5 py-0.5 rounded hover:bg-ink-100 transition-colors"
-                      style={{ color: 'var(--color-danger, #c00)' }}
+                      className="w-6 h-6 rounded-full flex items-center justify-center text-ink-400 hover:bg-ink-100 hover:text-[var(--color-danger,#c00)] active:scale-95 transition-all"
                     >
-                      {t('student.goals.delete')}
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.25" viewBox="0 0 24 24" aria-hidden="true">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" />
+                      </svg>
                     </button>
                   </span>
                 </li>
@@ -226,7 +227,7 @@ function GoalCard({ goal }) {
         }}
         title={t('student.goals.deleteAttemptTitle')}
         message={t('student.goals.deleteAttemptMessage')}
-        confirmText={t('student.goals.delete').toUpperCase()}
+        confirmText={t('student.goals.deleteConfirm')}
       />
     </div>
   );
