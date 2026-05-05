@@ -280,7 +280,6 @@ const en = {
     noCoach: 'You aren’t linked to a coach yet.',
     sessionRefLabel: 'Re: {title}',
     sessionRefOpen: 'Open session',
-    bubbleActions: 'Message actions',
     delete: 'Delete',
     deleteTitle: 'Delete message?',
     deleteConfirm: 'This will remove the message for both of you. "{preview}"',

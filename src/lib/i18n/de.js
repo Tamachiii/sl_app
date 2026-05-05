@@ -280,7 +280,6 @@ const de = {
     noCoach: 'Du bist noch keinem Coach zugeordnet.',
     sessionRefLabel: 'Re: {title}',
     sessionRefOpen: 'Session öffnen',
-    bubbleActions: 'Nachrichten-Aktionen',
     delete: 'Löschen',
     deleteTitle: 'Nachricht löschen?',
     deleteConfirm: 'Die Nachricht wird für euch beide entfernt. „{preview}"',

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
@@ -39,14 +39,57 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
   const groups = useGroupedThread(messages);
   const sessionRefs = useSessionRefsForMessages(messages);
 
-  // The bubble waiting on a confirm. Tap-to-arm pattern (versus a hover menu)
-  // because the thread is mobile-first — desktop hover affordances would be
-  // dead weight on touch and the kebab is one tap to surface.
+  // Press-and-hold a bubble (or right-click on desktop) opens the confirm
+  // dialog. `pressingId` powers the slight scale-down feedback while the
+  // long-press timer is running.
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
-  const [armedId, setArmedId] = useState(null);
+  const [pressingId, setPressingId] = useState(null);
+  const pressTimerRef = useRef(null);
+  const pressMovedRef = useRef(false);
+  const pressOriginRef = useRef(null);
   const pendingMessage = pendingDeleteId
     ? (messages || []).find((m) => m.id === pendingDeleteId) || null
     : null;
+
+  const cancelPress = useCallback(() => {
+    if (pressTimerRef.current) {
+      clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+    setPressingId(null);
+    pressMovedRef.current = false;
+    pressOriginRef.current = null;
+  }, []);
+
+  const startPress = useCallback((messageId, e) => {
+    pressMovedRef.current = false;
+    pressOriginRef.current = { x: e.clientX, y: e.clientY };
+    setPressingId(messageId);
+    if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
+    pressTimerRef.current = setTimeout(() => {
+      pressTimerRef.current = null;
+      if (pressMovedRef.current) return;
+      // Light haptic on devices that support it — confirms the press fired.
+      if (navigator.vibrate) navigator.vibrate(10);
+      setPendingDeleteId(messageId);
+      setPressingId(null);
+    }, 450);
+  }, []);
+
+  const movePress = useCallback((e) => {
+    const o = pressOriginRef.current;
+    if (!o) return;
+    const dx = Math.abs(e.clientX - o.x);
+    const dy = Math.abs(e.clientY - o.y);
+    if (dx > 8 || dy > 8) {
+      pressMovedRef.current = true;
+      cancelPress();
+    }
+  }, [cancelPress]);
+
+  useEffect(() => () => {
+    if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
+  }, []);
 
   // Coach-side deep-links to a session reference need the students.id row id
   // (the URL is /coach/student/:studentId/session/:sessionId/review). Student-
@@ -76,9 +119,9 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
 
   useEffect(() => {
     lastMarkedIdRef.current = null;
-    setArmedId(null);
     setPendingDeleteId(null);
-  }, [otherProfileId]);
+    cancelPress();
+  }, [otherProfileId, cancelPress]);
 
   // Mark unread incoming messages as read whenever the thread is mounted +
   // a new unread incoming message arrives. The ref guard makes this a noop
@@ -146,7 +189,25 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
                     const isLastInGroup = mi === group.messages.length - 1;
                     const sessionRef = m.session_id ? sessionRefs.get(m.session_id) : null;
                     const canDelete = fromMe && !m.session_id;
-                    const isArmed = canDelete && armedId === m.id;
+                    const isPressing = canDelete && pressingId === m.id;
+                    const pressHandlers = canDelete
+                      ? {
+                          onPointerDown: (e) => {
+                            // Skip non-primary buttons (right/middle click) — those go through onContextMenu.
+                            if (e.button !== 0) return;
+                            startPress(m.id, e);
+                          },
+                          onPointerMove: movePress,
+                          onPointerUp: cancelPress,
+                          onPointerCancel: cancelPress,
+                          onPointerLeave: cancelPress,
+                          onContextMenu: (e) => {
+                            e.preventDefault();
+                            cancelPress();
+                            setPendingDeleteId(m.id);
+                          },
+                        }
+                      : null;
                     return (
                       <div key={m.id} className={`flex flex-col gap-1 max-w-[80%] md:max-w-[70%] ${fromMe ? 'items-end' : 'items-start'}`}>
                         {m.session_id && (
@@ -158,54 +219,31 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
                             lang={lang}
                           />
                         )}
-                        <div className={`flex items-end gap-1 ${fromMe ? 'flex-row-reverse' : ''}`}>
-                          <button
-                            type="button"
-                            onClick={() => setArmedId(isArmed ? null : m.id)}
-                            aria-label={t('messaging.bubbleActions')}
-                            aria-expanded={isArmed}
-                            className={`shrink-0 rounded-md p-1 text-ink-400 hover:bg-ink-100 hover:text-ink-700 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] ${
-                              canDelete ? '' : 'invisible pointer-events-none'
-                            }`}
-                          >
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                              <circle cx="5" cy="12" r="1.6" />
-                              <circle cx="12" cy="12" r="1.6" />
-                              <circle cx="19" cy="12" r="1.6" />
-                            </svg>
-                          </button>
-                          <div
-                            className={`rounded-2xl px-3.5 py-2 text-[14px] leading-snug whitespace-pre-wrap ${
-                              fromMe
-                                ? 'bg-[var(--color-accent)] text-[var(--color-ink-900)]'
-                                : 'bg-ink-100 text-ink-800'
-                            }`}
-                            style={fromMe ? { borderBottomRightRadius: 6 } : { borderBottomLeftRadius: 6 }}
-                          >
-                            {m.body}
-                            {isLastInGroup && (
-                              <div
-                                className={`sl-mono text-[10px] mt-1 tabular-nums ${
-                                  fromMe ? 'opacity-70' : 'text-ink-400'
-                                }`}
-                              >
-                                {formatMessageStamp(m.created_at, lang)}
-                              </div>
-                            )}
-                          </div>
+                        <div
+                          {...pressHandlers}
+                          className={`rounded-2xl px-3.5 py-2 text-[14px] leading-snug whitespace-pre-wrap transition-transform duration-150 ${
+                            fromMe
+                              ? 'bg-[var(--color-accent)] text-[var(--color-ink-900)]'
+                              : 'bg-ink-100 text-ink-800'
+                          } ${isPressing ? 'scale-95 opacity-80' : ''} ${canDelete ? 'cursor-pointer select-none' : ''}`}
+                          style={{
+                            ...(fromMe ? { borderBottomRightRadius: 6 } : { borderBottomLeftRadius: 6 }),
+                            // Suppress iOS long-press callout (text-selection menu) so
+                            // our 450ms timer wins the gesture.
+                            ...(canDelete ? { WebkitTouchCallout: 'none' } : null),
+                          }}
+                        >
+                          {m.body}
+                          {isLastInGroup && (
+                            <div
+                              className={`sl-mono text-[10px] mt-1 tabular-nums ${
+                                fromMe ? 'opacity-70' : 'text-ink-400'
+                              }`}
+                            >
+                              {formatMessageStamp(m.created_at, lang)}
+                            </div>
+                          )}
                         </div>
-                        {isArmed && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setArmedId(null);
-                              setPendingDeleteId(m.id);
-                            }}
-                            className="sl-mono text-[11px] text-danger px-2 py-0.5 rounded hover:bg-ink-100 self-end"
-                          >
-                            {t('messaging.delete')}
-                          </button>
-                        )}
                       </div>
                     );
                   })}
