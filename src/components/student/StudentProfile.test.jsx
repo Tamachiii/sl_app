@@ -106,13 +106,28 @@ describe('StudentProfile', () => {
     expect(screen.queryByText('Sessions')).not.toBeInTheDocument();
   });
 
-  it('surfaces the first non-achieved goal', () => {
+  it('shows a count of in-progress goals (not a single featured goal)', () => {
+    // Mock has one non-achieved goal; with another non-achieved goal added,
+    // the tile reads "2".
+    mockGoals = {
+      data: [
+        { id: 'g-1', achieved: false, exercise: { name: 'Front Lever' } },
+        { id: 'g-2', achieved: false, exercise: { name: 'Pull Up' } },
+        { id: 'g-3', achieved: true, exercise: { name: 'Muscle Up' } },
+      ],
+    };
     renderProfile();
-    expect(screen.getByText('Front Lever')).toBeInTheDocument();
-    expect(screen.getByText('Hold 5s clean')).toBeInTheDocument();
+    expect(screen.getByText('2')).toBeInTheDocument();
+    expect(screen.getByText(/2 in progress/i)).toBeInTheDocument();
+    // The tile is a tap-through to the Goals page.
+    const link = screen.getByRole('link', { name: /VIEW ALL/i });
+    expect(link).toHaveAttribute('href', '/student/goals');
+    // No specific goal name should be surfaced — the tile is a summary.
+    expect(screen.queryByText('Front Lever')).not.toBeInTheDocument();
+    expect(screen.queryByText('Pull Up')).not.toBeInTheDocument();
   });
 
-  it('shows the empty-goal copy when goals are empty', () => {
+  it('shows the empty-goals copy when there are no goals at all', () => {
     mockGoals = { data: [] };
     renderProfile();
     expect(screen.getByText(/no goals yet/i)).toBeInTheDocument();

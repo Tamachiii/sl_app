@@ -67,6 +67,12 @@ const fr = {
       showArchivedMany: 'Afficher {n} séances archivées',
       noExercises: 'Aucun exercice attribué.',
     },
+    goals: {
+      delete: 'suppr',
+      deleteAttemptAria: 'Supprimer la tentative du {when}',
+      deleteAttemptTitle: 'Supprimer la tentative ?',
+      deleteAttemptMessage: 'Cette tentative sera retirée de ton journal. Action irréversible.',
+    },
     profile: {
       kicker: 'Toi',
       title: 'Profil.',
@@ -91,6 +97,12 @@ const fr = {
         viewAll: 'TOUT VOIR →',
         empty: 'Aucun objectif — ton coach en fixera bientôt.',
         untitled: 'Objectif sans nom',
+      },
+      goals: {
+        title: 'Objectifs',
+        viewAll: 'TOUT VOIR →',
+        empty: 'Aucun objectif — ton coach en fixera bientôt.',
+        inProgress: '{n} en cours',
       },
       prefs: {
         title: 'Préférences',

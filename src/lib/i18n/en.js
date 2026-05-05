@@ -67,6 +67,12 @@ const en = {
       showArchivedMany: 'Show {n} archived sessions',
       noExercises: 'No exercises assigned yet.',
     },
+    goals: {
+      delete: 'del',
+      deleteAttemptAria: 'Delete attempt logged on {when}',
+      deleteAttemptTitle: 'Delete attempt?',
+      deleteAttemptMessage: "This attempt will be removed from your log. This can't be undone.",
+    },
     profile: {
       kicker: 'You',
       title: 'Profile.',
@@ -91,6 +97,12 @@ const en = {
         viewAll: 'VIEW ALL →',
         empty: 'No goals yet — your coach will set some.',
         untitled: 'Untitled goal',
+      },
+      goals: {
+        title: 'Goals',
+        viewAll: 'VIEW ALL →',
+        empty: 'No goals yet — your coach will set some.',
+        inProgress: '{n} in progress',
       },
       prefs: {
         title: 'Preferences',

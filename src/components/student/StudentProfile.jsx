@@ -149,9 +149,13 @@ export default function StudentProfile() {
   const fullName = profile?.full_name || '';
   const initials = initialsOf(fullName);
 
-  // Goal to surface: first non-achieved goal, or fall back to the most recent one.
-  const featuredGoal =
-    (goals || []).find((g) => !g.achieved) || (goals && goals[0]) || null;
+  // Profile shows a count, not a singular "active goal". Picking one from
+  // many would be arbitrary (the previous logic just grabbed the first
+  // non-achieved row by created_at) and misleading when several goals are
+  // in flight. The count + tap-through to /student/goals is honest and
+  // small; richer surfacing (pinning, recent-progress sort) can come later.
+  const activeGoalsCount = (goals || []).filter((g) => !g.achieved).length;
+  const totalGoalsCount = (goals || []).length;
 
   async function handleRename(next) {
     setRenameError('');
@@ -251,26 +255,32 @@ export default function StudentProfile() {
         )}
       </section>
 
-      {/* Featured goal */}
-      <section aria-labelledby="profile-goal-heading" className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h2 id="profile-goal-heading" className="sl-label text-ink-400">{t('student.profile.goal.title')}</h2>
-          <Link to="/student/goals" className="sl-mono text-[11px]" style={{ color: 'var(--color-accent)' }}>
-            {t('student.profile.goal.viewAll')}
-          </Link>
-        </div>
-        {featuredGoal ? (
-          <Link to="/student/goals" className="sl-card p-4 block hover:bg-ink-50 transition-colors">
-            <div className="sl-display text-[16px] text-gray-900 truncate">
-              {featuredGoal.exercise?.name || t('student.profile.goal.untitled')}
-            </div>
-            {featuredGoal.notes && (
-              <p className="text-[12px] text-gray-700 mt-1 line-clamp-2">{featuredGoal.notes}</p>
+      {/* Goals summary — count + tap-through. See activeGoalsCount comment
+          above for why we no longer surface a single "featured" goal. */}
+      <section aria-labelledby="profile-goals-heading" className="space-y-2">
+        <h2 id="profile-goals-heading" className="sl-label text-ink-400">{t('student.profile.goals.title')}</h2>
+        <Link
+          to="/student/goals"
+          className="sl-card p-4 flex items-center justify-between gap-3 hover:bg-ink-50 transition-colors"
+        >
+          <div className="min-w-0">
+            {totalGoalsCount === 0 ? (
+              <span className="sl-mono text-[12px] text-ink-400">{t('student.profile.goals.empty')}</span>
+            ) : (
+              <>
+                <div className="sl-display text-[24px] text-gray-900 tabular-nums leading-none">
+                  {activeGoalsCount}
+                </div>
+                <div className="sl-mono text-[11px] text-ink-400 mt-1">
+                  {t('student.profile.goals.inProgress', { n: activeGoalsCount })}
+                </div>
+              </>
             )}
-          </Link>
-        ) : (
-          <p className="sl-card p-4 sl-mono text-[12px] text-ink-400">{t('student.profile.goal.empty')}</p>
-        )}
+          </div>
+          <span className="sl-mono text-[11px] shrink-0" style={{ color: 'var(--color-accent)' }}>
+            {t('student.profile.goals.viewAll')}
+          </span>
+        </Link>
       </section>
 
       {/* Preferences */}

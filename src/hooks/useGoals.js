@@ -132,6 +132,24 @@ export function useAddGoalProgress() {
   });
 }
 
+/**
+ * Delete a single `goal_progress` row. The student is the only writer for
+ * `goal_progress` (RLS: `Students manage own goal progress FOR ALL`), so a
+ * straight DELETE under their auth context is sufficient. Coaches can read
+ * but not delete a student's logged attempts — by design, attempts are the
+ * student's record to curate.
+ */
+export function useDeleteGoalProgress() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id) => {
+      const { error } = await supabase.from('goal_progress').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => invalidateGoals(qc),
+  });
+}
+
 export function useToggleGoalAchieved() {
   const qc = useQueryClient();
   return useMutation({

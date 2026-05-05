@@ -2,22 +2,30 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
+import ConfirmDialog from '../ui/ConfirmDialog';
 import { useI18n } from '../../hooks/useI18n';
 import {
   useMyGoals,
   useAddGoalProgress,
+  useDeleteGoalProgress,
   useToggleGoalAchieved,
   formatGoalTarget,
 } from '../../hooks/useGoals';
 
 function GoalCard({ goal }) {
+  const { t } = useI18n();
   const addProgress = useAddGoalProgress();
+  const deleteProgress = useDeleteGoalProgress();
   const toggleAchieved = useToggleGoalAchieved();
   const [open, setOpen] = useState(false);
   const [weight, setWeight] = useState('');
   const [sets, setSets] = useState(goal.kind === 'format' ? String(goal.target_sets ?? '') : '');
   const [reps, setReps] = useState(String(goal.target_reps ?? ''));
   const [notes, setNotes] = useState('');
+  // ID of the attempt the user is asking to delete; null = dialog closed.
+  // We can't just hold the row itself because its `goal_progress` reference
+  // becomes stale after the cache invalidates following the delete.
+  const [pendingDeleteId, setPendingDeleteId] = useState(null);
 
   const entries = [...(goal.goal_progress || [])].sort(
     (a, b) => new Date(b.recorded_at) - new Date(a.recorded_at)
@@ -107,14 +115,27 @@ function GoalCard({ goal }) {
             </summary>
             <ul className="mt-2 space-y-1">
               {entries.slice(0, 8).map((e) => (
-                <li key={e.id} className="sl-mono text-[11px] text-gray-700 flex justify-between gap-2">
+                <li key={e.id} className="sl-mono text-[11px] text-gray-700 flex items-center justify-between gap-2">
                   <span className="truncate">
                     {e.weight_kg}kg
                     {e.sets && e.reps ? ` — ${e.sets} × ${e.reps}` : ''}
                     {e.notes ? ` · ${e.notes}` : ''}
                   </span>
-                  <span className="text-ink-400 shrink-0 tabular-nums">
-                    {new Date(e.recorded_at).toLocaleDateString()}
+                  <span className="flex items-center gap-2 shrink-0">
+                    <span className="text-ink-400 tabular-nums">
+                      {new Date(e.recorded_at).toLocaleDateString()}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPendingDeleteId(e.id)}
+                      aria-label={t('student.goals.deleteAttemptAria', {
+                        when: new Date(e.recorded_at).toLocaleDateString(),
+                      })}
+                      className="sl-mono text-[10px] uppercase px-1.5 py-0.5 rounded hover:bg-ink-100 transition-colors"
+                      style={{ color: 'var(--color-danger, #c00)' }}
+                    >
+                      {t('student.goals.delete')}
+                    </button>
                   </span>
                 </li>
               ))}
@@ -196,6 +217,17 @@ function GoalCard({ goal }) {
           + LOG ATTEMPT
         </button>
       )}
+
+      <ConfirmDialog
+        open={!!pendingDeleteId}
+        onClose={() => setPendingDeleteId(null)}
+        onConfirm={() => {
+          if (pendingDeleteId) deleteProgress.mutate(pendingDeleteId);
+        }}
+        title={t('student.goals.deleteAttemptTitle')}
+        message={t('student.goals.deleteAttemptMessage')}
+        confirmText={t('student.goals.delete').toUpperCase()}
+      />
     </div>
   );
 }

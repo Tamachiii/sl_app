@@ -67,6 +67,12 @@ const de = {
       showArchivedMany: '{n} archivierte Einheiten anzeigen',
       noExercises: 'Noch keine Übungen zugewiesen.',
     },
+    goals: {
+      delete: 'lösch',
+      deleteAttemptAria: 'Versuch vom {when} löschen',
+      deleteAttemptTitle: 'Versuch löschen?',
+      deleteAttemptMessage: 'Dieser Versuch wird aus deinem Log entfernt. Nicht rückgängig zu machen.',
+    },
     profile: {
       kicker: 'Du',
       title: 'Profil.',
@@ -91,6 +97,12 @@ const de = {
         viewAll: 'ALLE ANZEIGEN →',
         empty: 'Noch keine Ziele — dein Coach wird welche festlegen.',
         untitled: 'Ziel ohne Namen',
+      },
+      goals: {
+        title: 'Ziele',
+        viewAll: 'ALLE ANZEIGEN →',
+        empty: 'Noch keine Ziele — dein Coach wird welche festlegen.',
+        inProgress: '{n} laufend',
       },
       prefs: {
         title: 'Einstellungen',
