@@ -48,14 +48,16 @@ describe('BottomNav', () => {
     expect(screen.queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument();
   });
 
-  it('renders student nav with Home, Sessions, Stats, Messages and Goals links', () => {
+  it('renders student nav with Home, Sessions, Stats and Messages links (Goals lives in Profile)', () => {
     mockRole = 'student';
     renderBottomNav('/student');
     expect(screen.getByText('Home')).toBeInTheDocument();
     expect(screen.getByText('Sessions')).toBeInTheDocument();
     expect(screen.getByText('Stats')).toBeInTheDocument();
     expect(screen.getByText('Messages')).toBeInTheDocument();
-    expect(screen.getByText('Goals')).toBeInTheDocument();
+    // Goals was promoted out of the bottom nav — reachable via the Profile
+    // page (avatar in header → Active goal card → View all).
+    expect(screen.queryByText('Goals')).not.toBeInTheDocument();
     expect(screen.queryByText('Students')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument();
   });

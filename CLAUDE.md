@@ -76,7 +76,7 @@ Jump straight to the relevant files. For *behavior* details, open the file — t
 | Student stats | `student/StudentDashboard`, `student/SessionCalendar`, `student/ExerciseProgressChart`, `student/ProgramScopeSelector`, `lib/statsPrefs.js` (program-scope + exercise-selection persistence), `hooks/useStudentProgressStats`, `hooks/useStudentHistoricalSessions`, `hooks/useStudents` (`useMyStudentId`) |
 | Student session logging | `student/SessionView`, `student/SetRow`, `student/RpeInput`, `hooks/useSession`, `hooks/useSetLogs` |
 | Coach goals (per student) | `coach/StudentGoalsSection`, `hooks/useGoals` |
-| Student goals | `student/MyGoals`, `hooks/useGoals` |
+| Student goals | `student/MyGoals`, `hooks/useGoals`. Routed at `/student/goals` but **not** a bottom-nav tab — the student-side bar is 4 tabs (Home, Sessions, Stats, Messages); Goals is reached from the Profile page's "Active goal" card via "View all". Bookmarks and deep links to `/student/goals` still work. |
 | Student profile | `student/StudentProfile`, `hooks/useStudentLifetimeStats`, `hooks/useAuth` (`updateProfile`, `updatePassword`), `hooks/useStudents` (`useMyCoach`), `hooks/useGoals` (`useMyGoals`). Reached by tapping the avatar on any student page. Houses display-name edit, coach card, lifetime totals, the active goal, theme/language preferences, email + change-password + sign-out. The dedicated page is the **only** place these settings live on the student side — see the role-aware UserMenu invariant below. |
 | User menu popover | `ui/UserMenu` (every top-level page's right-aligned header action) |
 | Theming | `hooks/useTheme`, `ui/ThemeToggle`, `index.css` |

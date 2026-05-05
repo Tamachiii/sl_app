@@ -160,7 +160,7 @@ Set videos live in `set_log_videos` (1:1 with `set_logs`, `UNIQUE(set_log_id)`) 
 Notable URLs:
 
 - **Coach**: `/coach/dashboard`, `/coach/students`, `/coach/students/:studentId`, `/coach/sessions`, `/coach/student/:studentId/week/:weekId`, `/coach/student/:studentId/week/:weekId/session/:sessionId`, `/coach/student/:studentId/session/:sessionId/review`, `/coach/exercises`.
-- **Student**: `/student`, `/student/sessions`, `/student/stats`, `/student/session/:sessionId`, `/student/goals`.
+- **Student**: `/student`, `/student/sessions`, `/student/stats`, `/student/messages`, `/student/session/:sessionId`, `/student/goals`, `/student/profile`. The bottom nav surfaces only Home / Sessions / Stats / Messages — `/student/goals` is reached from the Profile page's "Active goal" card, and `/student/profile` from the avatar in any header.
 - **Legacy redirects**: `/student/dashboard` → `/student/stats`. `/coach` → `/coach/dashboard`. `/coach/student/:studentId/goals` → `/coach/students/:studentId` (via `RedirectToStudent` in `routes.jsx` — a plain `<Navigate to="/foo/:id" />` does not interpolate params; the wrapper does).
 
 `StudentDashboard.jsx` is the Stats page — the file is named `StudentDashboard` but imported as `StudentStats` and rendered at `/student/stats`. Don't rename the file.

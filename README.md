@@ -45,7 +45,7 @@ Apply `supabase/schema.sql` to a fresh Supabase project (creates tables, RLS pol
 npm run dev       # dev server
 npm run build     # production build → dist/
 npm run preview   # serve dist/
-npm test          # run vitest (~480 tests)
+npm test          # run vitest (~495 tests)
 npm run deploy    # publishes dist/ to gh-pages branch
 ```
 
@@ -132,8 +132,8 @@ Deep architectural details — RLS helpers, React Query invalidation, routing/pe
 2. **Sessions tab** (`/student/sessions`) — full program by week; accordion session cards (one open at a time); tap "Start session" to open `SessionView`.
 3. **Stats tab** (`/student/stats`) — sessions confirmed, sets done, weekly volume bars, per-exercise progression, calendar (active block + muted history dots).
 4. **Messages tab** (`/student/messages`) — single thread with the assigned coach (resolved via `students.coach_id`). Realtime + unread-count badge same as the coach side.
-5. **Goals tab** (`/student/goals`) — `MyGoals`.
-6. **Profile** (`/student/profile`, reached by tapping the avatar in the header — not a tab) — display name + initials avatar, "Your coach" card with a Message shortcut, lifetime totals (sessions completed, sets done, total volume), the active goal, theme/language preferences, and account controls (email, change password, sign out). The student-side `UserMenu` retired its popover when this page shipped; everything that used to live there now lives here. Coach-side `UserMenu` keeps the popover.
+5. **Profile** (`/student/profile`, reached by tapping the avatar in the header — not a tab) — display name + initials avatar, "Your coach" card with a Message shortcut, lifetime totals (sessions completed, sets done, total volume), the active goal (with a "View all" link into the full Goals page), theme/language preferences, and account controls (email, change password, sign out). The student-side `UserMenu` retired its popover when this page shipped; everything that used to live there now lives here. Coach-side `UserMenu` keeps the popover.
+6. **Goals** (`/student/goals`, reached from Profile's "Active goal" card) — `MyGoals`. The student-side bottom nav is intentionally 4 tabs; Goals is a Profile-routed surface rather than a top-level tab.
 
 ---
 
@@ -188,7 +188,7 @@ To verify locally:
 - Tests live alongside components as `*.test.jsx` / `*.test.js`.
 - `src/test/utils.jsx` exports `renderWithProviders(ui, { auth, route, queryClient })` which wraps with `ThemeProvider` + `QueryClientProvider` + `AuthContext` + `MemoryRouter`.
 - Mocks: child hooks are stubbed with `vi.mock('../../hooks/useX', () => ({ ... }))` per file.
-- 483 tests across 59 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations.
+- 495 tests across 62 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations.
 
 Run:
 ```bash

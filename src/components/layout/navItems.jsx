@@ -28,12 +28,6 @@ const LibraryIcon = (
   </svg>
 );
 
-const GoalIcon = (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v18M5 8h11l-2 3 2 3H5" />
-  </svg>
-);
-
 const StatsIcon = (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
@@ -85,6 +79,9 @@ export function getNavItems(role, t) {
       { to: '/coach/exercises', label: t('nav.library'), icon: LibraryIcon, end: true },
     ];
   }
+  // Student-side nav is intentionally 4 tabs; Goals lives behind the avatar
+  // (Profile page surfaces the active goal + a "View all" link to the goals
+  // page, which still exists at /student/goals as a standalone route).
   return [
     { to: '/student', label: t('nav.home'), icon: HomeIcon, end: true },
     { to: '/student/sessions', label: t('nav.sessions'), icon: SessionsIcon, end: false },
@@ -96,6 +93,5 @@ export function getNavItems(role, t) {
       end: false,
       badge: 'unread-messages',
     },
-    { to: '/student/goals', label: t('nav.goals'), icon: GoalIcon, end: false },
   ];
 }
