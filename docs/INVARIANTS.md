@@ -5,7 +5,7 @@ Load this file when the change touches: routing/scroll-shell, dark mode, RLS, `s
 ## Shell, routing, viewport
 
 - **HashRouter intentional** (GitHub Pages). URLs contain `/#/`. Vite `base` is `/sl_app/`. Pages are `React.lazy`-loaded in `routes.jsx`.
-- **Outer page must not scroll.** `html, body, #root` are `overflow: hidden; position: fixed; inset: 0`. `AppShell` is `h-full flex-col` (NOT `h-dvh` — iOS Safari disagrees and spawns a second scrollbar). Only `main` scrolls. Don't touch — this keeps the mobile keyboard from pushing the sticky `BottomNav` mid-page.
+- **Outer page must not scroll.** `html, body, #root` are `overflow: hidden; position: fixed; inset: 0`. `AppShell` is `h-full flex-col` (NOT `h-dvh` — iOS Safari disagrees and spawns a second scrollbar). Only `main` scrolls. Don't touch — this keeps the mobile keyboard from pushing the sticky `BottomNav` mid-page. The inner wrapper inside `main` is `h-full flex flex-col` (not `min-h-full`) so flex-1 + min-h-0 children — currently only Messages thread/composer — get a hard height budget; pages with naturally tall content still scroll via `main` because it has `overflow-y-auto`.
 - **iOS Safari auto-zooms focused `<input>` / `<textarea>` / `<select>` < 16px.** Every text-entry form element is 16px. Don't drop below. File pickers, radios, checkboxes, sliders unaffected.
 - **Tailwind 4, CSS-based config.** `@theme` + `@custom-variant` in `src/index.css`. No `tailwind.config.js`.
 - **Dark mode = class-based CSS remap, not `dark:` utilities.** Extend `src/index.css`. Inline `style={{ color }}` does NOT flip — use classes. `disabled:bg-*` variants also don't pick up `.dark .bg-*` remaps; use `disabled:bg-ink-100`.

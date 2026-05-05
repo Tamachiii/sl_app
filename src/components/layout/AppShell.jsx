@@ -92,7 +92,12 @@ export default function AppShell() {
         }}
       >
         <OfflineBanner />
-        <div className="mx-auto w-full max-w-5xl min-h-full flex flex-col">
+        {/* `h-full` (not `min-h-full`) so flex-1 children with internal
+            overflow scrollers — Messages thread / composer — get a hard
+            height budget instead of letting the wrapper grow with their
+            content. Pages whose content is naturally taller still scroll
+            via main, since main has overflow-y-auto. */}
+        <div className="mx-auto w-full max-w-5xl h-full flex flex-col">
           <Outlet />
         </div>
       </main>
