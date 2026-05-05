@@ -98,8 +98,8 @@ describe('SessionView', () => {
 
     expect(screen.getByText('Dip')).toBeInTheDocument();
     expect(screen.getByText('3 × 10 @ 20kg')).toBeInTheDocument();
-    expect(screen.getByText('Set 1')).toBeInTheDocument();
-    expect(screen.getByText('Set 2')).toBeInTheDocument();
+    // Two SetRows render → two indicator buttons in the pending state.
+    expect(screen.getAllByRole('button', { name: /mark set done/i })).toHaveLength(2);
   });
 
   it('renders header with session title', () => {
@@ -215,10 +215,9 @@ describe('SessionView', () => {
     // Both exercise headers are visible.
     expect(screen.getByText('Dip')).toBeInTheDocument();
     expect(screen.getByText('Pullup')).toBeInTheDocument();
-    // The completed slot's body (SetRow "Set 1/2") is hidden; the incomplete slot's body is visible.
-    // Pullup has two SetRows ("Set 1" and "Set 2"); Dip has none because it's collapsed.
-    const set1Nodes = screen.getAllByText('Set 1');
-    expect(set1Nodes).toHaveLength(1);
+    // The completed slot's body (SetRows) is hidden; the incomplete slot's body is visible.
+    // Pullup has two pending SetRows; Dip has none because it's collapsed.
+    expect(screen.getAllByRole('button', { name: /mark set done/i })).toHaveLength(2);
   });
 
   it('auto-opens only the first slot when multiple slots are incomplete', () => {
@@ -269,9 +268,8 @@ describe('SessionView', () => {
     expect(screen.getByText('Bench')).toBeInTheDocument();
     expect(screen.getByText('Row')).toBeInTheDocument();
 
-    // Only the first incomplete slot (Squat) is auto-open, so only one "Set 1" SetRow is rendered.
-    const set1Nodes = screen.getAllByText('Set 1');
-    expect(set1Nodes).toHaveLength(1);
+    // Only the first incomplete slot (Squat) is auto-open, so only one SetRow is rendered.
+    expect(screen.getAllByRole('button', { name: /mark set done/i })).toHaveLength(1);
   });
 
   it('drops manual override after state-reverting action so auto-open resumes', async () => {
@@ -297,12 +295,13 @@ describe('SessionView', () => {
     const { rerender } = renderSessionView();
 
     // Auto-closed: no SetRow visible.
-    expect(screen.queryByText('Set 1')).toBeNull();
+    expect(screen.queryByRole('button', { name: /mark set failed/i })).toBeNull();
     expect(screen.getByRole('button', { expanded: false, name: /Dip/i })).toBeInTheDocument();
 
     // Student goes "back" into the completed exercise by clicking the header.
     await user.click(screen.getByRole('button', { expanded: false, name: /Dip/i }));
-    expect(screen.getByText('Set 1')).toBeInTheDocument();
+    // The done set's indicator now reads "mark set failed" (cycle: done → failed).
+    expect(screen.getByRole('button', { name: /mark set failed/i })).toBeInTheDocument();
 
     // Student cancels/undoes the set. firstOpenIdx flips from -1 → 0,
     // which should drop the manual override and auto-open the group.
@@ -315,7 +314,7 @@ describe('SessionView', () => {
         <SessionView />
       </MemoryRouter>
     );
-    expect(screen.getByText('Set 1')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /mark set done/i })).toBeInTheDocument();
 
     // Student re-completes the set AND records RPE. firstOpenIdx flips 0 → -1.
     // Before the fix, sticky manualOpen kept the group expanded; now it should auto-close.
@@ -328,7 +327,7 @@ describe('SessionView', () => {
         <SessionView />
       </MemoryRouter>
     );
-    expect(screen.queryByText('Set 1')).toBeNull();
+    expect(screen.queryByRole('button', { name: /mark set failed/i })).toBeNull();
     expect(screen.getByRole('button', { expanded: false, name: /Dip/i })).toBeInTheDocument();
   });
 
@@ -499,12 +498,12 @@ describe('SessionView', () => {
     };
     renderSessionView();
 
-    // Auto-open: Set 1 visible.
-    expect(screen.getByText('Set 1')).toBeInTheDocument();
+    // Auto-open: SetRow visible (its indicator button reads "Mark set done").
+    expect(screen.getByRole('button', { name: /mark set done/i })).toBeInTheDocument();
 
     // Click the slot header to collapse.
     await user.click(screen.getByRole('button', { expanded: true }));
-    expect(screen.queryByText('Set 1')).toBeNull();
+    expect(screen.queryByRole('button', { name: /mark set done/i })).toBeNull();
   });
 
   it('renders a superset group as a single collapsible unit', () => {

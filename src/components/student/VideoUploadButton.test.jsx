@@ -41,7 +41,7 @@ describe('<VideoUploadButton />', () => {
     render(
       <VideoUploadButton setLogId="l-1" exerciseSlotId="sl-1" setNumber={1} />,
     );
-    expect(screen.getByText(/Upload video/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Upload video/i })).toBeInTheDocument();
   });
 
   it('renders Play / Replace / Delete buttons when an existing video is provided', () => {
@@ -53,9 +53,9 @@ describe('<VideoUploadButton />', () => {
         existingVideo={{ id: 'v-1', storage_path: 'p/1.mp4' }}
       />,
     );
-    expect(screen.getByText('PLAY')).toBeInTheDocument();
-    expect(screen.getByText('Replace')).toBeInTheDocument();
-    expect(screen.getByText('Delete')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /play video/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /replace video/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /delete video/i })).toBeInTheDocument();
   });
 
   it('selecting a file calls useUploadSetVideo with the slot+set metadata', () => {
@@ -85,7 +85,7 @@ describe('<VideoUploadButton />', () => {
         existingVideo={{ id: 'v-1', storage_path: 'p/1.mp4' }}
       />,
     );
-    fireEvent.click(screen.getByText('Delete'));
+    fireEvent.click(screen.getByRole('button', { name: /delete video/i }));
     expect(mockDelete.mutate).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
   });
@@ -98,11 +98,10 @@ describe('<VideoUploadButton />', () => {
     act(() => {
       window.dispatchEvent(new Event('offline'));
     });
-    // The CTA flips its label to the offline-hint message and goes disabled —
-    // a click should be a no-op while offline.
-    const cta = screen.getByRole('button');
+    // The CTA flips its accessible name to the offline-hint message and goes
+    // disabled — a click should be a no-op while offline.
+    const cta = screen.getByRole('button', { name: /Connect to record video/i });
     expect(cta).toBeDisabled();
-    expect(cta).toHaveTextContent(/Connect to record video/i);
     const fileInput = container.querySelector('input[type="file"]');
     expect(fileInput).toBeDisabled();
   });
@@ -117,7 +116,7 @@ describe('<VideoUploadButton />', () => {
         existingVideo={{ id: 'v-9', storage_path: 'p/9.mp4' }}
       />,
     );
-    fireEvent.click(screen.getByText('Delete'));
+    fireEvent.click(screen.getByRole('button', { name: /delete video/i }));
     expect(mockDelete.mutate).toHaveBeenCalledWith({
       videoId: 'v-9',
       storagePath: 'p/9.mp4',

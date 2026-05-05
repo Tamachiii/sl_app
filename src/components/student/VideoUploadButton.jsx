@@ -46,6 +46,19 @@ export default function VideoUploadButton({
   // offline via the existing signed-URL cache.
   const uploadDisabled = disabled || busy || !isOnline;
 
+  // Icon-only pill geometry — keeps the SetRow on a single line on small
+  // screens. Labels live in aria-label/title for accessibility.
+  const iconBtn =
+    'inline-flex items-center justify-center w-8 h-8 rounded-full disabled:opacity-50 transition-colors';
+
+  const uploadLabel = !isOnline
+    ? t('offline.videoNeedsOnline')
+    : upload.isPending
+      ? 'Uploading…'
+      : existingVideo
+        ? 'Replace video'
+        : 'Upload video';
+
   return (
     <>
       <input
@@ -56,37 +69,43 @@ export default function VideoUploadButton({
         onChange={handlePick}
         disabled={uploadDisabled}
       />
-      <div className="inline-flex items-center gap-2 flex-wrap">
+      <div className="inline-flex items-center gap-1.5 flex-wrap">
         {existingVideo ? (
           <>
             <button
               type="button"
               onClick={() => setViewerOpen(true)}
               disabled={busy}
-              className="sl-pill bg-accent/15 disabled:opacity-50"
+              aria-label="Play video"
+              className={`${iconBtn} bg-accent/15`}
               style={{ color: 'var(--color-accent)' }}
             >
-              <svg className="w-3 h-3 inline-block mr-1" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M8 5v14l11-7z" />
               </svg>
-              PLAY
             </button>
             <button
               type="button"
               onClick={() => inputRef.current?.click()}
               disabled={uploadDisabled}
-              title={!isOnline ? t('offline.videoNeedsOnline') : undefined}
-              className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 disabled:opacity-50"
+              title={uploadLabel}
+              aria-label={uploadLabel}
+              className={`${iconBtn} bg-ink-100 text-ink-700 hover:bg-ink-200`}
             >
-              {upload.isPending ? 'Uploading…' : 'Replace'}
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
             </button>
             <button
               type="button"
               onClick={handleDelete}
               disabled={busy}
-              className="sl-pill bg-ink-100 text-ink-500 hover:bg-ink-200 disabled:opacity-50"
+              aria-label={deleteVideo.isPending ? 'Deleting video…' : 'Delete video'}
+              className={`${iconBtn} bg-ink-100 text-ink-500 hover:bg-ink-200`}
             >
-              {deleteVideo.isPending ? 'Deleting…' : 'Delete'}
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+              </svg>
             </button>
           </>
         ) : (
@@ -94,18 +113,14 @@ export default function VideoUploadButton({
             type="button"
             onClick={() => inputRef.current?.click()}
             disabled={uploadDisabled}
-            title={!isOnline ? t('offline.videoNeedsOnline') : undefined}
-            className="sl-pill disabled:opacity-50"
+            title={uploadLabel}
+            aria-label={uploadLabel}
+            className={iconBtn}
             style={{ background: 'var(--color-warn)', color: 'var(--color-ink-900)' }}
           >
-            <svg className="w-3 h-3 inline-block mr-1" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" aria-hidden="true">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
-            {!isOnline
-              ? t('offline.videoNeedsOnline')
-              : upload.isPending
-                ? 'Uploading…'
-                : 'Upload video'}
           </button>
         )}
       </div>

@@ -215,8 +215,6 @@ const SetRow = memo(function SetRow({ log, locked = false, showTarget = false, r
             {indicatorContent}
           </button>
 
-          <span className="sl-label">{`Set ${log.set_number}`}</span>
-
           {showTarget && (
             <span className="sl-label normal-case text-ink-500">{formatSetTarget(log)}</span>
           )}

@@ -43,9 +43,12 @@ beforeEach(() => {
 });
 
 describe('SetRow', () => {
-  it('renders set number', () => {
+  it('renders the set number on the indicator button', () => {
     renderSetRow();
-    expect(screen.getByText('Set 1')).toBeInTheDocument();
+    // Indicator shows the set number while pending; after done/failed it
+    // swaps to a check/✕ icon. Row position covers the rest.
+    const indicator = screen.getByRole('button', { name: /mark set done/i });
+    expect(indicator).toHaveTextContent('1');
   });
 
   it('tap on indicator marks pending → done', async () => {
@@ -116,41 +119,42 @@ describe('SetRow', () => {
     fireEvent.touchEnd(row);
   }
 
+  function rowFor(indicatorPattern) {
+    return screen
+      .getByRole('button', { name: indicatorPattern })
+      .closest('div.relative.rounded-xl, div.rounded-xl');
+  }
+
   it('right-to-left swipe past threshold marks set done', () => {
     renderSetRow();
-    const row = screen.getByText('Set 1').closest('div.relative.rounded-xl, div.rounded-xl');
-    swipe(row, -80);
+    swipe(rowFor(/mark set done/i), -80);
     expect(mockToggleDone.mutate).toHaveBeenCalledWith({ logId: 'log-1', done: true });
     expect(mockSetFailed.mutate).not.toHaveBeenCalled();
   });
 
   it('left-to-right swipe past threshold marks set failed', () => {
     renderSetRow();
-    const row = screen.getByText('Set 1').closest('div.relative.rounded-xl, div.rounded-xl');
-    swipe(row, 80);
+    swipe(rowFor(/mark set done/i), 80);
     expect(mockSetFailed.mutate).toHaveBeenCalledWith({ logId: 'log-1', failed: true });
     expect(mockToggleDone.mutate).not.toHaveBeenCalled();
   });
 
   it('swipe under threshold does not commit', () => {
     renderSetRow();
-    const row = screen.getByText('Set 1').closest('div.relative.rounded-xl, div.rounded-xl');
-    swipe(row, -30);
+    swipe(rowFor(/mark set done/i), -30);
     expect(mockToggleDone.mutate).not.toHaveBeenCalled();
     expect(mockSetFailed.mutate).not.toHaveBeenCalled();
   });
 
   it('swipe is suppressed when locked', () => {
     renderSetRow(baseLog, { locked: true });
-    const row = screen.getByText('Set 1').closest('div.relative.rounded-xl, div.rounded-xl');
-    swipe(row, -80);
+    swipe(rowFor(/mark set done/i), -80);
     expect(mockToggleDone.mutate).not.toHaveBeenCalled();
   });
 
   it('swipe-right on already-failed set is a no-op (no redundant write)', () => {
     renderSetRow({ ...baseLog, failed: true });
-    const row = screen.getByText('Set 1').closest('div.relative.rounded-xl, div.rounded-xl');
-    swipe(row, 80);
+    swipe(rowFor(/clear failed/i), 80);
     expect(mockSetFailed.mutate).not.toHaveBeenCalled();
   });
 
