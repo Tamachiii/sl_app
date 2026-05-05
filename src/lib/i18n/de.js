@@ -68,7 +68,8 @@ const de = {
       noExercises: 'Noch keine Übungen zugewiesen.',
     },
     profile: {
-      kicker: 'Profil',
+      kicker: 'Du',
+      title: 'Profil.',
       header: {
         displayName: 'Anzeigename',
         namePlaceholder: 'Dein Name',

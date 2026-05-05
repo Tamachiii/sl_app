@@ -68,7 +68,8 @@ const en = {
       noExercises: 'No exercises assigned yet.',
     },
     profile: {
-      kicker: 'Profile',
+      kicker: 'You',
+      title: 'Profile.',
       header: {
         displayName: 'Display name',
         namePlaceholder: 'Your name',

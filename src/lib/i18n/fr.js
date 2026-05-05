@@ -68,7 +68,8 @@ const fr = {
       noExercises: 'Aucun exercice attribué.',
     },
     profile: {
-      kicker: 'Profil',
+      kicker: 'Toi',
+      title: 'Profil.',
       header: {
         displayName: 'Nom affiché',
         namePlaceholder: 'Ton nom',

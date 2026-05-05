@@ -162,19 +162,28 @@ export default function StudentProfile() {
 
   return (
     <div className="p-4 pb-6 md:p-8 space-y-5">
-      {/* Header — back arrow on the left, no UserMenu on Profile itself */}
-      <div className="pt-3 pb-1 flex items-center justify-between gap-4">
+      {/* Editorial header matching every other top-level student page —
+          kicker + giant display title on the left. The right-hand slot
+          (where UserMenu's avatar normally lives) holds a back button
+          instead, since the avatar would just navigate to where we already
+          are. Hit zone matches the avatar's so muscle memory transfers. */}
+      <div className="pt-3 pb-1 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="sl-label text-ink-400">{t('student.profile.kicker')}</div>
+          <h1 className="sl-display text-[32px] md:text-[44px] text-gray-900 leading-none mt-1">
+            {t('student.profile.title')}
+          </h1>
+        </div>
         <button
           type="button"
           onClick={() => navigate(-1)}
           aria-label={t('common.back')}
-          className="w-10 h-10 rounded-full flex items-center justify-center text-ink-700 hover:bg-ink-100 transition-colors"
+          className="w-10 h-10 rounded-full bg-ink-100 flex items-center justify-center text-ink-700 hover:brightness-95 active:scale-95 transition-transform shrink-0"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <div className="sl-label text-ink-400">{t('student.profile.kicker')}</div>
       </div>
 
       {/* Identity card */}
