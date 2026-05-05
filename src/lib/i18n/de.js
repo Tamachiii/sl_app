@@ -201,7 +201,7 @@ const de = {
       athlete: 'Athlet',
       athletes_plural: 'Athleten',
       recent: 'LETZTE',
-      openStudent: '{name} öffnen',
+      openStudent: 'Profil von {name} öffnen',
       weekStripAria: 'Wochenübersicht',
       dayStatus: {
         completed: 'Erledigt',
@@ -280,6 +280,11 @@ const de = {
     noCoach: 'Du bist noch keinem Coach zugeordnet.',
     sessionRefLabel: 'Re: {title}',
     sessionRefOpen: 'Session öffnen',
+  },
+  notFound: {
+    title: 'Seite nicht gefunden.',
+    body: 'Wir konnten diese Seite nicht finden. Vielleicht wurde sie verschoben, oder der Link ist veraltet.',
+    goHome: 'Zurück zur Startseite',
   },
   offline: {
     bannerOffline: 'Offline — deine Änderungen werden synchronisiert, sobald du wieder online bist.',

@@ -201,7 +201,7 @@ const fr = {
       athlete: 'athlète',
       athletes_plural: 'athlètes',
       recent: 'RÉCENTS',
-      openStudent: 'Ouvrir {name}',
+      openStudent: 'Ouvrir le profil de {name}',
       weekStripAria: 'Aperçu de la semaine',
       dayStatus: {
         completed: 'Terminé',
@@ -280,6 +280,11 @@ const fr = {
     noCoach: 'Tu n’as pas encore de coach.',
     sessionRefLabel: 'Réf : {title}',
     sessionRefOpen: 'Ouvrir la séance',
+  },
+  notFound: {
+    title: 'Page introuvable.',
+    body: 'Nous n’avons pas trouvé cette page. Elle a peut-être été déplacée, ou le lien est obsolète.',
+    goHome: 'Retour à l’accueil',
   },
   offline: {
     bannerOffline: 'Hors ligne — tes changements seront synchronisés à la reconnexion.',

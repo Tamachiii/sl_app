@@ -59,6 +59,25 @@ describe('SessionCard', () => {
     expect(screen.getByText('Front Squat')).toBeInTheDocument();
   });
 
+  it('collapsed Start pill navigates to onStart without expanding the card', async () => {
+    const user = userEvent.setup();
+    const onStart = vi.fn();
+    render(<SessionCard session={baseSession} onStart={onStart} />);
+    // While collapsed, the pill is the dedicated "Start session" button on
+    // the right of the row (separate from the title-toggle button).
+    const pill = screen.getByRole('button', { name: 'Start session' });
+    await user.click(pill);
+    expect(onStart).toHaveBeenCalledTimes(1);
+    // Card must remain collapsed — pill is a navigation, not an expand.
+    expect(screen.queryByText('Front Squat')).toBeNull();
+  });
+
+  it('open card hides the pill and exposes only the bottom Start CTA', () => {
+    render(<SessionCard session={baseSession} defaultOpen />);
+    const startButtons = screen.getAllByRole('button', { name: /Start session/i });
+    expect(startButtons).toHaveLength(1);
+  });
+
   it('shows a grouped summary instead of compact prescription when sets differ', () => {
     const variedSlot = {
       id: 'slot-2',

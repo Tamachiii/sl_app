@@ -26,7 +26,7 @@ Prefer `Grep` over `Read` for locating symbols. Read ranges (`offset`/`limit`) f
 ```
 src/
   App.jsx  main.jsx  routes.jsx  index.css
-  lib/           supabase.js  queryClient.js  volume.js  day.js  i18n/
+  lib/           supabase.js  queryClient.js  volume.js  day.js  preload.js  i18n/
   hooks/         auth · theme · i18n · program · week · session · goals
                  students · set-logs · set-video · confirmations · slot-comments
                  stats · exercise-library · duplicate · remember-coach-students-path
@@ -47,7 +47,7 @@ src/
     notifications/ NotificationBell
     ui/          EditableText  ThemeToggle  LanguageSelect  UserMenu  Dialog
                  VideoPlayer  Spinner  EmptyState  CopyDialog  ConfirmDialog
-                 ErrorBoundary
+                 ErrorBoundary  NotFound
   test/          setup.js  utils.jsx (renderWithProviders)
 supabase/        schema.sql  migrations/
 docs/            INVARIANTS.md  ARCHITECTURE.md  DESIGN_SYSTEM.md  ENVIRONMENT.md

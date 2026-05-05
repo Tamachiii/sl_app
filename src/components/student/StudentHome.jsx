@@ -4,7 +4,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { useStudentProgramDetails } from '../../hooks/useStudentProgramDetails';
 import { useMyConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
-import { DAY_LABELS, DAY_FULL, todayDayNumber, sessionDayNumber } from '../../lib/day';
+import { DAY_LABELS, DAY_FULL, DAY_FULL_LONG, todayDayNumber, sessionDayNumber } from '../../lib/day';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
@@ -23,7 +23,7 @@ function findActiveWeek(weeks, confirmedIds) {
 
 // ─── Day strip cell ────────────────────────────────────────────────────────
 
-function DayCell({ dayLabel, session, confirmed, archived, isToday, onClick }) {
+function DayCell({ dayLabel, dayName, session, confirmed, archived, isToday, onClick }) {
   const hasSession = !!session;
   const isRest = !hasSession;
   const interactive = hasSession && !confirmed && !archived;
@@ -42,11 +42,14 @@ function DayCell({ dayLabel, session, confirmed, archived, isToday, onClick }) {
   }
 
   const shortTitle = (session?.title || (isRest ? 'Rest' : '')).toUpperCase();
+  // Aria uses the full weekday name so screen readers announce e.g.
+  // "Tuesday — Pull session" rather than the visual single-letter abbreviation.
+  const dayWord = dayName || dayLabel;
   const ariaLabel = isRest
-    ? `${dayLabel} rest day`
+    ? `${dayWord} — rest day`
     : archived
-      ? `${dayLabel} ${session.title} (archived)`
-      : `${dayLabel} ${session.title}`;
+      ? `${dayWord} — ${session.title} (archived)`
+      : `${dayWord} — ${session.title}`;
 
   return (
     <button
@@ -149,6 +152,7 @@ export default function StudentHome() {
     return Array.from({ length: 7 }, (_, i) => ({
       dayNumber: i + 1,
       label: DAY_LABELS[i],
+      name: DAY_FULL_LONG[i],
       session: byDay[i + 1] ?? null,
     }));
   }, [weekSessions]);
@@ -219,12 +223,13 @@ export default function StudentHome() {
 
         <section aria-label="Week overview">
           <div className="grid grid-cols-7 gap-1.5">
-            {daySlots.map(({ dayNumber, label, session }) => {
+            {daySlots.map(({ dayNumber, label, name, session }) => {
               const isArchived = !!session?.archived_at;
               return (
                 <DayCell
                   key={dayNumber}
                   dayLabel={label}
+                  dayName={name}
                   session={session}
                   confirmed={session && !isArchived ? confirmedIds.has(session.id) : false}
                   archived={isArchived}

@@ -163,6 +163,8 @@ function ManageProgramDialog({ program, programCount, studentId, t, onClose, onD
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
+            spellCheck="true"
+            autoCapitalize="words"
             className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
           />
         </label>

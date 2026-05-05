@@ -39,6 +39,11 @@ export default function SessionCard({
   };
   const slots = session.exercise_slots || [];
 
+  // The Start pill is an actual navigation affordance — tapping it opens
+  // SessionView directly instead of just expanding the card. Only shown
+  // while the card is collapsed; once expanded, the bottom CTA takes over.
+  // Done / archived pills stay as labels (no action attached).
+  const isStartable = collapsible && !open && !confirmed && !archived && !!onStart;
   let statusPill = null;
   if (confirmed) {
     statusPill = (
@@ -55,7 +60,7 @@ export default function SessionCard({
         {t('common.archived')}
       </span>
     );
-  } else if (collapsible) {
+  } else if (collapsible && !isStartable) {
     statusPill = (
       <span
         className="sl-pill"
@@ -66,53 +71,73 @@ export default function SessionCard({
     );
   }
 
-  const headerInner = (
-    <>
-      <div className="min-w-0 flex-1">
-        <p
-          className={`sl-display text-[17px] truncate ${
-            archived ? 'text-ink-400' : 'text-gray-900'
-          }`}
+  const titleBlock = (
+    <div className="min-w-0 flex-1">
+      <p
+        className={`sl-display text-[17px] truncate ${
+          archived ? 'text-ink-400' : 'text-gray-900'
+        }`}
+      >
+        {session.title || `Session ${session.sort_order + 1}`}
+      </p>
+      <p className="sl-mono text-[11px] text-ink-400 mt-0.5 flex items-center gap-1.5">
+        {subtitle && <span>{subtitle}</span>}
+        {subtitle && <span aria-hidden>·</span>}
+        <span>
+          {slots.length} {t('common.ex')}
+        </span>
+      </p>
+    </div>
+  );
+
+  const trailingBlock = (
+    <div className="flex items-center gap-2 shrink-0">
+      {statusPill}
+      {collapsible && (
+        <svg
+          className={`w-4 h-4 text-ink-400 transition-transform ${open ? 'rotate-180' : ''}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
         >
-          {session.title || `Session ${session.sort_order + 1}`}
-        </p>
-        <p className="sl-mono text-[11px] text-ink-400 mt-0.5 flex items-center gap-1.5">
-          {subtitle && <span>{subtitle}</span>}
-          {subtitle && <span aria-hidden>·</span>}
-          <span>
-            {slots.length} {t('common.ex')}
-          </span>
-        </p>
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
-        {statusPill}
-        {collapsible && (
-          <svg
-            className={`w-4 h-4 text-ink-400 transition-transform ${open ? 'rotate-180' : ''}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        )}
-      </div>
-    </>
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      )}
+    </div>
   );
 
   return (
     <div className="sl-card overflow-hidden">
       {collapsible ? (
-        <button
-          className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-ink-50 transition-colors"
-          onClick={toggle}
-          aria-expanded={open}
-        >
-          {headerInner}
-        </button>
+        <div className="w-full flex items-stretch hover:bg-ink-50 transition-colors">
+          <button
+            className="flex-1 min-w-0 flex items-center justify-between gap-3 px-4 py-3.5 text-left"
+            onClick={toggle}
+            aria-expanded={open}
+          >
+            {titleBlock}
+            {trailingBlock}
+          </button>
+          {isStartable && (
+            <button
+              type="button"
+              onClick={onStart}
+              aria-label={t('common.startSession')}
+              className="shrink-0 self-stretch flex items-center px-3 sl-pill"
+              style={{
+                background: 'color-mix(in srgb, var(--color-accent) 15%, transparent)',
+                color: 'var(--color-accent)',
+                borderRadius: 0,
+              }}
+            >
+              {t('common.start')}
+            </button>
+          )}
+        </div>
       ) : (
         <div className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left">
-          {headerInner}
+          {titleBlock}
+          {trailingBlock}
         </div>
       )}
 

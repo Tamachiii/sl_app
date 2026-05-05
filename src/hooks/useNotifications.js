@@ -34,12 +34,15 @@ export function useUnreadNotificationCount() {
   const { user } = useAuth();
   return useQuery({
     queryKey: [ROOT, 'unread-count', user?.id],
-    queryFn: async () => {
+    // Pipe React Query's signal through so the HEAD count request aborts
+    // cleanly on unmount instead of racing.
+    queryFn: async ({ signal }) => {
       const { count, error } = await supabase
         .from('notifications')
         .select('*', { count: 'exact', head: true })
         .eq('recipient_id', user.id)
-        .is('read_at', null);
+        .is('read_at', null)
+        .abortSignal(signal);
       if (error) throw error;
       return count || 0;
     },

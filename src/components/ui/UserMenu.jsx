@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
+import { preloadLogin } from '../../lib/preload';
 import ThemeToggle from './ThemeToggle';
 import LanguageSelect from './LanguageSelect';
 import NotificationBell from '../notifications/NotificationBell';
@@ -29,6 +30,7 @@ export default function UserMenu({ fullName, onSignOut, profileHref }) {
 
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
+  const menuId = useId();
 
   useEffect(() => {
     if (!open) return undefined;
@@ -49,6 +51,8 @@ export default function UserMenu({ fullName, onSignOut, profileHref }) {
   if (!initials) return null;
 
   // Link-mode avatar: tap navigates straight to the Profile page.
+  // onPointerEnter preloads LoginPage — Profile is where signOut lives, so
+  // by the time the user clicks Sign out the chunk is warm.
   if (profileHref) {
     return (
       <div className="flex items-center gap-2 shrink-0">
@@ -56,6 +60,8 @@ export default function UserMenu({ fullName, onSignOut, profileHref }) {
         <Link
           to={profileHref}
           aria-label={t('common.openProfile')}
+          onPointerEnter={preloadLogin}
+          onFocus={preloadLogin}
           className="w-10 h-10 rounded-full bg-ink-100 flex items-center justify-center sl-display text-[13px] text-ink-900 cursor-pointer hover:brightness-95 active:scale-95 transition-transform"
           style={{ border: '1.5px solid var(--color-accent)' }}
         >
@@ -72,8 +78,11 @@ export default function UserMenu({ fullName, onSignOut, profileHref }) {
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
+          onPointerEnter={preloadLogin}
+          onFocus={preloadLogin}
           aria-haspopup="menu"
           aria-expanded={open}
+          aria-controls={menuId}
           aria-label={t('common.openUserMenu')}
           className="w-10 h-10 rounded-full bg-ink-100 flex items-center justify-center sl-display text-[13px] text-ink-900 cursor-pointer hover:brightness-95 active:scale-95 transition-transform"
           style={{ border: '1.5px solid var(--color-accent)' }}
@@ -82,7 +91,9 @@ export default function UserMenu({ fullName, onSignOut, profileHref }) {
         </button>
         {open && (
           <div
+            id={menuId}
             role="menu"
+            aria-label={t('common.openUserMenu')}
             className="absolute right-0 top-12 z-20 min-w-[168px] rounded-xl bg-white shadow-lg border border-ink-100 overflow-hidden"
           >
             <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-ink-100">

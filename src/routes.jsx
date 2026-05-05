@@ -30,6 +30,7 @@ const SessionView = lazy(() => import('./components/student/SessionView'));
 const MyGoals = lazy(() => import('./components/student/MyGoals'));
 const StudentMessages = lazy(() => import('./components/student/StudentMessages'));
 const StudentProfile = lazy(() => import('./components/student/StudentProfile'));
+const NotFound = lazy(() => import('./components/ui/NotFound'));
 
 function Lazy({ children }) {
   return (
@@ -95,10 +96,15 @@ export const routes = [
               { path: '/student/profile', element: <Lazy><StudentProfile /></Lazy> },
             ],
           },
+          // Authenticated catch-all: any URL that didn't match a role route
+          // lands here with a real 404 message instead of a silent redirect.
+          { path: '*', element: <Lazy><NotFound /></Lazy> },
         ],
       },
     ],
   },
+  // Unauthenticated catch-all still bounces to /login — ProtectedRoute
+  // would do the same thing with a flicker, so handle it up front.
   {
     path: '*',
     element: <Navigate to="/login" replace />,

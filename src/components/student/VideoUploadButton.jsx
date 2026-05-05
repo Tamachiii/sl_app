@@ -46,10 +46,11 @@ export default function VideoUploadButton({
   // offline via the existing signed-URL cache.
   const uploadDisabled = disabled || busy || !isOnline;
 
-  // Icon-only pill geometry — keeps the SetRow on a single line on small
-  // screens. Labels live in aria-label/title for accessibility.
+  // Icon-only pill geometry — sized to the 44px Apple HIG tap-target
+  // minimum so the button is comfortably tappable on mobile. Labels live
+  // in aria-label/title for accessibility.
   const iconBtn =
-    'inline-flex items-center justify-center w-8 h-8 rounded-full disabled:opacity-50 transition-colors';
+    'inline-flex items-center justify-center w-11 h-11 rounded-full disabled:opacity-50 transition-colors';
 
   const uploadLabel = !isOnline
     ? t('offline.videoNeedsOnline')

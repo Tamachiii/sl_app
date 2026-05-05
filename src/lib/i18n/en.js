@@ -201,7 +201,7 @@ const en = {
       athlete: 'student',
       athletes_plural: 'students',
       recent: 'RECENT',
-      openStudent: 'Open {name}',
+      openStudent: 'Open profile for {name}',
       weekStripAria: 'This week at a glance',
       dayStatus: {
         completed: 'Completed',
@@ -280,6 +280,11 @@ const en = {
     noCoach: 'You aren’t linked to a coach yet.',
     sessionRefLabel: 'Re: {title}',
     sessionRefOpen: 'Open session',
+  },
+  notFound: {
+    title: 'Page not found.',
+    body: "We couldn't find that page. It may have moved, or the link could be stale.",
+    goHome: 'Back to home',
   },
   offline: {
     bannerOffline: 'Offline — your changes will sync when you reconnect.',

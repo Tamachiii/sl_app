@@ -100,6 +100,35 @@ function Chevron({ open }) {
   );
 }
 
+// Small chat-bubble badge shown in the collapsed slot header when the
+// student has already left a note for the coach. Doubles as discoverability
+// for the note feature — students who haven't expanded a card before see
+// the icon on slots they HAVE noted, learning the affordance exists.
+function NoteBadge() {
+  return (
+    <span
+      className="inline-flex items-center justify-center shrink-0 self-center text-ink-400"
+      aria-label="Note attached"
+      title="Note attached"
+    >
+      <svg
+        className="w-3.5 h-3.5"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+        />
+      </svg>
+    </span>
+  );
+}
+
 export default function SlotGroupCard({
   group,
   slotOffset,
@@ -121,6 +150,9 @@ export default function SlotGroupCard({
     // not one per exercise). Anchor the comment to the first slot in the
     // group so existing slot_comments rows on the lead slot stay visible.
     const leadSlot = group.slots[0];
+    const hasGroupNote = (slotComments || []).some(
+      (c) => c.exercise_slot_id === leadSlot.id && (c.body || '').trim() !== ''
+    );
     return (
       <div
         className="rounded-xl border-2 p-2 space-y-2"
@@ -139,6 +171,7 @@ export default function SlotGroupCard({
           <span className="sl-mono text-[11px] text-ink-400 flex-1 truncate">
             {`${group.slots.length} exercises`}
           </span>
+          {hasGroupNote && <NoteBadge />}
           {total > 0 && (
             <span className="sl-mono text-[11px] text-ink-400 shrink-0">{done}/{total}</span>
           )}
@@ -180,6 +213,9 @@ export default function SlotGroupCard({
   const slot = group.slots[0];
   const slotLogs = getLogsForSlot(slot.id);
   const globalIdx = String(slotOffset + 1).padStart(2, '0');
+  const hasNote = (slotComments || []).some(
+    (c) => c.exercise_slot_id === slot.id && (c.body || '').trim() !== ''
+  );
   return (
     <div className="sl-card overflow-hidden">
       <button
@@ -189,6 +225,7 @@ export default function SlotGroupCard({
         className="w-full flex items-baseline gap-2.5 p-4 text-left hover:bg-ink-50 transition-colors"
       >
         <SlotHeader slot={slot} slotLogs={slotLogs} globalIdx={globalIdx} />
+        {hasNote && <NoteBadge />}
         {total > 0 && (
           <span className="sl-mono text-[11px] text-ink-400 shrink-0 self-center">{done}/{total}</span>
         )}

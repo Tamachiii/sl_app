@@ -119,7 +119,15 @@ export default function WeekView() {
       </div>
 
       <div className="space-y-2">
-        {sessions.length === 0 && <EmptyState message="No sessions yet" />}
+        {sessions.length === 0 && (
+          <EmptyState
+            message={
+              archivedSessions.length > 0
+                ? `No active sessions — ${archivedSessions.length} archived. Use "Show ${archivedSessions.length} archived" below.`
+                : 'No sessions yet'
+            }
+          />
+        )}
         {sessions.map((sess) => {
           const exCount = (sess.exercise_slots || []).length;
           return (

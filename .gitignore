@@ -2,6 +2,10 @@ node_modules
 dist
 .env
 
+# E2E test artifacts (screenshots, traces, reports).
+test-artifacts/
+report.md
+
 # Supabase CLI link cache (local-only; regenerated on `supabase link`).
 supabase/.temp/
 

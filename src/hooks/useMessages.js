@@ -110,12 +110,17 @@ export function useUnreadMessageCount() {
   const me = user?.id;
   return useQuery({
     queryKey: [MESSAGES_ROOT, 'unread-count', me],
-    queryFn: async () => {
+    // `signal` from React Query lets us cancel the HEAD request cleanly when
+    // the consumer unmounts or the route changes — supabase-js honors the
+    // AbortSignal and aborts the underlying fetch instead of letting it
+    // race in the background.
+    queryFn: async ({ signal }) => {
       const { count, error } = await supabase
         .from('messages')
         .select('*', { count: 'exact', head: true })
         .eq('recipient_id', me)
-        .is('read_at', null);
+        .is('read_at', null)
+        .abortSignal(signal);
       if (error) throw error;
       return count || 0;
     },

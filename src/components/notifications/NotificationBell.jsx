@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
 import {
@@ -71,6 +71,7 @@ export default function NotificationBell() {
 
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
+  const menuId = useId();
 
   useEffect(() => {
     if (!open) return undefined;
@@ -104,6 +105,7 @@ export default function NotificationBell() {
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-controls={menuId}
         aria-label={
           unreadCount > 0
             ? t('notifications.openWithUnread', { n: unreadCount })
@@ -129,7 +131,9 @@ export default function NotificationBell() {
 
       {open && (
         <div
+          id={menuId}
           role="menu"
+          aria-label={t('notifications.title')}
           className="absolute right-0 top-12 z-30 w-[320px] max-w-[calc(100vw-2rem)] rounded-xl bg-white shadow-lg border border-ink-100 overflow-hidden"
         >
           <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-ink-100">

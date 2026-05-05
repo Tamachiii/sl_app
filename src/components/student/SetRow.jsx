@@ -208,7 +208,7 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
             onClick={handleIndicatorTap}
             disabled={locked}
             aria-label={indicatorAriaLabel}
-            className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors sl-display text-[13px] font-extrabold ${indicatorBg} ${
+            className={`w-11 h-11 rounded-lg flex items-center justify-center shrink-0 transition-colors sl-display text-[15px] font-extrabold ${indicatorBg} ${
               locked ? 'opacity-70 cursor-not-allowed' : ''
             }`}
             style={failed ? { background: 'var(--color-danger)' } : undefined}
@@ -251,7 +251,7 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
                   ? `RPE ${log.rpe}, tap to change`
                   : 'Set RPE'
             }
-            className={`sl-pill shrink-0 ${
+            className={`sl-pill shrink-0 min-h-11 px-3.5 ${
               log.rpe != null
                 ? 'bg-accent/15 text-accent'
                 : 'bg-ink-100 text-ink-500'
