@@ -270,8 +270,6 @@ const fr = {
   },
   offline: {
     bannerOffline: 'Hors ligne — tes changements seront synchronisés à la reconnexion.',
-    bannerPending: 'Synchronisation de {n} changement…',
-    bannerPendingMany: 'Synchronisation de {n} changements…',
     bannerOfflineWithPending: 'Hors ligne · {n} changement à synchroniser',
     bannerOfflineWithPendingMany: 'Hors ligne · {n} changements à synchroniser',
     videoNeedsOnline: 'Connecte-toi pour enregistrer une vidéo',

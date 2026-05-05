@@ -37,44 +37,73 @@ function withClient(qc) {
 }
 
 describe('<OfflineBanner />', () => {
-  it('renders nothing when online with an empty queue', () => {
+  it('keeps the wrapper mounted but collapsed while online', () => {
     setOnline(true);
     const qc = makeClient();
-    const { container } = render(<OfflineBanner />, { wrapper: withClient(qc) });
-    expect(container).toBeEmptyDOMElement();
-  });
-
-  it('shows the offline notice when navigator.onLine is false', () => {
-    setOnline(false);
-    const qc = makeClient();
     render(<OfflineBanner />, { wrapper: withClient(qc) });
-    act(() => {
-      window.dispatchEvent(new Event('offline'));
-    });
-    const banner = screen.getByTestId('offline-banner');
-    expect(banner).toHaveTextContent(/Offline/i);
+    const wrapper = screen.getByTestId('offline-banner-wrapper');
+    expect(wrapper).toHaveAttribute('aria-hidden', 'true');
+    expect(wrapper).toHaveStyle({ maxHeight: '0px' });
   });
 
-  it('reflects the count of pending mutations while offline', async () => {
-    setOnline(false);
+  it('does not flash when an in-flight (non-paused) mutation is pending while online', () => {
+    setOnline(true);
     const qc = makeClient();
-    // Register a default fn that never resolves so the mutation stays pending.
-    qc.setMutationDefaults(['paused-test'], {
-      networkMode: 'offlineFirst',
+    qc.setMutationDefaults(['inflight'], {
+      networkMode: 'always',
       mutationFn: () => new Promise(() => {}),
     });
+    render(<OfflineBanner />, { wrapper: withClient(qc) });
+
+    act(() => {
+      qc.getMutationCache()
+        .build(qc, {
+          mutationKey: ['inflight'],
+          networkMode: 'always',
+          mutationFn: () => new Promise(() => {}),
+        })
+        .execute({});
+    });
+
+    // A normal online tap fills the cache with a pending (but not paused)
+    // mutation. The banner must stay collapsed — that was the flicker bug.
+    const wrapper = screen.getByTestId('offline-banner-wrapper');
+    expect(wrapper).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('expands and shows the offline notice when navigator.onLine is false', () => {
+    setOnline(false);
+    const qc = makeClient();
+    render(<OfflineBanner />, { wrapper: withClient(qc) });
+    act(() => {
+      window.dispatchEvent(new Event('offline'));
+    });
+    const wrapper = screen.getByTestId('offline-banner-wrapper');
+    expect(wrapper).toHaveAttribute('aria-hidden', 'false');
+    expect(wrapper).not.toHaveStyle({ maxHeight: '0px' });
+    expect(screen.getByTestId('offline-banner')).toHaveTextContent(/Offline/i);
+  });
+
+  it('reflects the count of paused mutations in the offline notice', async () => {
+    setOnline(false);
+    const qc = makeClient();
 
     render(<OfflineBanner />, { wrapper: withClient(qc) });
     act(() => {
       window.dispatchEvent(new Event('offline'));
     });
 
+    // Build a mutation that React Query will park as paused (networkMode
+    // 'online' + offline). The banner's mutation-cache subscription should
+    // pick it up and render the count.
     act(() => {
-      qc.getMutationCache().build(qc, {
-        mutationKey: ['paused-test'],
-        networkMode: 'offlineFirst',
-        mutationFn: () => new Promise(() => {}),
-      }).execute({});
+      qc.getMutationCache()
+        .build(qc, {
+          mutationKey: ['paused-test'],
+          networkMode: 'online',
+          mutationFn: () => Promise.resolve(),
+        })
+        .execute({});
     });
 
     const banner = await screen.findByTestId('offline-banner');
