@@ -285,6 +285,8 @@ const de = {
     deleteConfirm: 'Die Nachricht wird für euch beide entfernt. „{preview}"',
     deleteConfirmFallback: 'Die Nachricht wird für euch beide entfernt.',
     deleteError: 'Nachricht konnte nicht gelöscht werden. Bitte erneut versuchen.',
+    sentReceipt: 'Gesendet',
+    readReceipt: 'Gelesen · {when}',
   },
   notFound: {
     title: 'Seite nicht gefunden.',

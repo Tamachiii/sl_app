@@ -285,6 +285,8 @@ const en = {
     deleteConfirm: 'This will remove the message for both of you. "{preview}"',
     deleteConfirmFallback: 'This will remove the message for both of you.',
     deleteError: 'Couldn’t delete the message. Try again.',
+    sentReceipt: 'Sent',
+    readReceipt: 'Read · {when}',
   },
   notFound: {
     title: 'Page not found.',

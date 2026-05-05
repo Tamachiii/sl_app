@@ -39,6 +39,17 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
   const groups = useGroupedThread(messages);
   const sessionRefs = useSessionRefsForMessages(messages);
 
+  // iMessage-style receipt: the very last outgoing message gets a "Read · {time}"
+  // or "Sent" caption underneath. Older outgoing bubbles stay quiet so a long
+  // thread doesn't end up dotted with redundant labels.
+  const lastFromMe = useMemo(() => {
+    if (!messages?.length || !me) return null;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].sender_id === me) return messages[i];
+    }
+    return null;
+  }, [messages, me]);
+
   // Press-and-hold a bubble (or right-click on desktop) opens the confirm
   // dialog. `pressingId` powers the slight scale-down feedback while the
   // long-press timer is running.
@@ -189,6 +200,7 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
                     const isLastInGroup = mi === group.messages.length - 1;
                     const sessionRef = m.session_id ? sessionRefs.get(m.session_id) : null;
                     const canDelete = fromMe && !m.session_id;
+                    const showReceipt = fromMe && lastFromMe && m.id === lastFromMe.id;
                     const isPressing = canDelete && pressingId === m.id;
                     const pressHandlers = canDelete
                       ? {
@@ -244,6 +256,16 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
                             </div>
                           )}
                         </div>
+                        {showReceipt && (
+                          <div
+                            className="sl-mono text-[10px] tabular-nums text-ink-400"
+                            aria-live="polite"
+                          >
+                            {m.read_at
+                              ? t('messaging.readReceipt', { when: formatMessageStamp(m.read_at, lang) })
+                              : t('messaging.sentReceipt')}
+                          </div>
+                        )}
                       </div>
                     );
                   })}

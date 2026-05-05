@@ -285,6 +285,8 @@ const fr = {
     deleteConfirm: 'Le message sera supprimé pour vous deux. « {preview} »',
     deleteConfirmFallback: 'Le message sera supprimé pour vous deux.',
     deleteError: 'Impossible de supprimer le message. Réessaie.',
+    sentReceipt: 'Envoyé',
+    readReceipt: 'Lu · {when}',
   },
   notFound: {
     title: 'Page introuvable.',
