@@ -213,8 +213,8 @@ export default function SessionReview() {
                   </p>
                   {/* Coach-side audit list: SlotProgress shows actuals only,
                       so the planned-per-set detail lives here when sets diverge.
-                      Student SessionView drops this list because each SetRow
-                      carries its own target inline (showTarget). */}
+                      Student SessionView drops this list because every SetRow
+                      already carries its own target inline. */}
                   {!uniform && (
                     <ul className="mt-1 space-y-0.5">
                       {slotLogs.map((log) => {

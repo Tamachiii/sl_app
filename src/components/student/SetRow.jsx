@@ -21,11 +21,12 @@ const SWIPE_MAX_OFFSET = 96;
  * Rest target is read from the per-set `target_rest_seconds` on the log;
  * this lets a coach prescribe different rests per set within one exercise.
  *
- * `showTarget` is set by the parent when the slot's sets are heterogeneous —
- * uniform slots already display the target in the SlotHeader, so duplicating
- * it on every row would be noise.
+ * The per-set target (e.g. `3 @ 107.5kg`) renders inline on every row.
+ * It overlaps with the slot-header summary on uniform slots, but a row
+ * with only an indicator and an RPE pill reads as empty — repeating the
+ * target keeps the row scannable.
  */
-const SetRow = memo(function SetRow({ log, locked = false, showTarget = false, recordVideo = false, video = null }) {
+const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, video = null }) {
   const toggleDone = useToggleSetDone();
   const setFailed = useSetFailed();
   const setRpe = useSetRpe();
@@ -215,9 +216,7 @@ const SetRow = memo(function SetRow({ log, locked = false, showTarget = false, r
             {indicatorContent}
           </button>
 
-          {showTarget && (
-            <span className="sl-label normal-case text-ink-500">{formatSetTarget(log)}</span>
-          )}
+          <span className="sl-label normal-case text-ink-500">{formatSetTarget(log)}</span>
 
           {failed && (
             <span

@@ -15,7 +15,6 @@ function SlotBody({
   isConfirmed,
   isReadOnly,
   getVideoForLog,
-  uniform,
   showCommentBox = true,
 }) {
   // Sets lock when the student has confirmed the session OR when the session
@@ -43,7 +42,6 @@ function SlotBody({
             key={log.id}
             log={log}
             locked={setsLocked}
-            showTarget={!uniform}
             recordVideo={(slot.record_video_set_numbers || []).includes(log.set_number)}
             video={getVideoForLog ? getVideoForLog(log.id) : null}
           />
@@ -149,7 +147,6 @@ export default function SlotGroupCard({
         {open && group.slots.map((slot, i) => {
           const globalIdx = String(groupIdx + i + 1).padStart(2, '0');
           const slotLogs = getLogsForSlot(slot.id);
-          const uniform = isSlotUniform({ ...slot, set_logs: slotLogs });
           return (
             <div key={slot.id} className="sl-card p-4 space-y-3">
               <SlotHeader slot={slot} slotLogs={slotLogs} globalIdx={globalIdx} />
@@ -161,7 +158,6 @@ export default function SlotGroupCard({
                 isConfirmed={isConfirmed}
                 isReadOnly={isReadOnly}
                 getVideoForLog={getVideoForLog}
-                uniform={uniform}
                 showCommentBox={false}
               />
             </div>
@@ -183,7 +179,6 @@ export default function SlotGroupCard({
 
   const slot = group.slots[0];
   const slotLogs = getLogsForSlot(slot.id);
-  const uniform = isSlotUniform({ ...slot, set_logs: slotLogs });
   const globalIdx = String(groupIdx + 1).padStart(2, '0');
   return (
     <div className="sl-card overflow-hidden">
@@ -209,7 +204,6 @@ export default function SlotGroupCard({
             isConfirmed={isConfirmed}
             isReadOnly={isReadOnly}
             getVideoForLog={getVideoForLog}
-            uniform={uniform}
           />
         </div>
       )}
