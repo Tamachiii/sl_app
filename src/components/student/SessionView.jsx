@@ -157,11 +157,15 @@ export default function SessionView() {
     }
   }
 
-  // Build total-sets progress numbers.
+  // Build total-sets progress numbers. The text counts only successfully
+  // completed sets (a quality signal), but the progress bar reflects every
+  // resolved set including failed ones — a failed attempt still moves the
+  // student forward through the session.
   const allLogs = logs || [];
   const doneCount = allLogs.filter((l) => l.done).length;
+  const resolvedCount = allLogs.filter((l) => l.done || l.failed).length;
   const totalCount = allLogs.length;
-  const progress = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+  const progress = totalCount > 0 ? Math.round((resolvedCount / totalCount) * 100) : 0;
 
   // Top-bar metadata: weekday + exercise count.
   const metaBits = [];

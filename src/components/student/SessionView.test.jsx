@@ -582,6 +582,43 @@ describe('SessionView', () => {
     expect(screen.getByText('8 @ 80kg')).toBeInTheDocument();
   });
 
+  // Failed sets count toward session progress (the student worked through
+  // them) but NOT toward the "X of Y sets" tally (which tracks successful
+  // completion).
+  it('progress bar counts failed sets; "X of Y" tally counts only done', () => {
+    mockSessionData = {
+      data: {
+        title: 'Mixed',
+        exercise_slots: [
+          {
+            id: 'slot-1',
+            sets: 4,
+            reps: 5,
+            weight_kg: 50,
+            sort_order: 0,
+            exercise: { name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
+          },
+        ],
+      },
+      isLoading: false,
+    };
+    mockSetLogsData = {
+      data: [
+        { id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: true, failed: false, rpe: 7 },
+        { id: 'l-2', exercise_slot_id: 'slot-1', set_number: 2, done: true, failed: false, rpe: 8 },
+        { id: 'l-3', exercise_slot_id: 'slot-1', set_number: 3, done: false, failed: true, rpe: null },
+        { id: 'l-4', exercise_slot_id: 'slot-1', set_number: 4, done: false, failed: false, rpe: null },
+      ],
+      isLoading: false,
+    };
+    renderSessionView();
+
+    // Tally still reads "2 of 4" (only successful) — the percentage reads
+    // "75%" (3 of 4 sets resolved: two done + one failed).
+    expect(screen.getByText('2 of 4 sets')).toBeInTheDocument();
+    expect(screen.getByText('75%')).toBeInTheDocument();
+  });
+
   it('shows confirmed banner and undo button when already confirmed', async () => {
     const user = userEvent.setup();
     mockConfirmation = {
