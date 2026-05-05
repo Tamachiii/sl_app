@@ -160,6 +160,27 @@ export function useSendMessage() {
 }
 
 /**
+ * Delete a message the signed-in user sent. RLS only permits this when
+ * sender_id = auth.uid() AND session_id IS NULL — coach session-feedback rows
+ * stay pinned (see schema.sql: "Sender deletes own message"). The thread query
+ * is invalidated on success so the bubble vanishes for both sides via realtime.
+ */
+export function useDeleteMessage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (messageId) => {
+      if (!messageId) throw new Error('Missing message id.');
+      const { error } = await supabase.from('messages').delete().eq('id', messageId);
+      if (error) throw error;
+      return messageId;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [MESSAGES_ROOT] });
+    },
+  });
+}
+
+/**
  * Fetch the (at most one) coach-feedback message attached to `sessionId`, or
  * null if none exists. Used by SessionReview to swap the composer for a
  * read-only "feedback sent" card so the coach can't submit twice.
@@ -287,6 +308,19 @@ export function useMessagesRealtime() {
         (payload) => {
           if (cancelled) return;
           const m = payload.new || payload.old || {};
+          if (m.sender_id === me || m.recipient_id === me) {
+            qc.invalidateQueries({ queryKey: [MESSAGES_ROOT] });
+          }
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'messages' },
+        (payload) => {
+          if (cancelled) return;
+          // REPLICA IDENTITY FULL means payload.old carries the deleted row,
+          // so we can scope invalidation to events that touched me.
+          const m = payload.old || {};
           if (m.sender_id === me || m.recipient_id === me) {
             qc.invalidateQueries({ queryKey: [MESSAGES_ROOT] });
           }

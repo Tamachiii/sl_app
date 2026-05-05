@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
@@ -8,10 +8,12 @@ import {
   useGroupedThread,
   formatMessageStamp,
   useSessionRefsForMessages,
+  useDeleteMessage,
 } from '../../hooks/useMessages';
 import { useStudents } from '../../hooks/useStudents';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
+import ConfirmDialog from '../ui/ConfirmDialog';
 import MessageComposer from './MessageComposer';
 import SessionReferenceCard from './SessionReferenceCard';
 
@@ -33,8 +35,18 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
   const { data: messages, isLoading, isError } = useMessageThread(otherProfileId);
   const markRead = useMarkThreadRead();
   const { mutate: markReadMutate } = markRead;
+  const deleteMessage = useDeleteMessage();
   const groups = useGroupedThread(messages);
   const sessionRefs = useSessionRefsForMessages(messages);
+
+  // The bubble waiting on a confirm. Tap-to-arm pattern (versus a hover menu)
+  // because the thread is mobile-first — desktop hover affordances would be
+  // dead weight on touch and the kebab is one tap to surface.
+  const [pendingDeleteId, setPendingDeleteId] = useState(null);
+  const [armedId, setArmedId] = useState(null);
+  const pendingMessage = pendingDeleteId
+    ? (messages || []).find((m) => m.id === pendingDeleteId) || null
+    : null;
 
   // Coach-side deep-links to a session reference need the students.id row id
   // (the URL is /coach/student/:studentId/session/:sessionId/review). Student-
@@ -64,6 +76,8 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
 
   useEffect(() => {
     lastMarkedIdRef.current = null;
+    setArmedId(null);
+    setPendingDeleteId(null);
   }, [otherProfileId]);
 
   // Mark unread incoming messages as read whenever the thread is mounted +
@@ -131,6 +145,8 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
                   {group.messages.map((m, mi) => {
                     const isLastInGroup = mi === group.messages.length - 1;
                     const sessionRef = m.session_id ? sessionRefs.get(m.session_id) : null;
+                    const canDelete = fromMe && !m.session_id;
+                    const isArmed = canDelete && armedId === m.id;
                     return (
                       <div key={m.id} className={`flex flex-col gap-1 max-w-[80%] md:max-w-[70%] ${fromMe ? 'items-end' : 'items-start'}`}>
                         {m.session_id && (
@@ -142,25 +158,54 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
                             lang={lang}
                           />
                         )}
-                        <div
-                          className={`rounded-2xl px-3.5 py-2 text-[14px] leading-snug whitespace-pre-wrap ${
-                            fromMe
-                              ? 'bg-[var(--color-accent)] text-[var(--color-ink-900)]'
-                              : 'bg-ink-100 text-ink-800'
-                          }`}
-                          style={fromMe ? { borderBottomRightRadius: 6 } : { borderBottomLeftRadius: 6 }}
-                        >
-                          {m.body}
-                          {isLastInGroup && (
-                            <div
-                              className={`sl-mono text-[10px] mt-1 tabular-nums ${
-                                fromMe ? 'opacity-70' : 'text-ink-400'
-                              }`}
-                            >
-                              {formatMessageStamp(m.created_at, lang)}
-                            </div>
-                          )}
+                        <div className={`flex items-end gap-1 ${fromMe ? 'flex-row-reverse' : ''}`}>
+                          <button
+                            type="button"
+                            onClick={() => setArmedId(isArmed ? null : m.id)}
+                            aria-label={t('messaging.bubbleActions')}
+                            aria-expanded={isArmed}
+                            className={`shrink-0 rounded-md p-1 text-ink-400 hover:bg-ink-100 hover:text-ink-700 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] ${
+                              canDelete ? '' : 'invisible pointer-events-none'
+                            }`}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                              <circle cx="5" cy="12" r="1.6" />
+                              <circle cx="12" cy="12" r="1.6" />
+                              <circle cx="19" cy="12" r="1.6" />
+                            </svg>
+                          </button>
+                          <div
+                            className={`rounded-2xl px-3.5 py-2 text-[14px] leading-snug whitespace-pre-wrap ${
+                              fromMe
+                                ? 'bg-[var(--color-accent)] text-[var(--color-ink-900)]'
+                                : 'bg-ink-100 text-ink-800'
+                            }`}
+                            style={fromMe ? { borderBottomRightRadius: 6 } : { borderBottomLeftRadius: 6 }}
+                          >
+                            {m.body}
+                            {isLastInGroup && (
+                              <div
+                                className={`sl-mono text-[10px] mt-1 tabular-nums ${
+                                  fromMe ? 'opacity-70' : 'text-ink-400'
+                                }`}
+                              >
+                                {formatMessageStamp(m.created_at, lang)}
+                              </div>
+                            )}
+                          </div>
                         </div>
+                        {isArmed && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setArmedId(null);
+                              setPendingDeleteId(m.id);
+                            }}
+                            className="sl-mono text-[11px] text-danger px-2 py-0.5 rounded hover:bg-ink-100 self-end"
+                          >
+                            {t('messaging.delete')}
+                          </button>
+                        )}
                       </div>
                     );
                   })}
@@ -174,6 +219,23 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
       <div className="shrink-0" style={{ paddingBottom: 'var(--kb-inset, 0px)' }}>
         <MessageComposer recipientProfileId={otherProfileId} />
       </div>
+
+      <ConfirmDialog
+        open={!!pendingDeleteId}
+        onClose={() => setPendingDeleteId(null)}
+        onConfirm={() => {
+          if (!pendingDeleteId) return;
+          deleteMessage.mutate(pendingDeleteId);
+          setPendingDeleteId(null);
+        }}
+        title={t('messaging.deleteTitle')}
+        message={
+          pendingMessage
+            ? t('messaging.deleteConfirm', { preview: pendingMessage.body.slice(0, 80) })
+            : t('messaging.deleteConfirmFallback')
+        }
+        confirmText={t('messaging.delete')}
+      />
     </div>
   );
 }

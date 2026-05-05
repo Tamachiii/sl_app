@@ -280,6 +280,12 @@ const en = {
     noCoach: 'You aren’t linked to a coach yet.',
     sessionRefLabel: 'Re: {title}',
     sessionRefOpen: 'Open session',
+    bubbleActions: 'Message actions',
+    delete: 'Delete',
+    deleteTitle: 'Delete message?',
+    deleteConfirm: 'This will remove the message for both of you. "{preview}"',
+    deleteConfirmFallback: 'This will remove the message for both of you.',
+    deleteError: 'Couldn’t delete the message. Try again.',
   },
   notFound: {
     title: 'Page not found.',

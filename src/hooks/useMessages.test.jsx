@@ -14,7 +14,7 @@ vi.mock('./useAuth', () => ({
   useAuth: () => ({ user: { id: 'me' }, profile: { id: 'me' } }),
 }));
 
-import { pairKey, formatMessageStamp, useGroupedThread, useConversations, useSendMessage } from './useMessages';
+import { pairKey, formatMessageStamp, useGroupedThread, useConversations, useSendMessage, useDeleteMessage } from './useMessages';
 
 function makeWrapper() {
   const qc = new QueryClient({
@@ -156,6 +156,34 @@ describe('useSendMessage', () => {
     await expect(
       result.current.mutateAsync({ recipientProfileId: 'r1', body: '   ' }),
     ).rejects.toThrow(/empty/i);
+    expect(mockSupabase.from).not.toHaveBeenCalled();
+  });
+});
+
+describe('useDeleteMessage', () => {
+  it('issues a DELETE filtered by the message id', async () => {
+    const eq = vi.fn().mockResolvedValue({ error: null });
+    const del = vi.fn().mockReturnValue({ eq });
+    mockSupabase.from.mockReturnValue({ delete: del });
+
+    const { Wrapper } = makeWrapper();
+    const { result } = renderHook(() => useDeleteMessage(), { wrapper: Wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync('m42');
+    });
+
+    expect(mockSupabase.from).toHaveBeenCalledWith('messages');
+    expect(del).toHaveBeenCalled();
+    expect(eq).toHaveBeenCalledWith('id', 'm42');
+  });
+
+  it('rejects without an id and never hits the network', async () => {
+    mockSupabase.from.mockReturnValue({ delete: vi.fn() });
+    const { Wrapper } = makeWrapper();
+    const { result } = renderHook(() => useDeleteMessage(), { wrapper: Wrapper });
+
+    await expect(result.current.mutateAsync(null)).rejects.toThrow(/missing/i);
     expect(mockSupabase.from).not.toHaveBeenCalled();
   });
 });

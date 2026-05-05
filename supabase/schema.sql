@@ -892,6 +892,13 @@ CREATE POLICY "Recipient marks messages read"
   USING (recipient_id = auth.uid())
   WITH CHECK (recipient_id = auth.uid());
 
+-- Sender may delete their own ordinary chat messages. Coach feedback rows
+-- (session_id IS NOT NULL) are pinned so the one-shot review invariant on
+-- sessions.reviewed_at and the messages_session_idx unique index hold.
+CREATE POLICY "Sender deletes own message"
+  ON public.messages FOR DELETE
+  USING (sender_id = auth.uid() AND session_id IS NULL);
+
 -- Realtime: broadcast inserts/updates to subscribed clients (REPLICA IDENTITY
 -- FULL so UPDATEs carry the old row).
 DO $$

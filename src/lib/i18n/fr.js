@@ -280,6 +280,12 @@ const fr = {
     noCoach: 'Tu n’as pas encore de coach.',
     sessionRefLabel: 'Réf : {title}',
     sessionRefOpen: 'Ouvrir la séance',
+    bubbleActions: 'Actions du message',
+    delete: 'Supprimer',
+    deleteTitle: 'Supprimer le message ?',
+    deleteConfirm: 'Le message sera supprimé pour vous deux. « {preview} »',
+    deleteConfirmFallback: 'Le message sera supprimé pour vous deux.',
+    deleteError: 'Impossible de supprimer le message. Réessaie.',
   },
   notFound: {
     title: 'Page introuvable.',
