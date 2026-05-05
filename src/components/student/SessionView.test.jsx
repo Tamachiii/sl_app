@@ -543,9 +543,14 @@ describe('SessionView', () => {
     renderSessionView();
 
     expect(screen.getByText(/Superset/i)).toBeInTheDocument();
-    expect(screen.getByText(/Alternate between exercises/i)).toBeInTheDocument();
+    // Header always shows the exercise count, regardless of open/closed state.
+    expect(screen.getByText(/2 exercises/i)).toBeInTheDocument();
     expect(screen.getByText('Curl')).toBeInTheDocument();
     expect(screen.getByText('Skullcrusher')).toBeInTheDocument();
+    // Supersets share a single comment box (anchored to the lead slot), not
+    // one per exercise. Without this guarantee, students would see the
+    // "Add note for coach" prompt N times for an N-exercise superset.
+    expect(screen.getAllByRole('button', { name: /add note for coach/i })).toHaveLength(1);
   });
 
   it('shows a grouped summary in the header and per-set targets inline on SetRows when heterogeneous', () => {

@@ -7,7 +7,17 @@ import {
   summarizeSlotPrescription,
 } from '../../lib/volume';
 
-function SlotBody({ slot, slotLogs, slotComments, sessionId, isConfirmed, isReadOnly, getVideoForLog, uniform }) {
+function SlotBody({
+  slot,
+  slotLogs,
+  slotComments,
+  sessionId,
+  isConfirmed,
+  isReadOnly,
+  getVideoForLog,
+  uniform,
+  showCommentBox = true,
+}) {
   // Sets lock when the student has confirmed the session OR when the session
   // is read-only (past program / coach-archived). The comment box only locks
   // on read-only — students can still add notes to a confirmed-but-not-yet-
@@ -39,12 +49,14 @@ function SlotBody({ slot, slotLogs, slotComments, sessionId, isConfirmed, isRead
           />
         ))}
       </div>
-      <SlotCommentBox
-        sessionId={sessionId}
-        slotId={slot.id}
-        comment={(slotComments || []).find((c) => c.exercise_slot_id === slot.id)}
-        locked={isReadOnly}
-      />
+      {showCommentBox && (
+        <SlotCommentBox
+          sessionId={sessionId}
+          slotId={slot.id}
+          comment={(slotComments || []).find((c) => c.exercise_slot_id === slot.id)}
+          locked={isReadOnly}
+        />
+      )}
     </div>
   );
 }
@@ -107,6 +119,10 @@ export default function SlotGroupCard({
   const total = groupLogs.length;
 
   if (group.slots.length > 1) {
+    // Supersets share a single comment box (one note for the whole pairing,
+    // not one per exercise). Anchor the comment to the first slot in the
+    // group so existing slot_comments rows on the lead slot stay visible.
+    const leadSlot = group.slots[0];
     return (
       <div
         className="rounded-xl border-2 p-2 space-y-2"
@@ -123,7 +139,7 @@ export default function SlotGroupCard({
         >
           <span className="sl-label" style={{ color: 'var(--color-accent)' }}>Superset</span>
           <span className="sl-mono text-[11px] text-ink-400 flex-1 truncate">
-            {open ? 'Alternate between exercises each set' : `${group.slots.length} exercises`}
+            {`${group.slots.length} exercises`}
           </span>
           {total > 0 && (
             <span className="sl-mono text-[11px] text-ink-400 shrink-0">{done}/{total}</span>
@@ -146,10 +162,21 @@ export default function SlotGroupCard({
                 isReadOnly={isReadOnly}
                 getVideoForLog={getVideoForLog}
                 uniform={uniform}
+                showCommentBox={false}
               />
             </div>
           );
         })}
+        {open && (
+          <div className="px-2 pt-1 pb-1">
+            <SlotCommentBox
+              sessionId={sessionId}
+              slotId={leadSlot.id}
+              comment={(slotComments || []).find((c) => c.exercise_slot_id === leadSlot.id)}
+              locked={isReadOnly}
+            />
+          </div>
+        )}
       </div>
     );
   }
