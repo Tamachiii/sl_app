@@ -16,12 +16,13 @@ function formatMMSS(seconds) {
  * RestTimerBanner — single, session-level rest indicator.
  *
  * Reads the app-wide singleton timer (hooks/useRestTimer) and renders a
- * sticky pill that survives exercise-card transitions. Validating a new
- * set replaces (not queues) the active timer; tapping a stale set or
- * navigating between exercises does not affect it. While running it shows
- * the remaining mm:ss; when the timer expires it briefly flashes "Rest
- * done" and auto-hides after HIDE_AFTER_EXPIRY_MS so the UI doesn't carry
- * a stale indicator forever.
+ * compact pill that lives in the right slot of SessionView's top bar, so
+ * the indicator survives exercise-card transitions without pushing the
+ * scroll content down. Validating a new set replaces (not queues) the
+ * active timer; tapping a stale set or navigating between exercises does
+ * not affect it. While running it shows the remaining mm:ss; when the
+ * timer expires it briefly flashes "Rest done" and auto-hides after
+ * HIDE_AFTER_EXPIRY_MS so the UI doesn't carry a stale indicator forever.
  */
 export default function RestTimerBanner() {
   const snap = useRestTimer();
@@ -38,34 +39,27 @@ export default function RestTimerBanner() {
       role="status"
       aria-live="polite"
       aria-label={expired ? 'Rest done' : `Rest remaining ${seconds} seconds`}
-      className="sticky top-0 z-20 -mx-4 md:-mx-8 px-4 md:px-8 py-2 backdrop-blur-sm"
+      className="inline-flex items-center gap-1.5 px-2.5 h-8 rounded-full whitespace-nowrap"
       style={{
         background: expired
           ? 'color-mix(in srgb, var(--color-success) 18%, transparent)'
           : 'color-mix(in srgb, var(--color-accent) 18%, transparent)',
-        borderBottom: `1px solid ${
-          expired
-            ? 'color-mix(in srgb, var(--color-success) 35%, transparent)'
-            : 'color-mix(in srgb, var(--color-accent) 35%, transparent)'
-        }`,
       }}
     >
-      <div className="flex items-center justify-center gap-2">
+      <span
+        className="sl-label"
+        style={{ color: expired ? 'var(--color-success)' : 'var(--color-accent)' }}
+      >
+        {expired ? 'Rest done' : 'Rest'}
+      </span>
+      {!expired && (
         <span
-          className="sl-label"
-          style={{ color: expired ? 'var(--color-success)' : 'var(--color-accent)' }}
+          className="sl-mono text-[12px] font-bold tabular-nums"
+          style={{ color: 'var(--color-accent)' }}
         >
-          {expired ? 'Rest done' : 'Rest'}
+          {formatMMSS(seconds)}
         </span>
-        {!expired && (
-          <span
-            className="sl-mono text-[14px] font-bold tabular-nums"
-            style={{ color: 'var(--color-accent)' }}
-          >
-            {formatMMSS(seconds)}
-          </span>
-        )}
-      </div>
+      )}
     </div>
   );
 }

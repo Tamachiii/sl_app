@@ -22,17 +22,22 @@ function SessionTopBar({ title, meta, onBack }) {
       <button
         onClick={onBack}
         aria-label="Go back"
-        className="w-9 h-9 rounded-full bg-ink-100 text-ink-700 flex items-center justify-center hover:bg-ink-200 active:scale-95 transition"
+        className="w-9 h-9 rounded-full bg-ink-100 text-ink-700 flex items-center justify-center hover:bg-ink-200 active:scale-95 transition shrink-0"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
         </svg>
       </button>
-      <div className="min-w-0 text-center">
+      <div className="min-w-0 text-center flex-1">
         {meta && <div className="sl-label truncate">{meta}</div>}
         <div className="sl-display text-[16px] text-gray-900 truncate">{title}</div>
       </div>
-      <div className="w-9 h-9" aria-hidden />
+      {/* Right slot: rest-timer pill when active, empty 36px placeholder
+          otherwise (keeps the title centered between the back button and
+          this slot). */}
+      <div className="min-w-9 h-9 flex items-center justify-end shrink-0">
+        <RestTimerBanner />
+      </div>
     </div>
   );
 }
@@ -175,8 +180,6 @@ export default function SessionView() {
         meta={metaBits.join(' · ')}
         onBack={() => navigate(-1)}
       />
-
-      <RestTimerBanner />
 
       {/* Progress bar */}
       {totalCount > 0 && (
