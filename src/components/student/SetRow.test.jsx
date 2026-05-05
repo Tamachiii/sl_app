@@ -106,11 +106,6 @@ describe('SetRow', () => {
     expect(rpeBtn).toBeDisabled();
   });
 
-  it('renders FAILED label when set is failed', () => {
-    renderSetRow({ ...baseLog, failed: true });
-    expect(screen.getByText('FAILED')).toBeInTheDocument();
-  });
-
   // Touch swipes — jsdom doesn't simulate gestures, so we drive the
   // touch lifecycle directly via fireEvent.
   function swipe(row, dx) {

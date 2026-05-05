@@ -218,15 +218,6 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
 
           <span className="sl-label normal-case text-ink-500">{formatSetTarget(log)}</span>
 
-          {failed && (
-            <span
-              className="sl-label text-[10px] tracking-[0.18em] font-extrabold"
-              style={{ color: 'var(--color-danger)' }}
-            >
-              FAILED
-            </span>
-          )}
-
           <div className="flex-1" />
 
           {recordVideo && (
