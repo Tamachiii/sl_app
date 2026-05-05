@@ -1,8 +1,8 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
-import UserMenu from '../ui/UserMenu';
-import { useAuth } from '../../hooks/useAuth';
+import { useI18n } from '../../hooks/useI18n';
 import {
   useMyGoals,
   useAddGoalProgress,
@@ -201,7 +201,8 @@ function GoalCard({ goal }) {
 }
 
 export default function MyGoals() {
-  const { profile, signOut } = useAuth();
+  const { t } = useI18n();
+  const navigate = useNavigate();
   const { data: goals, isLoading } = useMyGoals();
 
   if (isLoading) {
@@ -215,12 +216,25 @@ export default function MyGoals() {
 
   return (
     <div className="p-4 pb-6 md:p-8 space-y-4">
+      {/* Goals is no longer a bottom-nav tab — it's reached from the Profile
+          page. So the right-hand slot mirrors Profile's: a back button in
+          the avatar's spot rather than UserMenu, since avatar→profile from
+          here would land on the page the user just came from. */}
       <div className="pt-3 pb-1 flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="sl-label text-ink-400">Milestones</div>
           <h1 className="sl-display text-[32px] md:text-[44px] text-gray-900 leading-none mt-1">Goals.</h1>
         </div>
-        <UserMenu fullName={profile?.full_name} onSignOut={signOut} profileHref="/student/profile" />
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          aria-label={t('common.back')}
+          className="w-10 h-10 rounded-full bg-ink-100 flex items-center justify-center text-ink-700 hover:brightness-95 active:scale-95 transition-transform shrink-0"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
       </div>
 
       {(!goals || goals.length === 0) && (
