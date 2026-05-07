@@ -111,4 +111,61 @@ describe('useStudentProgramDetails', () => {
       1, 2,
     ]);
   });
+
+  it('with allPrograms=true, fetches all programs and tags weeks with program metadata', async () => {
+    const studentChain = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: { id: 'st-1' }, error: null }),
+    };
+    // With allPrograms=true the only .eq() is student_id, so it must
+    // resolve directly (no second .eq()).
+    const programsChain = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({
+        data: [
+          {
+            id: 'p-old',
+            name: 'Block 0',
+            sort_order: 0,
+            is_active: false,
+            weeks: [
+              { id: 'w-old', week_number: 1, label: null, sessions: [] },
+            ],
+          },
+          {
+            id: 'p-new',
+            name: 'Block 1',
+            sort_order: 1,
+            is_active: true,
+            weeks: [
+              { id: 'w-new', week_number: 1, label: null, sessions: [] },
+            ],
+          },
+        ],
+        error: null,
+      }),
+    };
+    let call = 0;
+    supabase.from.mockImplementation(() => (call++ === 0 ? studentChain : programsChain));
+
+    const qc = makeClient();
+    const { result } = renderHook(
+      () => useStudentProgramDetails('u-1', { allPrograms: true }),
+      { wrapper: withClient(qc) }
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    // Older program (sort_order 0) appears before newer (sort_order 1).
+    expect(result.current.data.map((w) => w.id)).toEqual(['w-old', 'w-new']);
+    expect(result.current.data[0].program).toMatchObject({
+      id: 'p-old',
+      name: 'Block 0',
+      is_active: false,
+    });
+    expect(result.current.data[1].program).toMatchObject({
+      id: 'p-new',
+      name: 'Block 1',
+      is_active: true,
+    });
+  });
 });

@@ -65,6 +65,7 @@ const de = {
       hideArchivedMany: '{n} archivierte Einheiten ausblenden',
       showArchivedOne: '{n} archivierte Einheit anzeigen',
       showArchivedMany: '{n} archivierte Einheiten anzeigen',
+      pastProgram: 'Früheres Programm',
       noExercises: 'Noch keine Übungen zugewiesen.',
     },
     feedback: {

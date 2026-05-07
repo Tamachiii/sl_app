@@ -74,7 +74,7 @@ CREATE UNIQUE INDEX programs_one_active_per_student
 
 (Migration: `supabase/migrations/2026_04_23_programs_crud.sql`.)
 
-- **Students only see the active program** on Home / Sessions. `useStudentProgramDetails` filters `.eq('is_active', true)`. `useStudentProgressStats(studentId, scope)` takes a scope (`'all'` default | `'active'` | `<programId>`) so the Stats page can aggregate across every block, restrict to the active one, or scope to any past block. The selector lives at the top of `StudentDashboard` / `StudentStatsSection` and persists via `?scope=…` (student) / `?statsScope=…` (coach, kept distinct from the editor's `?program=…`).
+- **Home is scoped to the active program; Sessions spans all programs.** `useStudentProgramDetails(userId)` defaults to active-only (`.eq('is_active', true)`) for Home. `StudentSessions` opts in via `useStudentProgramDetails(userId, { allPrograms: true })` so students can browse archived/past-program sessions; the page groups weeks by program (active first, then past programs by `sort_order` desc). Each returned week carries a `program: { id, name, sort_order, is_active }` field for grouping. `useStudentProgressStats(studentId, scope)` takes a scope (`'all'` default | `'active'` | `<programId>`) so the Stats page can aggregate across every block, restrict to the active one, or scope to any past block. The selector lives at the top of `StudentDashboard` / `StudentStatsSection` and persists via `?scope=…` (student) / `?statsScope=…` (coach, kept distinct from the editor's `?program=…`).
 - **Coaches browse all programs** via `useProgramsForStudent(studentId)` (list without weeks) and open one via `useProgram(programId)` (detail with weeks). `useActiveProgram(studentId)` resolves "the student's current block" and backs `CopyDialog`'s destination.
 - **`useProgram` takes `programId`, not `studentId`** — breaking rename during the periodization refactor.
 - `useSetActiveProgram` deactivates the current active program first (else the partial unique index rejects the insert). `useCreateProgram` with `setActive: true` does the same. `useEnsureProgram` explicitly inserts `is_active: true` since the column default is `false`.
@@ -114,7 +114,7 @@ Invalidation is scoped intentionally to avoid over-fetching. When you add a muta
 | [useExerciseLibrary](../src/hooks/useExerciseLibrary.js) | `['exercise-library']` | `['exercise-library']` |
 | [useStudents](../src/hooks/useStudents.js) | `['students']` | n/a |
 | [useGoals](../src/hooks/useGoals.js) | `['goals', 'student', studentProfileId]`, `['goals', 'mine', userId]`, `['student-profile-id', studentRowId]` | `['goals']` (broad) |
-| [useStudentProgramDetails](../src/hooks/useStudentProgramDetails.js) | `['student-program-details', userId]` | read-only |
+| [useStudentProgramDetails](../src/hooks/useStudentProgramDetails.js) | `['student-program-details', userId, 'active' \| 'all']` | read-only |
 | [useStudentProgressStats](../src/hooks/useStudentProgressStats.js) | `['student-progress-stats', userId]` | read-only |
 | [useStudentHistoricalSessions](../src/hooks/useStudentHistoricalSessions.js) | `['student-historical-sessions', userId]` | read-only |
 | [useDuplicate](../src/hooks/useDuplicate.js) | n/a | `['program']`, `['week']`, `['session']`, `['student-weeks']` |

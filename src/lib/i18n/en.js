@@ -65,6 +65,7 @@ const en = {
       hideArchivedMany: 'Hide {n} archived sessions',
       showArchivedOne: 'Show {n} archived session',
       showArchivedMany: 'Show {n} archived sessions',
+      pastProgram: 'Past program',
       noExercises: 'No exercises assigned yet.',
     },
     feedback: {

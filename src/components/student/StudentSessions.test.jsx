@@ -51,11 +51,14 @@ const makeSession = (id, title, { archived = false } = {}) => ({
   ],
 });
 
+const activeProgram = { id: 'p-1', name: 'Block 1', sort_order: 0, is_active: true };
+
 const sampleWeeks = [
   {
     id: 'w-1',
     week_number: 1,
     label: 'Base',
+    program: activeProgram,
     sessions: [makeSession('sess-1', 'Lower 1'), makeSession('sess-2', 'Upper 1')],
   },
 ];
@@ -109,6 +112,7 @@ describe('StudentSessions', () => {
           id: 'w-1',
           week_number: 1,
           label: 'Base',
+          program: activeProgram,
           sessions: [
             makeSession('sess-1', 'Lower 1'),
             makeSession('sess-arch', 'Old Session', { archived: true }),
@@ -148,12 +152,14 @@ describe('StudentSessions', () => {
           id: 'w-1',
           week_number: 1,
           label: 'Bloc 1/2',
+          program: activeProgram,
           sessions: [makeSession('s-1a', 'A1'), makeSession('s-1b', 'A2')],
         },
         {
           id: 'w-2',
           week_number: 2,
           label: 'Bloc 2/2',
+          program: activeProgram,
           sessions: [makeSession('s-2a', 'B1'), makeSession('s-2b', 'B2')],
         },
       ],
@@ -172,5 +178,70 @@ describe('StudentSessions', () => {
     expect(b1.compareDocumentPosition(b2) & FOLLOWING).toBeTruthy();
     expect(a1.compareDocumentPosition(a2) & FOLLOWING).toBeTruthy();
     expect(b2.compareDocumentPosition(a1) & FOLLOWING).toBeTruthy();
+  });
+
+  it('groups weeks by program — active program first, then past programs', () => {
+    const pastProgram = { id: 'p-0', name: 'Block 0', sort_order: -1, is_active: false };
+    mockWeeks = {
+      data: [
+        {
+          id: 'w-current',
+          week_number: 1,
+          label: null,
+          program: activeProgram,
+          sessions: [makeSession('cur-1', 'Current Session')],
+        },
+        {
+          id: 'w-past',
+          week_number: 1,
+          label: null,
+          program: pastProgram,
+          sessions: [makeSession('past-1', 'Past Session')],
+        },
+      ],
+      isLoading: false,
+    };
+    renderSessions();
+
+    expect(screen.getByText('Block 1')).toBeInTheDocument();
+    expect(screen.getByText('Block 0')).toBeInTheDocument();
+    expect(screen.getByText(/past program/i)).toBeInTheDocument();
+
+    const current = screen.getByText('Current Session');
+    const past = screen.getByText('Past Session');
+    const FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING;
+    expect(current.compareDocumentPosition(past) & FOLLOWING).toBeTruthy();
+  });
+
+  it('reveals archived sessions from past programs when the toggle is on', async () => {
+    const user = userEvent.setup();
+    const pastProgram = { id: 'p-0', name: 'Block 0', sort_order: -1, is_active: false };
+    mockWeeks = {
+      data: [
+        {
+          id: 'w-current',
+          week_number: 1,
+          label: null,
+          program: activeProgram,
+          sessions: [makeSession('cur-1', 'Current Session')],
+        },
+        {
+          id: 'w-past',
+          week_number: 1,
+          label: null,
+          program: pastProgram,
+          sessions: [makeSession('past-arch', 'Old Archived', { archived: true })],
+        },
+      ],
+      isLoading: false,
+    };
+    renderSessions();
+
+    expect(screen.queryByText('Old Archived')).toBeNull();
+    expect(screen.queryByText('Block 0')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: /Show 1 archived session/i }));
+    expect(screen.getByText('Old Archived')).toBeInTheDocument();
+    expect(screen.getByText('Block 0')).toBeInTheDocument();
   });
 });

@@ -65,6 +65,7 @@ const fr = {
       hideArchivedMany: 'Masquer {n} séances archivées',
       showArchivedOne: 'Afficher {n} séance archivée',
       showArchivedMany: 'Afficher {n} séances archivées',
+      pastProgram: 'Programme précédent',
       noExercises: 'Aucun exercice attribué.',
     },
     feedback: {

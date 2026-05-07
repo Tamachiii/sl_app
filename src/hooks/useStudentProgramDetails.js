@@ -2,15 +2,20 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 
 /**
- * Fetches the full program tree for the Sessions page:
+ * Fetches the program tree for the student surface:
  * weeks → sessions → exercise_slots (with exercise metadata).
  *
- * Lighter than useStudentProgressStats — no set_log or confirmation
- * aggregation, just structure + prescription data.
+ * By default, only the active program is returned (used by StudentHome,
+ * which always operates on the current periodization block). Pass
+ * `{ allPrograms: true }` to also include past programs — used by the
+ * Sessions page so students can browse archived/past-program work.
+ *
+ * Each week carries a `program` field `{ id, name, sort_order, is_active }`
+ * so consumers can group or filter without an extra round-trip.
  */
-export function useStudentProgramDetails(userId) {
+export function useStudentProgramDetails(userId, { allPrograms = false } = {}) {
   return useQuery({
-    queryKey: ['student-program-details', userId],
+    queryKey: ['student-program-details', userId, allPrograms ? 'all' : 'active'],
     queryFn: async () => {
       const { data: student, error: sErr } = await supabase
         .from('students')
@@ -19,12 +24,10 @@ export function useStudentProgramDetails(userId) {
         .single();
       if (sErr) throw sErr;
 
-      // Students only see their active program (periodization block). Coaches
-      // manage multiple programs per student, flipping is_active to roll over.
-      const { data: programs, error: pErr } = await supabase
+      let q = supabase
         .from('programs')
         .select(`
-          id,
+          id, name, sort_order, is_active,
           weeks(
             id, week_number, label,
             sessions(
@@ -38,13 +41,21 @@ export function useStudentProgramDetails(userId) {
             )
           )
         `)
-        .eq('student_id', student.id)
-        .eq('is_active', true);
+        .eq('student_id', student.id);
+      if (!allPrograms) q = q.eq('is_active', true);
+      const { data: programs, error: pErr } = await q;
       if (pErr) throw pErr;
 
       const weeks = [];
       for (const prog of programs || []) {
+        const program = {
+          id: prog.id,
+          name: prog.name,
+          sort_order: prog.sort_order,
+          is_active: !!prog.is_active,
+        };
         for (const w of prog.weeks || []) {
+          w.program = program;
           w.sessions = (w.sessions || [])
             .map((s) => ({
               ...s,
@@ -61,7 +72,15 @@ export function useStudentProgramDetails(userId) {
           weeks.push(w);
         }
       }
-      weeks.sort((a, b) => a.week_number - b.week_number);
+      // Sort weeks chronologically: program order first (sort_order ASC =
+      // earliest periodization block first), then week number within a
+      // program. Components reverse for "newest first" displays.
+      weeks.sort((a, b) => {
+        const ap = a.program?.sort_order ?? 0;
+        const bp = b.program?.sort_order ?? 0;
+        if (ap !== bp) return ap - bp;
+        return a.week_number - b.week_number;
+      });
       return weeks;
     },
     enabled: !!userId,

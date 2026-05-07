@@ -14,24 +14,39 @@ export default function StudentSessions() {
   const { user, profile, signOut } = useAuth();
   const { t } = useI18n();
   const navigate = useNavigate();
-  const { data: weeks, isLoading } = useStudentProgramDetails(user?.id);
+  const { data: weeks, isLoading } = useStudentProgramDetails(user?.id, { allPrograms: true });
   const { data: confirmedIds = new Set() } = useMyConfirmedSessionIds();
   const { data: feedbackIds = new Set() } = useMyFeedbackSessionIds();
 
   const [showArchived, setShowArchived] = useState(false);
   const [openSessionId, setOpenSessionId] = useState(null);
 
-  // Most recent weeks first — students care about what's current, not where
-  // they started. Within each week, session order is preserved.
-  const visibleWeeks = useMemo(() => {
+  // Group weeks by program. Active program first, then past programs by
+  // sort_order DESC (most recent periodization block first). Within each
+  // program, weeks are reversed so the newest week appears at the top.
+  const programGroups = useMemo(() => {
     if (!weeks) return [];
-    return weeks
-      .map((w) => ({
-        ...w,
-        sessions: (w.sessions || []).filter((s) => showArchived || !s.archived_at),
-      }))
-      .filter((w) => w.sessions.length > 0)
-      .reverse();
+    const byProgram = new Map();
+    for (const w of weeks) {
+      const pid = w.program?.id ?? '__none__';
+      if (!byProgram.has(pid)) {
+        byProgram.set(pid, { program: w.program, weeks: [] });
+      }
+      const filteredSessions = (w.sessions || []).filter(
+        (s) => showArchived || !s.archived_at
+      );
+      if (filteredSessions.length === 0) continue;
+      byProgram.get(pid).weeks.push({ ...w, sessions: filteredSessions });
+    }
+    const groups = Array.from(byProgram.values()).filter((g) => g.weeks.length > 0);
+    for (const g of groups) g.weeks.reverse();
+    groups.sort((a, b) => {
+      if (!!a.program?.is_active !== !!b.program?.is_active) {
+        return a.program?.is_active ? -1 : 1;
+      }
+      return (b.program?.sort_order ?? 0) - (a.program?.sort_order ?? 0);
+    });
+    return groups;
   }, [weeks, showArchived]);
 
   const archivedCount = useMemo(
@@ -52,8 +67,14 @@ export default function StudentSessions() {
     );
   }
 
+  // Determine where the inline archived toggle belongs: on the very first
+  // week heading of the first program group, so it's reachable without
+  // scrolling regardless of expand state.
+  const firstGroupId = programGroups[0]?.program?.id ?? null;
+  const firstWeekId = programGroups[0]?.weeks[0]?.id ?? null;
+
   return (
-    <div className="p-4 pb-6 md:p-8 space-y-5">
+    <div className="p-4 pb-6 md:p-8 space-y-6">
       <div className="pt-3 pb-1 flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="sl-label text-ink-400">{t('student.sessions.kicker')}</div>
@@ -64,47 +85,80 @@ export default function StudentSessions() {
 
       {!weeks?.length && <EmptyState message={t('student.home.noProgram')} />}
 
-      {visibleWeeks.map((week, index) => {
-        // Toggle sits on the heading row of the first (most-recent) visible
-        // week so it's reachable without scrolling regardless of expand state.
-        const showToggleInline = index === 0 && archivedCount > 0;
+      {programGroups.map((group) => {
+        const isActive = !!group.program?.is_active;
+        const programName = group.program?.name || '';
         return (
-          <section key={week.id} aria-labelledby={`week-${week.id}-heading`} className="space-y-2.5">
-            <div className={showToggleInline ? 'flex items-baseline justify-between gap-3' : undefined}>
-              <h2
-                id={`week-${week.id}-heading`}
-                className="sl-label text-ink-400 flex items-baseline gap-2"
-              >
-                <span>{t('student.home.week')} {week.week_number}</span>
-                {week.label && (
-                  <span className="sl-mono text-[11px] normal-case text-ink-400">· {week.label}</span>
+          <section
+            key={group.program?.id ?? 'no-program'}
+            aria-labelledby={`program-${group.program?.id ?? 'none'}-heading`}
+            className="space-y-3"
+          >
+            <header className="flex items-baseline justify-between gap-3 border-b border-ink-100 pb-1.5">
+              <div className="min-w-0">
+                <div
+                  id={`program-${group.program?.id ?? 'none'}-heading`}
+                  className="sl-label text-gray-900 truncate"
+                >
+                  {programName}
+                </div>
+                {!isActive && (
+                  <div className="sl-mono text-[10px] text-ink-400 mt-0.5">
+                    {t('student.sessions.pastProgram')}
+                  </div>
                 )}
-              </h2>
-              {showToggleInline && (
-                <ArchivedToggle
-                  count={archivedCount}
-                  expanded={showArchived}
-                  onToggle={() => setShowArchived((v) => !v)}
-                  t={t}
-                />
-              )}
-            </div>
-            <div className="space-y-2">
-              {week.sessions.map((session) => (
-                <SessionCard
-                  key={session.id}
-                  session={session}
-                  confirmed={confirmedIds.has(session.id)}
-                  archived={!!session.archived_at}
-                  hasFeedback={feedbackIds.has(session.id)}
-                  onStart={() => navigate(`/student/session/${session.id}`)}
-                  open={openSessionId === session.id}
-                  onToggle={() =>
-                    setOpenSessionId((id) => (id === session.id ? null : session.id))
-                  }
-                />
-              ))}
-            </div>
+              </div>
+            </header>
+
+            {group.weeks.map((week) => {
+              const showToggleInline =
+                archivedCount > 0 &&
+                group.program?.id === firstGroupId &&
+                week.id === firstWeekId;
+              return (
+                <section
+                  key={week.id}
+                  aria-labelledby={`week-${week.id}-heading`}
+                  className="space-y-2.5"
+                >
+                  <div className={showToggleInline ? 'flex items-baseline justify-between gap-3' : undefined}>
+                    <h2
+                      id={`week-${week.id}-heading`}
+                      className="sl-label text-ink-400 flex items-baseline gap-2"
+                    >
+                      <span>{t('student.home.week')} {week.week_number}</span>
+                      {week.label && (
+                        <span className="sl-mono text-[11px] normal-case text-ink-400">· {week.label}</span>
+                      )}
+                    </h2>
+                    {showToggleInline && (
+                      <ArchivedToggle
+                        count={archivedCount}
+                        expanded={showArchived}
+                        onToggle={() => setShowArchived((v) => !v)}
+                        t={t}
+                      />
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {week.sessions.map((session) => (
+                      <SessionCard
+                        key={session.id}
+                        session={session}
+                        confirmed={confirmedIds.has(session.id)}
+                        archived={!!session.archived_at}
+                        hasFeedback={feedbackIds.has(session.id)}
+                        onStart={() => navigate(`/student/session/${session.id}`)}
+                        open={openSessionId === session.id}
+                        onToggle={() =>
+                          setOpenSessionId((id) => (id === session.id ? null : session.id))
+                        }
+                      />
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
           </section>
         );
       })}
@@ -112,7 +166,7 @@ export default function StudentSessions() {
       {/* Fallback: if every session is archived and the student hasn't
           expanded yet, there's no first week to host the inline toggle —
           drop a standalone one so the archive remains reachable. */}
-      {visibleWeeks.length === 0 && archivedCount > 0 && (
+      {programGroups.length === 0 && archivedCount > 0 && (
         <div className="flex justify-end">
           <ArchivedToggle
             count={archivedCount}
