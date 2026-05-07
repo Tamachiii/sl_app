@@ -43,6 +43,10 @@ vi.mock('../../hooks/useSessionConfirmation', () => ({
   useMyConfirmedSessionIds: () => mockConfirmedIds,
 }));
 
+vi.mock('../../hooks/useMessages', () => ({
+  useMyFeedbackSessionIds: () => ({ data: new Set() }),
+}));
+
 import StudentHome from './StudentHome';
 
 function renderHome() {

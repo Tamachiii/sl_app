@@ -22,6 +22,7 @@ export default function SessionCard({
   session,
   confirmed,
   archived,
+  hasFeedback = false,
   onStart,
   defaultOpen = false,
   subtitle,
@@ -90,8 +91,23 @@ export default function SessionCard({
     </div>
   );
 
+  const feedbackPill = hasFeedback ? (
+    <span
+      className="sl-pill"
+      aria-label={t('student.feedback.badgeAria')}
+      title={t('student.feedback.badgeAria')}
+      style={{
+        background: 'color-mix(in srgb, var(--color-accent) 18%, transparent)',
+        color: 'var(--color-accent)',
+      }}
+    >
+      {t('student.feedback.badge')}
+    </span>
+  ) : null;
+
   const trailingBlock = (
     <div className="flex items-center gap-2 shrink-0">
+      {feedbackPill}
       {statusPill}
       {collapsible && (
         <svg

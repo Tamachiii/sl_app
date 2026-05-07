@@ -45,6 +45,13 @@ vi.mock('../../hooks/useSessionConfirmation', () => ({
   useUnconfirmSession: () => mockUnconfirm,
 }));
 
+let mockFeedback = { data: null };
+
+vi.mock('../../hooks/useMessages', () => ({
+  useSessionFeedback: () => mockFeedback,
+  formatMessageStamp: () => 'stamp',
+}));
+
 import SessionView from './SessionView';
 import { resetRestTimer } from '../../hooks/useRestTimer';
 
@@ -59,6 +66,7 @@ function renderSessionView() {
 describe('SessionView', () => {
   beforeEach(() => {
     mockConfirmation = { data: null, isLoading: false };
+    mockFeedback = { data: null };
     vi.clearAllMocks();
     resetRestTimer();
   });
@@ -780,6 +788,34 @@ describe('SessionView', () => {
 
     expect(screen.getByRole('button', { name: /mark set done/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /set rpe/i })).toBeDisabled();
+  });
+
+  it("shows the coach's feedback section when feedback exists for the session", async () => {
+    const user = userEvent.setup();
+    mockFeedback = {
+      data: {
+        id: 'msg-1',
+        body: 'Great work — push the bar harder next week.',
+        created_at: '2026-04-15T10:00:00Z',
+      },
+    };
+    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
+    mockSetLogsData = { data: [], isLoading: false };
+    renderSessionView();
+
+    expect(screen.getByText("Coach's feedback")).toBeInTheDocument();
+    expect(
+      screen.getByText('Great work — push the bar harder next week.')
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /reply in messages/i }));
+  });
+
+  it('hides the feedback section when no feedback exists', () => {
+    mockFeedback = { data: null };
+    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
+    mockSetLogsData = { data: [], isLoading: false };
+    renderSessionView();
+    expect(screen.queryByText("Coach's feedback")).toBeNull();
   });
 
   it('coach-archived unconfirmed session: hides Confirm and shows archive read-only banner', () => {

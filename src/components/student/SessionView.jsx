@@ -9,6 +9,8 @@ import {
   useConfirmSession,
   useUnconfirmSession,
 } from '../../hooks/useSessionConfirmation';
+import { useSessionFeedback, formatMessageStamp } from '../../hooks/useMessages';
+import { useI18n } from '../../hooks/useI18n';
 import Spinner from '../ui/Spinner';
 import Dialog from '../ui/Dialog';
 import { groupSlotsBySuperset } from '../../lib/volume';
@@ -45,7 +47,9 @@ function SessionTopBar({ title, meta, onBack }) {
 export default function SessionView() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
+  const { t, lang } = useI18n();
   const { data: session, isLoading: sessLoading } = useSession(sessionId);
+  const { data: feedback } = useSessionFeedback(sessionId);
   const slots = session?.exercise_slots || [];
   const { data: logs, isLoading: logsLoading } = useSetLogs(sessionId, slots);
   const { data: slotComments } = useSlotComments(sessionId, slots);
@@ -212,6 +216,40 @@ export default function SessionView() {
             />
           </div>
         </div>
+      )}
+
+      {feedback && (
+        <section
+          aria-labelledby="coach-feedback-heading"
+          className="sl-card p-4 space-y-3"
+          style={{ borderLeft: '3px solid var(--color-accent)' }}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <h2
+              id="coach-feedback-heading"
+              className="sl-label flex items-center gap-2"
+              style={{ color: 'var(--color-accent)' }}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+              {t('student.feedback.title')}
+            </h2>
+            <span className="sl-mono text-[11px] text-ink-400 shrink-0">
+              {formatMessageStamp(feedback.created_at, lang)}
+            </span>
+          </div>
+          <p className="text-[14px] text-gray-900 whitespace-pre-wrap leading-relaxed">
+            {feedback.body}
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate('/student/messages')}
+            className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200"
+          >
+            {t('student.feedback.replyInMessages')}
+          </button>
+        </section>
       )}
 
       {slotGroups.map((group, groupIdx) => (

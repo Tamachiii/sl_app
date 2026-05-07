@@ -4,6 +4,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { useStudentProgramDetails } from '../../hooks/useStudentProgramDetails';
 import { useMyConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
+import { useMyFeedbackSessionIds } from '../../hooks/useMessages';
 import { DAY_LABELS, DAY_FULL, DAY_FULL_LONG, todayDayNumber, sessionDayNumber } from '../../lib/day';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
@@ -122,6 +123,7 @@ export default function StudentHome() {
   const navigate = useNavigate();
   const { data: weeks, isLoading } = useStudentProgramDetails(user?.id);
   const { data: confirmedIds = new Set() } = useMyConfirmedSessionIds();
+  const { data: feedbackIds = new Set() } = useMyFeedbackSessionIds();
 
   const todayDN = todayDayNumber();
 
@@ -253,6 +255,7 @@ export default function StudentHome() {
                 session={upcoming[0]}
                 confirmed={false}
                 archived={false}
+                hasFeedback={feedbackIds.has(upcoming[0].id)}
                 collapsible={false}
                 subtitle={(() => {
                   const dn = sessionDayNumber(upcoming[0]);

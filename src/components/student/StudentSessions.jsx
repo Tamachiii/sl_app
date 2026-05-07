@@ -4,6 +4,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { useStudentProgramDetails } from '../../hooks/useStudentProgramDetails';
 import { useMyConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
+import { useMyFeedbackSessionIds } from '../../hooks/useMessages';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
@@ -15,6 +16,7 @@ export default function StudentSessions() {
   const navigate = useNavigate();
   const { data: weeks, isLoading } = useStudentProgramDetails(user?.id);
   const { data: confirmedIds = new Set() } = useMyConfirmedSessionIds();
+  const { data: feedbackIds = new Set() } = useMyFeedbackSessionIds();
 
   const [showArchived, setShowArchived] = useState(false);
   const [openSessionId, setOpenSessionId] = useState(null);
@@ -94,6 +96,7 @@ export default function StudentSessions() {
                   session={session}
                   confirmed={confirmedIds.has(session.id)}
                   archived={!!session.archived_at}
+                  hasFeedback={feedbackIds.has(session.id)}
                   onStart={() => navigate(`/student/session/${session.id}`)}
                   open={openSessionId === session.id}
                   onToggle={() =>

@@ -209,6 +209,31 @@ export function useSessionFeedback(sessionId) {
 }
 
 /**
+ * Set of session_ids the signed-in student has received coach feedback on.
+ * RLS already scopes `messages` to the pair, and the UNIQUE partial index on
+ * `session_id WHERE session_id IS NOT NULL` makes this a 1:1 lookup. Used by
+ * the Sessions list / Home next-up card to render a "Feedback" badge so the
+ * student can spot which sessions have a follow-up to read.
+ */
+export function useMyFeedbackSessionIds() {
+  const { user } = useAuth();
+  const me = user?.id;
+  return useQuery({
+    queryKey: [MESSAGES_ROOT, 'my-feedback-session-ids', me],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('session_id')
+        .eq('recipient_id', me)
+        .not('session_id', 'is', null);
+      if (error) throw error;
+      return new Set((data || []).map((r) => r.session_id));
+    },
+    enabled: !!me,
+  });
+}
+
+/**
  * Fetch lightweight session metadata (title, scheduled_date) for the unique
  * `session_id`s referenced by visible feedback messages. Returns a Map keyed
  * by session id — empty map until the query resolves. The thread query

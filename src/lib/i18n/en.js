@@ -67,6 +67,12 @@ const en = {
       showArchivedMany: 'Show {n} archived sessions',
       noExercises: 'No exercises assigned yet.',
     },
+    feedback: {
+      title: "Coach's feedback",
+      badge: 'feedback',
+      badgeAria: 'Coach left feedback on this session',
+      replyInMessages: 'Reply in messages',
+    },
     goals: {
       deleteConfirm: 'Delete',
       deleteAttemptAria: 'Delete attempt logged on {when}',

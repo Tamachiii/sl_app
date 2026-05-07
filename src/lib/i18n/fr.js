@@ -67,6 +67,12 @@ const fr = {
       showArchivedMany: 'Afficher {n} séances archivées',
       noExercises: 'Aucun exercice attribué.',
     },
+    feedback: {
+      title: 'Retour du coach',
+      badge: 'retour',
+      badgeAria: 'Le coach a laissé un retour sur cette séance',
+      replyInMessages: 'Répondre dans les messages',
+    },
     goals: {
       deleteConfirm: 'Supprimer',
       deleteAttemptAria: 'Supprimer la tentative du {when}',

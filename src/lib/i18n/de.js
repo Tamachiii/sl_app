@@ -67,6 +67,12 @@ const de = {
       showArchivedMany: '{n} archivierte Einheiten anzeigen',
       noExercises: 'Noch keine Übungen zugewiesen.',
     },
+    feedback: {
+      title: 'Coach-Feedback',
+      badge: 'feedback',
+      badgeAria: 'Coach hat Feedback zu dieser Einheit hinterlassen',
+      replyInMessages: 'In Nachrichten antworten',
+    },
     goals: {
       deleteConfirm: 'Löschen',
       deleteAttemptAria: 'Versuch vom {when} löschen',

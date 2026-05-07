@@ -25,6 +25,12 @@ vi.mock('../../hooks/useSessionConfirmation', () => ({
   useMyConfirmedSessionIds: () => mockConfirmedIds,
 }));
 
+let mockFeedbackIds = { data: new Set() };
+
+vi.mock('../../hooks/useMessages', () => ({
+  useMyFeedbackSessionIds: () => mockFeedbackIds,
+}));
+
 import StudentSessions from './StudentSessions';
 
 function renderSessions() {
@@ -59,6 +65,7 @@ describe('StudentSessions', () => {
     vi.clearAllMocks();
     mockWeeks = { data: null, isLoading: true };
     mockConfirmedIds = { data: new Set() };
+    mockFeedbackIds = { data: new Set() };
   });
 
   it('shows empty state when no program', () => {
@@ -122,6 +129,16 @@ describe('StudentSessions', () => {
     expect(hideToggle).toHaveAttribute('aria-pressed', 'true');
     await user.click(hideToggle);
     expect(screen.queryByText('Old Session')).toBeNull();
+  });
+
+  it("renders the 'feedback' pill on cards whose session is in the feedback set", () => {
+    mockWeeks = { data: sampleWeeks, isLoading: false };
+    mockFeedbackIds = { data: new Set(['sess-1']) };
+    renderSessions();
+    // Only the matching session card carries the feedback pill — the second
+    // session (sess-2) renders the standard Start affordance instead.
+    expect(screen.getByText('feedback')).toBeInTheDocument();
+    expect(screen.getAllByText('feedback')).toHaveLength(1);
   });
 
   it('renders weeks in reverse order — newest week_number first', () => {

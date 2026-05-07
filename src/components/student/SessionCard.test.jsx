@@ -132,6 +132,16 @@ describe('SessionCard', () => {
     expect(screen.queryByRole('button', { expanded: false })).toBeNull();
   });
 
+  it("renders the 'feedback' pill when hasFeedback is true", () => {
+    render(<SessionCard session={baseSession} hasFeedback />);
+    expect(screen.getByText('feedback')).toBeInTheDocument();
+  });
+
+  it("hides the 'feedback' pill by default", () => {
+    render(<SessionCard session={baseSession} />);
+    expect(screen.queryByText('feedback')).toBeNull();
+  });
+
   it('controlled mode: parent "open" wins and onToggle fires', async () => {
     const user = userEvent.setup();
     const onToggle = vi.fn();
