@@ -114,6 +114,16 @@ const en = {
       prefs: {
         title: 'Preferences',
       },
+      notifications: {
+        title: 'Notifications',
+        restTimerLabel: 'Rest end notification',
+        restTimerHint: 'Get a push when your rest timer finishes — even when the screen is off. Requires installing this app to your home screen.',
+        enable: 'Enable',
+        disable: 'Disable',
+        unsupported: 'Push notifications aren’t supported on this device. Install the app to your home screen and try again.',
+        denied: 'Notifications are blocked. Enable them in your browser settings for SL Coach.',
+        pending: 'Working…',
+      },
       account: {
         title: 'Account',
         email: 'Email',

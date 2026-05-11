@@ -9,6 +9,12 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
+      // `injectManifest` so we can ship a custom service worker (src/sw.js)
+      // that handles `push` + `notificationclick` for the rest-timer
+      // notification. Workbox still precaches the app shell — see src/sw.js.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.js',
       registerType: 'autoUpdate',
       includeAssets: [
         'favicon.svg',
@@ -32,30 +38,13 @@ export default defineConfig({
           { src: 'icon-512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,woff2}'],
+      injectManifest: {
         // Static assets only — no Supabase REST/Storage runtime caching.
         // The React Query persisted cache (IndexedDB) is the source of truth
         // for offline reads; runtime caching of authed API responses risks
-        // serving cross-user data on shared devices.
-        runtimeCaching: [
-          {
-            urlPattern: ({ url }) => url.origin === 'https://fonts.googleapis.com',
-            handler: 'StaleWhileRevalidate',
-            options: { cacheName: 'google-fonts-stylesheets' },
-          },
-          {
-            urlPattern: ({ url }) => url.origin === 'https://fonts.gstatic.com',
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'google-fonts-webfonts',
-              expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 24 * 365 },
-              cacheableResponse: { statuses: [0, 200] },
-            },
-          },
-        ],
-        navigateFallback: '/sl_app/index.html',
-        cleanupOutdatedCaches: true,
+        // serving cross-user data on shared devices. Runtime caching for
+        // Google Fonts is wired up directly in src/sw.js.
+        globPatterns: ['**/*.{js,css,html,svg,woff2}'],
       },
       devOptions: {
         // Disabled in dev so HMR isn't fighting a service worker.

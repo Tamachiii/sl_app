@@ -114,6 +114,16 @@ const de = {
       prefs: {
         title: 'Einstellungen',
       },
+      notifications: {
+        title: 'Benachrichtigungen',
+        restTimerLabel: 'Pausen-Ende-Benachrichtigung',
+        restTimerHint: 'Erhalte einen Push, wenn deine Pausenuhr abläuft — auch wenn der Bildschirm aus ist. Du musst die App zum Home-Bildschirm hinzufügen.',
+        enable: 'Aktivieren',
+        disable: 'Deaktivieren',
+        unsupported: 'Push-Benachrichtigungen werden auf diesem Gerät nicht unterstützt. Füge die App zum Home-Bildschirm hinzu und versuche es erneut.',
+        denied: 'Benachrichtigungen sind blockiert. Aktiviere sie in den Browser-Einstellungen für SL Coach.',
+        pending: 'Wird verarbeitet…',
+      },
       account: {
         title: 'Konto',
         email: 'E-Mail',

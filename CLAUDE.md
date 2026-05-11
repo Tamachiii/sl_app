@@ -4,7 +4,7 @@ Per-turn context only. Heavier docs load on demand.
 
 ## When to load the other docs
 
-- **`docs/INVARIANTS.md`** — touching: routing/scroll-shell, dark mode, RLS, `set_logs` schema, rest timer, messaging/notifications triggers, offline mutations, coach session review, stats persistence, role-aware `UserMenu`. **Load before any DB or hook change.** Skip for pure UI polish, copy, or component-local edits.
+- **`docs/INVARIANTS.md`** — touching: routing/scroll-shell, dark mode, RLS, `set_logs` schema, rest timer (in-app or Web Push), messaging/notifications triggers, offline mutations, service worker, coach session review, stats persistence, role-aware `UserMenu`. **Load before any DB or hook change.** Skip for pure UI polish, copy, or component-local edits.
 - **`docs/ARCHITECTURE.md`** — adding a DB table, changing RLS, touching React Query keys, changes spanning 3+ modules, or orienting to the data model / periodization / routing persistence. Skip for single-component edits, UI polish, tests, copy changes.
 - **`docs/DESIGN_SYSTEM.md`** — creating a UI component, adding an `sl-*` primitive, changing dark-mode behavior, building a new page header, responsive layout questions. Skip for logic, data wiring, routing.
 - **`README.md`** — setup, deployment, high-level overview, onboarding. Skip for day-to-day coding.
@@ -26,10 +26,15 @@ Prefer `Grep` over `Read` for locating symbols. Read ranges (`offset`/`limit`) f
 ```
 src/
   App.jsx  main.jsx  routes.jsx  index.css
+  sw.js          custom service worker (vite-plugin-pwa injectManifest mode):
+                 push + notificationclick handlers for rest-timer Web Push
   lib/           supabase.js  queryClient.js  volume.js  day.js  preload.js  i18n/
+                 pushNotifications.js
   hooks/         auth · theme · i18n · program · week · session · goals
                  students · set-logs · set-video · confirmations · slot-comments
                  stats · exercise-library · duplicate · remember-coach-students-path
+                 rest-timer (singleton) · rest-timer-effects (wake lock + audio)
+                 rest-timer-push (Web Push bridge) · push-subscription (toggle)
   components/
     auth/        LoginPage  ProtectedRoute  RoleGate
     layout/      AppShell  BottomNav  SideNav  navItems
@@ -49,7 +54,7 @@ src/
                  VideoPlayer  Spinner  EmptyState  CopyDialog  ConfirmDialog
                  ErrorBoundary  NotFound
   test/          setup.js  utils.jsx (renderWithProviders)
-supabase/        schema.sql  migrations/
+supabase/        schema.sql  migrations/  functions/dispatch-rest-push/
 docs/            INVARIANTS.md  ARCHITECTURE.md  DESIGN_SYSTEM.md  ENVIRONMENT.md
 ```
 

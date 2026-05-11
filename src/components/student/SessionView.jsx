@@ -17,6 +17,8 @@ import { groupSlotsBySuperset } from '../../lib/volume';
 import { DAY_FULL } from '../../lib/day';
 import SlotGroupCard from './SlotGroupCard';
 import RestTimerBanner from './RestTimerBanner';
+import { useRestTimerEffects } from '../../hooks/useRestTimerEffects';
+import { useRestTimerPush } from '../../hooks/useRestTimerPush';
 
 function SessionTopBar({ title, meta, onBack }) {
   return (
@@ -78,6 +80,15 @@ export default function SessionView() {
   const { data: confirmation, isLoading: confLoading } = useSessionConfirmation(sessionId);
   const confirmSession = useConfirmSession();
   const unconfirmSession = useUnconfirmSession();
+
+  // Out-of-band rest-timer side effects (wake lock + audio cue + vibrate +
+  // hidden-title countdown). Mounted exactly here so the singleton timer
+  // has one driver site, mirroring RestTimerBanner. See useRestTimerEffects.
+  useRestTimerEffects();
+  // Background push bridge: schedules a "Rest done" Web Push on the server
+  // for users who opted in (StudentProfile → Rest end notifications).
+  // No-op when push isn't supported or the user hasn't enabled it.
+  useRestTimerPush();
 
   const [notes, setNotes] = useState('');
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);

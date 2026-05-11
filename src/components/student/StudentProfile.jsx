@@ -10,6 +10,7 @@ import { useI18n } from '../../hooks/useI18n';
 import { useMyCoach } from '../../hooks/useStudents';
 import { useMyGoals } from '../../hooks/useGoals';
 import { useStudentLifetimeStats } from '../../hooks/useStudentLifetimeStats';
+import { usePushSubscription } from '../../hooks/usePushSubscription';
 
 function initialsOf(name) {
   return (name || '')
@@ -133,6 +134,57 @@ function ChangePasswordDialog({ open, onClose }) {
         </form>
       )}
     </Dialog>
+  );
+}
+
+function RestNotificationToggle() {
+  const { t } = useI18n();
+  const { supported, enabled, permission, pending, error, enable, disable } = usePushSubscription();
+
+  // Always render the section so users know the feature exists. Body
+  // copy adapts to capability + permission state.
+  const hint = !supported
+    ? t('student.profile.notifications.unsupported')
+    : permission === 'denied'
+      ? t('student.profile.notifications.denied')
+      : t('student.profile.notifications.restTimerHint');
+
+  return (
+    <section aria-labelledby="profile-notifications-heading" className="space-y-2">
+      <h2 id="profile-notifications-heading" className="sl-label text-ink-400">
+        {t('student.profile.notifications.title')}
+      </h2>
+      <div className="sl-card p-4 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="sl-display text-[15px] text-gray-900">
+              {t('student.profile.notifications.restTimerLabel')}
+            </div>
+            <p className="text-[12px] text-ink-400 mt-1 leading-relaxed">{hint}</p>
+          </div>
+          <button
+            type="button"
+            onClick={enabled ? disable : enable}
+            disabled={pending || !supported || permission === 'denied'}
+            aria-pressed={enabled}
+            className="sl-pill shrink-0 disabled:opacity-50"
+            style={{
+              background: enabled ? 'var(--color-accent)' : 'var(--color-ink-100)',
+              color: enabled ? 'var(--color-ink-900)' : 'var(--color-ink-700)',
+            }}
+          >
+            {pending
+              ? t('student.profile.notifications.pending')
+              : enabled
+                ? t('student.profile.notifications.disable')
+                : t('student.profile.notifications.enable')}
+          </button>
+        </div>
+        {error && (
+          <p className="text-[12px]" style={{ color: 'var(--color-danger, #c00)' }}>{error}</p>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -297,6 +349,8 @@ export default function StudentProfile() {
           </div>
         </div>
       </section>
+
+      <RestNotificationToggle />
 
       {/* Account */}
       <section aria-labelledby="profile-account-heading" className="space-y-2">

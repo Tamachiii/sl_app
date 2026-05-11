@@ -34,8 +34,9 @@ Create `.env` (gitignored):
 ```
 VITE_SUPABASE_URL=https://<project>.supabase.co
 VITE_SUPABASE_ANON_KEY=<anon-key>
+VITE_VAPID_PUBLIC_KEY=<base64url public key>   # optional, enables rest-timer Web Push
 ```
-See `.env.example`.
+See `.env.example`. Generate the VAPID pair once with `npx web-push generate-vapid-keys --json`; ship the **public** key here and put the **private** key + `mailto:` subject in Supabase function secrets (`VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`). The Web Push feature degrades gracefully when these are unset — the Profile toggle just shows "not supported".
 
 ### 3. Database
 Apply `supabase/schema.sql` to a fresh Supabase project (creates tables, RLS policies, and a trigger that auto-creates a `profiles` row on signup).
@@ -45,7 +46,7 @@ Apply `supabase/schema.sql` to a fresh Supabase project (creates tables, RLS pol
 npm run dev       # dev server
 npm run build     # production build → dist/
 npm run preview   # serve dist/
-npm test          # run vitest (~495 tests)
+npm test          # run vitest (~518 tests)
 npm run deploy    # publishes dist/ to gh-pages branch
 ```
 
@@ -178,6 +179,28 @@ To verify locally:
 4. DevTools → Network → set throttling to **Offline** — keep using the session view. RPE / set validation / confirm should all stay responsive; the offline banner should appear at the top.
 5. Toggle back to **Online** — the banner flips to "Syncing N changes…" briefly, then disappears once the queue drains. Confirm the writes landed in Supabase.
 
+## Rest Timer (in-app + Web Push)
+
+The student rest timer is an app-wide singleton ([hooks/useRestTimer.js](src/hooks/useRestTimer.js)) with one rendering site ([RestTimerBanner.jsx](src/components/student/RestTimerBanner.jsx)) and two effect hooks mounted in `SessionView`.
+
+- **In-app polish — [useRestTimerEffects](src/hooks/useRestTimerEffects.js):** while a rest timer is active, the hook acquires `navigator.wakeLock` so the phone screen stays awake, schedules a synthesized WebAudio beep + `navigator.vibrate` at expiry, and mirrors a `Rest m:ss · <title>` countdown into `document.title` while the page is hidden. The AudioContext is unlocked on the first `pointerdown` so iOS lets the cue play unattended.
+- **Background / lock-screen push — [useRestTimerPush](src/hooks/useRestTimerPush.js):** when a student has enabled "Rest end notification" in their Profile, the hook inserts a `scheduled_pushes` row and invokes the [`dispatch-rest-push`](supabase/functions/dispatch-rest-push/index.ts) Edge Function. The function sleeps until `fire_at`, re-checks `canceled_at`, and sends a VAPID-signed Web Push to every `push_subscriptions` row for that user. The custom service worker ([src/sw.js](src/sw.js)) renders the notification.
+
+iOS Live Activities / Dynamic Island are not exposed to web — Web Push is the closest the platform offers a PWA. iPhone users must install the app to the Home Screen (iOS 16.4+) for push to work. Otherwise the in-app cues still cover them.
+
+The DB tables ([2026_05_11_push_notifications.sql](supabase/migrations/2026_05_11_push_notifications.sql)) are RLS-scoped to the owning user. The Edge Function runs as service role and double-checks `user_id` on every row. Delays > 350s are refused (Supabase Edge Function wall-time limit is 400s); typical rest periods (30–300s) are well within. Detailed invariants live in [docs/INVARIANTS.md](docs/INVARIANTS.md) under "Rest timer" and "Web Push".
+
+To deploy the function:
+```bash
+npx web-push generate-vapid-keys --json
+# Put the public key in .env as VITE_VAPID_PUBLIC_KEY
+supabase secrets set \
+  VAPID_PUBLIC_KEY=<public> \
+  VAPID_PRIVATE_KEY=<private> \
+  VAPID_SUBJECT=mailto:you@example.com
+supabase functions deploy dispatch-rest-push
+```
+
 ## Inline Title Editing
 
 `EditableText` (`src/components/ui/EditableText.jsx`) is a controlled click-to-edit component: renders a button showing `value` or `placeholder`, becomes an input on click, commits on Enter/blur, cancels on Escape. Used for week labels and session titles — saves via `useUpdateWeek` / `useUpdateSession` (both owned by `useWeek.js`). Mutations invalidate `['week']`, `['program']`, and/or `['session']` so list and detail views stay in sync.
@@ -189,7 +212,7 @@ To verify locally:
 - Tests live alongside components as `*.test.jsx` / `*.test.js`.
 - `src/test/utils.jsx` exports `renderWithProviders(ui, { auth, route, queryClient })` which wraps with `ThemeProvider` + `QueryClientProvider` + `AuthContext` + `MemoryRouter`.
 - Mocks: child hooks are stubbed with `vi.mock('../../hooks/useX', () => ({ ... }))` per file.
-- 495 tests across 62 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations.
+- 518 tests across 64 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations.
 
 Run:
 ```bash

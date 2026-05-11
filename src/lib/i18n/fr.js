@@ -114,6 +114,16 @@ const fr = {
       prefs: {
         title: 'Préférences',
       },
+      notifications: {
+        title: 'Notifications',
+        restTimerLabel: 'Notification de fin de repos',
+        restTimerHint: 'Reçois une notification lorsque ton minuteur de repos se termine, même écran éteint. Nécessite l’installation de l’app sur l’écran d’accueil.',
+        enable: 'Activer',
+        disable: 'Désactiver',
+        unsupported: 'Les notifications push ne sont pas prises en charge sur cet appareil. Installe l’app sur l’écran d’accueil puis réessaie.',
+        denied: 'Les notifications sont bloquées. Active-les dans les réglages du navigateur pour SL Coach.',
+        pending: 'Traitement…',
+      },
       account: {
         title: 'Compte',
         email: 'E-mail',
