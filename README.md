@@ -190,7 +190,9 @@ iOS Live Activities / Dynamic Island are not exposed to web — Web Push is the 
 
 The DB tables ([2026_05_11_push_notifications.sql](supabase/migrations/2026_05_11_push_notifications.sql)) are RLS-scoped to the owning user. The Edge Function runs as service role and double-checks `user_id` on every row. Delays > 350s are refused (Supabase Edge Function wall-time limit is 400s); typical rest periods (30–300s) are well within. Detailed invariants live in [docs/INVARIANTS.md](docs/INVARIANTS.md) under "Rest timer" and "Web Push".
 
-To deploy the function:
+A second Edge Function, [`send-push`](supabase/functions/send-push/index.ts), is a service-role-auth fan-out used by DB triggers (today: `notify_student_on_session_feedback` calls it via pg_net to push the student a "Feedback from <coach>" notification when the coach sends feedback on a session). The trigger reads `app_functions_url` and `app_service_role_key` from Supabase Vault — populate them once (see migration [2026_05_12_feedback_push.sql](supabase/migrations/2026_05_12_feedback_push.sql)).
+
+To deploy the functions:
 ```bash
 npx web-push generate-vapid-keys --json
 # Put the public key in .env as VITE_VAPID_PUBLIC_KEY
@@ -199,6 +201,25 @@ supabase secrets set \
   VAPID_PRIVATE_KEY=<private> \
   VAPID_SUBJECT=mailto:you@example.com
 supabase functions deploy dispatch-rest-push
+
+# send-push is internal-only: deploy with --no-verify-jwt so our custom
+# INTERNAL_BEARER check is the only gate.
+supabase functions deploy send-push --no-verify-jwt
+
+# Pick a long random shared secret (anything opaque works — using the
+# legacy service-role JWT is fine if you don't have a generator handy).
+# Set it as both an Edge Function secret AND the matching Vault value,
+# because Supabase's auto-injected SUPABASE_SERVICE_ROLE_KEY may be the
+# new `sb_secret_*` format whose full value isn't recoverable outside
+# the dashboard, while pg_net needs a value it can send verbatim.
+INTERNAL_BEARER="<secret>"
+supabase secrets set INTERNAL_BEARER="$INTERNAL_BEARER"
+supabase db query --linked \
+  "SELECT vault.create_secret('https://<ref>.supabase.co/functions/v1', 'app_functions_url');"
+supabase db query --linked \
+  "SELECT vault.create_secret('$INTERNAL_BEARER', 'app_service_role_key');"
+# Rotate together: UPDATE vault.secrets SET secret = '<new>' WHERE name = 'app_service_role_key';
+# AND  `supabase secrets set INTERNAL_BEARER=<new>`
 ```
 
 ## Inline Title Editing
