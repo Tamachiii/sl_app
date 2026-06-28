@@ -108,6 +108,11 @@ CREATE TABLE public.set_logs (
   failed                   boolean NOT NULL DEFAULT false,
   rpe                      int CHECK (rpe IS NULL OR (rpe BETWEEN 1 AND 10)),
   weight_kg                numeric(6,2),
+  -- Student-recorded "what I actually did" when they go off-script. NULL on
+  -- either column means "followed the prescription" for that dimension, so a
+  -- populated actual_* always signals an off-plan set.
+  actual_reps              int,
+  actual_weight_kg         numeric(6,2),
   target_reps              int,
   target_duration_seconds  int,
   target_weight_kg         numeric(6,2),
@@ -120,7 +125,9 @@ CREATE TABLE public.set_logs (
     target_reps IS NULL OR target_duration_seconds IS NULL
   ),
   CONSTRAINT set_logs_done_xor_failed CHECK (NOT (done AND failed)),
-  CONSTRAINT set_logs_no_rpe_when_failed CHECK (NOT (failed AND rpe IS NOT NULL))
+  CONSTRAINT set_logs_no_rpe_when_failed CHECK (NOT (failed AND rpe IS NOT NULL)),
+  CONSTRAINT set_logs_actual_reps_nonneg CHECK (actual_reps IS NULL OR actual_reps >= 0),
+  CONSTRAINT set_logs_actual_weight_nonneg CHECK (actual_weight_kg IS NULL OR actual_weight_kg >= 0)
 );
 
 -- ============================================================
@@ -332,11 +339,13 @@ CREATE POLICY "Students read own exercise slots"
 
 -- SET LOGS
 -- Coaches own per-set prescriptions (target_* columns) for their students'
--- slots; students own their actuals (done, rpe, weight_kg). The DB grants
--- both sides FOR ALL on the same table — column separation is enforced by
--- client discipline (coach UI never writes actuals; student UI never writes
--- targets). If this proves insufficient we can split actuals to a child
--- table.
+-- slots; students own their actuals (done, rpe, weight_kg, actual_reps,
+-- actual_weight_kg). The DB grants both sides FOR ALL on the same table —
+-- column separation is enforced by client discipline (coach UI never writes
+-- actuals; student UI never writes targets) AND hardened by the
+-- pin_set_log_targets_for_student BEFORE UPDATE trigger, which reverts any
+-- attempt by a student to mutate the coach-owned target_* columns. If this
+-- proves insufficient we can split actuals to a child table.
 CREATE POLICY "Coaches manage set log prescriptions"
   ON public.set_logs FOR ALL
   USING (
@@ -720,6 +729,32 @@ DROP TRIGGER IF EXISTS trg_restrict_student_goal_update ON public.goals;
 CREATE TRIGGER trg_restrict_student_goal_update
   BEFORE UPDATE ON public.goals
   FOR EACH ROW EXECUTE FUNCTION public.restrict_student_goal_update();
+
+-- ============================================================
+-- TRIGGER: pin coach-owned target_* on student set_log updates
+-- Defense in depth for the shared set_logs row: students legitimately write
+-- actuals (done/failed/rpe/weight_kg/actual_*), but must never rewrite the
+-- coach's prescription. When the writer is the slot's student (not the coach),
+-- revert every target_* column to OLD. Coach writes resolve a different
+-- auth.uid() and pass through untouched.
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.pin_set_log_targets_for_student()
+RETURNS trigger AS $$
+BEGIN
+  IF public.student_profile_for_slot(NEW.exercise_slot_id) = auth.uid() THEN
+    NEW.target_reps             := OLD.target_reps;
+    NEW.target_duration_seconds := OLD.target_duration_seconds;
+    NEW.target_weight_kg        := OLD.target_weight_kg;
+    NEW.target_rest_seconds     := OLD.target_rest_seconds;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_pin_set_log_targets_for_student ON public.set_logs;
+CREATE TRIGGER trg_pin_set_log_targets_for_student
+  BEFORE UPDATE ON public.set_logs
+  FOR EACH ROW EXECUTE FUNCTION public.pin_set_log_targets_for_student();
 
 -- ============================================================
 -- SET LOG VIDEOS

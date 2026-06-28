@@ -148,6 +148,37 @@ export function formatSetTarget(log) {
 }
 
 /**
+ * True when the student logged an off-plan actual on this set — i.e. they
+ * recorded reps or load that differed from the prescription. A NULL on both
+ * actual_* columns means "followed the plan", so this also doubles as the
+ * "did they deviate?" predicate for the off-plan read-out.
+ */
+export function hasLoggedActual(log) {
+  return !!log && (log.actual_reps != null || log.actual_weight_kg != null);
+}
+
+/**
+ * Format the student's actual performed work for an off-plan set. Falls back
+ * to the prescribed target for whichever dimension wasn't overridden, so the
+ * string always reads as a complete "what they did":
+ *   actual_reps 8, actual_weight_kg 100 (target 10 @ 80) → "8 @ 100kg"
+ *   actual_reps 8 only (target 10 @ 80)                  → "8 @ 80kg"
+ *   actual_weight_kg 100 only (target 10 @ 80)           → "10 @ 100kg"
+ * Returns '' when nothing was logged.
+ */
+export function formatActual(log) {
+  if (!hasLoggedActual(log)) return '';
+  const reps = log.actual_reps != null ? log.actual_reps : log.target_reps;
+  const w = log.actual_weight_kg != null ? log.actual_weight_kg : log.target_weight_kg;
+  const weightSuffix = w == null ? ' (BW)' : ` @ ${Number(w)}kg`;
+  if (reps != null) return `${reps}${weightSuffix}`;
+  if (log.target_duration_seconds != null) {
+    return `${log.target_duration_seconds}s${weightSuffix}`;
+  }
+  return weightSuffix.trim();
+}
+
+/**
  * Format a rest period as "1:30" (mm:ss) when >= 60s, otherwise "45s".
  */
 export function formatRestSeconds(seconds) {

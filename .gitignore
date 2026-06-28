@@ -11,3 +11,6 @@ supabase/.temp/
 
 # Local audit / scratch notes.
 TEST_AUDIT.md
+
+# Local test-account credentials for manual/preview testing (never commit).
+.claude/creds.env

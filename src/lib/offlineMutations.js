@@ -18,6 +18,7 @@ export const MUTATION_KEYS = {
   toggleDone: ['set-log', 'toggle-done'],
   setFailed: ['set-log', 'set-failed'],
   setRpe: ['set-log', 'set-rpe'],
+  logActual: ['set-log', 'log-actual'],
   confirmSession: ['session-confirmation', 'confirm'],
   unconfirmSession: ['session-confirmation', 'unconfirm'],
   saveSlotComment: ['slot-comment', 'save'],
@@ -64,6 +65,26 @@ async function setRpeFn({ logId, rpe }) {
   const { data, error } = await supabase
     .from('set_logs')
     .update({ rpe })
+    .eq('id', logId)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// Records the student's off-plan actuals. Pass null on a dimension to mean
+// "did it as prescribed" — callers normalize a value equal to the target down
+// to null so a stored actual_* always denotes a real deviation. An UPDATE on a
+// pre-existing row, so it parks-and-replays offline like the other set_log
+// writes; the coach-owned target_* columns are never in the payload (and the
+// pin_set_log_targets_for_student trigger would revert them anyway).
+async function logActualFn({ logId, actualReps, actualWeightKg }) {
+  const { data, error } = await supabase
+    .from('set_logs')
+    .update({
+      actual_reps: actualReps ?? null,
+      actual_weight_kg: actualWeightKg ?? null,
+    })
     .eq('id', logId)
     .select()
     .single();
@@ -126,6 +147,7 @@ export const MUTATION_FNS = {
   toggleDone: toggleDoneFn,
   setFailed: setFailedFn,
   setRpe: setRpeFn,
+  logActual: logActualFn,
   confirmSession: confirmSessionFn,
   unconfirmSession: unconfirmSessionFn,
   saveSlotComment: saveSlotCommentFn,

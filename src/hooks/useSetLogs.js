@@ -128,6 +128,40 @@ export function useSetFailed() {
   });
 }
 
+// Records the student's off-plan actuals (reps performed / load used) on a
+// single set_log. Same offline-safe shape as the other set-log writes: an
+// UPDATE of a pre-existing row, optimistic patch into every ['set-logs'] cache,
+// rollback on error. Callers pass already-normalized values (a dimension equal
+// to its prescribed target is sent as null) so a stored actual_* always means
+// a genuine deviation.
+export function useLogActual() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationKey: MUTATION_KEYS.logActual,
+    mutationFn: MUTATION_FNS.logActual,
+    onMutate: async ({ logId, actualReps, actualWeightKg }) => {
+      await qc.cancelQueries({ queryKey: ['set-logs'] });
+      const previousQueries = qc.getQueriesData({ queryKey: ['set-logs'] });
+      qc.setQueriesData({ queryKey: ['set-logs'] }, (old) => {
+        if (!old) return old;
+        return old.map((log) =>
+          log.id === logId
+            ? { ...log, actual_reps: actualReps ?? null, actual_weight_kg: actualWeightKg ?? null }
+            : log,
+        );
+      });
+      return { previousQueries };
+    },
+    onError: (_err, _vars, context) => {
+      context?.previousQueries?.forEach(([queryKey, oldData]) => {
+        qc.setQueryData(queryKey, oldData);
+      });
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['set-logs'] }),
+  });
+}
+
 export function useSetRpe() {
   const qc = useQueryClient();
 

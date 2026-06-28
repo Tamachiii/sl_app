@@ -23,6 +23,8 @@ import {
   groupSlotsBySuperset,
   isSlotUniform,
   formatSetTarget,
+  formatActual,
+  hasLoggedActual,
   getSlotTargetRest,
   summarizeSlotPrescription,
 } from '../../lib/volume';
@@ -233,6 +235,35 @@ export default function SessionReview() {
                   )}
                 </div>
                 <SlotProgress logs={slotLogs} plannedSets={slot.sets} />
+                {(() => {
+                  const deviated = slotLogs.filter(hasLoggedActual);
+                  if (deviated.length === 0) return null;
+                  return (
+                    <div
+                      className="rounded-lg px-2.5 py-1.5 space-y-1"
+                      style={{
+                        background: 'color-mix(in srgb, var(--color-warn) 12%, transparent)',
+                        border: '1px solid color-mix(in srgb, var(--color-warn) 35%, transparent)',
+                      }}
+                    >
+                      <span className="sl-label" style={{ color: 'var(--color-ink-900)' }}>
+                        Off-plan
+                      </span>
+                      <ul className="space-y-0.5 sl-mono text-[11px] text-ink-700">
+                        {deviated.map((log) => (
+                          <li key={log.id} className="flex gap-2">
+                            <span className="sl-label shrink-0">Set {log.set_number}</span>
+                            <span>
+                              <span className="text-ink-400 line-through">{formatSetTarget(log)}</span>
+                              <span className="mx-1" aria-hidden="true">→</span>
+                              {formatActual(log)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })()}
                 <SlotVideoStrip
                   videos={videosBySlot.get(slot.id)}
                   onPlay={setPlaying}

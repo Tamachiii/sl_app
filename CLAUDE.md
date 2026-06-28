@@ -81,6 +81,7 @@ Jump straight to the relevant files. For *behavior* details, open the file — t
 | Student sessions list | `student/StudentSessions`, `student/SessionCard`, `hooks/useStudentProgramDetails`, `hooks/useMessages` (`useMyFeedbackSessionIds`) |
 | Student stats | `student/StudentDashboard`, `student/SessionCalendar`, `student/ExerciseProgressChart`, `student/ProgramScopeSelector`, `lib/statsPrefs.js`, `hooks/useStudentProgressStats`, `hooks/useStudentHistoricalSessions`, `hooks/useStudents` |
 | Student session logging | `student/SessionView`, `student/SetRow`, `student/RpeInput`, `hooks/useSession`, `hooks/useSetLogs`, `hooks/useMessages` (`useSessionFeedback` for the inline coach-feedback card) |
+| Off-plan deviation logging (student records actual reps/load) | `student/SetRow` (Actual pill + editor), `hooks/useSetLogs` (`useLogActual`), `lib/offlineMutations` (`logActual`), `lib/volume` (`hasLoggedActual`/`formatActual`), `coach/SessionReview` (Off-plan band), migration `2026_06_28_set_log_actuals.sql` (`set_logs.actual_*` + `pin_set_log_targets_for_student` trigger) |
 | Coach goals (per student) | `coach/StudentGoalsSection`, `hooks/useGoals` |
 | Student goals | `student/MyGoals`, `hooks/useGoals` |
 | Student profile | `student/StudentProfile`, `hooks/useStudentLifetimeStats`, `hooks/useAuth`, `hooks/useStudents` (`useMyCoach`), `hooks/useGoals` (`useMyGoals`) |

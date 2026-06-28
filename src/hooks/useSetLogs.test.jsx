@@ -7,6 +7,7 @@ import {
   useToggleSetDone,
   useSetFailed,
   useSetRpe,
+  useLogActual,
 } from './useSetLogs';
 import { supabase } from '../lib/supabase';
 
@@ -346,5 +347,92 @@ describe('useSetRpe', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(chain.update).toHaveBeenCalledWith({ rpe: 8 });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['set-logs'] });
+  });
+});
+
+describe('useLogActual', () => {
+  function makeUpdateChain(result) {
+    return {
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue(result),
+    };
+  }
+
+  it('writes only the actual_* columns (never touches target_* or outcomes)', async () => {
+    const chain = makeUpdateChain({ data: { id: 'l-1' }, error: null });
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useLogActual(), { wrapper: withClient(qc) });
+    result.current.mutate({ logId: 'l-1', actualReps: 8, actualWeightKg: 100 });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const payload = chain.update.mock.calls[0][0];
+    expect(payload).toEqual({ actual_reps: 8, actual_weight_kg: 100 });
+    expect(chain.eq).toHaveBeenCalledWith('id', 'l-1');
+  });
+
+  it('coerces undefined/missing values to null so a clear persists', async () => {
+    const chain = makeUpdateChain({ data: { id: 'l-1' }, error: null });
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useLogActual(), { wrapper: withClient(qc) });
+    result.current.mutate({ logId: 'l-1', actualReps: null, actualWeightKg: undefined });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(chain.update.mock.calls[0][0]).toEqual({ actual_reps: null, actual_weight_kg: null });
+  });
+
+  it('optimistically patches actual_* into matching ["set-logs"] caches', async () => {
+    let resolveUpdate;
+    const chain = {
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn(() => new Promise((res) => { resolveUpdate = res; })),
+    };
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    qc.setQueryData(['set-logs', 'sess-1', ['sl-1']], [
+      { id: 'l-1', actual_reps: null, actual_weight_kg: null },
+    ]);
+
+    const { result } = renderHook(() => useLogActual(), { wrapper: withClient(qc) });
+    act(() => {
+      result.current.mutate({ logId: 'l-1', actualReps: 6, actualWeightKg: 90 });
+    });
+
+    await waitFor(() => {
+      const log = qc.getQueryData(['set-logs', 'sess-1', ['sl-1']]).find((l) => l.id === 'l-1');
+      expect(log.actual_reps).toBe(6);
+      expect(log.actual_weight_kg).toBe(90);
+    });
+
+    act(() => resolveUpdate({ data: { id: 'l-1' }, error: null }));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  });
+
+  it('rolls back the cache when the mutation errors', async () => {
+    const chain = makeUpdateChain({ data: null, error: { message: 'nope' } });
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    qc.setQueryData(['set-logs', 'sess-1', ['sl-1']], [
+      { id: 'l-1', actual_reps: null, actual_weight_kg: null },
+    ]);
+
+    const { result } = renderHook(() => useLogActual(), { wrapper: withClient(qc) });
+    act(() => {
+      result.current.mutate({ logId: 'l-1', actualReps: 6, actualWeightKg: 90 });
+    });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    const restored = qc.getQueryData(['set-logs', 'sess-1', ['sl-1']]).find((l) => l.id === 'l-1');
+    expect(restored.actual_reps).toBeNull();
+    expect(restored.actual_weight_kg).toBeNull();
   });
 });

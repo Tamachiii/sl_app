@@ -5,6 +5,8 @@ import {
   formatRestSeconds,
   formatSlotPrescription,
   formatSetTarget,
+  formatActual,
+  hasLoggedActual,
   isSlotUniform,
   getSlotTargetWeight,
   getSlotTargetRest,
@@ -142,6 +144,54 @@ describe('isSlotUniform', () => {
         ],
       })
     ).toBe(true);
+  });
+});
+
+describe('hasLoggedActual', () => {
+  it('is false when neither actual column is set', () => {
+    expect(hasLoggedActual({ target_reps: 10, target_weight_kg: 80 })).toBe(false);
+    expect(hasLoggedActual({ actual_reps: null, actual_weight_kg: null })).toBe(false);
+  });
+
+  it('is true when either actual column is set', () => {
+    expect(hasLoggedActual({ actual_reps: 8 })).toBe(true);
+    expect(hasLoggedActual({ actual_weight_kg: 100 })).toBe(true);
+  });
+
+  it('treats actual_reps 0 as a logged deviation (not absent)', () => {
+    expect(hasLoggedActual({ actual_reps: 0 })).toBe(true);
+  });
+
+  it('is false for a null/undefined log', () => {
+    expect(hasLoggedActual(null)).toBe(false);
+    expect(hasLoggedActual(undefined)).toBe(false);
+  });
+});
+
+describe('formatActual', () => {
+  it('returns "" when nothing was logged', () => {
+    expect(formatActual({ target_reps: 10, target_weight_kg: 80 })).toBe('');
+  });
+
+  it('combines both actual values', () => {
+    expect(
+      formatActual({ actual_reps: 8, actual_weight_kg: 100, target_reps: 10, target_weight_kg: 80 })
+    ).toBe('8 @ 100kg');
+  });
+
+  it('falls back to the target for the dimension that was not overridden', () => {
+    // Only reps deviated → weight falls back to the prescribed target.
+    expect(
+      formatActual({ actual_reps: 8, actual_weight_kg: null, target_reps: 10, target_weight_kg: 80 })
+    ).toBe('8 @ 80kg');
+    // Only weight deviated → reps falls back to the prescribed target.
+    expect(
+      formatActual({ actual_reps: null, actual_weight_kg: 100, target_reps: 10, target_weight_kg: 80 })
+    ).toBe('10 @ 100kg');
+  });
+
+  it('renders bodyweight when neither actual nor target weight exists', () => {
+    expect(formatActual({ actual_reps: 12, target_reps: 10, target_weight_kg: null })).toBe('12 (BW)');
   });
 });
 

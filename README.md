@@ -115,6 +115,8 @@ Each coach has their own exercise library; each student can have many **programs
 
 `set_logs` doubles as both prescription and log: each row carries the coach's per-set targets (`target_reps`, `target_duration_seconds`, `target_weight_kg`, `target_rest_seconds`) alongside the student's actuals (`done`, `rpe`, `weight_kg`). The compact "3 × 10 @ 80kg" UI is shown when every set's target matches; otherwise a per-set list appears (drop sets, back-offs). Coaches toggle "Customize sets" in the editor to expose a per-set table; "Reset to uniform" syncs every row back to set 1.
 
+When a student can't follow a set as written, they log what they **actually** did via `set_logs.actual_reps` / `actual_weight_kg` — an "Actual" control on each set, prefilled from the target. Anything left equal to the prescription is stored as `null`, so a populated `actual_*` always marks a real deviation; the coach sees these in an "Off-plan" band on the session review. The coach-owned `target_*` columns stay immutable to students at the DB level via the `pin_set_log_targets_for_student` trigger.
+
 Deep architectural details — RLS helpers, React Query invalidation, routing/persistence, set-video storage, calendar history overlay — live in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
@@ -155,7 +157,7 @@ Quick summary:
 
 ## Offline Support (Student Session Logging)
 
-Students can fully record their sessions without a connection — RPE, set validation (done/failed), session confirm/unconfirm, and slot comments all work offline and replay automatically when the device reconnects.
+Students can fully record their sessions without a connection — RPE, set validation (done/failed), off-plan actuals (actual reps/load), session confirm/unconfirm, and slot comments all work offline and replay automatically when the device reconnects.
 
 How it works:
 

@@ -1,9 +1,21 @@
 import { memo, useEffect, useRef, useState } from 'react';
-import { useToggleSetDone, useSetFailed, useSetRpe } from '../../hooks/useSetLogs';
+import { useToggleSetDone, useSetFailed, useSetRpe, useLogActual } from '../../hooks/useSetLogs';
 import { startRestTimer, clearRestTimer } from '../../hooks/useRestTimer';
-import { formatSetTarget } from '../../lib/volume';
+import { formatSetTarget, formatActual, hasLoggedActual } from '../../lib/volume';
 import RpeInput from './RpeInput';
 import VideoUploadButton from './VideoUploadButton';
+
+function parseIntOrNull(s) {
+  if (s == null || String(s).trim() === '') return null;
+  const n = parseInt(s, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseFloatOrNull(s) {
+  if (s == null || String(s).trim() === '') return null;
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : null;
+}
 
 // Touch-swipe thresholds for the mobile outcome gestures (right-to-left
 // commits the set as done, left-to-right marks it failed). Two checks gate
@@ -30,9 +42,18 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
   const toggleDone = useToggleSetDone();
   const setFailed = useSetFailed();
   const setRpe = useSetRpe();
+  const logActual = useLogActual();
   const restSeconds = log.target_rest_seconds ?? null;
 
   const [rpeOpen, setRpeOpen] = useState(false);
+  const [actualOpen, setActualOpen] = useState(false);
+  const [actualReps, setActualReps] = useState('');
+  const [actualWeight, setActualWeight] = useState('');
+
+  // "actual reps" only makes sense for rep-based work — a 30s plank has no
+  // rep count to deviate on, so we collect load only for duration sets.
+  const repsApplies = log.target_reps != null || log.target_duration_seconds == null;
+  const loggedActual = hasLoggedActual(log);
   const prevDone = useRef(log.done);
   const prevFailed = useRef(!!log.failed);
 
@@ -81,6 +102,42 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
     if (log.done) setFailed.mutate({ logId: log.id, failed: true });
     else if (failed) setFailed.mutate({ logId: log.id, failed: false });
     else toggleDone.mutate({ logId: log.id, done: true });
+  }
+
+  // Seed the inputs from the logged actual when present, else from the
+  // prescribed target, so the common "did it as written" case is one tap
+  // (open → Save) and the student only edits the dimension that differed.
+  function toggleActualOpen() {
+    if (locked) return;
+    setActualOpen((open) => {
+      const next = !open;
+      if (next) {
+        const repsSeed = log.actual_reps ?? log.target_reps;
+        const weightSeed = log.actual_weight_kg ?? log.target_weight_kg;
+        setActualReps(repsSeed != null ? String(repsSeed) : '');
+        setActualWeight(weightSeed != null ? String(Number(weightSeed)) : '');
+      }
+      return next;
+    });
+  }
+
+  function handleSaveActual() {
+    const repsVal = parseIntOrNull(actualReps);
+    const weightVal = parseFloatOrNull(actualWeight);
+    // Normalize a value that matches the prescription back to null so a stored
+    // actual_* always denotes a genuine deviation. The target_* columns are
+    // never written here — they stay the coach's source of truth.
+    const tgtReps = log.target_reps ?? null;
+    const tgtWeight = log.target_weight_kg == null ? null : Number(log.target_weight_kg);
+    const nextReps = repsApplies && repsVal != null && repsVal !== tgtReps ? repsVal : null;
+    const nextWeight = weightVal != null && weightVal !== tgtWeight ? weightVal : null;
+    logActual.mutate({ logId: log.id, actualReps: nextReps, actualWeightKg: nextWeight });
+    setActualOpen(false);
+  }
+
+  function handleClearActual() {
+    logActual.mutate({ logId: log.id, actualReps: null, actualWeightKg: null });
+    setActualOpen(false);
   }
 
   function handleTouchStart(e) {
@@ -230,6 +287,33 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
             />
           )}
 
+          {(loggedActual || !locked) && (
+            <button
+              type="button"
+              onClick={toggleActualOpen}
+              disabled={locked}
+              aria-expanded={actualOpen}
+              aria-label={
+                loggedActual
+                  ? `Logged actual ${formatActual(log)}, tap to edit`
+                  : 'Log what you actually did'
+              }
+              className={`sl-pill shrink-0 min-h-11 px-3.5 ${
+                loggedActual ? '' : 'bg-ink-100 text-ink-500'
+              } ${locked ? 'opacity-60 cursor-not-allowed' : 'hover:brightness-95'}`}
+              style={
+                loggedActual
+                  ? {
+                      background: 'color-mix(in srgb, var(--color-warn) 20%, transparent)',
+                      color: 'var(--color-ink-900)',
+                    }
+                  : undefined
+              }
+            >
+              {loggedActual ? formatActual(log) : 'Actual'}
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => !rpeLocked && setRpeOpen((v) => !v)}
@@ -263,6 +347,55 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
                 if (rpe != null) setRpeOpen(false);
               }}
             />
+          </div>
+        )}
+
+        {actualOpen && !locked && (
+          <div className="pt-2 flex items-center flex-wrap gap-2">
+            <span className="sl-label normal-case text-ink-400">Actually did</span>
+            {repsApplies && (
+              <label className="flex items-center gap-1.5 text-[13px] text-ink-500">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  value={actualReps}
+                  onChange={(e) => setActualReps(e.target.value)}
+                  aria-label="Actual reps performed"
+                  className="w-16 rounded-lg bg-ink-50 border border-ink-200 px-2 py-1.5 text-[16px] text-gray-900"
+                />
+                <span className="sl-label normal-case">reps</span>
+              </label>
+            )}
+            <label className="flex items-center gap-1.5 text-[13px] text-ink-500">
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.5"
+                value={actualWeight}
+                onChange={(e) => setActualWeight(e.target.value)}
+                aria-label="Actual weight in kilograms"
+                className="w-20 rounded-lg bg-ink-50 border border-ink-200 px-2 py-1.5 text-[16px] text-gray-900"
+              />
+              <span className="sl-label normal-case">kg</span>
+            </label>
+            <button
+              type="button"
+              onClick={handleSaveActual}
+              className="sl-pill shrink-0 min-h-11 px-4 bg-accent text-ink-900 hover:brightness-95"
+            >
+              Save
+            </button>
+            {loggedActual && (
+              <button
+                type="button"
+                onClick={handleClearActual}
+                className="sl-pill shrink-0 min-h-11 px-3 bg-ink-100 text-ink-500 hover:brightness-95"
+              >
+                Clear
+              </button>
+            )}
           </div>
         )}
       </div>

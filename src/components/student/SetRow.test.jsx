@@ -5,11 +5,13 @@ import userEvent from '@testing-library/user-event';
 const mockToggleDone = { mutate: vi.fn() };
 const mockSetFailed = { mutate: vi.fn() };
 const mockSetRpe = { mutate: vi.fn() };
+const mockLogActual = { mutate: vi.fn() };
 
 vi.mock('../../hooks/useSetLogs', () => ({
   useToggleSetDone: () => mockToggleDone,
   useSetFailed: () => mockSetFailed,
   useSetRpe: () => mockSetRpe,
+  useLogActual: () => mockLogActual,
 }));
 
 vi.mock('../../hooks/useRestTimer', async () => {
@@ -211,5 +213,83 @@ describe('SetRow', () => {
     expect(mockSetRpe.mutate).toHaveBeenCalledWith({ logId: 'log-1', rpe: 7 });
     // After selection the panel closes — the inner RpeInput grid is gone.
     expect(screen.queryByRole('button', { name: /^RPE 5$/i })).not.toBeInTheDocument();
+  });
+
+  describe('off-plan actual logging', () => {
+    const repLog = { ...baseLog, target_reps: 10, target_weight_kg: 80 };
+
+    it('opens the editor prefilled from the prescribed target', async () => {
+      const user = userEvent.setup();
+      renderSetRow(repLog);
+      await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
+      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue(10);
+      expect(screen.getByLabelText(/actual weight in kilograms/i)).toHaveValue(80);
+    });
+
+    it('stores only the dimension that differs; a value equal to target is nulled', async () => {
+      const user = userEvent.setup();
+      renderSetRow(repLog);
+      await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
+      // Drop reps to 8, leave weight at the prescribed 80.
+      const reps = screen.getByLabelText(/actual reps performed/i);
+      await user.clear(reps);
+      await user.type(reps, '8');
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(mockLogActual.mutate).toHaveBeenCalledWith({
+        logId: 'log-1',
+        actualReps: 8,
+        actualWeightKg: null,
+      });
+    });
+
+    it('stores an added load against a bodyweight prescription', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...baseLog, target_reps: 12, target_weight_kg: null });
+      await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
+      const weight = screen.getByLabelText(/actual weight in kilograms/i);
+      await user.type(weight, '20');
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      expect(mockLogActual.mutate).toHaveBeenCalledWith({
+        logId: 'log-1',
+        actualReps: null,
+        actualWeightKg: 20,
+      });
+    });
+
+    it('shows the logged actual on the pill and clears it on demand', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...repLog, actual_reps: 8, actual_weight_kg: 100 });
+      // Pill summarizes the deviation.
+      const pill = screen.getByRole('button', { name: /logged actual 8 @ 100kg/i });
+      expect(pill).toHaveTextContent('8 @ 100kg');
+      await user.click(pill);
+      await user.click(screen.getByRole('button', { name: /^clear$/i }));
+      expect(mockLogActual.mutate).toHaveBeenCalledWith({
+        logId: 'log-1',
+        actualReps: null,
+        actualWeightKg: null,
+      });
+    });
+
+    it('hides the reps input for duration-based sets', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...baseLog, target_reps: null, target_duration_seconds: 30 });
+      await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
+      expect(screen.queryByLabelText(/actual reps performed/i)).not.toBeInTheDocument();
+      expect(screen.getByLabelText(/actual weight in kilograms/i)).toBeInTheDocument();
+    });
+
+    it('shows a read-only actual pill but no editor when locked', () => {
+      renderSetRow({ ...repLog, actual_reps: 8, actual_weight_kg: 100 }, { locked: true });
+      const pill = screen.getByRole('button', { name: /logged actual/i });
+      expect(pill).toBeDisabled();
+      // No editor entry point when there's nothing logged + locked.
+      expect(screen.queryByLabelText(/actual reps performed/i)).not.toBeInTheDocument();
+    });
+
+    it('offers no actual affordance on a locked set with nothing logged', () => {
+      renderSetRow(repLog, { locked: true });
+      expect(screen.queryByRole('button', { name: /log what you actually did/i })).not.toBeInTheDocument();
+    });
   });
 });
