@@ -8,6 +8,7 @@ import {
   MUTATION_KEYS,
   patchForDone,
   patchForFailed,
+  patchForSkipped,
   registerOfflineMutationDefaults,
 } from './offlineMutations';
 
@@ -51,6 +52,22 @@ describe('patch helpers', () => {
     expect(p.done).toBe(false);
     expect(p.logged_at).toBeNull();
     expect(p.rpe).toBeNull();
+  });
+
+  it('patchForSkipped(true) clears done/failed/rpe/actuals so skipped is a clean state', () => {
+    const p = patchForSkipped(true);
+    expect(p.skipped).toBe(true);
+    expect(p.done).toBe(false);
+    expect(p.failed).toBe(false);
+    expect(p.rpe).toBeNull();
+    expect(p.actual_reps).toBeNull();
+    expect(p.actual_weight_kg).toBeNull();
+  });
+
+  it('patchForSkipped(false) only drops the flag', () => {
+    const p = patchForSkipped(false);
+    expect(p.skipped).toBe(false);
+    expect('done' in p).toBe(false);
   });
 });
 

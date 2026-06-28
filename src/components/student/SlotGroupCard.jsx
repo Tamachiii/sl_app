@@ -1,5 +1,8 @@
 import SetRow from './SetRow';
 import SlotCommentBox from './SlotCommentBox';
+import SlotDeviationBar from './SlotDeviationBar';
+import { useAddStudentSet } from '../../hooks/useSetLogs';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import {
   formatRestSeconds,
   isSlotUniform,
@@ -11,6 +14,8 @@ function SlotBody({
   slot,
   slotLogs,
   slotComments,
+  slotDeviations,
+  exerciseLibrary,
   sessionId,
   isConfirmed,
   isReadOnly,
@@ -22,6 +27,16 @@ function SlotBody({
   // on read-only — students can still add notes to a confirmed-but-not-yet-
   // archived session.
   const setsLocked = isConfirmed || isReadOnly;
+  const deviation = (slotDeviations || []).find((d) => d.exercise_slot_id === slot.id) || null;
+  const isExerciseSkipped = deviation?.kind === 'skip';
+  const online = useOnlineStatus();
+  const addSet = useAddStudentSet();
+
+  function handleAddSet() {
+    const maxNum = slotLogs.reduce((m, l) => Math.max(m, l.set_number), 0);
+    addSet.mutate({ slotId: slot.id, setNumber: maxNum + 1 });
+  }
+
   return (
     <div className="space-y-3">
       {slot.notes && (
@@ -36,17 +51,45 @@ function SlotBody({
           <p className="text-[13px] leading-snug text-gray-800 whitespace-pre-wrap">{slot.notes}</p>
         </div>
       )}
-      <div className="space-y-1.5">
-        {slotLogs.map((log) => (
-          <SetRow
-            key={log.id}
-            log={log}
-            locked={setsLocked}
-            recordVideo={(slot.record_video_set_numbers || []).includes(log.set_number)}
-            video={getVideoForLog ? getVideoForLog(log.id) : null}
-          />
-        ))}
-      </div>
+
+      <SlotDeviationBar
+        sessionId={sessionId}
+        slot={slot}
+        deviation={deviation}
+        exerciseLibrary={exerciseLibrary}
+        locked={setsLocked}
+      />
+
+      {!isExerciseSkipped && (
+        <>
+          <div className="space-y-1.5">
+            {slotLogs.map((log) => (
+              <SetRow
+                key={log.id}
+                log={log}
+                locked={setsLocked}
+                recordVideo={(slot.record_video_set_numbers || []).includes(log.set_number)}
+                video={getVideoForLog ? getVideoForLog(log.id) : null}
+              />
+            ))}
+          </div>
+          {!setsLocked && (
+            online ? (
+              <button
+                type="button"
+                onClick={handleAddSet}
+                disabled={addSet.isPending}
+                className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3 disabled:opacity-50"
+              >
+                + Add set
+              </button>
+            ) : (
+              <p className="sl-mono text-[11px] text-ink-400">Connect to add a set.</p>
+            )
+          )}
+        </>
+      )}
+
       {showCommentBox && (
         <SlotCommentBox
           sessionId={sessionId}
@@ -136,6 +179,8 @@ export default function SlotGroupCard({
   onToggle,
   getLogsForSlot,
   slotComments,
+  slotDeviations,
+  exerciseLibrary,
   sessionId,
   isConfirmed,
   isReadOnly,
@@ -187,6 +232,8 @@ export default function SlotGroupCard({
                 slot={slot}
                 slotLogs={slotLogs}
                 slotComments={slotComments}
+                slotDeviations={slotDeviations}
+                exerciseLibrary={exerciseLibrary}
                 sessionId={sessionId}
                 isConfirmed={isConfirmed}
                 isReadOnly={isReadOnly}
@@ -237,6 +284,8 @@ export default function SlotGroupCard({
             slot={slot}
             slotLogs={slotLogs}
             slotComments={slotComments}
+            slotDeviations={slotDeviations}
+            exerciseLibrary={exerciseLibrary}
             sessionId={sessionId}
             isConfirmed={isConfirmed}
             isReadOnly={isReadOnly}

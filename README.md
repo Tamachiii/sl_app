@@ -117,6 +117,8 @@ Each coach has their own exercise library; each student can have many **programs
 
 When a student can't follow a set as written, they log what they **actually** did via `set_logs.actual_reps` / `actual_weight_kg` — an "Actual" control on each set, prefilled from the target. Anything left equal to the prescription is stored as `null`, so a populated `actual_*` always marks a real deviation; the coach sees these in an "Off-plan" band on the session review. The coach-owned `target_*` columns stay immutable to students at the DB level via the `pin_set_log_targets_for_student` trigger.
 
+Students can also take a session off-script structurally without touching the coach's plan: **swap** an exercise for another from the coach's library or **skip** it entirely (the `slot_deviations` table, one row per slot), **skip** a prescribed set or **add** an extra one (`set_logs.skipped` / `is_student_added`). The coach is notified the first time a slot goes off-script (`notify_coach_on_slot_deviation` → in-app bell + Web Push) and sees the swap/skip and any skipped/extra sets on the session review. Substitutes are library-only (no free-text) so volume/progress stats stay intact.
+
 Deep architectural details — RLS helpers, React Query invalidation, routing/persistence, set-video storage, calendar history overlay — live in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
@@ -157,7 +159,7 @@ Quick summary:
 
 ## Offline Support (Student Session Logging)
 
-Students can fully record their sessions without a connection — RPE, set validation (done/failed), off-plan actuals (actual reps/load), session confirm/unconfirm, and slot comments all work offline and replay automatically when the device reconnects.
+Students can fully record their sessions without a connection — RPE, set validation (done/failed), off-plan actuals (actual reps/load), set skips, exercise swap/skip, session confirm/unconfirm, and slot comments all work offline and replay automatically when the device reconnects. (Adding a brand-new extra set is the one online-only action — a new-row INSERT can't be safely queued offline.)
 
 How it works:
 

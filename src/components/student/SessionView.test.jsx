@@ -22,6 +22,22 @@ vi.mock('../../hooks/useSetLogs', () => ({
   useSetFailed: () => ({ mutate: vi.fn() }),
   useSetRpe: () => ({ mutate: vi.fn() }),
   useLogActual: () => ({ mutate: vi.fn() }),
+  useSetSkipped: () => ({ mutate: vi.fn() }),
+  useAddStudentSet: () => ({ mutate: vi.fn(), isPending: false }),
+  useRemoveStudentSet: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+vi.mock('../../hooks/useSlotDeviations', () => ({
+  useSlotDeviations: () => ({ data: [], isLoading: false }),
+  useSaveSlotDeviation: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+vi.mock('../../hooks/useExerciseLibrary', () => ({
+  useExerciseLibrary: () => ({ data: [], isLoading: false }),
+}));
+
+vi.mock('../../hooks/useOnlineStatus', () => ({
+  useOnlineStatus: () => true,
 }));
 
 let mockConfirmation = { data: null, isLoading: false };

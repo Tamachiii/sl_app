@@ -29,6 +29,12 @@ vi.mock('../../hooks/useSetLogs', () => ({
 vi.mock('../../hooks/useSlotComments', () => ({
   useSlotComments: () => ({ data: [], isLoading: false }),
 }));
+vi.mock('../../hooks/useSlotDeviations', () => ({
+  useSlotDeviations: () => ({ data: [], isLoading: false }),
+}));
+vi.mock('../../hooks/useExerciseLibrary', () => ({
+  useExerciseLibrary: () => ({ data: [], isLoading: false }),
+}));
 vi.mock('../../hooks/useSetVideo', () => ({
   useSetVideos: () => ({ data: [], isLoading: false }),
   useSetVideoSignedUrl: () => ({ data: null, isLoading: false }),

@@ -273,6 +273,7 @@ const en = {
     empty: 'No notifications yet.',
     sessionCompleted: '{student} completed {session}.',
     sessionFeedback: '{coach} left feedback on {session}.',
+    sessionDeviation: '{student} went off-plan on {session}.',
     unknown: 'New activity ({kind}).',
   },
   messaging: {

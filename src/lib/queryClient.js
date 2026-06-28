@@ -11,6 +11,7 @@ const PERSISTED_QUERY_ROOTS = new Set([
   'session',
   'set-logs',
   'slot-comments',
+  'slot-deviations',
   'session-confirmation',
   'set-videos',
 ]);

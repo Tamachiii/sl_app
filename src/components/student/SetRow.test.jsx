@@ -6,12 +6,20 @@ const mockToggleDone = { mutate: vi.fn() };
 const mockSetFailed = { mutate: vi.fn() };
 const mockSetRpe = { mutate: vi.fn() };
 const mockLogActual = { mutate: vi.fn() };
+const mockSetSkipped = { mutate: vi.fn() };
+const mockRemoveStudentSet = { mutate: vi.fn(), isPending: false };
 
 vi.mock('../../hooks/useSetLogs', () => ({
   useToggleSetDone: () => mockToggleDone,
   useSetFailed: () => mockSetFailed,
   useSetRpe: () => mockSetRpe,
   useLogActual: () => mockLogActual,
+  useSetSkipped: () => mockSetSkipped,
+  useRemoveStudentSet: () => mockRemoveStudentSet,
+}));
+
+vi.mock('../../hooks/useOnlineStatus', () => ({
+  useOnlineStatus: () => true,
 }));
 
 vi.mock('../../hooks/useRestTimer', async () => {
@@ -290,6 +298,47 @@ describe('SetRow', () => {
     it('offers no actual affordance on a locked set with nothing logged', () => {
       renderSetRow(repLog, { locked: true });
       expect(screen.queryByRole('button', { name: /log what you actually did/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('skip + extra sets', () => {
+    const repLog = { ...baseLog, target_reps: 10, target_weight_kg: 80 };
+
+    it('renders a skipped set as a muted strip with the target struck through', () => {
+      renderSetRow({ ...repLog, skipped: true });
+      expect(screen.getByText('Skipped')).toBeInTheDocument();
+      // No outcome indicator on a skipped row.
+      expect(screen.queryByRole('button', { name: /mark set done/i })).not.toBeInTheDocument();
+    });
+
+    it('unskips a skipped set via Undo', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...repLog, skipped: true });
+      await user.click(screen.getByRole('button', { name: /^undo$/i }));
+      expect(mockSetSkipped.mutate).toHaveBeenCalledWith({ logId: 'log-1', skipped: false });
+    });
+
+    it('skips a set from the off-plan panel', async () => {
+      const user = userEvent.setup();
+      renderSetRow(repLog);
+      await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
+      await user.click(screen.getByRole('button', { name: /^skip set$/i }));
+      expect(mockSetSkipped.mutate).toHaveBeenCalledWith({ logId: 'log-1', skipped: true });
+    });
+
+    it('labels a student-added set "Extra set" and removes it on demand', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...baseLog, is_student_added: true });
+      expect(screen.getByText('Extra set')).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: /remove extra set/i }));
+      expect(mockRemoveStudentSet.mutate).toHaveBeenCalledWith({ logId: 'log-1' });
+    });
+
+    it('does not offer "Skip set" on an extra set (it is removed instead)', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...baseLog, is_student_added: true });
+      await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
+      expect(screen.queryByRole('button', { name: /^skip set$/i })).not.toBeInTheDocument();
     });
   });
 });

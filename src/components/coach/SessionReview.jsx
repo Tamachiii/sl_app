@@ -9,6 +9,8 @@ import VideoThumbCard from '../ui/VideoThumbCard';
 import { useSession } from '../../hooks/useSession';
 import { useSetLogs } from '../../hooks/useSetLogs';
 import { useSlotComments } from '../../hooks/useSlotComments';
+import { useSlotDeviations } from '../../hooks/useSlotDeviations';
+import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
 import { useSetVideos } from '../../hooks/useSetVideo';
 import { useArchiveSession } from '../../hooks/useWeek';
 import { useSessionConfirmation } from '../../hooks/useSessionConfirmation';
@@ -73,6 +75,8 @@ export default function SessionReview() {
   const slots = session?.exercise_slots || [];
   const { data: setLogs } = useSetLogs(sessionId, slots);
   const { data: slotComments } = useSlotComments(sessionId, slots);
+  const { data: slotDeviations } = useSlotDeviations(sessionId, slots);
+  const { data: exerciseLibrary } = useExerciseLibrary();
   const slotIds = useMemo(() => slots.map((s) => s.id), [slots]);
   const { data: videos } = useSetVideos(sessionId, slotIds);
   const videosBySlot = useMemo(() => {
@@ -189,6 +193,10 @@ export default function SessionReview() {
               .slice()
               .sort((a, b) => a.set_number - b.set_number);
             const comment = (slotComments || []).find((x) => x.exercise_slot_id === slot.id);
+            const deviation = (slotDeviations || []).find((d) => d.exercise_slot_id === slot.id);
+            const substituteName = deviation?.substitute_exercise_id
+              ? (exerciseLibrary || []).find((e) => e.id === deviation.substitute_exercise_id)?.name || 'another exercise'
+              : null;
             const composed = { ...slot, set_logs: slotLogs };
             const uniform = isSlotUniform(composed);
             const summary = summarizeSlotPrescription(composed);
@@ -206,6 +214,23 @@ export default function SessionReview() {
                   </span>
                   <span className="sl-mono text-[10px] text-ink-400">D{ex.difficulty}</span>
                 </div>
+                {deviation && (
+                  <div
+                    className="rounded-lg px-2.5 py-1.5 text-[12px]"
+                    style={{
+                      background: 'color-mix(in srgb, var(--color-warn) 12%, transparent)',
+                      border: '1px solid color-mix(in srgb, var(--color-warn) 35%, transparent)',
+                      color: 'var(--color-ink-900)',
+                    }}
+                  >
+                    <span className="sl-label mr-1">
+                      {deviation.kind === 'swap' ? 'Swapped' : 'Skipped'}
+                    </span>
+                    {deviation.kind === 'swap'
+                      ? <>did <span className="font-semibold">{substituteName}</span> instead</>
+                      : 'student skipped this exercise'}
+                  </div>
+                )}
                 <div className="sl-mono text-[11px] text-ink-400">
                   <p>
                     PLANNED: {summary || `${slot.sets} sets`}

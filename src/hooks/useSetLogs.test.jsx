@@ -8,6 +8,9 @@ import {
   useSetFailed,
   useSetRpe,
   useLogActual,
+  useSetSkipped,
+  useAddStudentSet,
+  useRemoveStudentSet,
 } from './useSetLogs';
 import { supabase } from '../lib/supabase';
 
@@ -434,5 +437,104 @@ describe('useLogActual', () => {
     const restored = qc.getQueryData(['set-logs', 'sess-1', ['sl-1']]).find((l) => l.id === 'l-1');
     expect(restored.actual_reps).toBeNull();
     expect(restored.actual_weight_kg).toBeNull();
+  });
+});
+
+describe('useSetSkipped', () => {
+  it('writes skipped=true and clears done/failed/rpe/actuals in one patch', async () => {
+    const chain = {
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: { id: 'l-1', skipped: true }, error: null }),
+    };
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useSetSkipped(), { wrapper: withClient(qc) });
+    result.current.mutate({ logId: 'l-1', skipped: true });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const payload = chain.update.mock.calls[0][0];
+    expect(payload.skipped).toBe(true);
+    expect(payload.done).toBe(false);
+    expect(payload.failed).toBe(false);
+    expect(payload.rpe).toBeNull();
+    expect(payload.actual_reps).toBeNull();
+  });
+
+  it('optimistically marks the set skipped across matching caches', async () => {
+    let resolveUpdate;
+    const chain = {
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn(() => new Promise((res) => { resolveUpdate = res; })),
+    };
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    qc.setQueryData(['set-logs', 'sess-1', ['sl-1']], [
+      { id: 'l-1', done: true, skipped: false, rpe: 7 },
+    ]);
+
+    const { result } = renderHook(() => useSetSkipped(), { wrapper: withClient(qc) });
+    act(() => result.current.mutate({ logId: 'l-1', skipped: true }));
+
+    await waitFor(() => {
+      const log = qc.getQueryData(['set-logs', 'sess-1', ['sl-1']]).find((l) => l.id === 'l-1');
+      expect(log.skipped).toBe(true);
+      expect(log.done).toBe(false);
+      expect(log.rpe).toBeNull();
+    });
+
+    act(() => resolveUpdate({ data: { id: 'l-1' }, error: null }));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  });
+});
+
+describe('useAddStudentSet', () => {
+  it('inserts an is_student_added row at the supplied set_number', async () => {
+    const chain = {
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: { id: 'l-new' }, error: null }),
+    };
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useAddStudentSet(), { wrapper: withClient(qc) });
+    result.current.mutate({ slotId: 'sl-1', setNumber: 4 });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const payload = chain.insert.mock.calls[0][0];
+    expect(payload).toMatchObject({
+      exercise_slot_id: 'sl-1',
+      set_number: 4,
+      is_student_added: true,
+      done: false,
+      failed: false,
+    });
+  });
+});
+
+describe('useRemoveStudentSet', () => {
+  it('deletes only the student-added row by id', async () => {
+    // The query builder is thenable; delete().eq().eq() resolves to {error}.
+    const chain = {
+      delete: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      then: (resolve) => resolve({ error: null }),
+    };
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useRemoveStudentSet(), { wrapper: withClient(qc) });
+    result.current.mutate({ logId: 'l-extra' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(chain.delete).toHaveBeenCalled();
+    expect(chain.eq).toHaveBeenCalledWith('id', 'l-extra');
+    expect(chain.eq).toHaveBeenCalledWith('is_student_added', true);
   });
 });

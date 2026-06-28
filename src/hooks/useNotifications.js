@@ -162,6 +162,21 @@ export function describeNotification(notif) {
         path,
       };
     }
+    case 'session_deviation': {
+      // Coach-side: deep-link to the session review, where the Off-plan band
+      // shows what the student changed.
+      const path = p.student_row_id && p.session_id
+        ? `/coach/student/${p.student_row_id}/session/${p.session_id}/review`
+        : null;
+      return {
+        i18nKey: 'notifications.sessionDeviation',
+        params: {
+          student: p.student_name || '—',
+          session: p.session_title || '—',
+        },
+        path,
+      };
+    }
     default:
       return {
         i18nKey: 'notifications.unknown',

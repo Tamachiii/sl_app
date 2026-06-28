@@ -5,6 +5,7 @@ import {
   MUTATION_FNS,
   patchForDone,
   patchForFailed,
+  patchForSkipped,
 } from '../lib/offlineMutations';
 
 export function useSetLogs(sessionId, slots) {
@@ -157,6 +158,80 @@ export function useLogActual() {
       context?.previousQueries?.forEach(([queryKey, oldData]) => {
         qc.setQueryData(queryKey, oldData);
       });
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['set-logs'] }),
+  });
+}
+
+// Marks a prescribed set as intentionally skipped (or un-skips it). Offline-
+// safe UPDATE; clears any done/failed/rpe/actual on the same patch to satisfy
+// the DB CHECK that a skipped set isn't also resolved.
+export function useSetSkipped() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationKey: MUTATION_KEYS.setSkipped,
+    mutationFn: MUTATION_FNS.setSkipped,
+    onMutate: async ({ logId, skipped }) => {
+      await qc.cancelQueries({ queryKey: ['set-logs'] });
+      const previousQueries = qc.getQueriesData({ queryKey: ['set-logs'] });
+      const patch = patchForSkipped(skipped);
+      qc.setQueriesData({ queryKey: ['set-logs'] }, (old) => {
+        if (!old) return old;
+        return old.map((log) => (log.id === logId ? { ...log, ...patch } : log));
+      });
+      return { previousQueries };
+    },
+    onError: (_err, _vars, context) => {
+      context?.previousQueries?.forEach(([queryKey, oldData]) => {
+        qc.setQueryData(queryKey, oldData);
+      });
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['set-logs'] }),
+  });
+}
+
+// Appends an extra set the student did beyond the prescription (NULL targets,
+// is_student_added=true). ONLINE-ONLY: a brand-new-row INSERT can't be safely
+// queued offline (the offline lane only UPDATE/UPSERT/DELETEs existing rows,
+// and two offline adds would collide on UNIQUE(exercise_slot_id, set_number)).
+// The UI gates the affordance on connectivity, mirroring VideoUploadButton.
+export function useAddStudentSet() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ slotId, setNumber }) => {
+      const { data, error } = await supabase
+        .from('set_logs')
+        .insert({
+          exercise_slot_id: slotId,
+          set_number: setNumber,
+          is_student_added: true,
+          done: false,
+          failed: false,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['set-logs'] }),
+  });
+}
+
+// Removes a student-added extra set. Online-only for symmetry with the add.
+export function useRemoveStudentSet() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ logId }) => {
+      const { error } = await supabase
+        .from('set_logs')
+        .delete()
+        .eq('id', logId)
+        .eq('is_student_added', true);
+      if (error) throw error;
+      return { logId };
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ['set-logs'] }),
   });

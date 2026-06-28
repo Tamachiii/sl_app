@@ -3,6 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useSession } from '../../hooks/useSession';
 import { useSetLogs, useEnsureSetLogs } from '../../hooks/useSetLogs';
 import { useSlotComments } from '../../hooks/useSlotComments';
+import { useSlotDeviations } from '../../hooks/useSlotDeviations';
+import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
 import { useSetVideos } from '../../hooks/useSetVideo';
 import {
   useSessionConfirmation,
@@ -55,6 +57,8 @@ export default function SessionView() {
   const slots = session?.exercise_slots || [];
   const { data: logs, isLoading: logsLoading } = useSetLogs(sessionId, slots);
   const { data: slotComments } = useSlotComments(sessionId, slots);
+  const { data: slotDeviations } = useSlotDeviations(sessionId, slots);
+  const { data: exerciseLibrary } = useExerciseLibrary();
   const slotIds = useMemo(() => slots.map((s) => s.id), [slots]);
   const { data: videos } = useSetVideos(sessionId, slotIds);
   const videosByLogId = useMemo(() => {
@@ -272,6 +276,8 @@ export default function SessionView() {
           onToggle={() => toggleGroup(group, groupIdx)}
           getLogsForSlot={getLogsForSlot}
           slotComments={slotComments}
+          slotDeviations={slotDeviations}
+          exerciseLibrary={exerciseLibrary}
           sessionId={sessionId}
           isConfirmed={isConfirmed}
           isReadOnly={isReadOnly}

@@ -1,5 +1,13 @@
 import { memo, useEffect, useRef, useState } from 'react';
-import { useToggleSetDone, useSetFailed, useSetRpe, useLogActual } from '../../hooks/useSetLogs';
+import {
+  useToggleSetDone,
+  useSetFailed,
+  useSetRpe,
+  useLogActual,
+  useSetSkipped,
+  useRemoveStudentSet,
+} from '../../hooks/useSetLogs';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { startRestTimer, clearRestTimer } from '../../hooks/useRestTimer';
 import { formatSetTarget, formatActual, hasLoggedActual } from '../../lib/volume';
 import RpeInput from './RpeInput';
@@ -43,6 +51,9 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
   const setFailed = useSetFailed();
   const setRpe = useSetRpe();
   const logActual = useLogActual();
+  const setSkipped = useSetSkipped();
+  const removeStudentSet = useRemoveStudentSet();
+  const online = useOnlineStatus();
   const restSeconds = log.target_rest_seconds ?? null;
 
   const [rpeOpen, setRpeOpen] = useState(false);
@@ -54,6 +65,7 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
   // rep count to deviate on, so we collect load only for duration sets.
   const repsApplies = log.target_reps != null || log.target_duration_seconds == null;
   const loggedActual = hasLoggedActual(log);
+  const isExtra = !!log.is_student_added;
   const prevDone = useRef(log.done);
   const prevFailed = useRef(!!log.failed);
 
@@ -140,6 +152,19 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
     setActualOpen(false);
   }
 
+  function handleSkip() {
+    setSkipped.mutate({ logId: log.id, skipped: true });
+    setActualOpen(false);
+  }
+
+  function handleUnskip() {
+    setSkipped.mutate({ logId: log.id, skipped: false });
+  }
+
+  function handleRemoveExtra() {
+    removeStudentSet.mutate({ logId: log.id });
+  }
+
   function handleTouchStart(e) {
     if (locked) return;
     const t = e.touches[0];
@@ -189,6 +214,30 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
   function handleTouchCancel() {
     swipe.current = { active: false, startX: 0, startY: 0, dx: 0, dy: 0, captured: false };
     setSwipeOffset(0);
+  }
+
+  // Skipped sets render as a muted strip with the prescription struck through
+  // and an Undo. No outcome/RPE/actual controls — a skipped set has no result.
+  if (log.skipped) {
+    return (
+      <div className="rounded-xl bg-ink-50 px-3 py-2 flex items-center gap-3 opacity-75">
+        <span className="w-11 h-9 rounded-lg bg-ink-100 text-ink-400 flex items-center justify-center shrink-0 sl-display text-[15px]">
+          —
+        </span>
+        <span className="sl-label normal-case text-ink-400 line-through">{formatSetTarget(log)}</span>
+        <span className="sl-pill bg-ink-100 text-ink-500">Skipped</span>
+        <div className="flex-1" />
+        {!locked && (
+          <button
+            type="button"
+            onClick={handleUnskip}
+            className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3"
+          >
+            Undo
+          </button>
+        )}
+      </div>
+    );
   }
 
   let rowBg;
@@ -273,9 +322,23 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
             {indicatorContent}
           </button>
 
-          <span className="sl-label normal-case text-ink-500">{formatSetTarget(log)}</span>
+          <span className="sl-label normal-case text-ink-500">
+            {isExtra ? 'Extra set' : formatSetTarget(log)}
+          </span>
 
           <div className="flex-1" />
+
+          {isExtra && !locked && online && (
+            <button
+              type="button"
+              onClick={handleRemoveExtra}
+              disabled={removeStudentSet.isPending}
+              aria-label="Remove extra set"
+              className="sl-pill bg-ink-100 text-ink-500 hover:bg-ink-200 px-2.5 shrink-0 disabled:opacity-50"
+            >
+              ✕
+            </button>
+          )}
 
           {recordVideo && (
             <VideoUploadButton
@@ -394,6 +457,15 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
                 className="sl-pill shrink-0 min-h-11 px-3 bg-ink-100 text-ink-500 hover:brightness-95"
               >
                 Clear
+              </button>
+            )}
+            {!isExtra && (
+              <button
+                type="button"
+                onClick={handleSkip}
+                className="sl-pill shrink-0 min-h-11 px-3 bg-ink-100 text-ink-500 hover:brightness-95"
+              >
+                Skip set
               </button>
             )}
           </div>

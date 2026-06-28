@@ -273,6 +273,7 @@ const de = {
     empty: 'Keine Benachrichtigungen.',
     sessionCompleted: '{student} hat {session} abgeschlossen.',
     sessionFeedback: '{coach} hat Feedback zu {session} hinterlassen.',
+    sessionDeviation: '{student} ist bei {session} vom Plan abgewichen.',
     unknown: 'Neue Aktivität ({kind}).',
   },
   messaging: {

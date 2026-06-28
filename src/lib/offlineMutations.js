@@ -19,9 +19,11 @@ export const MUTATION_KEYS = {
   setFailed: ['set-log', 'set-failed'],
   setRpe: ['set-log', 'set-rpe'],
   logActual: ['set-log', 'log-actual'],
+  setSkipped: ['set-log', 'set-skipped'],
   confirmSession: ['session-confirmation', 'confirm'],
   unconfirmSession: ['session-confirmation', 'unconfirm'],
   saveSlotComment: ['slot-comment', 'save'],
+  saveSlotDeviation: ['slot-deviation', 'save'],
 };
 
 export function patchForDone(done) {
@@ -37,6 +39,24 @@ export function patchForFailed(failed) {
   return failed
     ? { failed: true, done: false, failed_at: new Date().toISOString(), logged_at: null, rpe: null }
     : { failed: false, failed_at: null };
+}
+
+export function patchForSkipped(skipped) {
+  // A skipped set is neither done nor failed (DB CHECK set_logs_skipped_not_
+  // _resolved). Clear every outcome + actual so the row reads as a clean skip;
+  // un-skipping just drops the flag and returns the set to pending.
+  return skipped
+    ? {
+        skipped: true,
+        done: false,
+        failed: false,
+        rpe: null,
+        logged_at: null,
+        failed_at: null,
+        actual_reps: null,
+        actual_weight_kg: null,
+      }
+    : { skipped: false };
 }
 
 async function toggleDoneFn({ logId, done }) {
@@ -86,6 +106,49 @@ async function logActualFn({ logId, actualReps, actualWeightKg }) {
       actual_weight_kg: actualWeightKg ?? null,
     })
     .eq('id', logId)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function setSkippedFn({ logId, skipped }) {
+  const { data, error } = await supabase
+    .from('set_logs')
+    .update(patchForSkipped(skipped))
+    .eq('id', logId)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// Upsert the student's swap/skip deviation for a slot. Passing kind=null (or a
+// falsy kind) clears the deviation so the slot reverts to the prescription —
+// mirrors saveSlotComment's empty-body delete. Upsert on the UNIQUE
+// exercise_slot_id keeps offline replay idempotent.
+async function saveSlotDeviationFn({ slotId, studentId, kind, substituteExerciseId, note }) {
+  if (!kind) {
+    const { error } = await supabase
+      .from('slot_deviations')
+      .delete()
+      .eq('exercise_slot_id', slotId);
+    if (error) throw error;
+    return { slotId, deleted: true };
+  }
+  const { data, error } = await supabase
+    .from('slot_deviations')
+    .upsert(
+      {
+        exercise_slot_id: slotId,
+        student_id: studentId,
+        kind,
+        substitute_exercise_id: kind === 'swap' ? (substituteExerciseId ?? null) : null,
+        note: note ?? null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'exercise_slot_id' }
+    )
     .select()
     .single();
   if (error) throw error;
@@ -148,9 +211,11 @@ export const MUTATION_FNS = {
   setFailed: setFailedFn,
   setRpe: setRpeFn,
   logActual: logActualFn,
+  setSkipped: setSkippedFn,
   confirmSession: confirmSessionFn,
   unconfirmSession: unconfirmSessionFn,
   saveSlotComment: saveSlotCommentFn,
+  saveSlotDeviation: saveSlotDeviationFn,
 };
 
 /**

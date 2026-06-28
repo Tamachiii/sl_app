@@ -273,6 +273,7 @@ const fr = {
     empty: 'Aucune notification.',
     sessionCompleted: '{student} a terminé {session}.',
     sessionFeedback: '{coach} a laissé un retour sur {session}.',
+    sessionDeviation: '{student} a modifié le programme sur {session}.',
     unknown: 'Nouvelle activité ({kind}).',
   },
   messaging: {
