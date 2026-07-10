@@ -237,7 +237,7 @@ supabase db query --linked \
 - Tests live alongside components as `*.test.jsx` / `*.test.js`.
 - `src/test/utils.jsx` exports `renderWithProviders(ui, { auth, route, queryClient })` which wraps with `ThemeProvider` + `QueryClientProvider` + `AuthContext` + `MemoryRouter`.
 - Mocks: child hooks are stubbed with `vi.mock('../../hooks/useX', () => ({ ... }))` per file.
-- 573 tests across 66 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations.
+- 576 tests across 66 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations.
 
 Run:
 ```bash
