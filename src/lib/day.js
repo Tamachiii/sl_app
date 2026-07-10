@@ -15,9 +15,37 @@ export function todayDayNumber() {
 // Weekday slot for a session. Prefer scheduled_date (actual calendar day) over day_number.
 export function sessionDayNumber(s) {
   if (s?.scheduled_date) {
-    const [y, m, d] = s.scheduled_date.split('-').map(Number);
-    const jsDay = new Date(y, m - 1, d).getDay();
-    return jsDay === 0 ? 7 : jsDay;
+    const d = parseISODate(s.scheduled_date);
+    if (d) {
+      const jsDay = d.getDay();
+      return jsDay === 0 ? 7 : jsDay;
+    }
   }
   return s?.day_number;
+}
+
+// ─── Calendar helpers ───────────────────────────────────────────────────────
+// scheduled_date is a bare YYYY-MM-DD calendar date: parse/format it in local
+// time (never via Date.parse / toISOString, which shift across timezones).
+
+export function parseISODate(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
+  if (!m) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+export function isoDate(date) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+export function addDays(date, n) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + n);
+}
+
+// Monday of the calendar week containing `date` (weeks run Mon → Sun).
+export function startOfWeekMonday(date) {
+  const jsDay = date.getDay();
+  return addDays(date, jsDay === 0 ? -6 : 1 - jsDay);
 }

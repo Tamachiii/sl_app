@@ -57,6 +57,9 @@ const fr = {
       todayPending: 'Tu as une séance à finir aujourd\u2019hui.',
       rest: 'Repos',
       hey: 'Salut',
+      prevWeek: 'Semaine précédente',
+      nextWeek: 'Semaine suivante',
+      backToToday: 'Aujourd’hui',
     },
     sessions: {
       kicker: 'Programme',

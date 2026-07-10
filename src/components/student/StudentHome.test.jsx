@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -185,5 +185,212 @@ describe('StudentHome', () => {
     // The Wednesday cell links to sess-2 (day_number 3). Its aria-label exposes the title.
     await user.click(screen.getByLabelText(/Pull Day/));
     expect(mockNavigate).toHaveBeenCalledWith('/student/session/sess-2');
+  });
+
+  describe('calendar week placement & navigation', () => {
+    beforeEach(() => {
+      // Freeze "today" at Thursday 2026-07-09 (current week: Mon 06 – Sun 12).
+      // Only Date is faked so userEvent's real timers keep working.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date(2026, 6, 9, 12, 0, 0));
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const datedWeeks = [
+      {
+        id: 'w-1',
+        week_number: 1,
+        label: 'Intro',
+        sessions: [
+          {
+            id: 'sess-mon',
+            title: 'Future Push',
+            day_number: 1,
+            sort_order: 0,
+            archived_at: null,
+            // "Week 1" session the coach dated on NEXT calendar week's Monday.
+            scheduled_date: '2026-07-13',
+          },
+          {
+            id: 'sess-fri',
+            title: 'Leg Day',
+            day_number: 1, // deliberately wrong weekday — the date must win
+            sort_order: 1,
+            archived_at: null,
+            scheduled_date: '2026-07-10', // Friday of the current week
+          },
+        ],
+      },
+    ];
+
+    it('does not bleed a next-week-dated session into the current week strip', () => {
+      mockWeeks = { data: datedWeeks, isLoading: false };
+      renderHome();
+      // The strip's Monday cell is a rest day — Future Push lives on 13 Jul.
+      expect(screen.queryByLabelText(/Future Push/)).toBeNull();
+      expect(screen.getByLabelText(/^Monday 6 — rest day/)).toBeInTheDocument();
+    });
+
+    it('places a dated session on its calendar weekday, ignoring day_number', () => {
+      mockWeeks = { data: datedWeeks, isLoading: false };
+      renderHome();
+      // Leg Day is dated Friday 10 Jul even though day_number says Monday.
+      expect(screen.getByLabelText(/Friday 10 — Leg Day/)).toBeInTheDocument();
+    });
+
+    it('navigating to the next week reveals the session on its real date', async () => {
+      const user = userEvent.setup();
+      mockWeeks = { data: datedWeeks, isLoading: false };
+      renderHome();
+      await user.click(screen.getByLabelText('Next week'));
+      expect(screen.getByLabelText(/Monday 13 — Future Push/)).toBeInTheDocument();
+      // Cells now show next week's dates (Mon 13 … Sun 19).
+      expect(screen.getByText('19')).toBeInTheDocument();
+      // "Today" resets back to the current week.
+      await user.click(screen.getByText('Today'));
+      expect(screen.queryByLabelText(/Future Push/)).toBeNull();
+    });
+
+    it('shows the real date on the Next session card for a dated session', () => {
+      mockWeeks = { data: datedWeeks, isLoading: false };
+      renderHome();
+      // Leg Day (Fri 10 Jul) sorts before Future Push (Mon 13 Jul) by date.
+      const section = screen.getByRole('region', { name: /next session/i });
+      expect(within(section).getByText('Leg Day')).toBeInTheDocument();
+      expect(within(section).getByText(/Fri, Jul 10/)).toBeInTheDocument();
+    });
+
+    it('keeps undated sessions pinned to the current week only', async () => {
+      const user = userEvent.setup();
+      mockWeeks = { data: sampleWeeks, isLoading: false };
+      renderHome();
+      expect(screen.getByLabelText(/Monday 6 — Push Day/)).toBeInTheDocument();
+      // Undated sessions have no calendar anchor — other weeks show rest days.
+      await user.click(screen.getByLabelText('Previous week'));
+      expect(screen.queryByLabelText(/Push Day/)).toBeNull();
+      await user.click(screen.getByText('Today'));
+      expect(screen.getByLabelText(/Monday 6 — Push Day/)).toBeInTheDocument();
+    });
+
+    it('prefers an active dated session over an archived one on the same date', () => {
+      mockWeeks = {
+        data: [
+          {
+            id: 'w-1',
+            week_number: 1,
+            label: null,
+            sessions: [
+              {
+                id: 'sess-old',
+                title: 'Old Push',
+                day_number: 5,
+                sort_order: 0,
+                archived_at: '2026-07-01T08:00:00Z',
+                scheduled_date: '2026-07-10',
+              },
+              {
+                id: 'sess-new',
+                title: 'New Push',
+                day_number: 5,
+                sort_order: 1,
+                archived_at: null,
+                scheduled_date: '2026-07-10',
+              },
+            ],
+          },
+        ],
+        isLoading: false,
+      };
+      renderHome();
+      // The replacement session wins the cell; the archived one doesn't shadow it.
+      expect(screen.getByLabelText(/Friday 10 — New Push/)).toBeInTheDocument();
+      expect(screen.queryByLabelText(/Old Push/)).toBeNull();
+    });
+
+    it("a confirmed dated session from another week never hides today's pending session", () => {
+      mockWeeks = {
+        data: [
+          {
+            id: 'w-1',
+            week_number: 1,
+            label: null,
+            sessions: [
+              {
+                id: 'sess-done',
+                title: 'Done Squat',
+                day_number: 4,
+                sort_order: 0,
+                archived_at: null,
+                scheduled_date: '2026-07-09', // today (Thursday)
+              },
+            ],
+          },
+          {
+            id: 'w-2',
+            week_number: 2,
+            label: null,
+            sessions: [
+              // Active week (w-1 fully confirmed): undated, due Thursday.
+              { id: 'sess-todo', title: 'Todo Bench', day_number: 4, sort_order: 0, archived_at: null },
+            ],
+          },
+        ],
+        isLoading: false,
+      };
+      mockConfirmedIds = { data: new Set(['sess-done']) };
+      renderHome();
+      // The pending session claims the Thursday cell and stays clickable…
+      const cell = screen.getByLabelText(/Thursday 9 — Todo Bench/);
+      expect(cell).toBeEnabled();
+      expect(screen.queryByLabelText(/Done Squat/)).toBeNull();
+      // …and the greeting still says there is a session to finish today.
+      expect(screen.getByText(/session to finish today/i)).toBeInTheDocument();
+    });
+
+    it('surfaces a cross-week session dated today as the Next session', () => {
+      mockWeeks = {
+        data: [
+          {
+            id: 'w-1',
+            week_number: 1,
+            label: null,
+            sessions: [
+              {
+                id: 'sess-later',
+                title: 'Later Pull',
+                day_number: 3,
+                sort_order: 0,
+                archived_at: null,
+                scheduled_date: '2026-07-15', // next Wednesday — still open, week 1 stays active
+              },
+            ],
+          },
+          {
+            id: 'w-2',
+            week_number: 2,
+            label: null,
+            sessions: [
+              {
+                id: 'sess-today',
+                title: 'Today Press',
+                day_number: 4,
+                sort_order: 0,
+                archived_at: null,
+                scheduled_date: '2026-07-09', // today
+              },
+            ],
+          },
+        ],
+        isLoading: false,
+      };
+      renderHome();
+      // The strip, greeting, and Next card must agree: today's dated session
+      // comes first even though it belongs to a non-active training week.
+      const section = screen.getByRole('region', { name: /next session/i });
+      expect(within(section).getByText('Today Press')).toBeInTheDocument();
+      expect(screen.getByText(/session to finish today/i)).toBeInTheDocument();
+    });
   });
 });

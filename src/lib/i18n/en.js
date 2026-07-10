@@ -57,6 +57,9 @@ const en = {
       todayPending: 'You have a session to finish today.',
       rest: 'Rest',
       hey: 'Hey',
+      prevWeek: 'Previous week',
+      nextWeek: 'Next week',
+      backToToday: 'Today',
     },
     sessions: {
       kicker: 'Program',

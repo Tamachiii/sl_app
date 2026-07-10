@@ -1,5 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { todayDayNumber, DAY_LABELS, DAY_FULL, sessionDayNumber } from './day';
+import {
+  todayDayNumber,
+  DAY_LABELS,
+  DAY_FULL,
+  sessionDayNumber,
+  parseISODate,
+  isoDate,
+  addDays,
+  startOfWeekMonday,
+} from './day';
 
 describe('day.js', () => {
   beforeEach(() => {
@@ -45,6 +54,42 @@ describe('day.js', () => {
     it('returns undefined for null or empty input', () => {
       expect(sessionDayNumber(null)).toBeUndefined();
       expect(sessionDayNumber({})).toBeUndefined();
+    });
+
+    it('falls back to day_number when scheduled_date is malformed', () => {
+      expect(sessionDayNumber({ scheduled_date: 'not-a-date', day_number: 3 })).toBe(3);
+    });
+  });
+
+  describe('calendar helpers', () => {
+    it('parseISODate parses YYYY-MM-DD as a local date', () => {
+      const d = parseISODate('2026-04-27');
+      expect(d.getFullYear()).toBe(2026);
+      expect(d.getMonth()).toBe(3);
+      expect(d.getDate()).toBe(27);
+    });
+
+    it('parseISODate rejects malformed input', () => {
+      expect(parseISODate('nope')).toBeNull();
+      expect(parseISODate('')).toBeNull();
+      expect(parseISODate(null)).toBeNull();
+    });
+
+    it('isoDate round-trips with parseISODate', () => {
+      expect(isoDate(parseISODate('2026-04-05'))).toBe('2026-04-05');
+    });
+
+    it('addDays crosses month boundaries', () => {
+      expect(isoDate(addDays(parseISODate('2026-04-30'), 2))).toBe('2026-05-02');
+      expect(isoDate(addDays(parseISODate('2026-05-02'), -2))).toBe('2026-04-30');
+    });
+
+    it.each([
+      ['2026-04-27', '2026-04-27'], // Monday → itself
+      ['2026-04-30', '2026-04-27'], // Thursday → that Monday
+      ['2026-05-03', '2026-04-27'], // Sunday → the preceding Monday
+    ])('startOfWeekMonday(%s) → %s', (input, expected) => {
+      expect(isoDate(startOfWeekMonday(parseISODate(input)))).toBe(expected);
     });
   });
 });

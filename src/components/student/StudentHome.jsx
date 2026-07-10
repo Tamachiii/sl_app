@@ -1,11 +1,21 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { useStudentProgramDetails } from '../../hooks/useStudentProgramDetails';
 import { useMyConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 import { useMyFeedbackSessionIds } from '../../hooks/useMessages';
-import { DAY_LABELS, DAY_FULL, DAY_FULL_LONG, todayDayNumber, sessionDayNumber } from '../../lib/day';
+import {
+  DAY_LABELS,
+  DAY_FULL,
+  DAY_FULL_LONG,
+  todayDayNumber,
+  sessionDayNumber,
+  parseISODate,
+  isoDate,
+  addDays,
+  startOfWeekMonday,
+} from '../../lib/day';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
@@ -22,9 +32,37 @@ function findActiveWeek(weeks, confirmedIds) {
   return weeks[weeks.length - 1] ?? null;
 }
 
+const LOCALE = { en: 'en-US', fr: 'fr-FR', de: 'de-DE' };
+
+/**
+ * Resolve two sessions competing for the same day slot: an active session
+ * beats an archived one, then a pending session beats a confirmed one, and
+ * on a full tie the first in program order (`a`) keeps the slot. Keeping
+ * confirmation in the rule matters: a confirmed session from another training
+ * week must never hide a session the student still has to do that day.
+ */
+function preferSession(a, b, confirmedIds) {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  if (!!a.archived_at !== !!b.archived_at) return a.archived_at ? b : a;
+  const aConf = confirmedIds.has(a.id);
+  const bConf = confirmedIds.has(b.id);
+  if (aConf !== bConf) return aConf ? b : a;
+  return a;
+}
+
+// "Jul 6 – 12" (en) / "6 – 12 juil." (fr) — compact label for the displayed week.
+function formatWeekRange(monday, lang) {
+  const locale = LOCALE[lang] || LOCALE.en;
+  return new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }).formatRange(
+    monday,
+    addDays(monday, 6)
+  );
+}
+
 // ─── Day strip cell ────────────────────────────────────────────────────────
 
-function DayCell({ dayLabel, dayName, session, confirmed, archived, isToday, onClick }) {
+function DayCell({ dayLabel, dayName, dateNumber, session, confirmed, archived, isToday, onClick }) {
   const hasSession = !!session;
   const isRest = !hasSession;
   const interactive = hasSession && !confirmed && !archived;
@@ -43,9 +81,10 @@ function DayCell({ dayLabel, dayName, session, confirmed, archived, isToday, onC
   }
 
   const shortTitle = (session?.title || (isRest ? 'Rest' : '')).toUpperCase();
-  // Aria uses the full weekday name so screen readers announce e.g.
-  // "Tuesday — Pull session" rather than the visual single-letter abbreviation.
-  const dayWord = dayName || dayLabel;
+  // Aria uses the full weekday name plus the day-of-month so screen readers
+  // can tell navigated weeks apart — the button's aria-label masks its inner
+  // text, so the visible date number alone is not exposed to AT.
+  const dayWord = dateNumber != null ? `${dayName || dayLabel} ${dateNumber}` : dayName || dayLabel;
   const ariaLabel = isRest
     ? `${dayWord} — rest day`
     : archived
@@ -61,7 +100,12 @@ function DayCell({ dayLabel, dayName, session, confirmed, archived, isToday, onC
         interactive ? 'cursor-pointer active:scale-95' : 'cursor-default'
       }`}
     >
-      <span className="sl-mono text-[10px] font-semibold opacity-70 text-center">{dayLabel}</span>
+      <span className="sl-mono text-[10px] font-semibold opacity-70 text-center leading-tight">
+        {dayLabel}
+        {dateNumber != null && (
+          <span className="block text-[9px] font-normal opacity-80">{dateNumber}</span>
+        )}
+      </span>
       <span
         className="sl-display flex-1 min-h-0 leading-none tracking-wide"
         style={{
@@ -119,13 +163,16 @@ function Greeting({ fullName, todayDN, todaysMessage, activeWeek, onSignOut }) {
 
 export default function StudentHome() {
   const { user, profile, signOut } = useAuth();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const navigate = useNavigate();
   const { data: weeks, isLoading } = useStudentProgramDetails(user?.id);
   const { data: confirmedIds = new Set() } = useMyConfirmedSessionIds();
   const { data: feedbackIds = new Set() } = useMyFeedbackSessionIds();
 
   const todayDN = todayDayNumber();
+
+  // 0 = the real current calendar week; ±n navigates n weeks away.
+  const [weekOffset, setWeekOffset] = useState(0);
 
   const activeWeek = useMemo(() => {
     if (!weeks?.length) return null;
@@ -138,47 +185,137 @@ export default function StudentHome() {
     [weekSessions]
   );
 
-  // Include archived sessions in the day strip so the cell doesn't flip to
-  // "Rest" when the coach archives a session. When a day has both an archived
-  // and an active session, prefer the active one.
-  const daySlots = useMemo(() => {
+  // Every session of the active program, tagged with its training week —
+  // dated sessions place onto the calendar independently of week grouping.
+  const allSessions = useMemo(
+    () =>
+      (weeks || []).flatMap((w) =>
+        (w.sessions || []).map((s) => ({ session: s, week: w }))
+      ),
+    [weeks]
+  );
+
+  // scheduled_date → session; collisions resolve via preferSession so an
+  // archived or already-confirmed session never hides a pending sibling.
+  const sessionsByDate = useMemo(() => {
+    const byDate = new Map();
+    for (const entry of allSessions) {
+      const s = entry.session;
+      if (!s.scheduled_date || !parseISODate(s.scheduled_date)) continue;
+      const key = s.scheduled_date.slice(0, 10);
+      const existing = byDate.get(key);
+      const winner = preferSession(existing?.session, s, confirmedIds);
+      byDate.set(key, winner === s ? entry : existing);
+    }
+    return byDate;
+  }, [allSessions, confirmedIds]);
+
+  const todayIso = isoDate(new Date());
+  const currentMonday = useMemo(() => startOfWeekMonday(new Date()), [todayIso]);
+  const displayedMonday = useMemo(
+    () => addDays(currentMonday, weekOffset * 7),
+    [currentMonday, weekOffset]
+  );
+
+  // Undated sessions have no calendar anchor: keep the legacy behavior and
+  // show the active training week's undated sessions by day_number — but only
+  // on the real current week, so they never bleed into other weeks.
+  const undatedByDay = useMemo(() => {
     const byDay = {};
     for (const s of weekSessions) {
-      const d = sessionDayNumber(s);
+      // A malformed scheduled_date falls back to day_number placement,
+      // consistent with sessionDayNumber().
+      if (s.scheduled_date && parseISODate(s.scheduled_date)) continue;
+      const d = s.day_number;
       if (d < 1 || d > 7) continue;
-      const existing = byDay[d];
-      if (!existing || (existing.archived_at && !s.archived_at)) {
-        byDay[d] = s;
+      byDay[d] = preferSession(byDay[d], s, confirmedIds);
+    }
+    return byDay;
+  }, [weekSessions, confirmedIds]);
+
+  const daySlots = useMemo(
+    () =>
+      Array.from({ length: 7 }, (_, i) => {
+        const date = addDays(displayedMonday, i);
+        const dated = sessionsByDate.get(isoDate(date))?.session ?? null;
+        const fallback = weekOffset === 0 ? undatedByDay[i + 1] ?? null : null;
+        return {
+          dayNumber: i + 1,
+          label: DAY_LABELS[i],
+          name: DAY_FULL_LONG[i],
+          dateNumber: date.getDate(),
+          // Dated placement wins ties, but preferSession keeps an archived
+          // or confirmed dated session from hiding a pending undated one.
+          session: preferSession(dated, fallback, confirmedIds),
+        };
+      }),
+    [displayedMonday, sessionsByDate, undatedByDay, weekOffset, confirmedIds]
+  );
+
+  // Training-week context for the strip header — only when every dated
+  // session in the displayed week comes from the same training week. (The
+  // greeting already names the active training week, so no fallback here.)
+  const displayedTrainingWeek = useMemo(() => {
+    const weeksSeen = new Set();
+    let match = null;
+    for (let i = 0; i < 7; i++) {
+      const dated = sessionsByDate.get(isoDate(addDays(displayedMonday, i)));
+      if (dated) {
+        weeksSeen.add(dated.week.id);
+        match = dated.week;
       }
     }
-    return Array.from({ length: 7 }, (_, i) => ({
-      dayNumber: i + 1,
-      label: DAY_LABELS[i],
-      name: DAY_FULL_LONG[i],
-      session: byDay[i + 1] ?? null,
-    }));
-  }, [weekSessions]);
+    return weeksSeen.size === 1 ? match : null;
+  }, [sessionsByDate, displayedMonday]);
 
+  // Chronological position for a session: its real date when scheduled,
+  // otherwise its day_number projected onto the current calendar week.
+  const effectiveTime = useMemo(() => {
+    return (s) => {
+      const d = s.scheduled_date ? parseISODate(s.scheduled_date) : null;
+      if (d) return d.getTime();
+      const dn = s.day_number >= 1 && s.day_number <= 7 ? s.day_number : 7;
+      return addDays(currentMonday, dn - 1).getTime();
+    };
+  }, [currentMonday]);
+
+  // Pending pool for the "Next session" card: the active training week's
+  // sessions plus every DATED session from other weeks — a date gives a
+  // session a real chronological position, so it can legitimately come due
+  // before the active week finishes. Undated sessions outside the active
+  // week stay out (they have no calendar anchor; program order still rules).
   const upcoming = useMemo(
     () =>
-      activeSessions
-        .filter((s) => !confirmedIds.has(s.id))
-        .sort((a, b) => (sessionDayNumber(a) ?? a.sort_order) - (sessionDayNumber(b) ?? b.sort_order)),
-    [activeSessions, confirmedIds]
+      allSessions
+        .filter(
+          ({ session: s, week: w }) =>
+            !s.archived_at &&
+            !confirmedIds.has(s.id) &&
+            (w.id === activeWeek?.id || (s.scheduled_date && parseISODate(s.scheduled_date)))
+        )
+        .map(({ session: s }) => s)
+        .sort((a, b) => effectiveTime(a) - effectiveTime(b) || a.sort_order - b.sort_order),
+    [allSessions, confirmedIds, activeWeek, effectiveTime]
   );
 
   const completed = useMemo(
     () =>
       activeSessions
         .filter((s) => confirmedIds.has(s.id))
-        .sort((a, b) => (sessionDayNumber(a) ?? a.sort_order) - (sessionDayNumber(b) ?? b.sort_order)),
-    [activeSessions, confirmedIds]
+        .sort((a, b) => effectiveTime(a) - effectiveTime(b) || a.sort_order - b.sort_order),
+    [activeSessions, confirmedIds, effectiveTime]
   );
 
-  const todaysSession = useMemo(
-    () => activeSessions.find((s) => sessionDayNumber(s) === todayDN) ?? null,
-    [activeSessions, todayDN]
-  );
+  // Today's session: an exact scheduled_date match competes with the active
+  // week's undated weekday match through the same preference rule as the
+  // strip, so a confirmed dated session never masks a pending one due today.
+  const todaysSession = useMemo(() => {
+    const dated = sessionsByDate.get(todayIso)?.session ?? null;
+    const fallback =
+      activeSessions.find((s) => !s.scheduled_date && s.day_number === todayDN) ?? null;
+    const winner = preferSession(dated, fallback, confirmedIds);
+    return winner && !winner.archived_at ? winner : null;
+  }, [sessionsByDate, todayIso, activeSessions, todayDN, confirmedIds]);
   const todayConfirmed = todaysSession ? confirmedIds.has(todaysSession.id) : false;
 
   let todaysMessage;
@@ -224,18 +361,58 @@ export default function StudentHome() {
         )}
 
         <section aria-label="Week overview">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <div className="sl-label truncate" aria-live="polite">
+              {formatWeekRange(displayedMonday, lang)}
+              {displayedTrainingWeek && (
+                <span className="sl-mono text-[10px] normal-case text-ink-400 ml-2">
+                  {t('student.home.week')} {displayedTrainingWeek.week_number}
+                  {displayedTrainingWeek.label ? ` · ${displayedTrainingWeek.label}` : ''}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              {weekOffset !== 0 && (
+                <button
+                  onClick={() => setWeekOffset(0)}
+                  className="sl-mono text-[11px] text-ink-400 hover:text-gray-700 underline px-1.5 py-1"
+                >
+                  {t('student.home.backToToday')}
+                </button>
+              )}
+              <button
+                onClick={() => setWeekOffset((o) => o - 1)}
+                aria-label={t('student.home.prevWeek')}
+                className="p-1.5 rounded-lg text-ink-400 hover:text-gray-900 hover:bg-ink-50 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setWeekOffset((o) => o + 1)}
+                aria-label={t('student.home.nextWeek')}
+                className="p-1.5 rounded-lg text-ink-400 hover:text-gray-900 hover:bg-ink-50 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+          </div>
           <div className="grid grid-cols-7 gap-1.5">
-            {daySlots.map(({ dayNumber, label, name, session }) => {
+            {daySlots.map(({ dayNumber, label, name, dateNumber, session }) => {
               const isArchived = !!session?.archived_at;
               return (
                 <DayCell
                   key={dayNumber}
                   dayLabel={label}
                   dayName={name}
+                  dateNumber={dateNumber}
                   session={session}
                   confirmed={session && !isArchived ? confirmedIds.has(session.id) : false}
                   archived={isArchived}
-                  isToday={dayNumber === todayDN}
+                  isToday={weekOffset === 0 && dayNumber === todayDN}
                   onClick={session && !isArchived ? () => navigate(`/student/session/${session.id}`) : null}
                 />
               );
@@ -258,6 +435,18 @@ export default function StudentHome() {
                 hasFeedback={feedbackIds.has(upcoming[0].id)}
                 collapsible={false}
                 subtitle={(() => {
+                  // A real date beats a bare weekday name — "Mon" alone reads
+                  // as this week's Monday even when the session is weeks out.
+                  const d = upcoming[0].scheduled_date
+                    ? parseISODate(upcoming[0].scheduled_date)
+                    : null;
+                  if (d) {
+                    return d.toLocaleDateString(LOCALE[lang] || LOCALE.en, {
+                      weekday: 'short',
+                      day: 'numeric',
+                      month: 'short',
+                    });
+                  }
                   const dn = sessionDayNumber(upcoming[0]);
                   return dn >= 1 && dn <= 7 ? DAY_FULL[dn - 1] : null;
                 })()}

@@ -57,6 +57,9 @@ const de = {
       todayPending: 'Du hast heute eine Einheit zu absolvieren.',
       rest: 'Ruhe',
       hey: 'Hey',
+      prevWeek: 'Vorherige Woche',
+      nextWeek: 'Nächste Woche',
+      backToToday: 'Heute',
     },
     sessions: {
       kicker: 'Programm',

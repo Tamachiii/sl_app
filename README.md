@@ -133,7 +133,7 @@ Deep architectural details — RLS helpers, React Query invalidation, routing/pe
 5. **Library tab** — exercise CRUD with search + type filter.
 
 **Student**
-1. Logs in → **Home tab** (`/student`) — current training week: 7-day strip and an always-expanded "Next session" preview (full exercise list visible by default; no collapse) with a Start CTA.
+1. Logs in → **Home tab** (`/student`) — a calendar-week 7-day strip (defaults to the real current week, with ‹ › navigation and a "Today" reset): sessions with a `scheduled_date` sit on their true calendar date regardless of which training week they belong to; undated sessions fall back to the active training week's `day_number` layout on the current week only. Below it, an always-expanded "Next session" preview (full exercise list visible by default; no collapse) with a Start CTA and the session's real date when scheduled.
 2. **Sessions tab** (`/student/sessions`) — full program by week; accordion session cards (one open at a time); tap "Start session" to open `SessionView`.
 3. **Stats tab** (`/student/stats`) — sessions confirmed, sets done, weekly volume bars, per-exercise progression, calendar (active block + muted history dots).
 4. **Messages tab** (`/student/messages`) — single thread with the assigned coach (resolved via `students.coach_id`). Realtime + unread-count badge same as the coach side.
@@ -237,7 +237,7 @@ supabase db query --linked \
 - Tests live alongside components as `*.test.jsx` / `*.test.js`.
 - `src/test/utils.jsx` exports `renderWithProviders(ui, { auth, route, queryClient })` which wraps with `ThemeProvider` + `QueryClientProvider` + `AuthContext` + `MemoryRouter`.
 - Mocks: child hooks are stubbed with `vi.mock('../../hooks/useX', () => ({ ... }))` per file.
-- 518 tests across 64 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations.
+- 573 tests across 66 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations.
 
 Run:
 ```bash

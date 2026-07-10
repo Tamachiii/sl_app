@@ -61,7 +61,7 @@ Prescription used to live on `exercise_slots` as a single `{sets, reps, weight_k
 - `lib/volume.js` exports `isSlotUniform(slot)`, `formatSlotPrescription(slot)`, `formatSetTarget(log)`, `getSlotTargetWeight(slot)`, `getSlotTargetRest(slot)`. Compact "3 × 10 @ 80kg" rendering only fires when uniform; the heterogeneous case shows a per-set list. All helpers fall back to slot scalars when set_logs lack target_* (legacy / mocks).
 - Coach editor (`ExerciseSlotRow`) auto-expands the per-set table when targets diverge. "Reset to uniform" requires explicit click — there is no implicit "if matching, collapse"; the coach controls when to leave custom mode.
 
-`day_number` on sessions: `1=Monday … 7=Sunday`. `StudentHome` maps these to the 7-day week strip; values outside 1–7 still appear in Upcoming/Completed lists but not the strip.
+`day_number` on sessions: `1=Monday … 7=Sunday`. `sessions.scheduled_date` (nullable date) pins a session to a real calendar day and always wins over `day_number` for display. `StudentHome`'s 7-day strip is **calendar-based**: it shows a navigable calendar week (default = the current one); dated sessions from any training week of the active program place on their true date, while undated sessions render by `day_number` from the active training week on the current calendar week only. Values outside 1–7 still appear in Upcoming/Completed lists but not the strip. Calendar helpers (`parseISODate`, `isoDate`, `addDays`, `startOfWeekMonday`) live in `lib/day.js` and parse `scheduled_date` in local time.
 
 ## Program periodization (multiple blocks per student)
 
