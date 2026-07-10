@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -558,6 +558,114 @@ describe('useCoachDashboardPrograms', () => {
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data['st-1'].weekDays[0].session).toMatchObject({ id: 's-new' });
+  });
+
+  describe('calendar-week placement of dated sessions', () => {
+    beforeEach(() => {
+      // Freeze "today" at Thursday 2026-07-09 (current week: Mon 06 – Sun 12).
+      // Only Date is faked so waitFor's real timers keep working.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date(2026, 6, 9, 12, 0, 0));
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    function mockDashboard(weeks, confirmations = []) {
+      const programsChain = {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockResolvedValue({
+          data: [{ student_id: 'st-1', name: 'Block A', weeks }],
+          error: null,
+        }),
+      };
+      const confChain = {
+        select: vi.fn().mockReturnThis(),
+        in: vi.fn().mockResolvedValue({
+          data: confirmations.map((id) => ({ session_id: id })),
+          error: null,
+        }),
+      };
+      let call = 0;
+      supabase.from.mockImplementation(() => (call++ === 0 ? programsChain : confChain));
+    }
+
+    async function renderDashboard() {
+      const qc = makeClient();
+      const { result } = renderHook(() => useCoachDashboardPrograms(), {
+        wrapper: withClient(qc),
+      });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      return result.current.data['st-1'].weekDays;
+    }
+
+    it('places dated sessions on their true date and hides ones outside the current week', async () => {
+      mockDashboard([
+        {
+          id: 'w-1',
+          week_number: 1,
+          label: null,
+          sessions: [
+            // Dated Wednesday of the current week — day_number would say Monday.
+            { id: 's-wed', title: 'Push', day_number: 1, scheduled_date: '2026-07-08', archived_at: null },
+            // Dated NEXT Monday — must not render in this week's strip at all.
+            { id: 's-next', title: 'Pull', day_number: 2, scheduled_date: '2026-07-13', archived_at: null },
+          ],
+        },
+      ]);
+      const days = await renderDashboard();
+      expect(days[2].session).toMatchObject({ id: 's-wed' });
+      expect(days[0].session).toBeNull();
+      expect(days[1].session).toBeNull();
+    });
+
+    it('shows a dated session from a non-active training week when its date falls in the current week', async () => {
+      mockDashboard([
+        {
+          id: 'w-1',
+          week_number: 1,
+          label: null,
+          sessions: [{ id: 's-open', title: 'Open', day_number: 1, archived_at: null }],
+        },
+        {
+          id: 'w-2',
+          week_number: 2,
+          label: null,
+          sessions: [
+            { id: 's-fri', title: 'Deadlift', day_number: 5, scheduled_date: '2026-07-10', archived_at: null },
+          ],
+        },
+      ]);
+      const days = await renderDashboard();
+      // w-1 is the active week (s-open unconfirmed), yet w-2's dated session places.
+      expect(days[0].session).toMatchObject({ id: 's-open' });
+      expect(days[4].session).toMatchObject({ id: 's-fri' });
+    });
+
+    it('never lets a confirmed dated session hide a pending undated one on the same day', async () => {
+      mockDashboard(
+        [
+          {
+            id: 'w-1',
+            week_number: 1,
+            label: null,
+            sessions: [{ id: 's-due', title: 'Due', day_number: 4, archived_at: null }],
+          },
+          {
+            id: 'w-2',
+            week_number: 2,
+            label: null,
+            sessions: [
+              { id: 's-done', title: 'Done', day_number: 4, scheduled_date: '2026-07-09', archived_at: null },
+            ],
+          },
+        ],
+        ['s-done']
+      );
+      const days = await renderDashboard();
+      expect(days[3].session).toMatchObject({ id: 's-due' });
+      expect(days[3].confirmed).toBe(false);
+    });
   });
 });
 

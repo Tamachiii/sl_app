@@ -1,7 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
-import { sessionDayNumber } from '../lib/day';
+import {
+  parseISODate,
+  isoDate,
+  addDays,
+  startOfWeekMonday,
+  preferSession,
+} from '../lib/day';
 
 /**
  * List all programs for a student (periodization blocks), ordered by sort_order.
@@ -283,9 +289,14 @@ export function useReorderPrograms() {
  * "Active week" mirrors the student-side `findActiveWeek`: first week with
  * an unconfirmed non-archived session, falling back to the last week.
  *
- * `weekDays` is a 7-slot M..S array (training-day convention) carrying the
- * mapped session and its confirmation flag. Powers the `StudentWeekStrip`
- * on each athlete card without an N+1 fetch.
+ * `weekDays` is a 7-slot M..S array for the CURRENT CALENDAR week (Mon–Sun),
+ * carrying the mapped session and its confirmation flag. Mirroring the
+ * student home strip: sessions with a scheduled_date place on their true
+ * calendar date — from any training week, and only when that date falls in
+ * the current week — while undated sessions keep the legacy day_number
+ * placement from the active training week. Same-day collisions resolve via
+ * `preferSession`. Powers the `StudentWeekStrip` on each athlete card
+ * without an N+1 fetch.
  */
 export function useCoachDashboardPrograms() {
   const { user } = useAuth();
@@ -319,6 +330,8 @@ export function useCoachDashboardPrograms() {
         confirmedIds = new Set((confs || []).map((c) => c.session_id));
       }
 
+      const monday = startOfWeekMonday(new Date());
+
       const summary = {};
       for (const p of programs || []) {
         const weeks = (p.weeks || [])
@@ -333,34 +346,40 @@ export function useCoachDashboardPrograms() {
         }
         if (!active && weeks.length > 0) active = weeks[weeks.length - 1];
 
-        const weekDays = Array.from({ length: 7 }, (_, i) => ({
-          dayNumber: i + 1,
-          session: null,
-          confirmed: false,
-        }));
-        if (active) {
-          const byDay = {};
-          for (const s of active.sessions || []) {
-            const d = sessionDayNumber(s);
-            if (d < 1 || d > 7) continue;
-            const existing = byDay[d];
-            // Prefer active sessions over archived when both fall on the same day.
-            if (!existing || (existing.archived_at && !s.archived_at)) {
-              byDay[d] = s;
-            }
-          }
-          for (let i = 0; i < 7; i++) {
-            const s = byDay[i + 1];
-            if (s) {
-              weekDays[i].session = {
-                id: s.id,
-                title: s.title,
-                archived_at: s.archived_at,
-              };
-              weekDays[i].confirmed = confirmedIds.has(s.id);
-            }
+        // Dated sessions place by true calendar date — from ANY training week,
+        // so a "week 1" session dated next Monday never bleeds into this week.
+        const byDate = new Map();
+        for (const w of weeks) {
+          for (const s of w.sessions || []) {
+            if (!s.scheduled_date || !parseISODate(s.scheduled_date)) continue;
+            const key = s.scheduled_date.slice(0, 10);
+            byDate.set(key, preferSession(byDate.get(key), s, confirmedIds));
           }
         }
+
+        // Undated sessions have no calendar anchor: keep the legacy
+        // day_number placement, from the active training week only.
+        const undatedByDay = {};
+        for (const s of active?.sessions || []) {
+          if (s.scheduled_date && parseISODate(s.scheduled_date)) continue;
+          const d = s.day_number;
+          if (d < 1 || d > 7) continue;
+          undatedByDay[d] = preferSession(undatedByDay[d], s, confirmedIds);
+        }
+
+        const weekDays = Array.from({ length: 7 }, (_, i) => {
+          const dated = byDate.get(isoDate(addDays(monday, i))) ?? null;
+          // Dated placement wins ties, but preferSession keeps an archived
+          // or confirmed dated session from hiding a pending undated one.
+          const s = preferSession(dated, undatedByDay[i + 1] ?? null, confirmedIds);
+          return {
+            dayNumber: i + 1,
+            session: s
+              ? { id: s.id, title: s.title, archived_at: s.archived_at }
+              : null,
+            confirmed: s ? confirmedIds.has(s.id) : false,
+          };
+        });
 
         summary[p.student_id] = {
           programName: p.name || null,

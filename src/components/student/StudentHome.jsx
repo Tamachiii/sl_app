@@ -15,6 +15,7 @@ import {
   isoDate,
   addDays,
   startOfWeekMonday,
+  preferSession,
 } from '../../lib/day';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
@@ -33,23 +34,6 @@ function findActiveWeek(weeks, confirmedIds) {
 }
 
 const LOCALE = { en: 'en-US', fr: 'fr-FR', de: 'de-DE' };
-
-/**
- * Resolve two sessions competing for the same day slot: an active session
- * beats an archived one, then a pending session beats a confirmed one, and
- * on a full tie the first in program order (`a`) keeps the slot. Keeping
- * confirmation in the rule matters: a confirmed session from another training
- * week must never hide a session the student still has to do that day.
- */
-function preferSession(a, b, confirmedIds) {
-  if (!a) return b ?? null;
-  if (!b) return a;
-  if (!!a.archived_at !== !!b.archived_at) return a.archived_at ? b : a;
-  const aConf = confirmedIds.has(a.id);
-  const bConf = confirmedIds.has(b.id);
-  if (aConf !== bConf) return aConf ? b : a;
-  return a;
-}
 
 // "Jul 6 – 12" (en) / "6 – 12 juil." (fr) — compact label for the displayed week.
 function formatWeekRange(monday, lang) {

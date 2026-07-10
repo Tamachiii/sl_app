@@ -49,3 +49,20 @@ export function startOfWeekMonday(date) {
   const jsDay = date.getDay();
   return addDays(date, jsDay === 0 ? -6 : 1 - jsDay);
 }
+
+/**
+ * Resolve two sessions competing for the same day slot: an active session
+ * beats an archived one, then a pending session beats a confirmed one, and
+ * on a full tie the first in program order (`a`) keeps the slot. Keeping
+ * confirmation in the rule matters: a confirmed session from another training
+ * week must never hide a session the student still has to do that day.
+ */
+export function preferSession(a, b, confirmedIds) {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  if (!!a.archived_at !== !!b.archived_at) return a.archived_at ? b : a;
+  const aConf = confirmedIds.has(a.id);
+  const bConf = confirmedIds.has(b.id);
+  if (aConf !== bConf) return aConf ? b : a;
+  return a;
+}
