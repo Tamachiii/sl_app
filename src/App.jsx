@@ -8,6 +8,10 @@ import { I18nProvider } from './hooks/useI18n';
 import { queryClient, queryPersister, shouldPersistQuery } from './lib/queryClient';
 import { routes } from './routes';
 import ErrorBoundary from './components/ui/ErrorBoundary';
+import { installGlobalErrorReporting } from './lib/errorReporter';
+
+// Wire window.onerror / unhandledrejection telemetry once at module load.
+installGlobalErrorReporting();
 
 function AppRoutes() {
   return useRoutes(routes);

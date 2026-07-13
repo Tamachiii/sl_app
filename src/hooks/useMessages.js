@@ -136,6 +136,8 @@ export function useSendMessage() {
   const qc = useQueryClient();
   const { user } = useAuth();
   return useMutation({
+    // The composers render their own inline send error — don't also toast.
+    meta: { skipErrorToast: true },
     mutationFn: async ({ recipientProfileId, body, sessionId = null }) => {
       const trimmed = (body || '').trim();
       if (!trimmed) throw new Error('Message body is empty.');

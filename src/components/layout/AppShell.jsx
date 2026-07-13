@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import BottomNav from './BottomNav';
 import SideNav from './SideNav';
 import OfflineBanner from '../ui/OfflineBanner';
+import ToastHost from '../ui/ToastHost';
 import { useMessagesRealtime } from '../../hooks/useMessages';
 import { useNotificationsRealtime } from '../../hooks/useNotifications';
 
@@ -102,6 +103,7 @@ export default function AppShell() {
         </div>
       </main>
       <BottomNav />
+      <ToastHost />
     </div>
   );
 }

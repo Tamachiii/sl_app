@@ -1,7 +1,9 @@
-import { QueryClient } from '@tanstack/react-query';
+import { QueryClient, MutationCache } from '@tanstack/react-query';
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister';
 import { createStore, get, set, del } from 'idb-keyval';
 import { registerOfflineMutationDefaults } from './offlineMutations';
+import { pushToast } from './toast';
+import { mutationErrorKey } from './mutationErrors';
 
 // Only persist the query subtrees the student needs offline. Keeping the
 // allow-list narrow avoids blowing up IndexedDB with messages/notifications
@@ -63,7 +65,21 @@ export function shouldPersistQuery(query) {
   return query.state.status === 'success';
 }
 
+// Global safety net so no mutation failure is silent. A mutation can opt out
+// of the toast (it surfaces the error itself) by setting
+// meta: { skipErrorToast: true } — used by composers that render inline
+// errors. Offline replays that fail transiently still toast (the write was
+// rejected, the user should know); the OfflineBanner covers the still-paused
+// case separately.
+const mutationCache = new MutationCache({
+  onError: (error, _vars, _ctx, mutation) => {
+    if (mutation.options.meta?.skipErrorToast) return;
+    pushToast(mutationErrorKey(error), { kind: 'error' });
+  },
+});
+
 export const queryClient = new QueryClient({
+  mutationCache,
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60 * 2,

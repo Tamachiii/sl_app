@@ -18,6 +18,10 @@ vi.mock('../../hooks/useProgram', () => ({
   useCoachDashboardPrograms: () => mockDashboardPrograms,
 }));
 
+vi.mock('../../hooks/useClientErrors', () => ({
+  useClientErrors: () => ({ data: [], isLoading: false }),
+}));
+
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({ profile: null, signOut: vi.fn() }),
 }));

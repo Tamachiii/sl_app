@@ -4,6 +4,7 @@ import { useI18n } from '../../hooks/useI18n';
 import { useStudents } from '../../hooks/useStudents';
 import { useAllConfirmations } from '../../hooks/useSessionConfirmation';
 import { useCoachDashboardPrograms } from '../../hooks/useProgram';
+import { useClientErrors } from '../../hooks/useClientErrors';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
@@ -63,6 +64,7 @@ export default function CoachDashboard() {
   const { data: students, isLoading: studentsLoading } = useStudents();
   const { data: confirmations, isLoading: confsLoading } = useAllConfirmations();
   const { data: summary } = useCoachDashboardPrograms();
+  const { data: clientErrors } = useClientErrors();
 
   const recentActivity = (confirmations || [])
     .filter((c) => !c.archived_at)
@@ -138,6 +140,36 @@ export default function CoachDashboard() {
           ))}
         </div>
       </section>
+
+      {clientErrors && clientErrors.length > 0 && (
+        <section aria-labelledby="errors-heading" className="space-y-2">
+          <details>
+            <summary className="sl-label text-ink-400 cursor-pointer">
+              <span id="errors-heading">
+                {t('coach.dashboard.appErrors', { n: clientErrors.length })}
+              </span>
+            </summary>
+            <ul className="mt-2 space-y-1.5">
+              {clientErrors.map((e) => (
+                <li key={e.id} className="sl-card p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="sl-mono text-[10px] text-ink-400 uppercase">
+                      {e.role || '—'}
+                    </span>
+                    <span className="sl-mono text-[10px] text-ink-400 shrink-0">
+                      {new Date(e.created_at).toLocaleString()}
+                    </span>
+                  </div>
+                  <p className="text-[12px] text-gray-900 mt-1 break-words">{e.message}</p>
+                  {e.url && (
+                    <p className="sl-mono text-[10px] text-ink-400 mt-0.5 truncate">{e.url}</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </section>
+      )}
     </div>
   );
 }

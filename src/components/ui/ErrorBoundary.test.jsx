@@ -2,6 +2,14 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
+
+// The boundary reports to telemetry on catch; keep it a no-op spy so tests
+// don't attempt a network insert.
+const reportError = vi.fn();
+vi.mock('../../lib/errorReporter', () => ({
+  reportError: (...args) => reportError(...args),
+}));
+
 import ErrorBoundary from './ErrorBoundary';
 
 function Boom({ shouldThrow }) {
@@ -19,7 +27,7 @@ describe('<ErrorBoundary />', () => {
     expect(screen.getByTestId('ok')).toBeInTheDocument();
   });
 
-  it('catches a render error and shows the fallback with the message', () => {
+  it('catches a render error, shows the fallback, and reports to telemetry', () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     render(
       <ErrorBoundary>
@@ -27,7 +35,11 @@ describe('<ErrorBoundary />', () => {
       </ErrorBoundary>,
     );
     expect(screen.getByText(/Something went wrong/i)).toBeInTheDocument();
-    expect(screen.getByText(/kaboom/)).toBeInTheDocument();
+    // Both escape hatches are offered.
+    expect(screen.getByRole('button', { name: /Try again/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Go home/i })).toBeInTheDocument();
+    // The crash was reported for the dev-coach's feedback loop.
+    expect(reportError).toHaveBeenCalled();
     errSpy.mockRestore();
   });
 

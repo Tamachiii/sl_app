@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { setErrorReporterUser } from '../lib/errorReporter';
 
 const AuthContext = createContext(null);
 
@@ -91,6 +92,12 @@ export function AuthProvider({ children }) {
   }, []);
 
   const role = profile?.role ?? null;
+
+  // Keep the error reporter's identity in sync so telemetry rows carry the
+  // right user_id/role (and RLS accepts the insert).
+  useEffect(() => {
+    setErrorReporterUser(user ? { id: user.id, role } : null);
+  }, [user, role]);
 
   const value = useMemo(
     () => ({ user, profile, role, isLoading, signIn, signOut, updateProfile, updatePassword }),
