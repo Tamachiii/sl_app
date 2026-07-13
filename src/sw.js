@@ -1,5 +1,4 @@
 /// <reference lib="webworker" />
-/* eslint-disable no-restricted-globals */
 
 // Custom service worker for sl_app. Replaces the generated workbox SW
 // (see vite.config.js: strategies: 'injectManifest', srcDir: 'src'). The
@@ -23,7 +22,6 @@ import { CacheableResponsePlugin } from 'workbox-cacheable-response';
 cleanupOutdatedCaches();
 
 // vite-plugin-pwa injects the precache manifest here at build time.
-// eslint-disable-next-line no-underscore-dangle
 precacheAndRoute(self.__WB_MANIFEST || []);
 
 // SPA navigateFallback — every page route resolves to the precached
