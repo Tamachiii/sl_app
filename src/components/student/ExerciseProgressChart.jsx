@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useI18n } from '../../hooks/useI18n';
 
 function readStoredExerciseId(storageKey) {
   if (!storageKey) return '';
@@ -6,6 +7,7 @@ function readStoredExerciseId(storageKey) {
 }
 
 export default function ExerciseProgressChart({ exercises, byExercise, storageKey }) {
+  const { t } = useI18n();
   const [selectedId, setSelectedId] = useState(() => {
     const stored = readStoredExerciseId(storageKey);
     if (stored && exercises.some((e) => e.id === stored)) return stored;
@@ -50,13 +52,25 @@ export default function ExerciseProgressChart({ exercises, byExercise, storageKe
     return names.size > 1;
   }, [points]);
 
-  const maxTonnage = points.reduce((m, p) => Math.max(m, p.tonnage), 0);
+  // Scale to whichever is larger so the planned reference always fits...
+  const maxTonnage = points.reduce(
+    (m, p) => Math.max(m, p.tonnage, p.plannedTonnage ?? 0),
+    0
+  );
+  // ...but the caption's "Peak" reports the PERFORMED peak only, so it never
+  // overstates what the student actually did (planned may be higher).
+  const performedPeak = points.reduce((m, p) => Math.max(m, p.tonnage), 0);
+  // Only draw the planned reference when it actually diverges from performed
+  // (i.e. the student deviated somewhere) — otherwise it's visual noise.
+  const hasPlannedDivergence = points.some(
+    (p) => Math.abs((p.plannedTonnage ?? p.tonnage) - p.tonnage) > 1
+  );
 
   if (exercises.length === 0) {
     return (
       <div className="sl-card p-4">
         <p className="sl-mono text-[11px] text-ink-400">
-          No weighted exercises in your program yet.
+          {t('student.stats.chart.noExercises')}
         </p>
       </div>
     );
@@ -81,6 +95,9 @@ export default function ExerciseProgressChart({ exercises, byExercise, storageKe
   const linePath = points
     .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xFor(i)} ${yFor(p.tonnage)}`)
     .join(' ');
+  const plannedPath = points
+    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xFor(i)} ${yFor(p.plannedTonnage ?? p.tonnage)}`)
+    .join(' ');
 
   return (
     <div className="sl-card p-4 space-y-3">
@@ -100,14 +117,14 @@ export default function ExerciseProgressChart({ exercises, byExercise, storageKe
       </label>
 
       {points.length === 0 ? (
-        <p className="sl-mono text-[11px] text-ink-400">No data for this exercise yet.</p>
+        <p className="sl-mono text-[11px] text-ink-400">{t('student.stats.chart.noData')}</p>
       ) : (
         <>
           <svg
             viewBox={`0 0 ${W} ${H}`}
             className="w-full h-auto"
             role="img"
-            aria-label="Weekly tonnage chart"
+            aria-label={t('student.stats.chart.ariaLabel')}
           >
             {[0, 0.5, 1].map((frac) => {
               const y = PAD_T + plotH - frac * plotH;
@@ -154,6 +171,20 @@ export default function ExerciseProgressChart({ exercises, byExercise, storageKe
               );
             })}
 
+            {/* Planned reference (dashed, faint) — drawn under the performed
+                line, only when the student deviated from the plan. */}
+            {points.length > 1 && hasPlannedDivergence && (
+              <path
+                d={plannedPath}
+                fill="none"
+                stroke="var(--color-ink-400)"
+                strokeWidth="1.5"
+                strokeDasharray="3 3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            )}
+
             {points.length > 1 && (
               <path
                 d={linePath}
@@ -198,10 +229,15 @@ export default function ExerciseProgressChart({ exercises, byExercise, storageKe
           </svg>
 
           <p className="sl-mono text-[11px] text-ink-400">
-            Weekly tonnage = Σ (sets × reps × weight; BW = 1 kg). Peak:{' '}
+            {t('student.stats.chart.performedCaption')}{' '}
             <span className="text-gray-800" style={{ color: 'var(--color-accent)' }}>
-              {Math.round(maxTonnage)} kg
+              {t('student.stats.chart.peak', { n: Math.round(performedPeak) })}
             </span>
+            {/* Only claim a dashed line when one is actually drawn (needs >1
+                point AND real divergence). */}
+            {points.length > 1 && hasPlannedDivergence && (
+              <span className="block mt-0.5">{t('student.stats.chart.plannedLegend')}</span>
+            )}
           </p>
         </>
       )}

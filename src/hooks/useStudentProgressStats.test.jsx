@@ -81,6 +81,7 @@ function setupChains({
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
     is: vi.fn().mockReturnThis(),
+    limit: vi.fn().mockReturnThis(),
     then(resolve, reject) {
       Promise.resolve({ data: setLogsData, error: null }).then(resolve, reject);
     },
@@ -327,9 +328,98 @@ describe('useStudentProgressStats — completion + tonnage', () => {
     const ex = result.current.data.exerciseProgress;
     expect(ex.exercises).toHaveLength(1);
     expect(ex.exercises[0].name).toBe('Pull-up');
-    // 5 reps × 1kg × 2 logs = 10
+    // PLANNED tonnage uses target_* with the 1kg bodyweight surrogate:
+    // 5 reps × 1kg × 2 logs = 10. No done set_logs → performed tonnage 0.
     const points = ex.byExercise[ex.exercises[0].id];
-    expect(points[0].tonnage).toBe(10);
+    expect(points[0].plannedTonnage).toBe(10);
+    expect(points[0].tonnage).toBe(0);
+  });
+
+  it('performed tonnage reflects actual reps/weight on DONE sets (actual overrides target)', async () => {
+    const setup = setupChains({
+      programsData: [
+        {
+          id: 'p-1', name: 'A', sort_order: 0, is_active: true,
+          weeks: [{
+            id: 'w-1', week_number: 1, label: null,
+            sessions: [{
+              id: 's-1', title: 'Push', day_number: 1, sort_order: 0,
+              scheduled_date: null, archived_at: null,
+              exercise_slots: [{
+                id: 'sl-1', sets: 2, reps: 5, duration_seconds: null, weight_kg: 100,
+                exercise: { id: 'e-1', name: 'Bench', type: 'push', volume_weight: 1 },
+                set_logs: [
+                  { set_number: 1, target_reps: 5, target_weight_kg: 100 },
+                  { set_number: 2, target_reps: 5, target_weight_kg: 100 },
+                ],
+              }],
+            }],
+          }],
+        },
+      ],
+      // Set 1 done as prescribed (5×100); set 2 done with an actual override
+      // (3 reps @ 90); the flat set_logs carry the performance columns.
+      setLogsData: [
+        { id: 'l-1', exercise_slot_id: 'sl-1', set_number: 1, done: true, target_reps: 5, target_weight_kg: 100, actual_reps: null, actual_weight_kg: null },
+        { id: 'l-2', exercise_slot_id: 'sl-1', set_number: 2, done: true, target_reps: 5, target_weight_kg: 100, actual_reps: 3, actual_weight_kg: 90 },
+      ],
+    });
+    setup.register();
+    const qc = makeClient();
+    const { result } = renderHook(() => useStudentProgressStats(), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const ex = result.current.data.exerciseProgress;
+    const p = ex.byExercise[ex.exercises[0].id][0];
+    // Planned: (5×100)+(5×100)=1000. Performed: (5×100)+(3×90)=770.
+    expect(p.plannedTonnage).toBe(1000);
+    expect(p.tonnage).toBe(770);
+    // Weekly adherence: 2 of 2 prescribed sets done.
+    const wk = result.current.data.weeklyVolume[0];
+    expect(wk.sets_done).toBe(2);
+    expect(wk.sets_prescribed).toBe(2);
+  });
+
+  it('adherence excludes student-added extra sets so it can never exceed 100%', async () => {
+    const setup = setupChains({
+      programsData: [
+        {
+          id: 'p-1', name: 'A', sort_order: 0, is_active: true,
+          weeks: [{
+            id: 'w-1', week_number: 1, label: null,
+            sessions: [{
+              id: 's-1', title: 'Push', day_number: 1, sort_order: 0,
+              scheduled_date: null, archived_at: null,
+              exercise_slots: [{
+                id: 'sl-1', sets: 2, reps: 5, duration_seconds: null, weight_kg: 100,
+                exercise: { id: 'e-1', name: 'Bench', type: 'push', volume_weight: 1 },
+                set_logs: [
+                  { set_number: 1, target_reps: 5, target_weight_kg: 100 },
+                  { set_number: 2, target_reps: 5, target_weight_kg: 100 },
+                ],
+              }],
+            }],
+          }],
+        },
+      ],
+      // 2 prescribed sets done + 1 STUDENT-ADDED extra set done.
+      setLogsData: [
+        { id: 'l-1', exercise_slot_id: 'sl-1', done: true, is_student_added: false, target_reps: 5, target_weight_kg: 100 },
+        { id: 'l-2', exercise_slot_id: 'sl-1', done: true, is_student_added: false, target_reps: 5, target_weight_kg: 100 },
+        { id: 'l-3', exercise_slot_id: 'sl-1', done: true, is_student_added: true, target_reps: null, target_weight_kg: null, actual_reps: 8, actual_weight_kg: 100 },
+      ],
+    });
+    setup.register();
+    const qc = makeClient();
+    const { result } = renderHook(() => useStudentProgressStats(), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const wk = result.current.data.weeklyVolume[0];
+    // Adherence counts the 2 prescribed sets, NOT the extra → 2/2 = 100%.
+    expect(wk.sets_done).toBe(2);
+    expect(wk.sets_prescribed).toBe(2);
+    // The extra set still counts toward performed tonnage (real work):
+    // (5×100)+(5×100)+(8×100) = 1800.
+    const p = result.current.data.exerciseProgress.byExercise['e-1'][0];
+    expect(p.tonnage).toBe(1800);
   });
 
   it('falls back to slot scalars when set_logs are empty', async () => {
@@ -379,7 +469,9 @@ describe('useStudentProgressStats — completion + tonnage', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     const ex = result.current.data.exerciseProgress;
     const points = ex.byExercise[ex.exercises[0].id];
-    expect(points[0].tonnage).toBe(4 * 5 * 100);
+    // Slot-scalar fallback feeds the PLANNED tonnage (sets × reps × weight).
+    expect(points[0].plannedTonnage).toBe(4 * 5 * 100);
+    expect(points[0].tonnage).toBe(0); // nothing logged done
   });
 
   it('caps recentConfirmations at 5 newest', async () => {

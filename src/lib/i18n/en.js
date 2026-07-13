@@ -187,6 +187,16 @@ const en = {
       scopeLabel: 'Stats scope',
       scopeAll: 'All programs',
       scopeActiveOption: '{name} (active)',
+      setsAdherence: '{done}/{total} · {pct}%',
+      volumePerformedNote: 'Bars show performed volume; the faint track is what was planned.',
+      chart: {
+        noExercises: 'No weighted exercises in your program yet.',
+        noData: 'No data for this exercise yet.',
+        ariaLabel: 'Weekly performed-tonnage chart',
+        performedCaption: 'Performed tonnage = Σ (reps × weight on done sets; BW = 1 kg). Peak:',
+        peak: '{n} kg',
+        plannedLegend: 'Dashed line = planned tonnage.',
+      },
     },
   },
   coach: {

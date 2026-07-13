@@ -163,13 +163,41 @@ export function useStudentProgressStats(studentId, scope = 'all') {
             supabase
               .from('set_logs')
               .select(
-                'id, exercise_slot_id, done, rpe, logged_at, exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at))))'
-              ),
+                'id, exercise_slot_id, set_number, done, failed, skipped, is_student_added, rpe, logged_at, target_reps, target_weight_kg, actual_reps, actual_weight_kg, exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at))))'
+              )
+              // Explicit high cap: performed metrics come from this flat query
+              // while planned comes from the tree, so a silent PostgREST
+              // default-row truncation would undercount performed and make a
+              // long-tenured student look like they stopped. The real fix is a
+              // server-side stats RPC (roadmap); this pushes the cap well past
+              // realistic single-student volume in the meantime.
+              .limit(20000),
             'exercise_slots.sessions.weeks.programs'
           )
         : { data: [], error: null };
       if (logErr) throw logErr;
       const setLogs = logRows || [];
+
+      // Performance index: every set_log's actuals keyed by slot, so the
+      // weekly-volume and per-exercise charts can reflect PERFORMED work
+      // (what the student actually did — actuals override targets, skips and
+      // undone sets count 0) instead of the coach's prescription alone. This
+      // is what makes the off-plan actuals + deviations features visible in
+      // the motivation loop.
+      const perfBySlot = new Map();
+      for (const l of setLogs) {
+        if (!perfBySlot.has(l.exercise_slot_id)) perfBySlot.set(l.exercise_slot_id, []);
+        perfBySlot.get(l.exercise_slot_id).push(l);
+      }
+      // Reps a done set actually contributed (logged actual overrides the
+      // prescribed target); non-done / skipped sets contribute nothing.
+      const performedReps = (l) => (l.done ? (l.actual_reps ?? l.target_reps ?? 0) : 0);
+      // Effective load for tonnage: actual overrides target; bodyweight
+      // (null / 0) counts as 1kg so the curve stays visible.
+      const performedWeight = (l) => {
+        const w = l.actual_weight_kg ?? l.target_weight_kg;
+        return w != null && Number(w) > 0 ? Number(w) : 1;
+      };
 
       // ─── Derived aggregates ───────────────────────────────────────────────
 
@@ -199,12 +227,39 @@ export function useStudentProgressStats(studentId, scope = 'all') {
       // session doesn't make its prescribed load vanish from the chart.
       // Progress counts use sessions (non-archived only).
       const weeklyVolume = weeks.map((w) => {
+        // Prescribed volume (planned) — reference line.
         let pull = 0;
         let push = 0;
+        // Performed volume (what was actually done) — the primary bar.
+        let pullDone = 0;
+        let pushDone = 0;
+        // Adherence: done vs prescribed sets across the week.
+        let setsPrescribed = 0;
+        let setsDone = 0;
         for (const s of w.volumeSessions || []) {
           const v = computeSessionVolume(s.exercise_slots || []);
           pull += v.pull;
           push += v.push;
+          for (const slot of s.exercise_slots || []) {
+            const ex = slot.exercise;
+            const perf = perfBySlot.get(slot.id) || [];
+            setsPrescribed += slot.sets || 0;
+            // Adherence measures the PRESCRIBED work done, so student-added
+            // extra sets don't push it over 100% (they're bonus, and
+            // sets_prescribed never counts them). They still count toward
+            // performed volume/tonnage below — that's real work.
+            setsDone += perf.filter((l) => l.done && !l.is_student_added).length;
+            if (!ex || !ex.type) continue;
+            // Performed training volume mirrors computeSessionVolume's
+            // difficulty × reps × volume_weight, but sums ACTUAL reps of
+            // done sets instead of prescribed reps.
+            let doneReps = 0;
+            for (const l of perf) doneReps += performedReps(l);
+            if (doneReps <= 0) continue;
+            const vol = ex.difficulty * doneReps * Number(ex.volume_weight);
+            if (ex.type === 'pull') pullDone += vol;
+            else if (ex.type === 'push') pushDone += vol;
+          }
         }
         let sessionsConfirmed = 0;
         for (const s of w.sessions || []) {
@@ -217,8 +272,13 @@ export function useStudentProgressStats(studentId, scope = 'all') {
           program_id: w.program_id,
           program_name: w.program_name,
           program_is_active: w.program_is_active,
-          pull,
-          push,
+          // Performed (primary); prescribed kept as *_planned for the ghost.
+          pull: pullDone,
+          push: pushDone,
+          pull_planned: pull,
+          push_planned: push,
+          sets_done: setsDone,
+          sets_prescribed: setsPrescribed,
           sessions_confirmed: sessionsConfirmed,
           sessions_total: (w.sessions || []).length,
         };
@@ -227,40 +287,59 @@ export function useStudentProgressStats(studentId, scope = 'all') {
       const weeksActive = weeklyVolume.filter((w) => w.sessions_confirmed > 0).length;
 
       // ─── Per-exercise weekly tonnage ─────────────────────────────────────
-      // For each exercise used anywhere in the in-scope programs, build one
-      // point per week: tonnage = Σ(target_reps × target_weight_kg) over
-      // every set_log of every slot using that exercise in that week.
-      // Bodyweight (null/0) counts as 1kg so the curve stays visible. Each
-      // point carries program_id/program_name + a stable `key` so the chart
-      // can render multiple programs side-by-side without colliding on
-      // week_number.
+      // One point per week per exercise. `tonnage` is PERFORMED — Σ(effective
+      // reps × effective weight) over DONE sets (actuals override targets),
+      // so a student who deviated sees their real numbers, not the plan.
+      // KNOWN LIMITATION: an exercise SWAP (slot_deviations.substitute_
+      // exercise_id) still credits performed work to the slot's ORIGINAL
+      // exercise, because this hook doesn't read slot_deviations. Skips are
+      // handled (done=false → 0). Correct swap attribution is deferred to the
+      // deviation-aware-stats follow-up (needs the substitute's metadata).
+      // `plannedTonnage` keeps the prescribed Σ(target_reps × target_weight)
+      // as a reference. Bodyweight (null/0) counts as 1kg. Each point carries
+      // program_id/program_name + a stable `key` so the chart can render
+      // multiple programs side-by-side without colliding on week_number.
       const exerciseMeta = {};   // id → { id, name, type }
-      const byExercise = {};     // id → [{ week_id, week_number, label, program_id, program_name, tonnage, key }]
+      const byExercise = {};     // id → [{ week_id, week_number, …, tonnage, plannedTonnage, key }]
       for (const w of weeks) {
-        const perExerciseTonnage = {};
+        const perExercise = {};  // exId → { tonnage, plannedTonnage }
         for (const s of w.sessions || []) {
           for (const slot of s.exercise_slots || []) {
             const ex = slot.exercise;
             if (!ex) continue;
-            let tonnage = 0;
-            const logs = slot.set_logs || [];
-            if (logs.length > 0) {
-              for (const l of logs) {
+
+            // Prescribed tonnage (reference), from the slot's target logs.
+            let planned = 0;
+            const targetLogs = slot.set_logs || [];
+            if (targetLogs.length > 0) {
+              for (const l of targetLogs) {
                 if (l.target_reps == null) continue;
                 const w_ = l.target_weight_kg && l.target_weight_kg > 0 ? Number(l.target_weight_kg) : 1;
-                tonnage += l.target_reps * w_;
+                planned += l.target_reps * w_;
               }
             } else {
               const reps = slot.reps || 0;
               const w_ = slot.weight_kg && slot.weight_kg > 0 ? Number(slot.weight_kg) : 1;
-              tonnage = (slot.sets || 0) * reps * w_;
+              planned = (slot.sets || 0) * reps * w_;
             }
-            if (tonnage <= 0) continue;
+
+            // Performed tonnage, from the flat set_logs' actuals on done sets.
+            let performed = 0;
+            for (const l of perfBySlot.get(slot.id) || []) {
+              const reps = performedReps(l);
+              if (reps <= 0) continue;
+              performed += reps * performedWeight(l);
+            }
+
+            if (planned <= 0 && performed <= 0) continue;
             exerciseMeta[ex.id] = { id: ex.id, name: ex.name, type: ex.type };
-            perExerciseTonnage[ex.id] = (perExerciseTonnage[ex.id] || 0) + tonnage;
+            const acc = perExercise[ex.id] || { tonnage: 0, plannedTonnage: 0 };
+            acc.tonnage += performed;
+            acc.plannedTonnage += planned;
+            perExercise[ex.id] = acc;
           }
         }
-        for (const exId of Object.keys(perExerciseTonnage)) {
+        for (const exId of Object.keys(perExercise)) {
           if (!byExercise[exId]) byExercise[exId] = [];
           byExercise[exId].push({
             week_id: w.id,
@@ -268,9 +347,8 @@ export function useStudentProgressStats(studentId, scope = 'all') {
             label: w.label,
             program_id: w.program_id,
             program_name: w.program_name,
-            tonnage: perExerciseTonnage[exId],
-            // Unique key for the chart — week_number alone collides across
-            // programs (W1 of block A vs W1 of block B).
+            tonnage: perExercise[exId].tonnage,
+            plannedTonnage: perExercise[exId].plannedTonnage,
             key: `${w.program_id}:${w.id}`,
           });
         }

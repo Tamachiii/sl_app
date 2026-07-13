@@ -187,6 +187,16 @@ const de = {
       scopeLabel: 'Stats-Bereich',
       scopeAll: 'Alle Programme',
       scopeActiveOption: '{name} (aktiv)',
+      setsAdherence: '{done}/{total} · {pct}%',
+      volumePerformedNote: 'Balken zeigen das absolvierte Volumen; die blasse Spur ist das geplante.',
+      chart: {
+        noExercises: 'Noch keine Übungen mit Gewicht im Programm.',
+        noData: 'Noch keine Daten für diese Übung.',
+        ariaLabel: 'Diagramm des wöchentlich absolvierten Tonnage',
+        performedCaption: 'Absolvierte Tonnage = Σ (Wdh. × Gewicht bei erledigten Sätzen; KG = 1 kg). Spitze:',
+        peak: '{n} kg',
+        plannedLegend: 'Gestrichelte Linie = geplante Tonnage.',
+      },
     },
   },
   coach: {

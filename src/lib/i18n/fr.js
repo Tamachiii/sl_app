@@ -187,6 +187,16 @@ const fr = {
       scopeLabel: 'Étendue des stats',
       scopeAll: 'Tous les programmes',
       scopeActiveOption: '{name} (actif)',
+      setsAdherence: '{done}/{total} · {pct}%',
+      volumePerformedNote: 'Les barres montrent le volume réalisé ; la piste claire, le volume prévu.',
+      chart: {
+        noExercises: 'Aucun exercice avec charge dans ton programme.',
+        noData: 'Pas encore de données pour cet exercice.',
+        ariaLabel: 'Graphique du tonnage réalisé par semaine',
+        performedCaption: 'Tonnage réalisé = Σ (reps × charge sur séries faites ; PDC = 1 kg). Pic :',
+        peak: '{n} kg',
+        plannedLegend: 'Ligne pointillée = tonnage prévu.',
+      },
     },
   },
   coach: {

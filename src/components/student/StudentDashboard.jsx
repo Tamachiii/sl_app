@@ -18,6 +18,7 @@ import {
 import SessionCalendar from './SessionCalendar';
 import ExerciseProgressChart from './ExerciseProgressChart';
 import ProgramScopeSelector from './ProgramScopeSelector';
+import WeeklyVolumePanel, { computeMaxWeeklyTotal } from './WeeklyVolumePanel';
 
 const STATS_PREFS_KEY = statsPrefsKey({ surface: 'self' });
 const EXERCISE_STORAGE_KEY = exerciseStorageKey(STATS_PREFS_KEY);
@@ -30,34 +31,6 @@ function StatCard({ label, value, sub }) {
         {value}
       </div>
       {sub && <div className="sl-mono text-[11px] text-ink-400 mt-1">{sub}</div>}
-    </div>
-  );
-}
-
-function VolumeWeekRow({ week, maxTotal }) {
-  const { week_number, label, pull, push } = week;
-  const total = pull + push;
-  const rowPct = maxTotal === 0 ? 0 : (total / maxTotal) * 100;
-  const pullPct = total === 0 ? 0 : (pull / total) * 100;
-  const pushPct = total === 0 ? 0 : (push / total) * 100;
-
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-baseline justify-between">
-        <span className="sl-mono text-[11px] text-gray-800">
-          W{week_number}
-          {label && <span className="text-ink-400 ml-1.5">{label}</span>}
-        </span>
-        <span className="sl-mono text-[11px] text-ink-400 tabular-nums">{Math.round(total)}</span>
-      </div>
-      <div className="h-2.5 rounded-full bg-ink-100 overflow-hidden" aria-hidden="true">
-        {total > 0 ? (
-          <div className="flex h-full" style={{ width: `${rowPct}%` }}>
-            {pull > 0 && <div className="bg-pull" style={{ width: `${pullPct}%` }} />}
-            {push > 0 && <div className="bg-push" style={{ width: `${pushPct}%` }} />}
-          </div>
-        ) : null}
-      </div>
     </div>
   );
 }
@@ -120,10 +93,10 @@ export default function StudentDashboard() {
     [data]
   );
 
-  const maxWeeklyTotal = useMemo(() => {
-    if (!recentWeeklyVolume.length) return 0;
-    return Math.max(...recentWeeklyVolume.map((w) => w.pull + w.push));
-  }, [recentWeeklyVolume]);
+  const maxWeeklyTotal = useMemo(
+    () => computeMaxWeeklyTotal(recentWeeklyVolume),
+    [recentWeeklyVolume]
+  );
 
   if (isLoading) {
     return (
@@ -209,27 +182,7 @@ export default function StudentDashboard() {
 
           <section aria-labelledby="volume-heading">
             <SectionHeading id="volume-heading">{t('student.stats.weeklyVolume')}</SectionHeading>
-            <div className="sl-card p-4 space-y-3">
-              {maxWeeklyTotal === 0 ? (
-                <p className="sl-mono text-[11px] text-ink-400">{t('student.stats.noVolume')}</p>
-              ) : (
-                recentWeeklyVolume.map((w) => (
-                  <VolumeWeekRow key={w.week_id} week={w} maxTotal={maxWeeklyTotal} />
-                ))
-              )}
-              {maxWeeklyTotal > 0 && (
-                <div className="flex justify-between sl-mono text-[11px] text-ink-400 pt-2 border-t border-ink-100">
-                  <span className="flex items-center gap-1.5">
-                    <span className="inline-block w-2 h-2 rounded-full bg-pull" />
-                    PULL
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    PUSH
-                    <span className="inline-block w-2 h-2 rounded-full bg-push" />
-                  </span>
-                </div>
-              )}
-            </div>
+            <WeeklyVolumePanel weeks={recentWeeklyVolume} maxTotal={maxWeeklyTotal} t={t} />
           </section>
 
           <section aria-labelledby="progress-heading">
