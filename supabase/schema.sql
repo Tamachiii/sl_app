@@ -392,11 +392,15 @@ CREATE POLICY "Students update own set logs"
     AND public.program_active_for_slot(exercise_slot_id) = true
   );
 
+-- DELETE is narrowed to student-added rows (2026_07_12): the target-pin
+-- trigger only guards UPDATE, so an unrestricted DELETE would let a student
+-- remove a prescribed row and re-INSERT it with forged targets.
 CREATE POLICY "Students delete own set logs"
   ON public.set_logs FOR DELETE
   USING (
     public.student_profile_for_slot(exercise_slot_id) = auth.uid()
     AND public.program_active_for_slot(exercise_slot_id) = true
+    AND is_student_added = true
   );
 
 -- ============================================================
@@ -753,7 +757,10 @@ BEGIN
   INSERT INTO public.profiles (id, role, full_name)
   VALUES (
     NEW.id,
-    COALESCE(NEW.raw_user_meta_data->>'role', 'student'),
+    -- Never trust client-supplied metadata for the role (2026_07_12): the
+    -- anon key is public, so signup metadata is attacker-controlled. Coach
+    -- promotion is a manual UPDATE on profiles.
+    'student',
     COALESCE(NEW.raw_user_meta_data->>'full_name', '')
   );
   RETURN NEW;
@@ -1562,3 +1569,85 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Trigger already exists from 2026_04_30_notifications.sql; the function
 -- replacement above takes effect without re-creating the trigger.
+
+-- ============================================================
+-- TRIGGER: Web Push for ordinary chat messages (2026_07_12)
+-- Chat rows (session_id IS NULL) fire a best-effort push to the
+-- recipient; no notifications row (the Messages badge is the in-app
+-- surface). Tag 'chat-<sender>' collapses a burst into one entry.
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.notify_recipient_on_chat_message()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_sender_name     text;
+  v_sender_role     text;
+  v_functions_url   text;
+  v_service_key     text;
+  v_body_preview    text;
+BEGIN
+  -- Feedback messages are handled by notify_student_on_session_feedback.
+  IF NEW.session_id IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+
+  BEGIN
+    SELECT decrypted_secret INTO v_functions_url
+      FROM vault.decrypted_secrets
+     WHERE name = 'app_functions_url';
+    SELECT decrypted_secret INTO v_service_key
+      FROM vault.decrypted_secrets
+     WHERE name = 'app_service_role_key';
+
+    IF v_functions_url IS NOT NULL
+       AND v_service_key IS NOT NULL
+       AND v_functions_url <> ''
+       AND v_service_key <> ''
+    THEN
+      -- One lookup covers both ends: the recipient's surface is the
+      -- opposite of the sender's role, and the no-name fallback names the
+      -- sender's role (blank full_name is the default after signup).
+      SELECT p.full_name, p.role INTO v_sender_name, v_sender_role
+        FROM public.profiles p
+       WHERE p.id = NEW.sender_id;
+
+      v_body_preview := LEFT(BTRIM(NEW.body), 200);
+
+      PERFORM net.http_post(
+        url := v_functions_url || '/send-push',
+        headers := jsonb_build_object(
+          'Content-Type', 'application/json',
+          'Authorization', 'Bearer ' || v_service_key
+        ),
+        body := jsonb_build_object(
+          'user_id', NEW.recipient_id,
+          'payload', jsonb_build_object(
+            'title', 'Message from ' || COALESCE(
+                       NULLIF(BTRIM(v_sender_name), ''),
+                       CASE WHEN v_sender_role = 'coach' THEN 'your coach' ELSE 'your student' END
+                     ),
+            'body',  COALESCE(NULLIF(v_body_preview, ''), 'Tap to read.'),
+            'tag',   'chat-' || NEW.sender_id::text,
+            'data',  jsonb_build_object(
+              'url', '/sl_app/#/'
+                     || CASE WHEN v_sender_role = 'coach' THEN 'student' ELSE 'coach' END
+                     || '/messages'
+            )
+          )
+        )
+      );
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Push delivery must never break the message INSERT; the realtime
+    -- badge still updates for open tabs.
+    RAISE WARNING 'chat push fan-out failed: %', SQLERRM;
+  END;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_chat_message_push ON public.messages;
+CREATE TRIGGER on_chat_message_push
+  AFTER INSERT ON public.messages
+  FOR EACH ROW
+  EXECUTE FUNCTION public.notify_recipient_on_chat_message();
