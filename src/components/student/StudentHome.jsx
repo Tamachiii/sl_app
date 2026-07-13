@@ -118,7 +118,7 @@ function DayCell({ dayLabel, dayName, dateNumber, session, confirmed, archived, 
 
 // ─── Greeting block ────────────────────────────────────────────────────────
 
-function Greeting({ fullName, todayDN, todaysMessage, activeWeek, onSignOut }) {
+function Greeting({ fullName, todayDN, todaysMessage, adherence, activeWeek, onSignOut }) {
   const { t } = useI18n();
   const firstName = (fullName || '').split(' ')[0] || 'there';
 
@@ -136,6 +136,11 @@ function Greeting({ fullName, todayDN, todaysMessage, activeWeek, onSignOut }) {
           <div className="sl-label mb-1.5 truncate">{metaBits.join(' · ')}</div>
           <div className="sl-display text-[32px] md:text-[44px] text-gray-900 truncate">{t('student.home.hey')}, {firstName}.</div>
           <p className="sl-mono text-[11px] text-ink-400 mt-2">{todaysMessage}</p>
+          {adherence && adherence.total > 0 && (
+            <p className="sl-mono text-[11px] text-ink-400 mt-1">
+              {t('student.home.weekAdherence', { done: adherence.done, total: adherence.total })}
+            </p>
+          )}
         </div>
         <UserMenu fullName={fullName} onSignOut={onSignOut} profileHref="/student/profile" />
       </div>
@@ -217,20 +222,31 @@ export default function StudentHome() {
     return byDay;
   }, [weekSessions, confirmedIds]);
 
+  // One placement rule for a calendar day: the dated session for that date,
+  // else (when allowed) the active week's undated session for that weekday —
+  // collisions resolved by preferSession, so dated placement wins ties but an
+  // archived or confirmed dated session never hides a pending undated one.
+  // Both the strip (daySlots) and the greeting's adherence line use this, so
+  // the two can never disagree.
+  const placeDay = (monday, i, useUndatedFallback) =>
+    preferSession(
+      sessionsByDate.get(isoDate(addDays(monday, i)))?.session ?? null,
+      useUndatedFallback ? undatedByDay[i + 1] ?? null : null,
+      confirmedIds
+    );
+
   const daySlots = useMemo(
     () =>
       Array.from({ length: 7 }, (_, i) => {
         const date = addDays(displayedMonday, i);
-        const dated = sessionsByDate.get(isoDate(date))?.session ?? null;
-        const fallback = weekOffset === 0 ? undatedByDay[i + 1] ?? null : null;
         return {
           dayNumber: i + 1,
           label: DAY_LABELS[i],
           name: DAY_FULL_LONG[i],
           dateNumber: date.getDate(),
-          // Dated placement wins ties, but preferSession keeps an archived
-          // or confirmed dated session from hiding a pending undated one.
-          session: preferSession(dated, fallback, confirmedIds),
+          // Undated sessions have no calendar anchor — they only place on
+          // the real current week.
+          session: placeDay(displayedMonday, i, weekOffset === 0),
         };
       }),
     [displayedMonday, sessionsByDate, undatedByDay, weekOffset, confirmedIds]
@@ -311,6 +327,21 @@ export default function StudentHome() {
     todaysMessage = t('student.home.todayPending');
   }
 
+  // "2/3 sessions done this week" — always the REAL current week (weekOffset
+  // navigation doesn't move it), placed by the same placeDay rule as the
+  // strip's current-week view.
+  const weekAdherence = useMemo(() => {
+    let total = 0;
+    let done = 0;
+    for (let i = 0; i < 7; i++) {
+      const s = placeDay(currentMonday, i, true);
+      if (!s || s.archived_at) continue;
+      total += 1;
+      if (confirmedIds.has(s.id)) done += 1;
+    }
+    return { total, done };
+  }, [sessionsByDate, currentMonday, undatedByDay, confirmedIds]);
+
   if (isLoading) {
     return (
       <>
@@ -339,6 +370,7 @@ export default function StudentHome() {
             fullName={profile.full_name}
             todayDN={todayDN}
             todaysMessage={todaysMessage}
+            adherence={weekAdherence}
             activeWeek={activeWeek}
             onSignOut={signOut}
           />

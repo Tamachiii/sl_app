@@ -178,7 +178,9 @@ describe('useUpdateSlot', () => {
     };
     const logsUpdate = {
       update: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({ error: null }),
+      // Two chained .eq() calls (slot id + is_student_added guard); awaiting
+      // the non-thenable chain object resolves to it, with `error` undefined.
+      eq: vi.fn().mockReturnThis(),
     };
     let call = 0;
     supabase.from.mockImplementation(() => (call++ === 0 ? slotUpdate : logsUpdate));
@@ -190,6 +192,8 @@ describe('useUpdateSlot', () => {
 
     expect(slotUpdate.update).toHaveBeenCalledWith({ reps: 12 });
     expect(logsUpdate.update).toHaveBeenCalledWith({ target_reps: 12 });
+    expect(logsUpdate.eq).toHaveBeenCalledWith('exercise_slot_id', 'sl-1');
+    expect(logsUpdate.eq).toHaveBeenCalledWith('is_student_added', false);
   });
 
   it('reconciles set_log count when sets is reduced', async () => {
@@ -281,6 +285,109 @@ describe('useUpdateSlot', () => {
       target_rest_seconds: 60,
       done: false,
     });
+  });
+
+  it('reduce never deletes student-added extra sets (they are not prescription)', async () => {
+    const slotUpdate = {
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: { id: 'sl-1' }, error: null }),
+    };
+    const existingLogs = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockResolvedValue({
+        data: [
+          { id: 'l-1', set_number: 1, is_student_added: false },
+          { id: 'l-2', set_number: 2, is_student_added: false },
+          { id: 'l-3', set_number: 3, is_student_added: false },
+          // The student's logged extra set sits at the top of the shared
+          // set_number space — it must survive a coach sets-decrease.
+          { id: 'l-extra', set_number: 4, is_student_added: true },
+        ],
+        error: null,
+      }),
+    };
+    const deleteLogs = {
+      delete: vi.fn().mockReturnThis(),
+      in: vi.fn().mockResolvedValue({ error: null }),
+    };
+    // After the delete, the surviving extra is re-homed to close the gap
+    // (park then place) so it doesn't render as "Set 4" on a 2-set slot.
+    const parkChain = {
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ error: null }),
+    };
+    const placeChain = {
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ error: null }),
+    };
+    const seq = [slotUpdate, existingLogs, deleteLogs, parkChain, placeChain];
+    let i = 0;
+    supabase.from.mockImplementation(() => seq[i++]);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useUpdateSlot(), { wrapper: withClient(qc) });
+    result.current.mutate({ id: 'sl-1', sessionId: 's-1', sets: 2 });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(deleteLogs.in).toHaveBeenCalledWith('id', ['l-3']);
+    expect(parkChain.update).toHaveBeenCalledWith({ set_number: 100004 });
+    expect(placeChain.update).toHaveBeenCalledWith({ set_number: 3 });
+    expect(placeChain.eq).toHaveBeenCalledWith('id', 'l-extra');
+  });
+
+  it('increase parks student-added sets, inserts from the last PRESCRIBED template, and re-homes the extras', async () => {
+    const slotUpdate = {
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: { id: 'sl-1' }, error: null }),
+    };
+    const existingLogs = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockResolvedValue({
+        data: [
+          { id: 'l-1', set_number: 1, is_student_added: false, target_reps: 5, target_duration_seconds: null, target_weight_kg: 100, target_rest_seconds: 60 },
+          { id: 'l-2', set_number: 2, is_student_added: false, target_reps: 5, target_duration_seconds: null, target_weight_kg: 100, target_rest_seconds: 60 },
+          // NULL-target student extra at set 3 — before the fix, an increase
+          // to 3 no-oped (count matched) or templated NULL targets from it.
+          { id: 'l-extra', set_number: 3, is_student_added: true, target_reps: null, target_duration_seconds: null, target_weight_kg: null, target_rest_seconds: null },
+        ],
+        error: null,
+      }),
+    };
+    const parkChain = {
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ error: null }),
+    };
+    const insertLogs = {
+      insert: vi.fn().mockResolvedValue({ error: null }),
+    };
+    const placeChain = {
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ error: null }),
+    };
+    const seq = [slotUpdate, existingLogs, parkChain, insertLogs, placeChain];
+    let i = 0;
+    supabase.from.mockImplementation(() => seq[i++]);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useUpdateSlot(), { wrapper: withClient(qc) });
+    result.current.mutate({ id: 'sl-1', sessionId: 's-1', sets: 3 });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    // Extra parked out of the way…
+    expect(parkChain.update).toHaveBeenCalledWith({ set_number: 100003 });
+    expect(parkChain.eq).toHaveBeenCalledWith('id', 'l-extra');
+    // …the new prescribed row templates from the last PRESCRIBED log…
+    const inserted = insertLogs.insert.mock.calls[0][0];
+    expect(inserted.map((r) => r.set_number)).toEqual([3]);
+    expect(inserted[0]).toMatchObject({ target_reps: 5, target_weight_kg: 100 });
+    // …and the extra lands contiguously after the new prescription.
+    expect(placeChain.update).toHaveBeenCalledWith({ set_number: 4 });
+    expect(placeChain.eq).toHaveBeenCalledWith('id', 'l-extra');
   });
 });
 
@@ -440,7 +547,8 @@ describe('useResetSlotToUniform', () => {
     };
     const updateLogs = {
       update: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({ error: null }),
+      // Chained .eq().eq() (slot id + is_student_added guard).
+      eq: vi.fn().mockReturnThis(),
     };
     const updateSlot = {
       update: vi.fn().mockReturnThis(),

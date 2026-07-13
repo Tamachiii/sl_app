@@ -77,6 +77,15 @@ export default function SessionsFeed() {
     }
     return { active: a, archived: b };
   }, [confirmations, studentFilter]);
+  const needsReview = useMemo(() => active.filter((c) => !c.reviewed_at), [active]);
+
+  // The feed defaults to an inbox: only confirmations still awaiting review,
+  // with "All" restoring the full history. Exception: arriving with a
+  // ?student= deep link (the profile tab's "View sessions") is a
+  // history-browsing gesture — land those on "All" so a fully-reviewed
+  // student doesn't greet the coach with an empty page.
+  const [showAll, setShowAll] = useState(() => !!searchParams.get('student'));
+  const visibleActive = showAll ? active : needsReview;
 
   function handleFilterChange(e) {
     const value = e.target.value;
@@ -115,10 +124,9 @@ export default function SessionsFeed() {
           <div className="flex items-center gap-1.5 shrink-0">
             {isReviewed && (
               <span
-                className="sl-pill"
+                className="sl-pill text-ink-900"
                 style={{
                   background: 'color-mix(in srgb, var(--color-success) 18%, transparent)',
-                  color: 'var(--color-ink-900)',
                 }}
               >
                 {t('coach.sessions.reviewed')}
@@ -126,10 +134,9 @@ export default function SessionsFeed() {
             )}
             {isArchived && (
               <span
-                className="sl-pill"
+                className="sl-pill text-ink-900"
                 style={{
                   background: 'color-mix(in srgb, var(--color-warn) 18%, transparent)',
-                  color: 'var(--color-ink-900)',
                 }}
               >
                 {t('common.archived')}
@@ -182,14 +189,47 @@ export default function SessionsFeed() {
         </label>
       )}
 
+      {(active.length > 0 || archived.length > 0) && (
+        <div
+          className="flex items-center gap-1.5"
+          role="group"
+          aria-label={t('coach.sessions.reviewFilterLabel')}
+        >
+          <button
+            type="button"
+            aria-pressed={!showAll}
+            onClick={() => setShowAll(false)}
+            className={`sl-pill ${
+              !showAll ? 'bg-accent text-ink-900' : 'bg-ink-100 text-ink-700 hover:bg-ink-200'
+            }`}
+          >
+            {t('coach.sessions.filterNeedsReview')}
+            {needsReview.length > 0 ? ` · ${needsReview.length}` : ''}
+          </button>
+          <button
+            type="button"
+            aria-pressed={showAll}
+            onClick={() => setShowAll(true)}
+            className={`sl-pill ${
+              showAll ? 'bg-accent text-ink-900' : 'bg-ink-100 text-ink-700 hover:bg-ink-200'
+            }`}
+          >
+            {t('coach.sessions.filterAll')}
+          </button>
+        </div>
+      )}
+
       {active.length === 0 && archived.length === 0 && (
         <EmptyState message={studentFilter ? t('coach.sessions.noneForStudent') : t('coach.sessions.noneYet')} />
       )}
       {active.length === 0 && archived.length > 0 && !showArchived && (
         <EmptyState message={t('coach.sessions.allArchived')} />
       )}
+      {!showAll && needsReview.length === 0 && active.length > 0 && (
+        <EmptyState message={t('coach.sessions.allReviewed')} />
+      )}
 
-      <div className="space-y-3 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">{active.map(renderCard)}</div>
+      <div className="space-y-3 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">{visibleActive.map(renderCard)}</div>
 
       {archived.length > 0 && (
         <button

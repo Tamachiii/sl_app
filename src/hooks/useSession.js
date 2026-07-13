@@ -16,7 +16,7 @@ export function useSession(sessionId) {
           exercise_slots(
             *,
             exercise:exercise_library(*),
-            set_logs(id, set_number, done, rpe, weight_kg, target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds)
+            set_logs(id, set_number, done, rpe, weight_kg, is_student_added, target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds)
           )
         `)
         .eq('id', sessionId)
@@ -122,33 +122,69 @@ async function fanOutTargetUpdate(slotId, slotUpdates) {
   const { error } = await supabase
     .from('set_logs')
     .update(targetUpdate)
-    .eq('exercise_slot_id', slotId);
+    .eq('exercise_slot_id', slotId)
+    // Never stamp coach targets onto a student's extra set — those rows are
+    // deliberately NULL-target ("extra, beyond the prescription").
+    .eq('is_student_added', false);
   if (error) throw error;
 }
 
 // When the coach increases `sets`, materialize new set_logs duplicating the
 // last existing log's targets. When they decrease, drop the now-orphan rows.
+// Student-added extra sets (is_student_added) share the UNIQUE(exercise_slot_
+// id, set_number) space but are NOT part of the prescription: they are
+// excluded from the count, never deleted on a decrease, never used as the
+// targets template, and renumbered to stay above the prescription when an
+// increase needs their positions (park-then-place, same pattern as
+// useRemoveSet — the offsets are far above any real set_number).
 async function reconcileSetLogCount(slotId, nextSets) {
   const { data: existing, error: exErr } = await supabase
     .from('set_logs')
-    .select('id, set_number, target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds')
+    .select('id, set_number, is_student_added, target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds')
     .eq('exercise_slot_id', slotId)
     .order('set_number');
   if (exErr) throw exErr;
 
-  const currentCount = existing.length;
+  const prescribed = existing.filter((l) => !l.is_student_added);
+  const studentAdded = existing.filter((l) => l.is_student_added);
+  const currentCount = prescribed.length;
   if (nextSets === currentCount) return;
 
+  // Student-added rows must end up contiguously after the new prescription
+  // (targets nextSets+1, nextSets+2, …). Rows already in place are left
+  // alone; the rest go through park-then-place so no hop can collide with a
+  // not-yet-moved sibling in the UNIQUE(exercise_slot_id, set_number) space.
+  const moves = studentAdded
+    .map((l, i) => ({ id: l.id, park: l.set_number + 100000, target: nextSets + 1 + i }))
+    .filter((m, i) => studentAdded[i].set_number !== m.target);
+  const applyMoves = async (field) => {
+    for (const m of moves) {
+      const { error } = await supabase
+        .from('set_logs')
+        .update({ set_number: m[field] })
+        .eq('id', m.id);
+      if (error) throw error;
+    }
+  };
+
   if (nextSets < currentCount) {
-    const drop = existing.filter((l) => l.set_number > nextSets).map((l) => l.id);
+    const drop = prescribed.filter((l) => l.set_number > nextSets).map((l) => l.id);
     if (drop.length > 0) {
       const { error } = await supabase.from('set_logs').delete().in('id', drop);
       if (error) throw error;
     }
+    // Close the gap the deletion leaves so the student's extra doesn't
+    // render as "Set 6" on a 2-set slot.
+    await applyMoves('park');
+    await applyMoves('target');
     return;
   }
 
-  const template = existing[existing.length - 1] || {};
+  // Increase: park first so the new prescribed rows can take the extras'
+  // numbers, insert, then place the extras after the new count.
+  await applyMoves('park');
+
+  const template = prescribed[prescribed.length - 1] || {};
   const inserts = [];
   for (let n = currentCount + 1; n <= nextSets; n++) {
     inserts.push({
@@ -165,6 +201,8 @@ async function reconcileSetLogCount(slotId, nextSets) {
     const { error } = await supabase.from('set_logs').insert(inserts);
     if (error) throw error;
   }
+
+  await applyMoves('target');
 }
 
 export function useUpdateSlot() {
@@ -325,11 +363,13 @@ export function useResetSlotToUniform() {
     mutationFn: async ({ slotId, sessionId }) => {
       const { data: rows, error: fErr } = await supabase
         .from('set_logs')
-        .select('id, set_number, target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds')
+        .select('id, set_number, is_student_added, target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds')
         .eq('exercise_slot_id', slotId)
         .order('set_number');
       if (fErr) throw fErr;
-      const head = rows[0];
+      // Template from the first PRESCRIBED set; student extras are not
+      // prescription and must neither seed nor receive targets.
+      const head = (rows || []).find((r) => !r.is_student_added);
       if (!head) return { sessionId };
       const payload = {
         target_reps: head.target_reps,
@@ -340,7 +380,8 @@ export function useResetSlotToUniform() {
       const { error } = await supabase
         .from('set_logs')
         .update(payload)
-        .eq('exercise_slot_id', slotId);
+        .eq('exercise_slot_id', slotId)
+        .eq('is_student_added', false);
       if (error) throw error;
       // Mirror to deprecated slot columns so legacy reads stay consistent.
       const slotMirror = {

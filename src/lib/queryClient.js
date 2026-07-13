@@ -14,6 +14,13 @@ const PERSISTED_QUERY_ROOTS = new Set([
   'slot-deviations',
   'session-confirmation',
   'set-videos',
+  // The StudentHome list source — without these two an offline cold start
+  // dead-ends on a spinner (program details) or renders WRONG data
+  // (confirmations missing → Home regresses to week 1, adherence reads 0/N).
+  // Both cache plain arrays/objects, so they survive JSON persistence;
+  // useMyConfirmedSessionIds derives its Set via `select`, not in the cache.
+  'student-program-details',
+  'my-confirmed-session-ids',
 ]);
 
 const idbStore =
@@ -44,6 +51,13 @@ export function shouldPersistQuery(query) {
   const root = Array.isArray(query.queryKey) ? query.queryKey[0] : null;
   if (typeof root !== 'string') return false;
   if (!PERSISTED_QUERY_ROOTS.has(root)) return false;
+  // Only the 'active' program-details variant is persisted: the 'all'
+  // variant (Sessions-page history) can run to hundreds of KB, and the
+  // persister re-serializes the WHOLE cache blob on every (1s-throttled)
+  // cache event — offline cold-start only needs the active block anyway.
+  if (root === 'student-program-details' && query.queryKey[2] !== 'active') {
+    return false;
+  }
   // Only persist successfully-resolved queries; an errored query has no useful
   // offline value and would survive reloads as a stale failure.
   return query.state.status === 'success';

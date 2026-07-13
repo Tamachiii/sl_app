@@ -233,6 +233,15 @@ export function registerOfflineMutationDefaults(queryClient) {
       // can replay it on reconnect. 'offlineFirst' would try-once-and-fail
       // with retry: 0 — that would silently drop queued writes.
       networkMode: 'online',
+      // Shared scope serializes queued writes into FIFO order on replay.
+      // Without it resumePausedMutations() is a parallel Promise.all, so two
+      // opposite writes to the same row (done → un-done queued offline) could
+      // settle in whichever order the network finishes them. This global
+      // scope is the fallback for mutations HYDRATED after a reload (their
+      // options come from these defaults); live set-log hooks override it
+      // with a per-row scope (see useSetLogs.rowScope) so unrelated rows
+      // don't head-of-line-block each other while online.
+      scope: { id: 'offline-writes' },
     });
   }
 }

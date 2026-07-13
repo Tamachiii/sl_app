@@ -14,7 +14,7 @@ vi.mock('./useAuth', () => ({
   useAuth: () => ({ user: { id: 'me' }, profile: { id: 'me' } }),
 }));
 
-import { pairKey, formatMessageStamp, useGroupedThread, useConversations, useSendMessage, useDeleteMessage } from './useMessages';
+import { pairKey, formatMessageStamp, useGroupedThread, useMessageThread, useConversations, useSendMessage, useDeleteMessage } from './useMessages';
 
 function makeWrapper() {
   const qc = new QueryClient({
@@ -68,6 +68,33 @@ describe('useGroupedThread', () => {
     expect(result.current[0].messages).toHaveLength(2);
     expect(result.current[1].senderId).toBe('b');
     expect(result.current[2].senderId).toBe('a');
+  });
+});
+
+describe('useMessageThread', () => {
+  it('fetches the NEWEST 500 rows (descending) and reverses to oldest-first for render', async () => {
+    // Regression guard: ordering ascending pins the 500-row window to the
+    // OLDEST messages, so once a pair passes 500 total, new messages never
+    // render again while the unread badge keeps counting them.
+    const rows = [
+      { id: 'm2', sender_id: 'me', recipient_id: 'r1', body: 'newest', created_at: '2026-07-12T12:00:00Z' },
+      { id: 'm1', sender_id: 'r1', recipient_id: 'me', body: 'older', created_at: '2026-07-12T11:00:00Z' },
+    ];
+    const order = vi.fn().mockReturnThis();
+    mockSupabase.from.mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      or: vi.fn().mockReturnThis(),
+      order,
+      limit: vi.fn().mockResolvedValue({ data: rows, error: null }),
+    });
+
+    const { Wrapper } = makeWrapper();
+    const { result } = renderHook(() => useMessageThread('r1'), { wrapper: Wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(order).toHaveBeenCalledWith('created_at', { ascending: false });
+    // Server returned newest-first; the hook renders oldest-first.
+    expect(result.current.data.map((m) => m.id)).toEqual(['m1', 'm2']);
   });
 });
 

@@ -106,8 +106,13 @@ export function useMyConfirmedSessionIds() {
         .select('session_id')
         .eq('student_id', user.id);
       if (error) throw error;
-      return new Set((data || []).map((r) => r.session_id));
+      // Cache a plain ARRAY (survives JSON persistence to IndexedDB — a Set
+      // would silently dehydrate to {}); `select` below hands consumers the
+      // Set they expect. Without persisted confirmations an offline cold
+      // start would regress Home to week 1 and misreport adherence.
+      return (data || []).map((r) => r.session_id);
     },
+    select: (ids) => new Set(ids),
     enabled: !!user?.id,
   });
 }

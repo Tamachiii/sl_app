@@ -67,5 +67,9 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: './src/test/setup.js',
+    // Harness-created git worktrees under .claude/ contain a full copy of
+    // the repo; without this exclude vitest runs every suite twice and the
+    // copies fail on a second React instance.
+    exclude: ['**/node_modules/**', '**/dist/**', '.claude/**'],
   },
 });

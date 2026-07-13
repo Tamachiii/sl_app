@@ -22,6 +22,21 @@ import RestTimerBanner from './RestTimerBanner';
 import { useRestTimerEffects } from '../../hooks/useRestTimerEffects';
 import { useRestTimerPush } from '../../hooks/useRestTimerPush';
 
+// A set no longer needs the student's attention iff it was skipped, failed,
+// completed with an RPE, or belongs to an exercise the student skip-deviated
+// (those logs are hidden by SlotGroupCard, so they could otherwise never
+// resolve — pinning the accordion and capping progress below 100% for the
+// rest of the session). The RPE requirement pairs with SetRow's auto-expand
+// on the done transition — see the firstOpenIdx comment.
+function isLogResolved(log, skippedSlotIds) {
+  return (
+    log.skipped ||
+    log.failed ||
+    (log.done && log.rpe != null) ||
+    skippedSlotIds.has(log.exercise_slot_id)
+  );
+}
+
 function SessionTopBar({ title, meta, onBack }) {
   return (
     <div className="flex items-center justify-between gap-3 pt-3 pb-4">
@@ -115,21 +130,33 @@ export default function SessionView() {
     }
   }, [sessionId, slots.length, logs !== undefined, canMaterializeLogs]);
 
-  // Auto-open only the first group that still has unresolved sets. A set is
-  // "resolved" iff failed OR (done AND rpe != null). The RPE requirement
-  // pairs with SetRow's auto-expand on the done transition: without it, the
-  // last set's auto-expanded RPE panel would collapse before the student
-  // can record a value, because the group would advance the moment the set
-  // flips to done. Failed sets bypass — RPE is locked there by design.
+  // Slot ids the student skip-deviated: every log under them counts as
+  // resolved (see isLogResolved).
+  const skippedSlotIds = useMemo(
+    () =>
+      new Set(
+        (slotDeviations || [])
+          .filter((d) => d.kind === 'skip')
+          .map((d) => d.exercise_slot_id)
+      ),
+    [slotDeviations]
+  );
+
+  // Auto-open only the first group that still has unresolved sets (see
+  // isLogResolved for the predicate). The RPE requirement pairs with
+  // SetRow's auto-expand on the done transition: without it, the last set's
+  // auto-expanded RPE panel would collapse before the student can record a
+  // value, because the group would advance the moment the set flips to done.
+  // Failed and skipped sets bypass — RPE is locked/meaningless there.
   const firstOpenIdx = useMemo(() => {
     for (let i = 0; i < slotGroups.length; i++) {
       const gl = slotGroups[i].slots.flatMap((s) =>
         (logs || []).filter((l) => l.exercise_slot_id === s.id)
       );
-      if (gl.length === 0 || gl.some((l) => !(l.failed || (l.done && l.rpe != null)))) return i;
+      if (gl.length === 0 || gl.some((l) => !isLogResolved(l, skippedSlotIds))) return i;
     }
     return -1;
-  }, [slotGroups, logs]);
+  }, [slotGroups, logs, skippedSlotIds]);
 
   // Manual open/close overrides are single-shot: once the natural auto-open
   // target shifts (e.g. student cancels/undoes a set, or finishes the last
@@ -191,11 +218,15 @@ export default function SessionView() {
 
   // Build total-sets progress numbers. The text counts only successfully
   // completed sets (a quality signal), but the progress bar reflects every
-  // resolved set including failed ones — a failed attempt still moves the
-  // student forward through the session.
+  // resolved set — failed, skipped, and skip-deviated included — so a
+  // deviated session can still reach 100%.
   const allLogs = logs || [];
   const doneCount = allLogs.filter((l) => l.done).length;
-  const resolvedCount = allLogs.filter((l) => l.done || l.failed).length;
+  // `l.done ||` is the bar's sole divergence from isLogResolved: the bar
+  // doesn't wait for an RPE on a done set.
+  const resolvedCount = allLogs.filter(
+    (l) => l.done || isLogResolved(l, skippedSlotIds)
+  ).length;
   const totalCount = allLogs.length;
   const progress = totalCount > 0 ? Math.round((resolvedCount / totalCount) * 100) : 0;
 

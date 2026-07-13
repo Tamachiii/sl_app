@@ -126,14 +126,11 @@ export default function SessionReview() {
           onClick={() => archiveSession.mutate({ sessionId, archived: !isArchived })}
           disabled={archiveSession.isPending}
           className={`sl-pill shrink-0 disabled:opacity-50 ${
-            isArchived ? '' : 'bg-ink-100 text-ink-700 hover:bg-ink-200'
+            isArchived ? 'text-ink-900' : 'bg-ink-100 text-ink-700 hover:bg-ink-200'
           }`}
           style={
             isArchived
-              ? {
-                  background: 'color-mix(in srgb, var(--color-warn) 22%, transparent)',
-                  color: 'var(--color-ink-900)',
-                }
+              ? { background: 'color-mix(in srgb, var(--color-warn) 22%, transparent)' }
               : undefined
           }
         >
@@ -143,11 +140,10 @@ export default function SessionReview() {
 
       {isArchived && (
         <div
-          className="rounded-xl p-3 sl-mono text-[12px]"
+          className="rounded-xl p-3 sl-mono text-[12px] text-ink-900"
           style={{
             background: 'color-mix(in srgb, var(--color-warn) 12%, transparent)',
             border: '1px solid color-mix(in srgb, var(--color-warn) 35%, transparent)',
-            color: 'var(--color-ink-900)',
           }}
         >
           Archived on {new Date(session.archived_at).toLocaleString()}
@@ -216,11 +212,10 @@ export default function SessionReview() {
                 </div>
                 {deviation && (
                   <div
-                    className="rounded-lg px-2.5 py-1.5 text-[12px]"
+                    className="rounded-lg px-2.5 py-1.5 text-[12px] text-ink-900"
                     style={{
                       background: 'color-mix(in srgb, var(--color-warn) 12%, transparent)',
                       border: '1px solid color-mix(in srgb, var(--color-warn) 35%, transparent)',
-                      color: 'var(--color-ink-900)',
                     }}
                   >
                     <span className="sl-label mr-1">
@@ -271,7 +266,7 @@ export default function SessionReview() {
                         border: '1px solid color-mix(in srgb, var(--color-warn) 35%, transparent)',
                       }}
                     >
-                      <span className="sl-label" style={{ color: 'var(--color-ink-900)' }}>
+                      <span className="sl-label text-ink-900">
                         Off-plan
                       </span>
                       <ul className="space-y-0.5 sl-mono text-[11px] text-ink-700">

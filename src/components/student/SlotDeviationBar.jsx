@@ -62,7 +62,9 @@ export default function SlotDeviationBar({
           border: '1px solid color-mix(in srgb, var(--color-warn) 35%, transparent)',
         }}
       >
-        <span className="sl-label shrink-0" style={{ color: 'var(--color-ink-900)' }}>
+        {/* text-ink-900 (not inline style): the warn tint follows the dark
+            card surface, and only the class remap flips the text with it. */}
+        <span className="sl-label shrink-0 text-ink-900">
           {isSwap ? 'Swapped' : 'Skipped'}
         </span>
         <span className="text-[13px] text-gray-800 flex-1 min-w-0">

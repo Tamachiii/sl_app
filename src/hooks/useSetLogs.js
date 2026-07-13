@@ -75,12 +75,24 @@ export function useEnsureSetLogs() {
   });
 }
 
-export function useToggleSetDone() {
+// Per-row mutation scope: writes to the SAME set_log run strictly FIFO (a
+// done → un-done pair queued offline can never land out of order), while
+// writes to different rows still run in parallel when online — so one slow
+// or hung request can't head-of-line-block the whole workout. Mutations
+// hydrated after a reload lose this option and fall back to the global
+// 'offline-writes' scope from registerOfflineMutationDefaults, which is
+// strictly serial — conservative and equally correct.
+function rowScope(logId) {
+  return logId ? { scope: { id: `set-log-${logId}` } } : {};
+}
+
+export function useToggleSetDone(logId) {
   const qc = useQueryClient();
 
   return useMutation({
     mutationKey: MUTATION_KEYS.toggleDone,
     mutationFn: MUTATION_FNS.toggleDone,
+    ...rowScope(logId),
     onMutate: async ({ logId, done }) => {
       await qc.cancelQueries({ queryKey: ['set-logs'] });
       const previousQueries = qc.getQueriesData({ queryKey: ['set-logs'] });
@@ -92,7 +104,7 @@ export function useToggleSetDone() {
       return { previousQueries };
     },
     onError: (err, newLog, context) => {
-      context.previousQueries.forEach(([queryKey, oldData]) => {
+      context?.previousQueries?.forEach(([queryKey, oldData]) => {
         qc.setQueryData(queryKey, oldData);
       });
     },
@@ -102,12 +114,13 @@ export function useToggleSetDone() {
   });
 }
 
-export function useSetFailed() {
+export function useSetFailed(logId) {
   const qc = useQueryClient();
 
   return useMutation({
     mutationKey: MUTATION_KEYS.setFailed,
     mutationFn: MUTATION_FNS.setFailed,
+    ...rowScope(logId),
     onMutate: async ({ logId, failed }) => {
       await qc.cancelQueries({ queryKey: ['set-logs'] });
       const previousQueries = qc.getQueriesData({ queryKey: ['set-logs'] });
@@ -119,7 +132,7 @@ export function useSetFailed() {
       return { previousQueries };
     },
     onError: (err, newLog, context) => {
-      context.previousQueries.forEach(([queryKey, oldData]) => {
+      context?.previousQueries?.forEach(([queryKey, oldData]) => {
         qc.setQueryData(queryKey, oldData);
       });
     },
@@ -135,12 +148,13 @@ export function useSetFailed() {
 // rollback on error. Callers pass already-normalized values (a dimension equal
 // to its prescribed target is sent as null) so a stored actual_* always means
 // a genuine deviation.
-export function useLogActual() {
+export function useLogActual(logId) {
   const qc = useQueryClient();
 
   return useMutation({
     mutationKey: MUTATION_KEYS.logActual,
     mutationFn: MUTATION_FNS.logActual,
+    ...rowScope(logId),
     onMutate: async ({ logId, actualReps, actualWeightKg }) => {
       await qc.cancelQueries({ queryKey: ['set-logs'] });
       const previousQueries = qc.getQueriesData({ queryKey: ['set-logs'] });
@@ -166,12 +180,13 @@ export function useLogActual() {
 // Marks a prescribed set as intentionally skipped (or un-skips it). Offline-
 // safe UPDATE; clears any done/failed/rpe/actual on the same patch to satisfy
 // the DB CHECK that a skipped set isn't also resolved.
-export function useSetSkipped() {
+export function useSetSkipped(logId) {
   const qc = useQueryClient();
 
   return useMutation({
     mutationKey: MUTATION_KEYS.setSkipped,
     mutationFn: MUTATION_FNS.setSkipped,
+    ...rowScope(logId),
     onMutate: async ({ logId, skipped }) => {
       await qc.cancelQueries({ queryKey: ['set-logs'] });
       const previousQueries = qc.getQueriesData({ queryKey: ['set-logs'] });
@@ -237,12 +252,13 @@ export function useRemoveStudentSet() {
   });
 }
 
-export function useSetRpe() {
+export function useSetRpe(logId) {
   const qc = useQueryClient();
 
   return useMutation({
     mutationKey: MUTATION_KEYS.setRpe,
     mutationFn: MUTATION_FNS.setRpe,
+    ...rowScope(logId),
     onMutate: async ({ logId, rpe }) => {
       await qc.cancelQueries({ queryKey: ['set-logs'] });
       const previousQueries = qc.getQueriesData({ queryKey: ['set-logs'] });

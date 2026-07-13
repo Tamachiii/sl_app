@@ -11,9 +11,9 @@ vi.mock('../../hooks/useSessionConfirmation', () => ({
 
 import SessionsFeed from './SessionsFeed';
 
-function renderFeed() {
+function renderFeed(initialEntries = ['/coach/sessions']) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={initialEntries}>
       <SessionsFeed />
     </MemoryRouter>
   );
@@ -102,7 +102,54 @@ describe('SessionsFeed', () => {
     expect(screen.getByText('Felt really strong today')).toBeInTheDocument();
   });
 
-  it('shows a "Reviewed" pill on cards whose session has been reviewed', () => {
+  it('defaults to the needs-review inbox: reviewed cards are hidden until "All"', async () => {
+    const user = userEvent.setup();
+    mockConfirmations = {
+      data: [
+        makeConfirmation({ id: 'c-r', session_id: 's-r', session_title: 'Pulled', reviewed_at: '2026-04-30T09:00:00Z' }),
+        makeConfirmation({ id: 'c-u', session_id: 's-u', session_title: 'Pushed' }),
+      ],
+      isLoading: false,
+    };
+    renderFeed();
+    // Default view is the inbox: only the unreviewed confirmation shows,
+    // and the Needs-review pill carries the pending count.
+    expect(screen.getByText('Pushed')).toBeInTheDocument();
+    expect(screen.queryByText('Pulled')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /needs review · 1/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /^all$/i }));
+    expect(screen.getByText('Pulled')).toBeInTheDocument();
+    expect(screen.getByText('Pushed')).toBeInTheDocument();
+  });
+
+  it('a ?student= deep link (profile "View sessions") defaults to All, not the inbox', () => {
+    mockConfirmations = {
+      data: [
+        makeConfirmation({ id: 'c-r', session_id: 's-r', session_title: 'Pulled', reviewed_at: '2026-04-30T09:00:00Z' }),
+      ],
+      isLoading: false,
+    };
+    renderFeed(['/coach/sessions?student=s-1']);
+    // History-browsing gesture: the reviewed card must be visible immediately
+    // instead of an "all caught up" empty state.
+    expect(screen.getByText('Pulled')).toBeInTheDocument();
+  });
+
+  it('shows an all-caught-up empty state when every confirmation is reviewed', () => {
+    mockConfirmations = {
+      data: [
+        makeConfirmation({ id: 'c-r', session_id: 's-r', session_title: 'Pulled', reviewed_at: '2026-04-30T09:00:00Z' }),
+      ],
+      isLoading: false,
+    };
+    renderFeed();
+    expect(screen.getByText(/all caught up/i)).toBeInTheDocument();
+    expect(screen.queryByText('Pulled')).not.toBeInTheDocument();
+  });
+
+  it('shows a "Reviewed" pill on cards whose session has been reviewed', async () => {
+    const user = userEvent.setup();
     mockConfirmations = {
       data: [
         makeConfirmation({ id: 'c-r', session_id: 's-r', student_name: 'Reviewed Rita', session_title: 'Pulled', reviewed_at: '2026-04-30T09:00:00Z' }),
@@ -111,6 +158,8 @@ describe('SessionsFeed', () => {
       isLoading: false,
     };
     renderFeed();
+    // Reviewed cards live behind the "All" filter.
+    await user.click(screen.getByRole('button', { name: /^all$/i }));
     // One pill, on the reviewed card only.
     const pills = screen.getAllByText(/^Reviewed$/i);
     expect(pills).toHaveLength(1);

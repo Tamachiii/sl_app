@@ -110,7 +110,14 @@ export default function ExerciseSlotRow({
   const ex = slot.exercise;
   const isTimeBased = slot.duration_seconds != null;
   const logs = useMemo(
-    () => (slot.set_logs || []).slice().sort((a, b) => a.set_number - b.set_number),
+    () =>
+      (slot.set_logs || [])
+        // Student-added extras are logging artifacts, not prescription: keep
+        // them out of the editor so the coach can't edit or remove a
+        // student's logged set from here, and the uniform check reflects
+        // only prescribed rows.
+        .filter((l) => !l.is_student_added)
+        .sort((a, b) => a.set_number - b.set_number),
     [slot.set_logs]
   );
   const uniform = isSlotUniform(slot);
@@ -181,7 +188,14 @@ export default function ExerciseSlotRow({
 
   function handleBlur() {
     const updates = {};
-    if (sets !== slot.sets) updates.sets = sets;
+    // Sets is CHECK-constrained > 0 in the DB. Committing an invalid value
+    // (cleared field, 0, NaN, a stray negative) would either fail server-side
+    // with zero feedback or — worse — destructively shrink the slot. One
+    // uniform rule: any entry below 1 reverts to the current value.
+    const parsed = Math.floor(Number(sets));
+    const nextSets = Number.isFinite(parsed) && parsed >= 1 ? parsed : slot.sets;
+    if (nextSets !== sets) setSets(nextSets);
+    if (nextSets !== slot.sets) updates.sets = nextSets;
     if (isTimeBased) {
       const s = seconds === '' ? null : Number(seconds);
       const prev = headLog ? headLog.target_duration_seconds : slot.duration_seconds;
@@ -338,7 +352,7 @@ export default function ExerciseSlotRow({
                 type="number"
                 min={1}
                 value={sets}
-                onChange={(e) => setSets(Number(e.target.value))}
+                onChange={(e) => setSets(e.target.value === '' ? '' : Number(e.target.value))}
                 onBlur={handleBlur}
                 className={inputCls}
               />

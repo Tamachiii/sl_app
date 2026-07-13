@@ -171,6 +171,9 @@ describe('useMyConfirmedSessionIds', () => {
     expect(result.current.data).toBeInstanceOf(Set);
     expect(result.current.data.has('s-1')).toBe(true);
     expect(chain.eq).toHaveBeenCalledWith('student_id', 'user-1');
+    // The CACHE stores a plain array (JSON-persistable for offline cold
+    // start); the Set consumers see is derived via `select`.
+    expect(qc.getQueryData(['my-confirmed-session-ids', 'user-1'])).toEqual(['s-1', 's-2']);
   });
 });
 

@@ -112,6 +112,14 @@ describe('StudentHome', () => {
     expect(screen.getByText(/Week 1/)).toBeInTheDocument();
   });
 
+  it('shows the weekly adherence line for the current week', () => {
+    mockWeeks = { data: sampleWeeks, isLoading: false };
+    // Two sessions this week (day 1 + day 3), one confirmed.
+    mockConfirmedIds = { data: new Set(['sess-1']) };
+    renderHome();
+    expect(screen.getByText('This week: 1/2 sessions done.')).toBeInTheDocument();
+  });
+
   it('renders a 7-day strip with 7 cells', () => {
     mockWeeks = { data: sampleWeeks, isLoading: false };
     renderHome();

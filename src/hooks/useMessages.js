@@ -32,10 +32,13 @@ export function useMessageThread(otherProfileId) {
         .from('messages')
         .select('id, sender_id, recipient_id, body, session_id, read_at, created_at')
         .or(orFilter)
-        .order('created_at', { ascending: true })
+        .order('created_at', { ascending: false })
         .limit(500);
       if (error) throw error;
-      return data || [];
+      // Newest-first from the server so the window keeps the LATEST 500 rows
+      // of a long thread (ascending would pin it to the oldest 500 forever);
+      // reversed so render order stays oldest-first.
+      return (data || []).reverse();
     },
     enabled: !!me && !!otherProfileId,
   });

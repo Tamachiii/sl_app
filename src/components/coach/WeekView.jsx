@@ -202,10 +202,9 @@ export default function WeekView() {
                   {sess.title || `Session ${sess.day_number}`}
                 </span>
                 <span
-                  className="sl-pill"
+                  className="sl-pill text-ink-900"
                   style={{
                     background: 'color-mix(in srgb, var(--color-warn) 18%, transparent)',
-                    color: 'var(--color-ink-900)',
                   }}
                 >
                   archived

@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { useI18n } from '../../hooks/useI18n';
 import { useSendMessage } from '../../hooks/useMessages';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 
 const MAX_LEN = 4000;
 
@@ -11,9 +12,17 @@ export default function MessageComposer({ recipientProfileId, autoFocus = false 
   const sendMessage = useSendMessage();
   const textareaRef = useRef(null);
 
+  // Messaging is online-only: useSendMessage is not in the offline mutation
+  // registry, so an offline send would pause on "Sending…" forever and be
+  // silently dropped by a reload (no registered mutationFn to resume). Gate
+  // the send instead of letting it hang; the draft stays in the box.
+  // (SessionFeedbackComposer applies the same gate on the coach side.)
+  const isOnline = useOnlineStatus();
+
   const trimmed = body.trim();
   const tooLong = body.length > MAX_LEN;
-  const canSend = !!recipientProfileId && trimmed.length > 0 && !tooLong && !sendMessage.isPending;
+  const canSend =
+    !!recipientProfileId && trimmed.length > 0 && !tooLong && !sendMessage.isPending && isOnline;
 
   function autoSize() {
     const el = textareaRef.current;
@@ -57,6 +66,11 @@ export default function MessageComposer({ recipientProfileId, autoFocus = false 
       {(error || tooLong) && (
         <div role="alert" className="sl-mono text-[11px] text-danger px-4 md:px-8 pt-1.5">
           {error || t('messaging.tooLong', { n: MAX_LEN })}
+        </div>
+      )}
+      {!isOnline && (
+        <div role="status" className="sl-mono text-[11px] text-ink-400 px-4 md:px-8 pt-1.5">
+          {t('messaging.offline')}
         </div>
       )}
       <form

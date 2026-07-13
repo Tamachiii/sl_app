@@ -127,4 +127,71 @@ describe('registerOfflineMutationDefaults', () => {
     expect(payload.done).toBe(true);
     expect(payload.failed).toBe(false);
   });
+
+  it('registers a shared scope so every default carries it', () => {
+    const qc = new QueryClient();
+    registerOfflineMutationDefaults(qc);
+    for (const key of Object.values(MUTATION_KEYS)) {
+      expect(qc.getMutationDefaults(key).scope).toEqual({ id: 'offline-writes' });
+    }
+  });
+
+  it('replays queued writes serially in FIFO order (shared scope)', async () => {
+    // Two OPPOSITE writes to the same row queued offline: done → un-done.
+    // Without the shared scope, resumePausedMutations() is Promise.all and
+    // the slower first request can land last, flipping the final state back
+    // to done. The scope must force strict FIFO: the second write may only
+    // start after the first has finished.
+    onlineManager.setOnline(false);
+    setOnline(false);
+
+    const finished = [];
+    let call = 0;
+    const chain = {
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockImplementation(() => {
+        const n = ++call;
+        // The FIRST replay resolves much slower than the second — parallel
+        // replay would finish [2, 1]; serial replay must finish [1, 2].
+        const delay = n === 1 ? 30 : 0;
+        return new Promise((resolve) =>
+          setTimeout(() => {
+            finished.push(n);
+            resolve({ data: { id: 'l-1' }, error: null });
+          }, delay)
+        );
+      }),
+    };
+    supabase.from.mockReturnValue(chain);
+
+    const qc = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: Infinity },
+        mutations: { retry: false, networkMode: 'online' },
+      },
+    });
+    registerOfflineMutationDefaults(qc);
+    const defaults = qc.getMutationDefaults(MUTATION_KEYS.toggleDone);
+
+    qc.getMutationCache()
+      .build(qc, { mutationKey: MUTATION_KEYS.toggleDone, ...defaults })
+      .execute({ logId: 'l-1', done: true });
+    qc.getMutationCache()
+      .build(qc, { mutationKey: MUTATION_KEYS.toggleDone, ...defaults })
+      .execute({ logId: 'l-1', done: false });
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(supabase.from).not.toHaveBeenCalled();
+
+    setOnline(true);
+    onlineManager.setOnline(true);
+    await qc.resumePausedMutations();
+
+    expect(finished).toEqual([1, 2]);
+    // Last-writer-wins now matches user intent: the un-done write landed last.
+    expect(chain.update.mock.calls[0][0].done).toBe(true);
+    expect(chain.update.mock.calls[1][0].done).toBe(false);
+  });
 });

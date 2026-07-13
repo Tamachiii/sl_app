@@ -27,8 +27,10 @@ vi.mock('../../hooks/useSetLogs', () => ({
   useRemoveStudentSet: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
+let mockDeviations = { data: [], isLoading: false };
+
 vi.mock('../../hooks/useSlotDeviations', () => ({
-  useSlotDeviations: () => ({ data: [], isLoading: false }),
+  useSlotDeviations: () => mockDeviations,
   useSaveSlotDeviation: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
@@ -84,6 +86,7 @@ describe('SessionView', () => {
   beforeEach(() => {
     mockConfirmation = { data: null, isLoading: false };
     mockFeedback = { data: null };
+    mockDeviations = { data: [], isLoading: false };
     vi.clearAllMocks();
     resetRestTimer();
   });
@@ -433,6 +436,94 @@ describe('SessionView', () => {
 
     expect(screen.getByRole('button', { expanded: false, name: /Squat/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { expanded: true, name: /Bench/i })).toBeInTheDocument();
+  });
+
+  it('skipped set resolves its group: auto-open advances and progress counts it', () => {
+    mockSessionData = {
+      data: {
+        title: 'Skip Set',
+        exercise_slots: [
+          {
+            id: 'slot-1',
+            sets: 1,
+            reps: 5,
+            weight_kg: 50,
+            sort_order: 0,
+            exercise: { name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
+          },
+          {
+            id: 'slot-2',
+            sets: 1,
+            reps: 5,
+            weight_kg: 50,
+            sort_order: 1,
+            exercise: { name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
+          },
+        ],
+      },
+      isLoading: false,
+    };
+    // Squat's only set is skipped (neither done nor failed, per the DB CHECK).
+    // Before the fix it stayed "unresolved" forever: the accordion pinned to
+    // Squat and progress capped at 0%.
+    mockSetLogsData = {
+      data: [
+        { id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, failed: false, skipped: true, rpe: null },
+        { id: 'l-2', exercise_slot_id: 'slot-2', set_number: 1, done: false, failed: false, rpe: null },
+      ],
+      isLoading: false,
+    };
+    renderSessionView();
+
+    expect(screen.getByRole('button', { expanded: false, name: /Squat/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { expanded: true, name: /Bench/i })).toBeInTheDocument();
+    expect(screen.getByText('50%')).toBeInTheDocument();
+  });
+
+  it('skip-deviated exercise resolves its group even though its logs stay pending', () => {
+    mockSessionData = {
+      data: {
+        title: 'Skip Exercise',
+        exercise_slots: [
+          {
+            id: 'slot-1',
+            sets: 1,
+            reps: 5,
+            weight_kg: 50,
+            sort_order: 0,
+            exercise: { name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
+          },
+          {
+            id: 'slot-2',
+            sets: 1,
+            reps: 5,
+            weight_kg: 50,
+            sort_order: 1,
+            exercise: { name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
+          },
+        ],
+      },
+      isLoading: false,
+    };
+    // The whole Squat exercise is skip-deviated; its logs are merely hidden
+    // by SlotGroupCard, so without the skippedSlotIds pass-through they would
+    // pin the accordion and hold progress below 100% for the whole session.
+    mockDeviations = {
+      data: [{ exercise_slot_id: 'slot-1', student_id: 'u-1', kind: 'skip' }],
+      isLoading: false,
+    };
+    mockSetLogsData = {
+      data: [
+        { id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, failed: false, rpe: null },
+        { id: 'l-2', exercise_slot_id: 'slot-2', set_number: 1, done: false, failed: false, rpe: null },
+      ],
+      isLoading: false,
+    };
+    renderSessionView();
+
+    expect(screen.getByRole('button', { expanded: false, name: /Squat/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { expanded: true, name: /Bench/i })).toBeInTheDocument();
+    expect(screen.getByText('50%')).toBeInTheDocument();
   });
 
   it('accordion: opening another slot closes the currently-open one', async () => {

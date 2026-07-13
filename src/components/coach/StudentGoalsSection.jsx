@@ -79,10 +79,9 @@ export default function StudentGoalsSection() {
                   </span>
                   {g.achieved && (
                     <span
-                      className="sl-pill inline-flex items-center gap-1"
+                      className="sl-pill inline-flex items-center gap-1 text-ink-900"
                       style={{
                         background: 'color-mix(in srgb, var(--color-success) 18%, transparent)',
-                        color: 'var(--color-ink-900)',
                       }}
                     >
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">

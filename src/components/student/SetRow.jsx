@@ -47,11 +47,13 @@ const SWIPE_MAX_OFFSET = 96;
  * target keeps the row scannable.
  */
 const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, video = null }) {
-  const toggleDone = useToggleSetDone();
-  const setFailed = useSetFailed();
-  const setRpe = useSetRpe();
-  const logActual = useLogActual();
-  const setSkipped = useSetSkipped();
+  // log.id feeds the per-row mutation scope: same-row writes stay FIFO,
+  // different rows don't block each other. See useSetLogs.rowScope.
+  const toggleDone = useToggleSetDone(log.id);
+  const setFailed = useSetFailed(log.id);
+  const setRpe = useSetRpe(log.id);
+  const logActual = useLogActual(log.id);
+  const setSkipped = useSetSkipped(log.id);
   const removeStudentSet = useRemoveStudentSet();
   const online = useOnlineStatus();
   const restSeconds = log.target_rest_seconds ?? null;
@@ -362,14 +364,11 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
                   : 'Log what you actually did'
               }
               className={`sl-pill shrink-0 min-h-11 px-3.5 ${
-                loggedActual ? '' : 'bg-ink-100 text-ink-500'
+                loggedActual ? 'text-ink-900' : 'bg-ink-100 text-ink-500'
               } ${locked ? 'opacity-60 cursor-not-allowed' : 'hover:brightness-95'}`}
               style={
                 loggedActual
-                  ? {
-                      background: 'color-mix(in srgb, var(--color-warn) 20%, transparent)',
-                      color: 'var(--color-ink-900)',
-                    }
+                  ? { background: 'color-mix(in srgb, var(--color-warn) 20%, transparent)' }
                   : undefined
               }
             >

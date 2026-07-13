@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
 import { useSendMessage } from '../../hooks/useMessages';
 import { useMarkSessionReviewed } from '../../hooks/useSession';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 
 const MAX_LEN = 4000;
 
@@ -32,6 +33,11 @@ export default function SessionFeedbackComposer({
   const sendMessage = useSendMessage();
   const markReviewed = useMarkSessionReviewed();
 
+  // Same gate as MessageComposer: useSendMessage (and useMarkSessionReviewed)
+  // are not offline-registered, so an offline submit would hang on
+  // "Sending…" forever and a reload would silently drop the feedback.
+  const isOnline = useOnlineStatus();
+
   const [body, setBody] = useState('');
   const [error, setError] = useState(null);
   const [sentAt, setSentAt] = useState(null);
@@ -43,7 +49,8 @@ export default function SessionFeedbackComposer({
     && !!studentProfileId
     && trimmed.length > 0
     && !tooLong
-    && !sendMessage.isPending;
+    && !sendMessage.isPending
+    && isOnline;
 
   function handleSubmit(e) {
     e?.preventDefault?.();
@@ -66,6 +73,7 @@ export default function SessionFeedbackComposer({
     // idempotent (no-op when reviewed_at is already set), and we navigate
     // away regardless of success so a transient network blip doesn't strand
     // the coach on the review page.
+    if (!isOnline) return;
     if (sessionId) {
       markReviewed.mutate(
         { sessionId },
@@ -143,6 +151,11 @@ export default function SessionFeedbackComposer({
             {error || t('messaging.tooLong', { n: MAX_LEN })}
           </div>
         )}
+        {!isOnline && (
+          <div role="status" className="sl-mono text-[11px] text-ink-400">
+            {t('messaging.offline')}
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="submit"
@@ -155,7 +168,8 @@ export default function SessionFeedbackComposer({
           <button
             type="button"
             onClick={handleSkip}
-            className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200"
+            disabled={!isOnline}
+            className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 disabled:opacity-50"
           >
             {t('feedback.finishWithoutFeedback')}
           </button>
