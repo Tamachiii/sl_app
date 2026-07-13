@@ -5,8 +5,8 @@ import { isoDate } from '../lib/day';
 
 /**
  * The signed-in student's recent bodyweight entries (newest first). Feeds the
- * profile card and the relative-strength figure on the records surface.
- * Bounded to the last 60 entries — enough for a trend, cheap to fetch.
+ * profile bodyweight card. Bounded to the last 60 entries — enough for a
+ * trend, cheap to fetch.
  */
 export function useBodyweightLogs() {
   const { user } = useAuth();
@@ -58,8 +58,6 @@ export function useLogBodyweight() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['bodyweight-logs', user?.id] });
-      // Relative-strength on the records surface reads the latest bodyweight.
-      qc.invalidateQueries({ queryKey: ['student-records'] });
     },
   });
 }
