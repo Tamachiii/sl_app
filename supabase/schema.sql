@@ -36,6 +36,10 @@ CREATE TABLE public.programs (
   name        text NOT NULL,
   sort_order  int  NOT NULL DEFAULT 0,
   is_active   boolean NOT NULL DEFAULT false,
+  -- Trash semantics (2026_07_13): "delete" stamps deleted_at + clears
+  -- is_active; every surface filters deleted_at IS NULL; restore NULLs it.
+  -- Hard DELETE is blocked by trigger while logged sets exist (below).
+  deleted_at  timestamptz,
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 
@@ -59,7 +63,11 @@ CREATE TABLE public.sessions (
   scheduled_date date,
   archived_at    timestamptz,
   reviewed_at    timestamptz,
-  created_at     timestamptz NOT NULL DEFAULT now()
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  -- Tied sort_orders once made week duplication merge two sessions into one
+  -- copy (2026_07_13). Sessions have no drag-reorder flow; if one is added
+  -- it must park-then-place like the week reorder.
+  CONSTRAINT sessions_week_sort_order_unique UNIQUE (week_id, sort_order)
 );
 
 CREATE INDEX IF NOT EXISTS sessions_reviewed_idx
@@ -172,9 +180,12 @@ $$ LANGUAGE sql SECURITY DEFINER STABLE;
 -- True iff the session's parent program is still the student's active block.
 -- Drives the student-side write gate on past-program sessions: once a coach
 -- swaps blocks, history becomes read-only.
+-- "Active for writes" folds in deleted_at (2026_07_13): a trashed program is
+-- never writable regardless of is_active, so the trash flag and the write
+-- gate can't drift apart.
 CREATE OR REPLACE FUNCTION public.program_active_for_session(sess_id uuid)
 RETURNS boolean AS $$
-  SELECT p.is_active
+  SELECT p.is_active AND p.deleted_at IS NULL
   FROM public.sessions sess
   JOIN public.weeks w    ON w.id = sess.week_id
   JOIN public.programs p ON p.id = w.program_id
@@ -1651,3 +1662,135 @@ CREATE TRIGGER on_chat_message_push
   AFTER INSERT ON public.messages
   FOR EACH ROW
   EXECUTE FUNCTION public.notify_recipient_on_chat_message();
+
+-- ============================================================
+-- TRIGGER: programs are undeletable while logged sets exist (2026_07_13)
+-- Hard delete is only for scaffolding; real training history can only be
+-- trashed (programs.deleted_at) and restored. Fires on cascades too, so a
+-- students-row delete can't wipe logged history either. For a deliberate
+-- full erasure: drop trigger, delete, recreate.
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.block_program_delete_with_logged_sets()
+RETURNS trigger AS $$
+DECLARE
+  v_count int;
+BEGIN
+  SELECT count(*) INTO v_count
+    FROM public.set_logs sl
+    JOIN public.exercise_slots es ON es.id = sl.exercise_slot_id
+    JOIN public.sessions s        ON s.id = es.session_id
+    JOIN public.weeks w           ON w.id = s.week_id
+   WHERE w.program_id = OLD.id
+     AND (
+       sl.done OR sl.failed OR sl.skipped
+       OR sl.rpe IS NOT NULL
+       OR sl.actual_reps IS NOT NULL
+       OR sl.actual_weight_kg IS NOT NULL
+     );
+  IF v_count > 0 THEN
+    RAISE EXCEPTION
+      'program % still has % logged set(s) — move it to the trash instead of deleting',
+      OLD.id, v_count;
+  END IF;
+  RETURN OLD;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS block_program_delete_with_logged_sets ON public.programs;
+CREATE TRIGGER block_program_delete_with_logged_sets
+  BEFORE DELETE ON public.programs
+  FOR EACH ROW
+  EXECUTE FUNCTION public.block_program_delete_with_logged_sets();
+
+-- Same guard at week + session level: WeekView deletes those directly, and
+-- the cascade would otherwise wipe logged set_logs without touching the
+-- program row. Coaches archive (sessions.archived_at) instead.
+CREATE OR REPLACE FUNCTION public.block_week_delete_with_logged_sets()
+RETURNS trigger AS $$
+DECLARE v_count int;
+BEGIN
+  SELECT count(*) INTO v_count
+    FROM public.set_logs sl
+    JOIN public.exercise_slots es ON es.id = sl.exercise_slot_id
+    JOIN public.sessions s        ON s.id = es.session_id
+   WHERE s.week_id = OLD.id
+     AND (sl.done OR sl.failed OR sl.skipped
+          OR sl.rpe IS NOT NULL OR sl.actual_reps IS NOT NULL
+          OR sl.actual_weight_kg IS NOT NULL);
+  IF v_count > 0 THEN
+    RAISE EXCEPTION 'week % still has % logged set(s) — archive it instead of deleting', OLD.id, v_count;
+  END IF;
+  RETURN OLD;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS block_week_delete_with_logged_sets ON public.weeks;
+CREATE TRIGGER block_week_delete_with_logged_sets
+  BEFORE DELETE ON public.weeks
+  FOR EACH ROW
+  EXECUTE FUNCTION public.block_week_delete_with_logged_sets();
+
+CREATE OR REPLACE FUNCTION public.block_session_delete_with_logged_sets()
+RETURNS trigger AS $$
+DECLARE v_count int;
+BEGIN
+  SELECT count(*) INTO v_count
+    FROM public.set_logs sl
+    JOIN public.exercise_slots es ON es.id = sl.exercise_slot_id
+   WHERE es.session_id = OLD.id
+     AND (sl.done OR sl.failed OR sl.skipped
+          OR sl.rpe IS NOT NULL OR sl.actual_reps IS NOT NULL
+          OR sl.actual_weight_kg IS NOT NULL);
+  IF v_count > 0 THEN
+    RAISE EXCEPTION 'session % still has % logged set(s) — archive it instead of deleting', OLD.id, v_count;
+  END IF;
+  RETURN OLD;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS block_session_delete_with_logged_sets ON public.sessions;
+CREATE TRIGGER block_session_delete_with_logged_sets
+  BEFORE DELETE ON public.sessions
+  FOR EACH ROW
+  EXECUTE FUNCTION public.block_session_delete_with_logged_sets();
+
+-- ============================================================
+-- Client error telemetry (2026_07_13)
+-- Insert-only per authenticated user (own errors); coach-only read for
+-- in-app triage. No UPDATE/DELETE — append-only. Prune with:
+--   DELETE FROM public.client_errors WHERE created_at < now() - interval '90 days';
+-- ============================================================
+CREATE TABLE public.client_errors (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  role        text,
+  message     text NOT NULL CHECK (char_length(message) <= 2000),
+  stack       text CHECK (stack IS NULL OR char_length(stack) <= 8000),
+  url         text CHECK (url IS NULL OR char_length(url) <= 500),
+  user_agent  text CHECK (user_agent IS NULL OR char_length(user_agent) <= 500),
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX client_errors_created_idx
+  ON public.client_errors (created_at DESC);
+
+ALTER TABLE public.client_errors ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users insert own client errors"
+  ON public.client_errors FOR INSERT
+  WITH CHECK (
+    user_id = auth.uid()
+    AND (
+      role IS NULL
+      OR role = (SELECT p.role FROM public.profiles p WHERE p.id = auth.uid())
+    )
+  );
+
+CREATE POLICY "Coaches read client errors"
+  ON public.client_errors FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles p
+       WHERE p.id = auth.uid() AND p.role = 'coach'
+    )
+  );
