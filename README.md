@@ -47,7 +47,7 @@ npm run dev       # dev server
 npm run build     # production build → dist/
 npm run preview   # serve dist/
 npm run lint      # eslint (correctness-only; also runs in CI)
-npm test          # run vitest (~606 tests)
+npm test          # run vitest (~632 tests)
 npm run deploy    # emergency-only manual publish (CI deploy is the normal path)
 ```
 
@@ -135,7 +135,7 @@ Deep architectural details — RLS helpers, React Query invalidation, routing/pe
 
 **Student**
 1. Logs in → **Home tab** (`/student`) — a calendar-week 7-day strip (defaults to the real current week, with ‹ › navigation and a "Today" reset): sessions with a `scheduled_date` sit on their true calendar date regardless of which training week they belong to; undated sessions fall back to the active training week's `day_number` layout on the current week only. Below it, an always-expanded "Next session" preview (full exercise list visible by default; no collapse) with a Start CTA and the session's real date when scheduled.
-2. **Sessions tab** (`/student/sessions`) — full program by week; accordion session cards (one open at a time); tap "Start session" to open `SessionView`.
+2. **Sessions tab** (`/student/sessions`) — full program by week; accordion session cards (one open at a time); tap "Start session" to open `SessionView`. Each expanded exercise shows a **"Last time" hint** — the sets you performed for that lift in your most recent prior session (e.g. "3 × 8 @ 100kg · 5 days ago") — so progressive overload has a target to beat.
 3. **Stats tab** (`/student/stats`) — sessions confirmed, sets done, **performance-aware** weekly volume bars (what you actually did, over a faint planned track) with per-week adherence %, per-exercise performed-tonnage progression (dashed planned reference when you deviated), calendar (active block + muted history dots).
 4. **Messages tab** (`/student/messages`) — single thread with the assigned coach (resolved via `students.coach_id`). Realtime + unread-count badge same as the coach side.
 5. **Profile** (`/student/profile`, reached by tapping the avatar in the header — not a tab) — display name + initials avatar, "Your coach" card with a Message shortcut, lifetime totals (sessions completed, sets done, total volume), a **bodyweight** check-in card, **personal records** per exercise (estimated 1RM via Epley, best set, "new PR" badge for recent bests), the active goal (with a "View all" link into the full Goals page), theme/language preferences, and account controls (email, change password, sign out). The student-side `UserMenu` retired its popover when this page shipped; everything that used to live there now lives here. Coach-side `UserMenu` keeps the popover.

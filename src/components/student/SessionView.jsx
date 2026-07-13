@@ -4,6 +4,7 @@ import { useSession } from '../../hooks/useSession';
 import { useSetLogs, useEnsureSetLogs } from '../../hooks/useSetLogs';
 import { useSlotComments } from '../../hooks/useSlotComments';
 import { useSlotDeviations } from '../../hooks/useSlotDeviations';
+import { useLastPerformance } from '../../hooks/useLastPerformance';
 import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
 import { useSetVideos } from '../../hooks/useSetVideo';
 import {
@@ -73,6 +74,7 @@ export default function SessionView() {
   const { data: logs, isLoading: logsLoading } = useSetLogs(sessionId, slots);
   const { data: slotComments } = useSlotComments(sessionId, slots);
   const { data: slotDeviations } = useSlotDeviations(sessionId, slots);
+  const { data: lastPerformance } = useLastPerformance(sessionId, slots, session?.scheduled_date);
   const { data: exerciseLibrary } = useExerciseLibrary();
   const slotIds = useMemo(() => slots.map((s) => s.id), [slots]);
   const { data: videos } = useSetVideos(sessionId, slotIds);
@@ -308,6 +310,7 @@ export default function SessionView() {
           getLogsForSlot={getLogsForSlot}
           slotComments={slotComments}
           slotDeviations={slotDeviations}
+          lastPerformance={lastPerformance}
           exerciseLibrary={exerciseLibrary}
           sessionId={sessionId}
           isConfirmed={isConfirmed}

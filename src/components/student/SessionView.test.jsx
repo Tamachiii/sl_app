@@ -34,6 +34,12 @@ vi.mock('../../hooks/useSlotDeviations', () => ({
   useSaveSlotDeviation: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
+let mockLastPerformance = { data: {} };
+
+vi.mock('../../hooks/useLastPerformance', () => ({
+  useLastPerformance: () => mockLastPerformance,
+}));
+
 vi.mock('../../hooks/useExerciseLibrary', () => ({
   useExerciseLibrary: () => ({ data: [], isLoading: false }),
 }));

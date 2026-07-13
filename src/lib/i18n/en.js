@@ -95,6 +95,9 @@ const en = {
       pastProgram: 'Past program',
       noExercises: 'No exercises assigned yet.',
     },
+    session: {
+      lastTime: 'Last time',
+    },
     feedback: {
       title: "Coach's feedback",
       badge: 'feedback',

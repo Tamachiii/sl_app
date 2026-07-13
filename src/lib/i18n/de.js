@@ -95,6 +95,9 @@ const de = {
       pastProgram: 'Früheres Programm',
       noExercises: 'Noch keine Übungen zugewiesen.',
     },
+    session: {
+      lastTime: 'Letztes Mal',
+    },
     feedback: {
       title: 'Coach-Feedback',
       badge: 'feedback',

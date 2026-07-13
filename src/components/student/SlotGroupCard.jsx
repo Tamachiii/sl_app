@@ -3,18 +3,47 @@ import SlotCommentBox from './SlotCommentBox';
 import SlotDeviationBar from './SlotDeviationBar';
 import { useAddStudentSet } from '../../hooks/useSetLogs';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { useI18n } from '../../hooks/useI18n';
 import {
   formatRestSeconds,
   isSlotUniform,
   getSlotTargetRest,
   summarizeSlotPrescription,
 } from '../../lib/volume';
+import { formatLastPerformance, daysSince } from '../../lib/lastPerformance';
+
+// "Last time" hint: what the student did for this exercise in their most
+// recent prior session, shown at the top of the expanded card so progressive
+// overload has a target to beat. Relative date via Intl (i18n for free).
+function LastTimeHint({ perf, label, lang }) {
+  const summary = formatLastPerformance(perf);
+  if (!summary) return null;
+  const days = daysSince(perf.performedAt);
+  let when = '';
+  if (days != null) {
+    try {
+      when = new Intl.RelativeTimeFormat(lang, { numeric: 'auto' }).format(-days, 'day');
+    } catch {
+      when = '';
+    }
+  }
+  return (
+    <div className="flex items-baseline gap-2 rounded-lg bg-ink-50 px-3 py-2">
+      <span className="sl-label text-ink-400 shrink-0">{label}</span>
+      <span className="sl-mono text-[12px] text-ink-600 min-w-0 break-words">{summary}</span>
+      {when && (
+        <span className="sl-mono text-[11px] text-ink-400 shrink-0 ml-auto pl-1">{when}</span>
+      )}
+    </div>
+  );
+}
 
 function SlotBody({
   slot,
   slotLogs,
   slotComments,
   slotDeviations,
+  lastPerformance,
   exerciseLibrary,
   sessionId,
   isConfirmed,
@@ -22,6 +51,7 @@ function SlotBody({
   getVideoForLog,
   showCommentBox = true,
 }) {
+  const { t, lang } = useI18n();
   // Sets lock when the student has confirmed the session OR when the session
   // is read-only (past program / coach-archived). The comment box only locks
   // on read-only — students can still add notes to a confirmed-but-not-yet-
@@ -29,6 +59,7 @@ function SlotBody({
   const setsLocked = isConfirmed || isReadOnly;
   const deviation = (slotDeviations || []).find((d) => d.exercise_slot_id === slot.id) || null;
   const isExerciseSkipped = deviation?.kind === 'skip';
+  const lastPerf = lastPerformance ? lastPerformance[slot.exercise?.id] : null;
   const online = useOnlineStatus();
   const addSet = useAddStudentSet();
 
@@ -62,6 +93,9 @@ function SlotBody({
 
       {!isExerciseSkipped && (
         <>
+          {lastPerf && (
+            <LastTimeHint perf={lastPerf} label={t('student.session.lastTime')} lang={lang} />
+          )}
           <div className="space-y-1.5">
             {slotLogs.map((log) => (
               <SetRow
@@ -180,6 +214,7 @@ export default function SlotGroupCard({
   getLogsForSlot,
   slotComments,
   slotDeviations,
+  lastPerformance,
   exerciseLibrary,
   sessionId,
   isConfirmed,
@@ -233,6 +268,7 @@ export default function SlotGroupCard({
                 slotLogs={slotLogs}
                 slotComments={slotComments}
                 slotDeviations={slotDeviations}
+                lastPerformance={lastPerformance}
                 exerciseLibrary={exerciseLibrary}
                 sessionId={sessionId}
                 isConfirmed={isConfirmed}
@@ -285,6 +321,7 @@ export default function SlotGroupCard({
             slotLogs={slotLogs}
             slotComments={slotComments}
             slotDeviations={slotDeviations}
+            lastPerformance={lastPerformance}
             exerciseLibrary={exerciseLibrary}
             sessionId={sessionId}
             isConfirmed={isConfirmed}

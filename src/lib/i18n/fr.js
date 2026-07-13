@@ -95,6 +95,9 @@ const fr = {
       pastProgram: 'Programme précédent',
       noExercises: 'Aucun exercice attribué.',
     },
+    session: {
+      lastTime: 'Dernière fois',
+    },
     feedback: {
       title: 'Retour du coach',
       badge: 'retour',
