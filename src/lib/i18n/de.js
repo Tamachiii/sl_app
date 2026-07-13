@@ -36,6 +36,7 @@ const de = {
     openUserMenu: 'Benutzermenü öffnen',
     openProfile: 'Dein Profil öffnen',
     dismiss: 'Schließen',
+    offlineAction: 'Offline — verbinde dich, um das zu tun.',
   },
   errorBoundary: {
     title: 'Etwas ist schiefgelaufen.',
@@ -124,6 +125,24 @@ const de = {
         sessions: 'Einheiten',
         setsDone: 'Sätze erledigt',
         volumeKg: 'Volumen (kg)',
+      },
+      bodyweight: {
+        title: 'Körpergewicht',
+        log: 'Erfassen',
+        logTitle: 'Körpergewicht erfassen',
+        weightLabel: 'Gewicht (kg)',
+        on: 'am {date}',
+        empty: 'Noch kein Körpergewicht erfasst.',
+        invalid: 'Gib ein Gewicht zwischen 1 und 500 kg ein.',
+      },
+      records: {
+        title: 'Persönliche Rekorde',
+        empty: 'Erfasse Sätze, um deine Rekorde zu sehen.',
+        newPr: 'NEUER REKORD',
+        est1rm: 'gesch. 1RM',
+        best: 'bester {weight}kg × {reps}',
+        bestReps: 'bester Satz',
+        reps: '{n} Wdh.',
       },
       goal: {
         title: 'Aktives Ziel',

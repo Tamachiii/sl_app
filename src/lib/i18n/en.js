@@ -36,6 +36,7 @@ const en = {
     openUserMenu: 'Open user menu',
     openProfile: 'Open your profile',
     dismiss: 'Dismiss',
+    offlineAction: 'You’re offline — reconnect to do this.',
   },
   errorBoundary: {
     title: 'Something went wrong.',
@@ -124,6 +125,24 @@ const en = {
         sessions: 'Sessions',
         setsDone: 'Sets done',
         volumeKg: 'Volume (kg)',
+      },
+      bodyweight: {
+        title: 'Bodyweight',
+        log: 'Log',
+        logTitle: 'Log bodyweight',
+        weightLabel: 'Weight (kg)',
+        on: 'on {date}',
+        empty: 'No bodyweight logged yet.',
+        invalid: 'Enter a weight between 1 and 500 kg.',
+      },
+      records: {
+        title: 'Personal records',
+        empty: 'Log some sets to see your records.',
+        newPr: 'NEW PR',
+        est1rm: 'est. 1RM',
+        best: 'best {weight}kg × {reps}',
+        bestReps: 'best set',
+        reps: '{n} reps',
       },
       goal: {
         title: 'Active goal',

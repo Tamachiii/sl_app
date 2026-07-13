@@ -86,6 +86,8 @@ Jump straight to the relevant files. For *behavior* details, open the file — t
 | Coach goals (per student) | `coach/StudentGoalsSection`, `hooks/useGoals` |
 | Student goals | `student/MyGoals`, `hooks/useGoals` |
 | Student profile | `student/StudentProfile`, `hooks/useStudentLifetimeStats`, `hooks/useAuth`, `hooks/useStudents` (`useMyCoach`), `hooks/useGoals` (`useMyGoals`) |
+| Personal records + bodyweight | `student/PersonalRecords`, `student/BodyweightCard`, `hooks/useStudentRecords`, `hooks/useBodyweight`, `lib/records.js` (Epley e1RM), migration `2026_07_14_bodyweight_logs.sql` |
+| Performance-aware stats | `hooks/useStudentProgressStats` (performed vs planned volume/tonnage + adherence), `student/WeeklyVolumePanel` (shared with coach), `student/ExerciseProgressChart` |
 | User menu popover | `ui/UserMenu` (every top-level page's right-aligned header action) |
 | Theming | `hooks/useTheme`, `ui/ThemeToggle`, `index.css` |
 | i18n (EN/FR/DE) | `hooks/useI18n`, `lib/i18n/`, `ui/LanguageSelect` |

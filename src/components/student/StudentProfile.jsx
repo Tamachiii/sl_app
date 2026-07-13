@@ -11,6 +11,8 @@ import { useMyCoach } from '../../hooks/useStudents';
 import { useMyGoals } from '../../hooks/useGoals';
 import { useStudentLifetimeStats } from '../../hooks/useStudentLifetimeStats';
 import { usePushSubscription } from '../../hooks/usePushSubscription';
+import BodyweightCard from './BodyweightCard';
+import PersonalRecords from './PersonalRecords';
 
 function initialsOf(name) {
   return (name || '')
@@ -306,6 +308,10 @@ export default function StudentProfile() {
           </div>
         )}
       </section>
+
+      {/* Bodyweight check-in + personal records (strength surface). */}
+      <BodyweightCard />
+      <PersonalRecords />
 
       {/* Goals summary — count + tap-through. See activeGoalsCount comment
           above for why we no longer surface a single "featured" goal. */}

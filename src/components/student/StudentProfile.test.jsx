@@ -51,6 +51,19 @@ vi.mock('../../hooks/useStudentLifetimeStats', () => ({
   useStudentLifetimeStats: () => mockStats,
 }));
 
+vi.mock('../../hooks/useBodyweight', () => ({
+  useBodyweightLogs: () => ({ data: [], isLoading: false }),
+  useLogBodyweight: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+vi.mock('../../hooks/useStudentRecords', () => ({
+  useStudentRecords: () => ({ data: [], isLoading: false }),
+}));
+
+vi.mock('../../hooks/useOnlineStatus', () => ({
+  useOnlineStatus: () => true,
+}));
+
 // NotificationBell isn't mounted on Profile (no UserMenu), but the
 // LanguageSelect and ThemeToggle pull from the i18n + theme contexts,
 // which are wrapped by renderProfile below.

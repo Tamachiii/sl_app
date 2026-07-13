@@ -36,6 +36,7 @@ const fr = {
     openUserMenu: 'Ouvrir le menu utilisateur',
     openProfile: 'Ouvrir ton profil',
     dismiss: 'Fermer',
+    offlineAction: 'Hors ligne — reconnecte-toi pour faire ça.',
   },
   errorBoundary: {
     title: 'Une erreur est survenue.',
@@ -124,6 +125,24 @@ const fr = {
         sessions: 'Séances',
         setsDone: 'Séries faites',
         volumeKg: 'Volume (kg)',
+      },
+      bodyweight: {
+        title: 'Poids de corps',
+        log: 'Noter',
+        logTitle: 'Noter le poids',
+        weightLabel: 'Poids (kg)',
+        on: 'le {date}',
+        empty: 'Aucun poids enregistré.',
+        invalid: 'Saisis un poids entre 1 et 500 kg.',
+      },
+      records: {
+        title: 'Records personnels',
+        empty: 'Enregistre des séries pour voir tes records.',
+        newPr: 'NOUVEAU RECORD',
+        est1rm: '1RM est.',
+        best: 'meilleur {weight}kg × {reps}',
+        bestReps: 'meilleure série',
+        reps: '{n} reps',
       },
       goal: {
         title: 'Objectif actif',

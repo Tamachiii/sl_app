@@ -1794,3 +1794,36 @@ CREATE POLICY "Coaches read client errors"
        WHERE p.id = auth.uid() AND p.role = 'coach'
     )
   );
+
+-- ============================================================
+-- Bodyweight logs (2026_07_14)
+-- One row per student per day; feeds relative-strength on the PR/e1RM
+-- surface. Student owns the series; coach reads their students'.
+-- ============================================================
+CREATE TABLE public.bodyweight_logs (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  student_id  uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  weight_kg   numeric(5,2) NOT NULL CHECK (weight_kg > 0 AND weight_kg < 500),
+  logged_on   date NOT NULL DEFAULT current_date,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (student_id, logged_on)
+);
+
+CREATE INDEX bodyweight_logs_student_idx
+  ON public.bodyweight_logs (student_id, logged_on DESC);
+
+ALTER TABLE public.bodyweight_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Students manage own bodyweight"
+  ON public.bodyweight_logs FOR ALL
+  USING (student_id = auth.uid())
+  WITH CHECK (student_id = auth.uid());
+
+CREATE POLICY "Coaches read their students bodyweight"
+  ON public.bodyweight_logs FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.students s
+      WHERE s.profile_id = bodyweight_logs.student_id AND s.coach_id = auth.uid()
+    )
+  );
