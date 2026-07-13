@@ -70,6 +70,7 @@ Jump straight to the relevant files. For *behavior* details, open the file — t
 | Coach dashboard | `coach/CoachDashboard`, `coach/StudentWeekStrip`, `hooks/useStudents`, `hooks/useSessionConfirmation`, `hooks/useProgram` |
 | Coach single-student view (tabbed) | `coach/CoachHome`, `coach/StudentProfileSection`, `coach/StudentProgrammingSection`, `coach/StudentGoalsSection`, `coach/StudentStatsSection`, `routes.jsx` |
 | Coach programs CRUD | `coach/ProgramSwitcher`, `hooks/useProgram` |
+| Program duplicate (whole-block copy, same student) | `coach/ProgramSwitcher` (ManageProgramDialog "Duplicate program"), `hooks/useDuplicate` (`useDuplicateProgram` + shared `copyWeekTree` helper). Copy is inactive, week numbers/labels preserved, prescription-only (no student actuals) |
 | Coach week reordering | `coach/WeekTimeline`, `hooks/useWeek` (`useReorderWeeks`) |
 | Coach sessions feed | `coach/SessionsFeed`, `hooks/useSessionConfirmation` |
 | Coach week view | `coach/WeekView`, `hooks/useWeek`, `hooks/useDuplicate` |

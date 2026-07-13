@@ -47,7 +47,7 @@ npm run dev       # dev server
 npm run build     # production build → dist/
 npm run preview   # serve dist/
 npm run lint      # eslint (correctness-only; also runs in CI)
-npm test          # run vitest (~632 tests)
+npm test          # run vitest (~637 tests)
 npm run deploy    # emergency-only manual publish (CI deploy is the normal path)
 ```
 
@@ -128,7 +128,7 @@ Deep architectural details — RLS helpers, React Query invalidation, routing/pe
 
 **Coach**
 1. Logs in → `CoachDashboard` — athletes list (each card carrying a compact M..S `StudentWeekStrip` showing completed / today / upcoming / missed / rest at a glance for the active week) + recent confirmations feed. Tap an athlete to open their single-student view.
-2. **Students tab** (`/coach/students`, `/coach/students/:studentId/{profile,programming,goals,stats}`) — dropdown selector picks a student, then a four-tab pill strip splits the per-student view into **Profile** (avatar, role, coaching-since date, plus **View sessions** and **Message** action buttons), **Programming** (`ProgramSwitcher` + `WeekTimeline` → `WeekView` → `SessionEditor`), **Goals**, and **Stats**. Bare `/coach/students/:id` redirects to `…/programming`. Legacy `…/messaging` deep links redirect to `…/profile`.
+2. **Students tab** (`/coach/students`, `/coach/students/:studentId/{profile,programming,goals,stats}`) — dropdown selector picks a student, then a four-tab pill strip splits the per-student view into **Profile** (avatar, role, coaching-since date, plus **View sessions** and **Message** action buttons), **Programming** (`ProgramSwitcher` + `WeekTimeline` → `WeekView` → `SessionEditor`; the program menu can **duplicate** a whole block — an inactive copy of every week/session/target, no logged training — to seed the next block), **Goals**, and **Stats**. Bare `/coach/students/:id` redirects to `…/programming`. Legacy `…/messaging` deep links redirect to `…/profile`.
 3. **Sessions tab** (`/coach/sessions`) — a needs-review inbox by default (confirmations awaiting review, with a pending count); the **All** toggle restores the full history. Arriving via a student profile's "View sessions" deep link lands on All. Tap a card to open `SessionReview`.
 4. **Messages tab** (`/coach/messages`, `/coach/messages/:otherProfileId`) — conversation rollup over every student, plus "start a conversation" cards for students with no thread yet. Unread count appears as a dot on the bottom-nav icon (count chip in the side-nav). Tapping the kebab on an outgoing chat bubble opens a confirm dialog and deletes the message for both sides via realtime; coach session-feedback bubbles (the "Re: <session>" cards) are pinned and don't expose the action. The most recent outgoing bubble carries an iMessage-style "Sent" / "Read · {time}" caption fed by `messages.read_at` so the sender knows whether the recipient has opened the thread. Realtime updates via the Supabase `messages` channel keep threads + the badge live across tabs.
 5. **Library tab** — exercise CRUD with search + type filter.
@@ -238,7 +238,7 @@ supabase db query --linked \
 - Tests live alongside components as `*.test.jsx` / `*.test.js`.
 - `src/test/utils.jsx` exports `renderWithProviders(ui, { auth, route, queryClient })` which wraps with `ThemeProvider` + `QueryClientProvider` + `AuthContext` + `MemoryRouter`.
 - Mocks: child hooks are stubbed with `vi.mock('../../hooks/useX', () => ({ ... }))` per file.
-- 606 tests across 69 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations — plus static guardrails (i18n key parity across EN/FR/DE, offline-safety of student mutations, error-key mapping). ESLint (correctness-only) + the suite run in CI on every dev push / PR and gate every deploy from main.
+- 637 tests across 71 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats, records, last-performance), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations — plus static guardrails (i18n key parity across EN/FR/DE, offline-safety of student mutations, error-key mapping). ESLint (correctness-only) + the suite run in CI on every dev push / PR and gate every deploy from main.
 
 Run:
 ```bash

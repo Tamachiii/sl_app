@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -8,6 +8,7 @@ const mockRename = { mutate: vi.fn(), isPending: false };
 const mockDelete = { mutate: vi.fn(), isPending: false };
 const mockSetActive = { mutate: vi.fn(), isPending: false };
 const mockReorder = { mutate: vi.fn(), isPending: false };
+const mockDuplicate = { mutate: vi.fn(), isPending: false };
 
 vi.mock('../../hooks/useProgram', () => ({
   useCreateProgram: () => mockCreate,
@@ -18,6 +19,10 @@ vi.mock('../../hooks/useProgram', () => ({
   useTrashedPrograms: () => ({ data: [], isLoading: false }),
   useRestoreProgram: () => ({ mutate: vi.fn(), isPending: false }),
   useHardDeleteProgram: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+vi.mock('../../hooks/useDuplicate', () => ({
+  useDuplicateProgram: () => mockDuplicate,
 }));
 
 import ProgramSwitcher from './ProgramSwitcher';
@@ -103,6 +108,23 @@ describe('ProgramSwitcher', () => {
 
     const trashBtn = screen.getByRole('button', { name: /move to trash/i });
     expect(trashBtn).toBeDisabled();
+  });
+
+  it('duplicating a program calls useDuplicateProgram and selects the copy', async () => {
+    const user = userEvent.setup();
+    const { onSelect } = renderSwitcher({ selectedId: 'p-1' });
+    await user.click(screen.getByRole('button', { name: /program options/i }));
+
+    await user.click(screen.getByRole('button', { name: /duplicate program/i }));
+    expect(mockDuplicate.mutate).toHaveBeenCalledWith(
+      { programId: 'p-1', studentId: 's-1' },
+      expect.any(Object),
+    );
+
+    // The onSuccess callback should select the returned copy.
+    const onSuccess = mockDuplicate.mutate.mock.calls[0][1].onSuccess;
+    act(() => onSuccess({ id: 'p-copy' }));
+    expect(onSelect).toHaveBeenCalledWith('p-copy');
   });
 
   it('trashing an inactive program requires confirm and calls the mutation', async () => {

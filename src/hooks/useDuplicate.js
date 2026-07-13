@@ -4,12 +4,18 @@ import { supabase } from '../lib/supabase';
 // Copies the per-set targets from each source slot's set_logs into fresh
 // rows on the destination slots. Actuals (done/rpe/weight_kg/logged_at) are
 // intentionally NOT carried over — duplication produces a clean session.
+// Student-added extra sets (is_student_added) are a structural deviation, not
+// part of the coach's prescription (their target_* are all NULL) — excluding
+// them keeps the copy a clean prescription instead of baking a phantom
+// empty set into every duplicated slot. Skipped prescribed sets DO carry
+// targets and are correctly restored (reset to done:false by the map below).
 async function copySetLogTargets(slotIdMap) {
   const sourceIds = Object.keys(slotIdMap);
   if (sourceIds.length === 0) return;
   const { data: srcLogs, error } = await supabase
     .from('set_logs')
     .select('exercise_slot_id, set_number, target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds')
+    .eq('is_student_added', false)
     .in('exercise_slot_id', sourceIds);
   if (error) throw error;
   const rows = (srcLogs || []).map((l) => ({
@@ -38,6 +44,87 @@ async function nextSessionSortOrder(weekId) {
     .limit(1);
   if (error) throw error;
   return (data?.[0]?.sort_order ?? -1) + 1;
+}
+
+// Copy a source week's sessions → slots → set_log TARGETS into an already-
+// created destination week. Actuals (done/rpe/weight_kg/logged_at) and per-
+// session scheduling (scheduled_date/reviewed_at) are intentionally NOT
+// carried — a duplicate is a clean prescription. archived_at IS preserved so
+// a coach's worklist cleanup survives the copy. Shared by useDuplicateWeek
+// and useDuplicateProgram so both walk one audited copy path.
+async function copyWeekTree(srcWeekId, destWeekId) {
+  const { data: sessions, error: sErr } = await supabase
+    .from('sessions')
+    .select('*, exercise_slots(*)')
+    .eq('week_id', srcWeekId)
+    .order('sort_order');
+  if (sErr) throw sErr;
+
+  if ((sessions || []).length === 0) return;
+
+  const sessionRows = sessions.map((sess) => ({
+    week_id: destWeekId,
+    day_number: sess.day_number,
+    title: sess.title,
+    sort_order: sess.sort_order,
+    // Carry the archived state so a coach's worklist cleanup isn't undone
+    // — a copy of an archived session must not reappear as active.
+    archived_at: sess.archived_at,
+  }));
+  const { data: newSessions, error: nsErr } = await supabase
+    .from('sessions')
+    .insert(sessionRows)
+    .select('id, sort_order');
+  if (nsErr) throw nsErr;
+  if ((newSessions || []).length !== sessions.length) {
+    throw new Error('Week duplication failed: session copy count mismatch');
+  }
+  // Map old→new by matching sort_order, NOT by RETURNING/array order. The
+  // destination week is brand-new and UNIQUE(week_id, sort_order) (2026_07_13)
+  // guarantees these values are distinct, so this is an exact bijection
+  // independent of the order Postgres returns rows in — sort_order pairing was
+  // only unsafe before, when ties could exist.
+  const newSessBySort = new Map(newSessions.map((ns) => [ns.sort_order, ns.id]));
+
+  const slotIdMap = {};
+  for (let i = 0; i < sessions.length; i++) {
+    const sess = sessions[i];
+    const newSessId = newSessBySort.get(sess.sort_order);
+    if (!newSessId) {
+      throw new Error('Week duplication failed: session sort_order mapping gap');
+    }
+    const sourceSlots = (sess.exercise_slots || []).slice().sort(
+      (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+    );
+    if (sourceSlots.length === 0) continue;
+    const slotRows = sourceSlots.map((sl) => ({
+      session_id: newSessId,
+      exercise_id: sl.exercise_id,
+      sets: sl.sets,
+      reps: sl.reps,
+      weight_kg: sl.weight_kg,
+      sort_order: sl.sort_order,
+      notes: sl.notes,
+      duration_seconds: sl.duration_seconds,
+      superset_group: sl.superset_group,
+      rest_seconds: sl.rest_seconds,
+      // The coach's per-set video requests are part of the prescription —
+      // dropping them here silently disabled recording on every propagated week.
+      record_video_set_numbers: sl.record_video_set_numbers,
+    }));
+    const { data: newSlots, error: slErr } = await supabase
+      .from('exercise_slots')
+      .insert(slotRows)
+      .select('id');
+    if (slErr) throw slErr;
+    if ((newSlots || []).length !== sourceSlots.length) {
+      throw new Error('Week duplication failed: slot copy count mismatch');
+    }
+    sourceSlots.forEach((src, j) => {
+      slotIdMap[src.id] = newSlots[j].id;
+    });
+  }
+  await copySetLogTargets(slotIdMap);
 }
 
 export function useDuplicateWeek() {
@@ -80,83 +167,111 @@ export function useDuplicateWeek() {
         .single();
       if (nwErr) throw nwErr;
 
-      const { data: sessions, error: sErr } = await supabase
-        .from('sessions')
-        .select('*, exercise_slots(*)')
-        .eq('week_id', weekId)
-        .order('sort_order');
-      if (sErr) throw sErr;
-
-      if (sessions.length === 0) return newWeek;
-
-      const sessionRows = sessions.map((sess) => ({
-        week_id: newWeek.id,
-        day_number: sess.day_number,
-        title: sess.title,
-        sort_order: sess.sort_order,
-        // Carry the archived state so a coach's worklist cleanup isn't undone
-        // — a copy of an archived session must not reappear as active.
-        archived_at: sess.archived_at,
-      }));
-      const { data: newSessions, error: nsErr } = await supabase
-        .from('sessions')
-        .insert(sessionRows)
-        .select('id, sort_order');
-      if (nsErr) throw nsErr;
-      if ((newSessions || []).length !== sessions.length) {
-        throw new Error('Week duplication failed: session copy count mismatch');
-      }
-      // Map old→new by matching sort_order, NOT by RETURNING/array order.
-      // The destination week is brand-new and UNIQUE(week_id, sort_order)
-      // (2026_07_13) guarantees these values are distinct, so this is an
-      // exact bijection independent of the order Postgres returns rows in —
-      // sort_order pairing was only unsafe before, when ties could exist.
-      const newSessBySort = new Map(newSessions.map((ns) => [ns.sort_order, ns.id]));
-
-      const slotIdMap = {};
-      for (let i = 0; i < sessions.length; i++) {
-        const sess = sessions[i];
-        const newSessId = newSessBySort.get(sess.sort_order);
-        if (!newSessId) {
-          throw new Error('Week duplication failed: session sort_order mapping gap');
-        }
-        const sourceSlots = (sess.exercise_slots || []).slice().sort(
-          (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
-        );
-        if (sourceSlots.length === 0) continue;
-        const slotRows = sourceSlots.map((sl) => ({
-          session_id: newSessId,
-          exercise_id: sl.exercise_id,
-          sets: sl.sets,
-          reps: sl.reps,
-          weight_kg: sl.weight_kg,
-          sort_order: sl.sort_order,
-          notes: sl.notes,
-          duration_seconds: sl.duration_seconds,
-          superset_group: sl.superset_group,
-          rest_seconds: sl.rest_seconds,
-          // The coach's per-set video requests are part of the prescription —
-          // dropping them here silently disabled recording on every
-          // propagated week.
-          record_video_set_numbers: sl.record_video_set_numbers,
-        }));
-        const { data: newSlots, error: slErr } = await supabase
-          .from('exercise_slots')
-          .insert(slotRows)
-          .select('id');
-        if (slErr) throw slErr;
-        if ((newSlots || []).length !== sourceSlots.length) {
-          throw new Error('Week duplication failed: slot copy count mismatch');
-        }
-        sourceSlots.forEach((src, j) => {
-          slotIdMap[src.id] = newSlots[j].id;
-        });
-      }
-      await copySetLogTargets(slotIdMap);
+      await copyWeekTree(weekId, newWeek.id);
 
       return newWeek;
     },
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['program'] });
+      qc.invalidateQueries({ queryKey: ['week'] });
+      qc.invalidateQueries({ queryKey: ['set-logs'] });
+      qc.invalidateQueries({ queryKey: ['student-weeks'] });
+    },
+  });
+}
+
+/**
+ * Duplicate an ENTIRE program for the same student — every week, session,
+ * slot, and per-set target — to seed the next block from a finished one.
+ *
+ * The copy is ALWAYS created inactive (like a restored program), so it can
+ * never bump the student's current active block off the one-active-per-student
+ * slot; the coach activates it explicitly when ready. Week numbers and labels
+ * are preserved verbatim (unlike single-week duplication, which suffixes
+ * "(copy)" and appends). Student actuals are never carried — see copyWeekTree.
+ */
+export function useDuplicateProgram() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ programId }) => {
+      const { data: srcProgram, error: pErr } = await supabase
+        .from('programs')
+        .select('id, student_id, name, weeks(id, week_number, label)')
+        .eq('id', programId)
+        .single();
+      if (pErr) throw pErr;
+
+      // Next sort_order among the student's live programs (trashed rows keep
+      // their sort_order but never collide — sort_order has no unique index).
+      const { data: existing, error: listErr } = await supabase
+        .from('programs')
+        .select('sort_order')
+        .eq('student_id', srcProgram.student_id)
+        .is('deleted_at', null)
+        .order('sort_order', { ascending: false })
+        .limit(1);
+      if (listErr) throw listErr;
+      const nextSort = (existing?.[0]?.sort_order ?? -1) + 1;
+
+      const { data: newProgram, error: npErr } = await supabase
+        .from('programs')
+        .insert({
+          student_id: srcProgram.student_id,
+          name: `${srcProgram.name} (copy)`,
+          sort_order: nextSort,
+          is_active: false,
+        })
+        .select()
+        .single();
+      if (npErr) throw npErr;
+
+      // No client transaction in supabase-js, so the week/session/slot/target
+      // inserts below aren't atomic. If one fails partway, best-effort delete
+      // the half-copied program so a failure never strands an orphan block in
+      // the coach's switcher. The copy has no logged sets, so the
+      // block_*_delete_with_logged_sets trigger permits the cleanup; if the
+      // cleanup itself fails we still surface the original copy error.
+      try {
+        const weeks = (srcProgram.weeks || [])
+          .slice()
+          .sort((a, b) => a.week_number - b.week_number);
+        for (const w of weeks) {
+          const { data: newWeek, error: wErr } = await supabase
+            .from('weeks')
+            .insert({
+              program_id: newProgram.id,
+              week_number: w.week_number,
+              label: w.label,
+            })
+            .select('id')
+            .single();
+          if (wErr) throw wErr;
+          await copyWeekTree(w.id, newWeek.id);
+        }
+      } catch (copyErr) {
+        try {
+          await supabase.from('programs').delete().eq('id', newProgram.id);
+        } catch {
+          // swallow — surfacing the original copy failure matters more
+        }
+        throw copyErr;
+      }
+
+      return newProgram;
+    },
+    onSuccess: (newProgram, vars) => {
+      const studentId = vars.studentId ?? newProgram?.student_id;
+      // Seed the list cache synchronously so the parent's onSelect(newProgram.id)
+      // sees the copy before the refetch lands (mirrors useCreateProgram —
+      // otherwise CoachHome's stale-?program cleanup strips it). Real week
+      // count arrives with the invalidation refetch.
+      if (studentId && newProgram?.id) {
+        qc.setQueryData(['programs', studentId], (old) =>
+          Array.isArray(old) ? [...old, { ...newProgram, weeks: [] }] : old
+        );
+      }
+      qc.invalidateQueries({ queryKey: ['programs', studentId] });
       qc.invalidateQueries({ queryKey: ['program'] });
       qc.invalidateQueries({ queryKey: ['week'] });
       qc.invalidateQueries({ queryKey: ['set-logs'] });

@@ -249,6 +249,8 @@ const en = {
       programNameLabel: 'Program name',
       rename: 'Rename',
       setActive: 'Set active',
+      duplicate: 'Duplicate program',
+      duplicateHint: 'Creates an inactive copy — all weeks and set targets, none of the logged training.',
       delete: 'Delete',
       cannotDeleteActive: 'Activate another program before deleting this one.',
       reorderProgram: 'Reorder {name}',

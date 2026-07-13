@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 vi.mock('../lib/supabase', () => ({ supabase: { from: vi.fn() } }));
 
-import { useDuplicateWeek, useDuplicateSession } from './useDuplicate';
+import { useDuplicateWeek, useDuplicateSession, useDuplicateProgram } from './useDuplicate';
 import { supabase } from '../lib/supabase';
 
 function makeClient() {
@@ -130,9 +130,10 @@ describe('useDuplicateWeek', () => {
         error: null,
       }),
     };
-    // Phase 7: copySetLogTargets — fetch source set_logs
+    // Phase 7: copySetLogTargets — fetch source set_logs (excludes student-added)
     const srcLogs = {
       select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
       in: vi.fn().mockResolvedValue({
         data: [
           {
@@ -192,6 +193,9 @@ describe('useDuplicateWeek', () => {
     expect(insertedLogs[0].done).toBe(false);
     expect(insertedLogs[0].target_reps).toBe(8);
     expect(insertedLogs[0]).not.toHaveProperty('rpe');
+    // Student-added extra sets are excluded from the copy — a duplicate is a
+    // clean prescription, not the student's off-plan deviations.
+    expect(srcLogs.eq).toHaveBeenCalledWith('is_student_added', false);
 
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['program'] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['set-logs'] });
@@ -292,6 +296,7 @@ describe('useDuplicateWeek', () => {
     };
     const srcLogs = {
       select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
       in: vi.fn().mockResolvedValue({ data: [], error: null }),
     };
     const sequence = [srcWeek, newWeek, srcSessions, newSessions, newSlotsA, newSlotsB, srcLogs];
@@ -412,6 +417,7 @@ describe('useDuplicateSession', () => {
     };
     const srcLogs = {
       select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
       in: vi.fn().mockResolvedValue({ data: [], error: null }),
     };
     const sequence = [srcSession, maxSort, newSession, newSlots, srcLogs];
@@ -481,5 +487,225 @@ describe('useDuplicateSession', () => {
     expect(newSession.insert).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Session (copy)', sort_order: 0 }),
     );
+  });
+});
+
+describe('useDuplicateProgram', () => {
+  it('copies a whole program inactive, "(copy)"-named, preserving week numbers and set targets', async () => {
+    // Phase 1: fetch source program + its weeks
+    const srcProgram = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: {
+          id: 'p-1',
+          student_id: 'st-1',
+          name: 'Block A',
+          weeks: [
+            { id: 'w-2', week_number: 2, label: 'Wk2' },
+            { id: 'w-1', week_number: 1, label: 'Wk1' },
+          ],
+        },
+        error: null,
+      }),
+    };
+    // Phase 2: next sort_order among the student's live programs
+    const maxSort = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      is: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue({ data: [{ sort_order: 2 }], error: null }),
+    };
+    // Phase 3: insert the copy program
+    const newProgram = {
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: { id: 'p-new', student_id: 'st-1', name: 'Block A (copy)', is_active: false, sort_order: 3 },
+        error: null,
+      }),
+    };
+    // Weeks are copied in ascending week_number order (w-1 then w-2). Each week:
+    // insert week → copyWeekTree (fetch sessions → insert sessions → insert
+    // slots → fetch set_logs → insert set_logs).
+    const makeWeekChains = (newWeekId, srcSlotId) => {
+      const newWeek = {
+        insert: vi.fn().mockReturnThis(),
+        select: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: { id: newWeekId }, error: null }),
+      };
+      const srcSessions = {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        order: vi.fn().mockResolvedValue({
+          data: [
+            {
+              id: `ss-${newWeekId}`,
+              day_number: 1,
+              title: 'Push',
+              sort_order: 0,
+              archived_at: null,
+              exercise_slots: [
+                {
+                  id: srcSlotId,
+                  exercise_id: 'e-1',
+                  sets: 3,
+                  reps: 8,
+                  weight_kg: 100,
+                  sort_order: 0,
+                  notes: null,
+                  duration_seconds: null,
+                  superset_group: null,
+                  rest_seconds: 90,
+                  record_video_set_numbers: [1],
+                },
+              ],
+            },
+          ],
+          error: null,
+        }),
+      };
+      const newSessions = {
+        insert: vi.fn().mockReturnThis(),
+        select: vi.fn().mockResolvedValue({ data: [{ id: `ss-${newWeekId}-new`, sort_order: 0 }], error: null }),
+      };
+      const newSlots = {
+        insert: vi.fn().mockReturnThis(),
+        select: vi.fn().mockResolvedValue({ data: [{ id: `sl-${newWeekId}-new`, sort_order: 0 }], error: null }),
+      };
+      const srcLogs = {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        in: vi.fn().mockResolvedValue({
+          data: [
+            { exercise_slot_id: srcSlotId, set_number: 1, target_reps: 8, target_duration_seconds: null, target_weight_kg: 100, target_rest_seconds: 90 },
+          ],
+          error: null,
+        }),
+      };
+      const newLogs = { insert: vi.fn().mockResolvedValue({ error: null }) };
+      return { newWeek, chains: [newWeek, srcSessions, newSessions, newSlots, srcLogs, newLogs] };
+    };
+
+    const week1 = makeWeekChains('w-1-new', 'slot-w1');
+    const week2 = makeWeekChains('w-2-new', 'slot-w2');
+
+    const sequence = [srcProgram, maxSort, newProgram, ...week1.chains, ...week2.chains];
+    let i = 0;
+    supabase.from.mockImplementation(() => sequence[i++]);
+
+    const qc = makeClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useDuplicateProgram(), { wrapper: withClient(qc) });
+
+    result.current.mutate({ programId: 'p-1', studentId: 'st-1' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    // New program: same student, "(copy)" name, next sort_order, INACTIVE.
+    expect(newProgram.insert).toHaveBeenCalledWith({
+      student_id: 'st-1',
+      name: 'Block A (copy)',
+      sort_order: 3,
+      is_active: false,
+    });
+    // Weeks copied in ascending order with numbers + labels preserved verbatim.
+    expect(week1.newWeek.insert).toHaveBeenCalledWith({ program_id: 'p-new', week_number: 1, label: 'Wk1' });
+    expect(week2.newWeek.insert).toHaveBeenCalledWith({ program_id: 'p-new', week_number: 2, label: 'Wk2' });
+    // Set-log targets copied clean (done:false, no actuals).
+    const insertedLog = week1.chains[5].insert.mock.calls[0][0][0];
+    expect(insertedLog).toMatchObject({ set_number: 1, target_reps: 8, target_weight_kg: 100, done: false });
+    expect(insertedLog).not.toHaveProperty('logged_at');
+    // Every chain consumed — no extra/hanging supabase calls.
+    expect(i).toBe(sequence.length);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['programs', 'st-1'] });
+  });
+
+  it('copies a program with no weeks (no week/session inserts)', async () => {
+    const srcProgram = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: { id: 'p-1', student_id: 'st-1', name: 'Empty', weeks: [] },
+        error: null,
+      }),
+    };
+    const maxSort = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      is: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+    };
+    const newProgram = {
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: { id: 'p-new', student_id: 'st-1', name: 'Empty (copy)' },
+        error: null,
+      }),
+    };
+    const sequence = [srcProgram, maxSort, newProgram];
+    let i = 0;
+    supabase.from.mockImplementation(() => sequence[i++]);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useDuplicateProgram(), { wrapper: withClient(qc) });
+    result.current.mutate({ programId: 'p-1', studentId: 'st-1' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    // No live programs → first free sort_order is 0.
+    expect(newProgram.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Empty (copy)', sort_order: 0, is_active: false }),
+    );
+    // Only 3 chains used — no week/session/slot/log inserts.
+    expect(i).toBe(3);
+  });
+
+  it('best-effort deletes the half-copied program when a week copy fails', async () => {
+    const srcProgram = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: { id: 'p-1', student_id: 'st-1', name: 'Block A', weeks: [{ id: 'w-1', week_number: 1, label: 'Wk1' }] },
+        error: null,
+      }),
+    };
+    const maxSort = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      is: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue({ data: [{ sort_order: 0 }], error: null }),
+    };
+    const newProgram = {
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: { id: 'p-new', student_id: 'st-1', name: 'Block A (copy)' }, error: null }),
+    };
+    // Week insert fails mid-copy.
+    const failWeek = {
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: null, error: { message: 'boom' } }),
+    };
+    // Cleanup: delete the partial program.
+    const cleanup = {
+      delete: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ error: null }),
+    };
+
+    const sequence = [srcProgram, maxSort, newProgram, failWeek, cleanup];
+    let i = 0;
+    supabase.from.mockImplementation(() => sequence[i++]);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useDuplicateProgram(), { wrapper: withClient(qc) });
+    result.current.mutate({ programId: 'p-1', studentId: 'st-1' });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    // The half-copied (inactive, unlogged) program was cleaned up.
+    expect(cleanup.delete).toHaveBeenCalled();
+    expect(cleanup.eq).toHaveBeenCalledWith('id', 'p-new');
   });
 });

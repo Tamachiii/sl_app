@@ -249,6 +249,8 @@ const de = {
       programNameLabel: 'Programmname',
       rename: 'Umbenennen',
       setActive: 'Aktivieren',
+      duplicate: 'Programm duplizieren',
+      duplicateHint: 'Erstellt eine inaktive Kopie — alle Wochen und Satzvorgaben, ohne das protokollierte Training.',
       delete: 'Löschen',
       cannotDeleteActive: 'Aktiviere ein anderes Programm, bevor du dieses löschst.',
       moveToTrash: 'In den Papierkorb',

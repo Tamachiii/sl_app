@@ -249,6 +249,8 @@ const fr = {
       programNameLabel: 'Nom du programme',
       rename: 'Renommer',
       setActive: 'Activer',
+      duplicate: 'Dupliquer le programme',
+      duplicateHint: 'Crée une copie inactive — toutes les semaines et les cibles de séries, sans les entraînements enregistrés.',
       delete: 'Supprimer',
       cannotDeleteActive: 'Active un autre programme avant de supprimer celui-ci.',
       moveToTrash: 'Mettre à la corbeille',

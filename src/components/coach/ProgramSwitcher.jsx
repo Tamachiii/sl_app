@@ -26,6 +26,7 @@ import {
   useRestoreProgram,
   useHardDeleteProgram,
 } from '../../hooks/useProgram';
+import { useDuplicateProgram } from '../../hooks/useDuplicate';
 import { useI18n } from '../../hooks/useI18n';
 import Dialog from '../ui/Dialog';
 
@@ -107,11 +108,12 @@ function SortableProgramRow({ program, isSelected, t, onSelect }) {
   );
 }
 
-function ManageProgramDialog({ program, programCount, studentId, t, onClose, onDeleted }) {
+function ManageProgramDialog({ program, studentId, t, onClose, onDeleted, onDuplicated }) {
   const [name, setName] = useState(program?.name ?? '');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const rename = useRenameProgram();
   const setActive = useSetActiveProgram();
+  const duplicate = useDuplicateProgram();
   const del = useDeleteProgram();
 
   useEffect(() => {
@@ -141,6 +143,18 @@ function ManageProgramDialog({ program, programCount, studentId, t, onClose, onD
     setActive.mutate(
       { programId: program.id, studentId },
       { onSuccess: () => onClose() },
+    );
+  }
+
+  function handleDuplicate() {
+    duplicate.mutate(
+      { programId: program.id, studentId },
+      {
+        onSuccess: (newProgram) => {
+          onDuplicated?.(newProgram?.id);
+          onClose();
+        },
+      },
     );
   }
 
@@ -194,6 +208,20 @@ function ManageProgramDialog({ program, programCount, studentId, t, onClose, onD
               {setActive.isPending ? t('common.saving') : t('coach.home.setActive')}
             </button>
           )}
+
+          <div>
+            <button
+              type="button"
+              onClick={handleDuplicate}
+              disabled={duplicate.isPending}
+              className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 w-full justify-center disabled:opacity-50"
+            >
+              {duplicate.isPending ? t('common.saving') : t('coach.home.duplicate')}
+            </button>
+            <p className="sl-mono text-[11px] text-ink-400 mt-1.5">
+              {t('coach.home.duplicateHint')}
+            </p>
+          </div>
 
           {confirmingDelete ? (
             <div
@@ -536,11 +564,11 @@ export default function ProgramSwitcher({ studentId, programs, selectedId, onSel
       {manageOpen && selected && (
         <ManageProgramDialog
           program={selected}
-          programCount={localPrograms.length}
           studentId={studentId}
           t={t}
           onClose={() => setManageOpen(false)}
           onDeleted={onProgramDeleted}
+          onDuplicated={(id) => { if (id) onSelect(id); }}
         />
       )}
     </>
