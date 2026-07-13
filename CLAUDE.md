@@ -95,7 +95,10 @@ Jump straight to the relevant files. For *behavior* details, open the file — t
 | Rest timer (in-app cues + Web Push) | `hooks/useRestTimer`, `hooks/useRestTimerEffects`, `hooks/useRestTimerPush`, `student/RestTimerBanner`, `student/SessionView`, `supabase/functions/dispatch-rest-push/` |
 | Web Push subscription toggle | `lib/pushNotifications`, `hooks/usePushSubscription`, `student/StudentProfile`, `src/sw.js` |
 | Coach feedback push fan-out | `supabase/functions/send-push/`, `supabase/migrations/2026_05_12_feedback_push.sql` (trigger calls send-push via pg_net) |
+| Chat message push (no bell row) | `supabase/migrations/2026_07_12_chat_message_push.sql` (`notify_recipient_on_chat_message` → send-push), online-only gates in `messaging/MessageComposer` + `coach/SessionFeedbackComposer` |
 | Offline support (student writes) | `lib/queryClient.js`, `lib/offlineMutations.js`, `hooks/useOnlineStatus.js`, `components/ui/OfflineBanner.jsx`, `vite.config.js`, `main.jsx`, `App.jsx` |
+| CI & deploys | `.github/workflows/test.yml` (reusable suite: dev pushes + PRs), `.github/workflows/deploy.yml` (test-gated gh-pages publish) |
+| Nightly DB backups | `.github/workflows/backup.yml` (encrypted dump artifact), `BACKUPS.md` (secrets setup + restore drill) |
 
 Periodization, confirmations, video storage/RLS, routing persistence, and React Query invalidation details are in `docs/ARCHITECTURE.md`. Design primitives, dark-mode rules, responsive layout, and the editorial page-header pattern are in `docs/DESIGN_SYSTEM.md`.
 

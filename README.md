@@ -46,8 +46,8 @@ Apply `supabase/schema.sql` to a fresh Supabase project (creates tables, RLS pol
 npm run dev       # dev server
 npm run build     # production build → dist/
 npm run preview   # serve dist/
-npm test          # run vitest (~518 tests)
-npm run deploy    # publishes dist/ to gh-pages branch
+npm test          # run vitest (~588 tests)
+npm run deploy    # emergency-only manual publish (CI deploy is the normal path)
 ```
 
 ---
@@ -128,7 +128,7 @@ Deep architectural details — RLS helpers, React Query invalidation, routing/pe
 **Coach**
 1. Logs in → `CoachDashboard` — athletes list (each card carrying a compact M..S `StudentWeekStrip` showing completed / today / upcoming / missed / rest at a glance for the active week) + recent confirmations feed. Tap an athlete to open their single-student view.
 2. **Students tab** (`/coach/students`, `/coach/students/:studentId/{profile,programming,goals,stats}`) — dropdown selector picks a student, then a four-tab pill strip splits the per-student view into **Profile** (avatar, role, coaching-since date, plus **View sessions** and **Message** action buttons), **Programming** (`ProgramSwitcher` + `WeekTimeline` → `WeekView` → `SessionEditor`), **Goals**, and **Stats**. Bare `/coach/students/:id` redirects to `…/programming`. Legacy `…/messaging` deep links redirect to `…/profile`.
-3. **Sessions tab** (`/coach/sessions`) — all students' confirmed sessions in one feed; tap a card to open `SessionReview`.
+3. **Sessions tab** (`/coach/sessions`) — a needs-review inbox by default (confirmations awaiting review, with a pending count); the **All** toggle restores the full history. Arriving via a student profile's "View sessions" deep link lands on All. Tap a card to open `SessionReview`.
 4. **Messages tab** (`/coach/messages`, `/coach/messages/:otherProfileId`) — conversation rollup over every student, plus "start a conversation" cards for students with no thread yet. Unread count appears as a dot on the bottom-nav icon (count chip in the side-nav). Tapping the kebab on an outgoing chat bubble opens a confirm dialog and deletes the message for both sides via realtime; coach session-feedback bubbles (the "Re: <session>" cards) are pinned and don't expose the action. The most recent outgoing bubble carries an iMessage-style "Sent" / "Read · {time}" caption fed by `messages.read_at` so the sender knows whether the recipient has opened the thread. Realtime updates via the Supabase `messages` channel keep threads + the badge live across tabs.
 5. **Library tab** — exercise CRUD with search + type filter.
 
@@ -237,7 +237,7 @@ supabase db query --linked \
 - Tests live alongside components as `*.test.jsx` / `*.test.js`.
 - `src/test/utils.jsx` exports `renderWithProviders(ui, { auth, route, queryClient })` which wraps with `ThemeProvider` + `QueryClientProvider` + `AuthContext` + `MemoryRouter`.
 - Mocks: child hooks are stubbed with `vi.mock('../../hooks/useX', () => ({ ... }))` per file.
-- 579 tests across 66 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations.
+- 591 tests across 66 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations. The suite runs in CI on every dev push / PR and gates every deploy from main.
 
 Run:
 ```bash
@@ -262,10 +262,12 @@ npm test -- --run        # single run (CI)
 
 ## Deployment
 
-```bash
-npm run deploy
-```
+Pushing to `main` deploys automatically: `.github/workflows/deploy.yml` runs the full test suite (via the reusable `test.yml`, which also runs on every `dev` push / PR) and only then builds and publishes `dist/` to the `gh-pages` branch. Vite `base` is `/sl_app/`; the router uses `HashRouter` so deep links survive static hosting.
 
-Uses `gh-pages` to push `dist/` to the `gh-pages` branch. Vite `base` is `/sl_app/`; the router uses `HashRouter` so deep links survive static hosting. GitHub Actions workflow lives in `.github/workflows/`.
+Supabase env vars are passed in at build time — ensure GitHub Actions secrets `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and `VITE_VAPID_PUBLIC_KEY` are set.
 
-Supabase env vars are passed in at build time — ensure GitHub Actions secrets `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are set.
+`npm run deploy` still exists as an emergency-only manual path — it publishes whatever is in the local working tree, ungated, so prefer the Actions pipeline.
+
+**Backups:** `.github/workflows/backup.yml` dumps the database nightly to an encrypted workflow artifact. It needs two one-time secrets and a rehearsed restore — see [BACKUPS.md](BACKUPS.md).
+
+**Auth hardening note:** signups always get `role='student'` (`handle_new_user` no longer trusts signup metadata); promote a coach manually via `UPDATE public.profiles SET role='coach' WHERE id = …`. If the app is invite-only (it currently is), also disable public email signups under Supabase → Auth → Providers.
