@@ -66,7 +66,9 @@ export function useStudentProgressStats(studentId, scope = 'all') {
             )
           )
         `)
-        .eq('student_id', resolvedStudentId);
+        .eq('student_id', resolvedStudentId)
+        // Trashed programs sit out of stats until restored.
+        .is('deleted_at', null);
 
       if (scope === 'active') {
         q = q.eq('is_active', true);
@@ -75,6 +77,20 @@ export function useStudentProgressStats(studentId, scope = 'all') {
         q = q.eq('id', scope);
       }
       q = q.order('sort_order', { ascending: true });
+
+      // Apply the SAME student + scope + not-trashed filter to a query that
+      // reaches `programs` through an embed at `prefix` (e.g.
+      // 'sessions.weeks.programs'). Lets the confirmations / set_logs fetches
+      // below filter through the join instead of an unbounded .in(id-list),
+      // which grows with history and eventually overflows the request URL.
+      const applyProgramScope = (query, prefix) => {
+        let out = query
+          .eq(`${prefix}.student_id`, resolvedStudentId)
+          .is(`${prefix}.deleted_at`, null);
+        if (scope === 'active') out = out.eq(`${prefix}.is_active`, true);
+        else if (scope !== 'all') out = out.eq(`${prefix}.id`, scope);
+        return out;
+      };
 
       const { data: programs, error: pErr } = await q;
       if (pErr) throw pErr;
@@ -122,27 +138,38 @@ export function useStudentProgressStats(studentId, scope = 'all') {
         return a.week_number - b.week_number;
       });
 
-      // 3. Fetch confirmations for this student's sessions.
-      const sessionIds = allSessions.map((s) => s.id);
-      const confirmations = sessionIds.length
-        ? (
-            await supabase
+      // 3. Fetch confirmations + set_logs for this student, filtered THROUGH
+      //    the program join (same scope as the tree above) rather than an
+      //    .in() over every session/slot id in the tree.
+      const hasSessions = allSessions.length > 0;
+      const hasSlots = allSlotIds.length > 0;
+
+      const { data: confRows, error: confErr } = hasSessions
+        ? await applyProgramScope(
+            supabase
               .from('session_confirmations')
-              .select('id, session_id, confirmed_at, notes')
-              .in('session_id', sessionIds)
-              .order('confirmed_at', { ascending: false })
-          ).data || []
-        : [];
+              .select(
+                'id, session_id, confirmed_at, notes, sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at)))'
+              ),
+            'sessions.weeks.programs'
+          ).order('confirmed_at', { ascending: false })
+        : { data: [], error: null };
+      if (confErr) throw confErr;
+      const confirmations = confRows || [];
       const confirmedIds = new Set(confirmations.map((c) => c.session_id));
 
-      const setLogs = allSlotIds.length
-        ? (
-            await supabase
+      const { data: logRows, error: logErr } = hasSlots
+        ? await applyProgramScope(
+            supabase
               .from('set_logs')
-              .select('id, exercise_slot_id, done, rpe, logged_at')
-              .in('exercise_slot_id', allSlotIds)
-          ).data || []
-        : [];
+              .select(
+                'id, exercise_slot_id, done, rpe, logged_at, exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at))))'
+              ),
+            'exercise_slots.sessions.weeks.programs'
+          )
+        : { data: [], error: null };
+      if (logErr) throw logErr;
+      const setLogs = logRows || [];
 
       // ─── Derived aggregates ───────────────────────────────────────────────
 

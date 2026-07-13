@@ -15,6 +15,9 @@ vi.mock('../../hooks/useProgram', () => ({
   useDeleteProgram: () => mockDelete,
   useSetActiveProgram: () => mockSetActive,
   useReorderPrograms: () => mockReorder,
+  useTrashedPrograms: () => ({ data: [], isLoading: false }),
+  useRestoreProgram: () => ({ mutate: vi.fn(), isPending: false }),
+  useHardDeleteProgram: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 import ProgramSwitcher from './ProgramSwitcher';
@@ -93,12 +96,27 @@ describe('ProgramSwitcher', () => {
     expect(screen.getByRole('button', { name: /set active/i })).toBeInTheDocument();
   });
 
-  it('blocks delete on the active program when others exist', async () => {
+  it('blocks trashing the active program when others exist', async () => {
     const user = userEvent.setup();
     renderSwitcher({ selectedId: 'p-1' });
     await user.click(screen.getByRole('button', { name: /program options/i }));
 
-    const deleteBtn = screen.getByRole('button', { name: 'Delete' });
-    expect(deleteBtn).toBeDisabled();
+    const trashBtn = screen.getByRole('button', { name: /move to trash/i });
+    expect(trashBtn).toBeDisabled();
+  });
+
+  it('trashing an inactive program requires confirm and calls the mutation', async () => {
+    const user = userEvent.setup();
+    renderSwitcher({ selectedId: 'p-2' });
+    await user.click(screen.getByRole('button', { name: /program options/i }));
+
+    await user.click(screen.getByRole('button', { name: /move to trash/i }));
+    // Trash-not-delete confirm copy: data stays safe, restore anytime.
+    expect(screen.getByText(/restore it anytime/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'MOVE TO TRASH' }));
+    expect(mockDelete.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ programId: 'p-2' }),
+      expect.any(Object),
+    );
   });
 });

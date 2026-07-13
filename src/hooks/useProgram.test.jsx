@@ -13,6 +13,8 @@ import {
   useCreateProgram,
   useRenameProgram,
   useDeleteProgram,
+  useRestoreProgram,
+  useHardDeleteProgram,
   useSetActiveProgram,
   useReorderPrograms,
   useCoachDashboardPrograms,
@@ -41,10 +43,11 @@ beforeEach(() => {
 });
 
 describe('useProgramsForStudent', () => {
-  it('lists programs ordered by sort_order asc', async () => {
+  it('lists programs ordered by sort_order asc, excluding the trash', async () => {
     const chain = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
+      is: vi.fn().mockReturnThis(),
       order: vi.fn().mockResolvedValue({
         data: [
           { id: 'p-1', name: 'Block 1', sort_order: 0 },
@@ -60,6 +63,7 @@ describe('useProgramsForStudent', () => {
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(chain.eq).toHaveBeenCalledWith('student_id', 'st-1');
+    expect(chain.is).toHaveBeenCalledWith('deleted_at', null);
     expect(chain.order).toHaveBeenCalledWith('sort_order', { ascending: true });
     expect(result.current.data).toHaveLength(2);
   });
@@ -103,10 +107,11 @@ describe('useProgram', () => {
 });
 
 describe('useActiveProgram', () => {
-  it('filters by is_active=true', async () => {
+  it('filters by is_active=true and excludes the trash', async () => {
     const chain = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
+      is: vi.fn().mockReturnThis(),
       maybeSingle: vi.fn().mockResolvedValue({
         data: { id: 'p-1', weeks: [] },
         error: null,
@@ -119,6 +124,7 @@ describe('useActiveProgram', () => {
     const calls = chain.eq.mock.calls;
     expect(calls).toContainEqual(['student_id', 'st-1']);
     expect(calls).toContainEqual(['is_active', true]);
+    expect(chain.is).toHaveBeenCalledWith('deleted_at', null);
   });
 });
 
@@ -270,9 +276,9 @@ describe('useRenameProgram', () => {
 });
 
 describe('useDeleteProgram', () => {
-  it('deletes by id and invalidates everything', async () => {
+  it('is archive-first: stamps deleted_at and clears is_active instead of DELETE', async () => {
     const chain = {
-      delete: vi.fn().mockReturnThis(),
+      update: vi.fn().mockReturnThis(),
       eq: vi.fn().mockResolvedValue({ error: null }),
     };
     supabase.from.mockReturnValue(chain);
@@ -281,8 +287,68 @@ describe('useDeleteProgram', () => {
     const { result } = renderHook(() => useDeleteProgram(), { wrapper: withClient(qc) });
     result.current.mutate({ programId: 'p-1', studentId: 'st-1' });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const payload = chain.update.mock.calls[0][0];
+    expect(typeof payload.deleted_at).toBe('string');
+    // A trashed row must never hold the one-active-per-student slot.
+    expect(payload.is_active).toBe(false);
     expect(chain.eq).toHaveBeenCalledWith('id', 'p-1');
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['student-program-details'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['programs-trash', 'st-1'] });
+  });
+});
+
+describe('useRestoreProgram', () => {
+  it('nulls deleted_at (program comes back inactive)', async () => {
+    const chain = {
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ error: null }),
+    };
+    supabase.from.mockReturnValue(chain);
+    const qc = makeClient();
+    const { result } = renderHook(() => useRestoreProgram(), { wrapper: withClient(qc) });
+    result.current.mutate({ programId: 'p-1', studentId: 'st-1' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(chain.update).toHaveBeenCalledWith({ deleted_at: null });
+  });
+});
+
+describe('useHardDeleteProgram', () => {
+  it('refuses with PROGRAM_HAS_LOGGED_SETS when any logged set exists', async () => {
+    const countChain = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      or: vi.fn().mockResolvedValue({ count: 3, error: null }),
+    };
+    supabase.from.mockReturnValue(countChain);
+    const qc = makeClient();
+    const { result } = renderHook(() => useHardDeleteProgram(), { wrapper: withClient(qc) });
+    result.current.mutate({ programId: 'p-1', studentId: 'st-1' });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error.code).toBe('PROGRAM_HAS_LOGGED_SETS');
+    // The DELETE was never attempted.
+    expect(supabase.from).toHaveBeenCalledTimes(1);
+  });
+
+  it('deletes (trash-only) when the program has zero logged sets', async () => {
+    const countChain = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      or: vi.fn().mockResolvedValue({ count: 0, error: null }),
+    };
+    const deleteChain = {
+      delete: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      not: vi.fn().mockResolvedValue({ error: null }),
+    };
+    let call = 0;
+    supabase.from.mockImplementation(() => (call++ === 0 ? countChain : deleteChain));
+    const qc = makeClient();
+    const { result } = renderHook(() => useHardDeleteProgram(), { wrapper: withClient(qc) });
+    result.current.mutate({ programId: 'p-1', studentId: 'st-1' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(deleteChain.eq).toHaveBeenCalledWith('id', 'p-1');
+    // Guard: hard delete only reaches rows already in the trash.
+    expect(deleteChain.not).toHaveBeenCalledWith('deleted_at', 'is', null);
   });
 });
 

@@ -48,6 +48,7 @@ function setupChains({
   const studentChain = {
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
+    is: vi.fn().mockReturnThis(),
     single: vi.fn().mockResolvedValue({ data: studentIdLookup, error: null }),
   };
   // The hook uses the supabase chain pattern: from(...).select(...).eq(...).order(...).
@@ -58,14 +59,19 @@ function setupChains({
   const programsChain = {
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
+    is: vi.fn().mockReturnThis(),
     order: vi.fn().mockReturnThis(),
     then(resolve, reject) {
       Promise.resolve({ data: programsData, error: null }).then(resolve, reject);
     },
   };
+  // Confirmations + set_logs are now filtered THROUGH the program join
+  // (applyProgramScope adds .eq(prefix.student_id).is(prefix.deleted_at)…),
+  // so both chains need .eq/.is in addition to .in-era methods.
   const confChain = {
     select: vi.fn().mockReturnThis(),
-    in: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    is: vi.fn().mockReturnThis(),
     order: vi.fn().mockReturnThis(),
     then(resolve, reject) {
       Promise.resolve({ data: confirmationsData, error: null }).then(resolve, reject);
@@ -73,7 +79,8 @@ function setupChains({
   };
   const logsChain = {
     select: vi.fn().mockReturnThis(),
-    in: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    is: vi.fn().mockReturnThis(),
     then(resolve, reject) {
       Promise.resolve({ data: setLogsData, error: null }).then(resolve, reject);
     },

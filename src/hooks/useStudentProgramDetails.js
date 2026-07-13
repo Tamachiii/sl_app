@@ -41,7 +41,10 @@ export function useStudentProgramDetails(userId, { allPrograms = false } = {}) {
             )
           )
         `)
-        .eq('student_id', student.id);
+        .eq('student_id', student.id)
+        // Trashed programs (coach-side soft delete) vanish from the student
+        // surface until restored.
+        .is('deleted_at', null);
       if (!allPrograms) q = q.eq('is_active', true);
       const { data: programs, error: pErr } = await q;
       if (pErr) throw pErr;

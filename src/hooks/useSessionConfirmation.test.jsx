@@ -67,81 +67,70 @@ describe('useSessionConfirmation', () => {
 });
 
 describe('useAllConfirmations', () => {
-  it('joins programs → weeks → sessions → confirmations and decorates with student name', async () => {
-    const studentChain = {
-      select: vi.fn().mockResolvedValue({
-        data: [
-          { id: 'st-1', profile: { full_name: 'Alex' } },
-          { id: 'st-2', profile: null },
-        ],
-        error: null,
-      }),
-    };
-    const programsChain = {
-      select: vi.fn().mockResolvedValue({
+  it('fetches confirmations through the session→week→program→student join and flattens them', async () => {
+    // One embedded-join query, filtered through the join — no full-tree fetch,
+    // no .in(id-list). The embed nests session → week → program → student.
+    const confChain = {
+      select: vi.fn().mockReturnThis(),
+      is: vi.fn().mockReturnThis(),
+      order: vi.fn().mockResolvedValue({
         data: [
           {
-            id: 'p-1',
+            id: 'c-1',
+            session_id: 's-1',
             student_id: 'st-1',
-            weeks: [
-              {
-                id: 'w-1',
+            confirmed_at: '2026-04-26',
+            notes: 'felt good',
+            session: {
+              title: 'Push',
+              day_number: 1,
+              archived_at: null,
+              reviewed_at: null,
+              week: {
                 week_number: 2,
                 label: 'Hyp',
-                sessions: [
-                  { id: 's-1', title: 'Push', day_number: 1, archived_at: null },
-                  { id: 's-2', title: 'Pull', day_number: 2, archived_at: null },
-                ],
+                program: {
+                  deleted_at: null,
+                  student: { id: 'st-1', profile: { full_name: 'Alex' } },
+                },
               },
-            ],
+            },
           },
         ],
         error: null,
       }),
     };
-    const confChain = {
-      select: vi.fn().mockReturnThis(),
-      in: vi.fn().mockReturnThis(),
-      order: vi.fn().mockResolvedValue({
-        data: [
-          { id: 'c-1', session_id: 's-1', confirmed_at: '2026-04-26' },
-        ],
-        error: null,
-      }),
-    };
-    let call = 0;
-    supabase.from.mockImplementation(() => {
-      const idx = call++;
-      if (idx === 0) return studentChain;
-      if (idx === 1) return programsChain;
-      return confChain;
-    });
+    supabase.from.mockReturnValue(confChain);
 
     const qc = makeClient();
     const { result } = renderHook(() => useAllConfirmations(), {
       wrapper: withClient(qc),
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    // Filtered through the join, ordered newest-first — never an .in() list.
+    expect(confChain.is).toHaveBeenCalledWith('session.week.program.deleted_at', null);
+    expect(confChain.order).toHaveBeenCalledWith('confirmed_at', { ascending: false });
+    expect(supabase.from).toHaveBeenCalledWith('session_confirmations');
     const rows = result.current.data;
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       session_id: 's-1',
+      student_id: 'st-1',
       student_name: 'Alex',
       session_title: 'Push',
       week_number: 2,
       week_label: 'Hyp',
+      notes: 'felt good',
     });
   });
 
-  it('returns [] when there are no sessions', async () => {
-    const studentChain = {
-      select: vi.fn().mockResolvedValue({ data: [], error: null }),
+  it('returns [] when there are no confirmations', async () => {
+    const confChain = {
+      select: vi.fn().mockReturnThis(),
+      is: vi.fn().mockReturnThis(),
+      order: vi.fn().mockResolvedValue({ data: [], error: null }),
     };
-    const programsChain = {
-      select: vi.fn().mockResolvedValue({ data: [], error: null }),
-    };
-    let call = 0;
-    supabase.from.mockImplementation(() => (call++ === 0 ? studentChain : programsChain));
+    supabase.from.mockReturnValue(confChain);
 
     const qc = makeClient();
     const { result } = renderHook(() => useAllConfirmations(), {

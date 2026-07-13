@@ -39,10 +39,12 @@ describe('useStudentProgramDetails', () => {
     const studentChain = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
+      is: vi.fn().mockReturnThis(),
       single: vi.fn().mockResolvedValue({ data: { id: 'st-1' }, error: null }),
     };
     const programsChain = {
       select: vi.fn().mockReturnThis(),
+      is: vi.fn().mockReturnThis(),
       eq: vi.fn(function () {
         this._calls = (this._calls || 0) + 1;
         if (this._calls === 2) {
@@ -116,13 +118,15 @@ describe('useStudentProgramDetails', () => {
     const studentChain = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
+      is: vi.fn().mockReturnThis(),
       single: vi.fn().mockResolvedValue({ data: { id: 'st-1' }, error: null }),
     };
-    // With allPrograms=true the only .eq() is student_id, so it must
-    // resolve directly (no second .eq()).
+    // With allPrograms=true there is no is_active .eq(), so the trailing
+    // .is('deleted_at', null) is the terminal call.
     const programsChain = {
       select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({
+      eq: vi.fn().mockReturnThis(),
+      is: vi.fn().mockResolvedValue({
         data: [
           {
             id: 'p-old',

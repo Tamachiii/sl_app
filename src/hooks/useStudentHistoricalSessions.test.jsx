@@ -33,47 +33,46 @@ describe('useStudentHistoricalSessions', () => {
     const studentChain = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
+      is: vi.fn().mockReturnThis(),
       single: vi.fn().mockResolvedValue({ data: { id: 'st-1' }, error: null }),
     };
     const programsChain = {
       select: vi.fn().mockReturnThis(),
-      eq: vi.fn(function () {
-        this._calls = (this._calls || 0) + 1;
-        if (this._calls === 2) {
-          // Second .eq → is_active=false → terminal
-          return Promise.resolve({
-            data: [
+      eq: vi.fn().mockReturnThis(),
+      // Trailing .is('deleted_at', null) is the terminal call.
+      is: vi.fn().mockResolvedValue({
+        data: [
+          {
+            id: 'p-old',
+            weeks: [
               {
-                id: 'p-old',
-                weeks: [
+                sessions: [
                   {
-                    sessions: [
-                      {
-                        id: 's-1',
-                        title: 'Squat day',
-                        scheduled_date: '2026-03-12',
-                        archived_at: null,
-                      },
-                      {
-                        id: 's-2',
-                        title: 'Skipped',
-                        scheduled_date: null,
-                        archived_at: null,
-                      },
-                    ],
+                    id: 's-1',
+                    title: 'Squat day',
+                    scheduled_date: '2026-03-12',
+                    archived_at: null,
+                  },
+                  {
+                    id: 's-2',
+                    title: 'Skipped',
+                    scheduled_date: null,
+                    archived_at: null,
                   },
                 ],
               },
             ],
-            error: null,
-          });
-        }
-        return this;
+          },
+        ],
+        error: null,
       }),
     };
+    // Confirmations are now filtered through the program join (student_id +
+    // is_active=false + not-trashed), not an .in(sessionIds) list.
     const confChain = {
       select: vi.fn().mockReturnThis(),
-      in: vi.fn().mockResolvedValue({
+      eq: vi.fn().mockReturnThis(),
+      is: vi.fn().mockResolvedValue({
         data: [{ session_id: 's-1' }],
         error: null,
       }),

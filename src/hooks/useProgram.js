@@ -22,6 +22,7 @@ export function useProgramsForStudent(studentId) {
         .from('programs')
         .select('id, student_id, name, sort_order, is_active, created_at, weeks(id)')
         .eq('student_id', studentId)
+        .is('deleted_at', null)
         .order('sort_order', { ascending: true });
       if (error) throw error;
       return data || [];
@@ -66,6 +67,7 @@ export function useActiveProgram(studentId) {
         .select('*, weeks(*, sessions(id))')
         .eq('student_id', studentId)
         .eq('is_active', true)
+        .is('deleted_at', null)
         .maybeSingle();
       if (error) throw error;
       if (!data) return null;
@@ -78,6 +80,7 @@ export function useActiveProgram(studentId) {
 
 function invalidateProgramQueries(qc, studentId) {
   qc.invalidateQueries({ queryKey: ['programs', studentId] });
+  qc.invalidateQueries({ queryKey: ['programs-trash', studentId] });
   qc.invalidateQueries({ queryKey: ['activeProgram', studentId] });
   qc.invalidateQueries({ queryKey: ['program'] });
   // Student-side views read through is_active; refresh them too.
@@ -180,11 +183,101 @@ export function useRenameProgram() {
   });
 }
 
+/**
+ * "Delete" is archive-first: stamp deleted_at (and clear is_active — a
+ * trashed row must never hold the one-active-per-student slot) instead of
+ * a hard DELETE that used to cascade a student's entire logged history
+ * away in one click. Restore from the trash NULLs it back out.
+ */
 export function useDeleteProgram() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ programId }) => {
-      const { error } = await supabase.from('programs').delete().eq('id', programId);
+      const { error } = await supabase
+        .from('programs')
+        .update({ deleted_at: new Date().toISOString(), is_active: false })
+        .eq('id', programId);
+      if (error) throw error;
+      return programId;
+    },
+    onSuccess: (_d, vars) => {
+      invalidateProgramQueries(qc, vars.studentId);
+    },
+  });
+}
+
+/** Programs currently in the trash, newest first. */
+export function useTrashedPrograms(studentId) {
+  return useQuery({
+    queryKey: ['programs-trash', studentId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('programs')
+        .select('id, student_id, name, deleted_at, weeks(id)')
+        .eq('student_id', studentId)
+        .not('deleted_at', 'is', null)
+        .order('deleted_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!studentId,
+  });
+}
+
+export function useRestoreProgram() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ programId }) => {
+      // Restored programs come back INACTIVE — the coach re-activates
+      // explicitly, so a restore can never bump the current active block.
+      const { error } = await supabase
+        .from('programs')
+        .update({ deleted_at: null })
+        .eq('id', programId);
+      if (error) throw error;
+      return programId;
+    },
+    onSuccess: (_d, vars) => {
+      invalidateProgramQueries(qc, vars.studentId);
+    },
+  });
+}
+
+/**
+ * Permanent delete, offered only from the trash. Client-side gate (for a
+ * friendly message) + DB BEFORE DELETE trigger (the real guarantee) both
+ * refuse while the program contains any logged set — hard delete exists
+ * for scaffolding mistakes, never for training history.
+ */
+export function useHardDeleteProgram() {
+  const qc = useQueryClient();
+  return useMutation({
+    // TrashDialog renders its own inline "can't delete — has logged training"
+    // message on failure, so opt out of the global error toast to avoid
+    // double-messaging the same guard.
+    meta: { skipErrorToast: true },
+    mutationFn: async ({ programId }) => {
+      const { count, error: cErr } = await supabase
+        .from('set_logs')
+        .select('id, exercise_slots!inner(sessions!inner(weeks!inner(program_id)))', {
+          count: 'exact',
+          head: true,
+        })
+        .eq('exercise_slots.sessions.weeks.program_id', programId)
+        .or(
+          'done.eq.true,failed.eq.true,skipped.eq.true,rpe.not.is.null,actual_reps.not.is.null,actual_weight_kg.not.is.null'
+        );
+      if (cErr) throw cErr;
+      if ((count ?? 0) > 0) {
+        const err = new Error('program has logged sets');
+        err.code = 'PROGRAM_HAS_LOGGED_SETS';
+        throw err;
+      }
+      const { error } = await supabase
+        .from('programs')
+        .delete()
+        .eq('id', programId)
+        .not('deleted_at', 'is', null); // only ever from the trash
       if (error) throw error;
       return programId;
     },

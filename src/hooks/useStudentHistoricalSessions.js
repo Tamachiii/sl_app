@@ -34,7 +34,8 @@ export function useStudentHistoricalSessions() {
           )
         `)
         .eq('student_id', student.id)
-        .eq('is_active', false);
+        .eq('is_active', false)
+        .is('deleted_at', null);
       if (pErr) throw pErr;
 
       const dated = [];
@@ -49,14 +50,17 @@ export function useStudentHistoricalSessions() {
 
       // Any confirmations for these sessions → mark them completed on the
       // calendar (same rule as the active-program calendar: archived OR
-      // confirmed counts as done).
-      const sessionIds = dated.map((s) => s.id);
+      // confirmed counts as done). Filtered THROUGH the program join for the
+      // student's non-active blocks rather than an unbounded .in(sessionIds)
+      // list (which grows with history and eventually blows the URL length).
       const confirmedIds = new Set();
-      if (sessionIds.length) {
+      if (dated.length) {
         const { data: confs, error: cErr } = await supabase
           .from('session_confirmations')
-          .select('session_id')
-          .in('session_id', sessionIds);
+          .select('session_id, sessions!inner(weeks!inner(programs!inner(student_id, is_active, deleted_at)))')
+          .eq('sessions.weeks.programs.student_id', student.id)
+          .eq('sessions.weeks.programs.is_active', false)
+          .is('sessions.weeks.programs.deleted_at', null);
         if (cErr) throw cErr;
         for (const c of confs || []) confirmedIds.add(c.session_id);
       }

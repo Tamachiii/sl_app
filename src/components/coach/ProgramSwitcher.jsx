@@ -22,6 +22,9 @@ import {
   useDeleteProgram,
   useSetActiveProgram,
   useReorderPrograms,
+  useTrashedPrograms,
+  useRestoreProgram,
+  useHardDeleteProgram,
 } from '../../hooks/useProgram';
 import { useI18n } from '../../hooks/useI18n';
 import Dialog from '../ui/Dialog';
@@ -120,10 +123,11 @@ function ManageProgramDialog({ program, programCount, studentId, t, onClose, onD
 
   const trimmed = name.trim();
   const dirty = trimmed && trimmed !== program.name;
-  // Block deleting the active program when others exist (student would have
-  // zero active programs). The sole-program case is fine — useEnsureProgram
-  // respawns a default on the next coach visit.
-  const canDelete = !program.is_active || programCount <= 1;
+  // Never trash the ACTIVE program: doing so strands the student on an empty
+  // home (no active program), and restore brings it back inactive. The coach
+  // activates another program first — the sole-program case simply can't be
+  // trashed, which is the safe outcome.
+  const canDelete = !program.is_active;
 
   function handleRename() {
     if (!dirty) return;
@@ -200,7 +204,7 @@ function ManageProgramDialog({ program, programCount, studentId, t, onClose, onD
               }}
             >
               <p className="text-[13px] text-gray-900">
-                {t('coach.home.confirmDeleteProgram', { name: program.name })}
+                {t('coach.home.confirmTrashProgram', { name: program.name })}
               </p>
               <div className="flex gap-2">
                 <button
@@ -210,7 +214,7 @@ function ManageProgramDialog({ program, programCount, studentId, t, onClose, onD
                   className="flex-1 rounded-lg py-2 sl-mono text-[12px] text-white disabled:opacity-50"
                   style={{ background: 'var(--color-danger)' }}
                 >
-                  {del.isPending ? t('common.saving') : t('coach.home.delete').toUpperCase()}
+                  {del.isPending ? t('common.saving') : t('coach.home.moveToTrash').toUpperCase()}
                 </button>
                 <button
                   type="button"
@@ -233,7 +237,7 @@ function ManageProgramDialog({ program, programCount, studentId, t, onClose, onD
                 color: 'var(--color-danger)',
               }}
             >
-              {t('coach.home.delete')}
+              {t('coach.home.moveToTrash')}
             </button>
           )}
 
@@ -248,11 +252,103 @@ function ManageProgramDialog({ program, programCount, studentId, t, onClose, onD
   );
 }
 
+function TrashDialog({ studentId, t, onClose }) {
+  const { data: trashed = [] } = useTrashedPrograms(studentId);
+  const restore = useRestoreProgram();
+  const hardDelete = useHardDeleteProgram();
+  const [confirmingId, setConfirmingId] = useState(null);
+  const [blockedId, setBlockedId] = useState(null);
+
+  function handleHardDelete(program) {
+    hardDelete.mutate(
+      { programId: program.id, studentId },
+      {
+        onSuccess: () => setConfirmingId(null),
+        onError: (err) => {
+          setConfirmingId(null);
+          // Client pre-check and the DB trigger both refuse while logged
+          // sets exist — surface it as guidance, not as a failure.
+          if (err?.code === 'PROGRAM_HAS_LOGGED_SETS' || /logged set/.test(err?.message || '')) {
+            setBlockedId(program.id);
+          }
+        },
+      },
+    );
+  }
+
+  return (
+    <Dialog open={true} onClose={onClose} title={t('coach.home.trashTitle')}>
+      {trashed.length === 0 ? (
+        <p className="sl-mono text-[12px] text-ink-400">{t('coach.home.trashEmpty')}</p>
+      ) : (
+        <ul className="space-y-3">
+          {trashed.map((p) => {
+            const weekCount = (p.weeks || []).length;
+            return (
+              <li key={p.id} className="rounded-lg border border-ink-100 p-3 space-y-2">
+                <div>
+                  <span className="sl-display text-[14px] text-gray-900">{p.name}</span>
+                  <span className="sl-mono text-[10px] text-ink-400 block mt-0.5">
+                    {t(weekCount === 1 ? 'coach.home.weeksOne' : 'coach.home.weeksMany', { n: weekCount }).toUpperCase()}
+                  </span>
+                </div>
+                {blockedId === p.id && (
+                  <p className="sl-mono text-[11px] text-ink-400">
+                    {t('coach.home.deleteForeverBlocked')}
+                  </p>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => restore.mutate({ programId: p.id, studentId })}
+                    disabled={restore.isPending}
+                    className="flex-1 sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 justify-center disabled:opacity-50"
+                  >
+                    {t('coach.home.restore')}
+                  </button>
+                  {confirmingId === p.id ? (
+                    <button
+                      type="button"
+                      onClick={() => handleHardDelete(p)}
+                      disabled={hardDelete.isPending}
+                      className="flex-1 rounded-lg py-2 sl-mono text-[12px] text-white disabled:opacity-50"
+                      style={{ background: 'var(--color-danger)' }}
+                    >
+                      {t('coach.home.deleteForeverConfirm')}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmingId(p.id);
+                        setBlockedId(null);
+                      }}
+                      className="flex-1 sl-pill justify-center"
+                      style={{
+                        background: 'color-mix(in srgb, var(--color-danger) 10%, transparent)',
+                        color: 'var(--color-danger)',
+                      }}
+                    >
+                      {t('coach.home.deleteForever')}
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Dialog>
+  );
+}
+
 export default function ProgramSwitcher({ studentId, programs, selectedId, onSelect, onProgramDeleted }) {
   const { t } = useI18n();
   const [localPrograms, setLocalPrograms] = useState(programs || []);
   const [isOpen, setIsOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const { data: trashedPrograms = [] } = useTrashedPrograms(studentId);
   const wrapperRef = useRef(null);
   const createProgram = useCreateProgram();
   const reorderPrograms = useReorderPrograms();
@@ -416,9 +512,26 @@ export default function ProgramSwitcher({ studentId, programs, selectedId, onSel
                 </SortableContext>
               </div>
             </DndContext>
+            {trashedPrograms.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsOpen(false);
+                  setTrashOpen(true);
+                }}
+                className="w-full text-left px-3 py-2 sl-mono text-[11px] text-ink-400 hover:bg-ink-100 transition-colors"
+                style={{ borderTop: '1px solid var(--color-ink-200)' }}
+              >
+                {t('coach.home.trashCount', { n: trashedPrograms.length })}
+              </button>
+            )}
           </div>
         )}
       </div>
+
+      {trashOpen && (
+        <TrashDialog studentId={studentId} t={t} onClose={() => setTrashOpen(false)} />
+      )}
 
       {manageOpen && selected && (
         <ManageProgramDialog

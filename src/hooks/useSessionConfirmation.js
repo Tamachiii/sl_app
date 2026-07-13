@@ -24,69 +24,65 @@ export function useSessionConfirmation(sessionId) {
 }
 
 /**
- * Coach-facing: fetch all confirmed sessions across ALL of the coach's students.
- * Uses RLS to scope programs to the current coach automatically.
+ * Coach-facing: every confirmed session across the coach's students, newest
+ * first. RLS scopes confirmations to this coach's students automatically.
+ *
+ * One embedded-join query, filtered THROUGH the session→week→program→student
+ * chain — NOT the old "fetch every program tree ever, then .in(all session
+ * ids)" pattern, whose GET URL grew ~37 bytes per session and hard-failed
+ * (URL too long) after a few hundred accumulated sessions. This scales with
+ * the number of CONFIRMATIONS, not lifetime session count, and never builds
+ * an id list.
  */
 export function useAllConfirmations() {
   const { user } = useAuth();
   return useQuery({
     queryKey: ['all-confirmations', user?.id],
     queryFn: async () => {
-      // 1. Resolve student names
-      const { data: students, error: sErr } = await supabase
-        .from('students')
-        .select('id, profile:profiles!students_profile_id_fkey(full_name)');
-      if (sErr) throw sErr;
-
-      const studentNames = {};
-      for (const s of students || []) {
-        studentNames[s.id] = s.profile?.full_name || 'Student';
-      }
-
-      // 2. Fetch all programs (RLS scopes to this coach's students automatically)
-      const { data: programs, error: pErr } = await supabase
-        .from('programs')
-        .select(`
-          id, student_id,
-          weeks(id, week_number, label,
-            sessions(id, title, day_number, archived_at, reviewed_at)
-          )
-        `);
-      if (pErr) throw pErr;
-
-      // 3. Build session metadata map
-      const sessionIds = [];
-      const sessionMeta = {};
-      for (const prog of programs || []) {
-        for (const w of prog.weeks || []) {
-          for (const s of w.sessions || []) {
-            sessionIds.push(s.id);
-            sessionMeta[s.id] = {
-              session_id: s.id,
-              session_title: s.title,
-              day_number: s.day_number,
-              archived_at: s.archived_at,
-              reviewed_at: s.reviewed_at,
-              week_number: w.week_number,
-              week_label: w.label,
-              student_id: prog.student_id,
-              student_name: studentNames[prog.student_id] || 'Student',
-            };
-          }
-        }
-      }
-
-      if (sessionIds.length === 0) return [];
-
-      // 4. Fetch all confirmations for those sessions
-      const { data: confirmations, error: cErr } = await supabase
+      const { data, error } = await supabase
         .from('session_confirmations')
-        .select('*')
-        .in('session_id', sessionIds)
+        .select(`
+          id, session_id, student_id, confirmed_at, notes,
+          session:sessions!inner(
+            title, day_number, archived_at, reviewed_at,
+            week:weeks!inner(
+              week_number, label,
+              program:programs!inner(
+                deleted_at,
+                student:students!inner(
+                  id,
+                  profile:profiles!students_profile_id_fkey(full_name)
+                )
+              )
+            )
+          )
+        `)
+        // Trashed programs' confirmations drop out of the feed.
+        .is('session.week.program.deleted_at', null)
         .order('confirmed_at', { ascending: false });
-      if (cErr) throw cErr;
+      if (error) throw error;
 
-      return (confirmations || []).map((c) => ({ ...c, ...sessionMeta[c.session_id] }));
+      // Flatten to the shape SessionsFeed / CoachDashboard already consume.
+      return (data || []).map((c) => {
+        const s = c.session;
+        const w = s?.week;
+        const prog = w?.program;
+        const student = prog?.student;
+        return {
+          id: c.id,
+          session_id: c.session_id,
+          confirmed_at: c.confirmed_at,
+          notes: c.notes,
+          session_title: s?.title,
+          day_number: s?.day_number,
+          archived_at: s?.archived_at,
+          reviewed_at: s?.reviewed_at,
+          week_number: w?.week_number,
+          week_label: w?.label,
+          student_id: student?.id,
+          student_name: student?.profile?.full_name || 'Student',
+        };
+      });
     },
     enabled: !!user?.id,
   });
