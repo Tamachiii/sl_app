@@ -3,7 +3,13 @@ on:
   push:
     branches: [main]
 jobs:
+  # The full vitest suite gates every deploy: a red suite on main must never
+  # reach real students. The job definition lives in test.yml (reusable
+  # workflow) so the dev/PR gate and the deploy gate can't drift apart.
+  test:
+    uses: ./.github/workflows/test.yml
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: write

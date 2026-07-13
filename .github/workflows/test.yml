@@ -1,0 +1,26 @@
+name: Tests
+on:
+  push:
+    branches: [dev]
+  pull_request:
+  # deploy.yml calls this as its pre-publish gate, so the job definition
+  # (node version, env, steps) lives in exactly one place.
+  workflow_call:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # ~12 suites transitively import src/lib/supabase.js, which throws when
+      # these are missing; CI has no .env, so placeholders are required for
+      # the suite to even load. Tests mock the client and never hit the
+      # network, and the real values are only injected for the deploy build.
+      VITE_SUPABASE_URL: https://ci-placeholder.supabase.co
+      VITE_SUPABASE_ANON_KEY: ci-placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm test -- --run
+      - run: npm run build

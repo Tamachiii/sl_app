@@ -1,0 +1,52 @@
+name: Nightly DB backup
+# Dumps the public schema (structure + data) of the linked Supabase project
+# and stores it as an ENCRYPTED workflow artifact. Encryption matters: on a
+# public repository, artifacts are downloadable by anyone — a plaintext dump
+# would leak every student's training data. See BACKUPS.md for the required
+# secrets, the dump-only role, and the restore drill.
+on:
+  schedule:
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check configuration
+        id: cfg
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$DB_URL" ] || [ -z "$PASSPHRASE" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::SUPABASE_DB_URL and/or BACKUP_PASSPHRASE secrets not set — backup skipped. See BACKUPS.md."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: supabase/setup-cli@v1
+        if: steps.cfg.outputs.configured == 'true'
+        with:
+          version: latest
+      - name: Dump schema and data
+        if: steps.cfg.outputs.configured == 'true'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f schema.sql
+          supabase db dump --db-url "$SUPABASE_DB_URL" --data-only -f data.sql
+      - name: Encrypt
+        if: steps.cfg.outputs.configured == 'true'
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          tar czf dump.tar.gz schema.sql data.sql
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+            -in dump.tar.gz -out dump.tar.gz.enc -pass env:BACKUP_PASSPHRASE
+          rm -f dump.tar.gz schema.sql data.sql
+      - uses: actions/upload-artifact@v4
+        if: steps.cfg.outputs.configured == 'true'
+        with:
+          name: db-backup-${{ github.run_number }}
+          path: dump.tar.gz.enc
+          retention-days: 30
