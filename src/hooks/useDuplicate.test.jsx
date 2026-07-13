@@ -93,6 +93,7 @@ describe('useDuplicateWeek', () => {
             day_number: 1,
             title: 'Push',
             sort_order: 0,
+            archived_at: null,
             exercise_slots: [
               {
                 id: 'sl-1',
@@ -105,6 +106,7 @@ describe('useDuplicateWeek', () => {
                 duration_seconds: null,
                 superset_group: null,
                 rest_seconds: 90,
+                record_video_set_numbers: [1, 3],
               },
             ],
           },
@@ -167,11 +169,13 @@ describe('useDuplicateWeek', () => {
       week_number: 5,
       label: 'Hyp (copy)',
     });
-    // Sessions copied with the same day_number/title/sort_order.
+    // Sessions copied with day_number/title/sort_order AND archived_at
+    // (archived sessions must not revive as active in the copy).
     expect(newSessions.insert.mock.calls[0][0]).toEqual([
-      { week_id: 'w-new', day_number: 1, title: 'Push', sort_order: 0 },
+      { week_id: 'w-new', day_number: 1, title: 'Push', sort_order: 0, archived_at: null },
     ]);
-    // Slots copied with their notes/superset/etc preserved.
+    // Slots copied with their notes/superset/video-requests preserved —
+    // record_video_set_numbers used to be silently dropped on duplication.
     expect(newSlots.insert.mock.calls[0][0][0]).toMatchObject({
       session_id: 'ss-1-new',
       exercise_id: 'e-1',
@@ -180,6 +184,7 @@ describe('useDuplicateWeek', () => {
       weight_kg: 100,
       notes: 'top set',
       rest_seconds: 90,
+      record_video_set_numbers: [1, 3],
     });
     // copySetLogTargets sets done=false and only target_* fields.
     const insertedLogs = newLogs.insert.mock.calls[0][0];
@@ -228,6 +233,86 @@ describe('useDuplicateWeek', () => {
       program_id: 'p-2',
       week_number: 7,
       label: null, // null label stays null (no "(copy)" suffix when null)
+    });
+  });
+
+  it('maps copies by sort_order (unique per the constraint), so slots never cross sessions', async () => {
+    const srcWeek = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: { id: 'w-src', program_id: 'p-1', label: null },
+        error: null,
+      }),
+    };
+    const newWeek = {
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: { id: 'w-new', week_number: 2 },
+        error: null,
+      }),
+    };
+    // Distinct sort_orders (guaranteed by UNIQUE(week_id, sort_order)); the
+    // mapping must pair each copy with its OWN session's slots even when the
+    // DB returns the inserted rows in a different order than requested.
+    const srcSessions = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockResolvedValue({
+        data: [
+          {
+            id: 'ss-a', day_number: 1, title: 'A', sort_order: 0, archived_at: null,
+            exercise_slots: [{ id: 'sl-a', exercise_id: 'e-1', sets: 3, reps: 8, sort_order: 0 }],
+          },
+          {
+            id: 'ss-b', day_number: 2, title: 'B', sort_order: 1, archived_at: null,
+            exercise_slots: [{ id: 'sl-b', exercise_id: 'e-2', sets: 3, reps: 8, sort_order: 0 }],
+          },
+        ],
+        error: null,
+      }),
+    };
+    // Returned in REVERSED order (sort_order 1 first) to prove the mapping
+    // keys on sort_order, not array position.
+    const newSessions = {
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockResolvedValue({
+        data: [{ id: 'ss-b-new', sort_order: 1 }, { id: 'ss-a-new', sort_order: 0 }],
+        error: null,
+      }),
+    };
+    const newSlotsA = {
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockResolvedValue({ data: [{ id: 'sl-a-new' }], error: null }),
+    };
+    const newSlotsB = {
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockResolvedValue({ data: [{ id: 'sl-b-new' }], error: null }),
+    };
+    const srcLogs = {
+      select: vi.fn().mockReturnThis(),
+      in: vi.fn().mockResolvedValue({ data: [], error: null }),
+    };
+    const sequence = [srcWeek, newWeek, srcSessions, newSessions, newSlotsA, newSlotsB, srcLogs];
+    let i = 0;
+    supabase.from.mockImplementation(() => sequence[i++]);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useDuplicateWeek(), { wrapper: withClient(qc) });
+    result.current.mutate({ weekId: 'w-src', newWeekNumber: 2 });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    // Each copy received exactly its own session's slot.
+    expect(newSlotsA.insert.mock.calls[0][0]).toHaveLength(1);
+    expect(newSlotsA.insert.mock.calls[0][0][0]).toMatchObject({
+      session_id: 'ss-a-new',
+      exercise_id: 'e-1',
+    });
+    expect(newSlotsB.insert.mock.calls[0][0]).toHaveLength(1);
+    expect(newSlotsB.insert.mock.calls[0][0][0]).toMatchObject({
+      session_id: 'ss-b-new',
+      exercise_id: 'e-2',
     });
   });
 
@@ -302,6 +387,14 @@ describe('useDuplicateSession', () => {
         error: null,
       }),
     };
+    // No explicit sortOrder → the hook appends at max(sort_order)+1 in the
+    // destination week (src.sort_order+1 could collide under the UNIQUE).
+    const maxSort = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue({ data: [{ sort_order: 4 }], error: null }),
+    };
     const newSession = {
       insert: vi.fn().mockReturnThis(),
       select: vi.fn().mockReturnThis(),
@@ -321,7 +414,7 @@ describe('useDuplicateSession', () => {
       select: vi.fn().mockReturnThis(),
       in: vi.fn().mockResolvedValue({ data: [], error: null }),
     };
-    const sequence = [srcSession, newSession, newSlots, srcLogs];
+    const sequence = [srcSession, maxSort, newSession, newSlots, srcLogs];
     let i = 0;
     supabase.from.mockImplementation(() => sequence[i++]);
 
@@ -335,7 +428,7 @@ describe('useDuplicateSession', () => {
       week_id: 'w-1',
       day_number: 2,
       title: 'Pull (copy)',
-      sort_order: 2,
+      sort_order: 5,
     });
     expect(newSlots.insert.mock.calls[0][0][0]).toMatchObject({
       session_id: 'ss-new',
@@ -362,6 +455,12 @@ describe('useDuplicateSession', () => {
         error: null,
       }),
     };
+    const maxSort = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+    };
     const newSession = {
       insert: vi.fn().mockReturnThis(),
       select: vi.fn().mockReturnThis(),
@@ -370,7 +469,7 @@ describe('useDuplicateSession', () => {
         error: null,
       }),
     };
-    const sequence = [srcSession, newSession];
+    const sequence = [srcSession, maxSort, newSession];
     let i = 0;
     supabase.from.mockImplementation(() => sequence[i++]);
 
@@ -380,7 +479,7 @@ describe('useDuplicateSession', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(newSession.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Session (copy)' }),
+      expect.objectContaining({ title: 'Session (copy)', sort_order: 0 }),
     );
   });
 });

@@ -27,6 +27,19 @@ async function copySetLogTargets(slotIdMap) {
   }
 }
 
+// Next free sort_order in a week — max over ALL sessions, archived included,
+// so the insert can never collide with UNIQUE(week_id, sort_order).
+async function nextSessionSortOrder(weekId) {
+  const { data, error } = await supabase
+    .from('sessions')
+    .select('sort_order')
+    .eq('week_id', weekId)
+    .order('sort_order', { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return (data?.[0]?.sort_order ?? -1) + 1;
+}
+
 export function useDuplicateWeek() {
   const qc = useQueryClient();
 
@@ -81,20 +94,32 @@ export function useDuplicateWeek() {
         day_number: sess.day_number,
         title: sess.title,
         sort_order: sess.sort_order,
+        // Carry the archived state so a coach's worklist cleanup isn't undone
+        // — a copy of an archived session must not reappear as active.
+        archived_at: sess.archived_at,
       }));
       const { data: newSessions, error: nsErr } = await supabase
         .from('sessions')
         .insert(sessionRows)
-        .select();
+        .select('id, sort_order');
       if (nsErr) throw nsErr;
+      if ((newSessions || []).length !== sessions.length) {
+        throw new Error('Week duplication failed: session copy count mismatch');
+      }
+      // Map old→new by matching sort_order, NOT by RETURNING/array order.
+      // The destination week is brand-new and UNIQUE(week_id, sort_order)
+      // (2026_07_13) guarantees these values are distinct, so this is an
+      // exact bijection independent of the order Postgres returns rows in —
+      // sort_order pairing was only unsafe before, when ties could exist.
+      const newSessBySort = new Map(newSessions.map((ns) => [ns.sort_order, ns.id]));
 
-      const newBySort = new Map(newSessions.map((ns) => [ns.sort_order, ns.id]));
-
-      // Insert slots one source-session at a time so we can map old→new ids
-      // by sort_order within the session, then copy set_log targets across.
       const slotIdMap = {};
-      for (const sess of sessions) {
-        const newSessId = newBySort.get(sess.sort_order);
+      for (let i = 0; i < sessions.length; i++) {
+        const sess = sessions[i];
+        const newSessId = newSessBySort.get(sess.sort_order);
+        if (!newSessId) {
+          throw new Error('Week duplication failed: session sort_order mapping gap');
+        }
         const sourceSlots = (sess.exercise_slots || []).slice().sort(
           (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
         );
@@ -110,17 +135,22 @@ export function useDuplicateWeek() {
           duration_seconds: sl.duration_seconds,
           superset_group: sl.superset_group,
           rest_seconds: sl.rest_seconds,
+          // The coach's per-set video requests are part of the prescription —
+          // dropping them here silently disabled recording on every
+          // propagated week.
+          record_video_set_numbers: sl.record_video_set_numbers,
         }));
         const { data: newSlots, error: slErr } = await supabase
           .from('exercise_slots')
           .insert(slotRows)
-          .select('id, sort_order');
+          .select('id');
         if (slErr) throw slErr;
-        const newBySortOrder = new Map(newSlots.map((s) => [s.sort_order, s.id]));
-        for (const src of sourceSlots) {
-          const destId = newBySortOrder.get(src.sort_order);
-          if (destId) slotIdMap[src.id] = destId;
+        if ((newSlots || []).length !== sourceSlots.length) {
+          throw new Error('Week duplication failed: slot copy count mismatch');
         }
+        sourceSlots.forEach((src, j) => {
+          slotIdMap[src.id] = newSlots[j].id;
+        });
       }
       await copySetLogTargets(slotIdMap);
 
@@ -147,13 +177,19 @@ export function useDuplicateSession() {
         .single();
       if (sErr) throw sErr;
 
+      const destWeekId = weekId || src.week_id;
+      // Append at the end of the destination week — `src.sort_order + 1` is
+      // usually already taken there, which UNIQUE(week_id, sort_order) now
+      // rejects instead of letting two sessions share a position.
+      const destSortOrder = sortOrder ?? (await nextSessionSortOrder(destWeekId));
+
       const { data: newSess, error: nsErr } = await supabase
         .from('sessions')
         .insert({
-          week_id: weekId || src.week_id,
+          week_id: destWeekId,
           day_number: src.day_number,
           title: src.title ? `${src.title} (copy)` : 'Session (copy)',
-          sort_order: sortOrder ?? src.sort_order + 1,
+          sort_order: destSortOrder,
         })
         .select()
         .single();
@@ -174,18 +210,22 @@ export function useDuplicateSession() {
           duration_seconds: sl.duration_seconds,
           superset_group: sl.superset_group,
           rest_seconds: sl.rest_seconds,
+          record_video_set_numbers: sl.record_video_set_numbers,
         }));
         const { data: newSlots, error: slErr } = await supabase
           .from('exercise_slots')
           .insert(slotRows)
-          .select('id, sort_order');
+          .select('id');
         if (slErr) throw slErr;
-        const newBySortOrder = new Map(newSlots.map((s) => [s.sort_order, s.id]));
-        const slotIdMap = {};
-        for (const src of sourceSlots) {
-          const destId = newBySortOrder.get(src.sort_order);
-          if (destId) slotIdMap[src.id] = destId;
+        // Index-based mapping — see useDuplicateWeek for why sort_order
+        // pairing is unsafe on legacy data.
+        if ((newSlots || []).length !== sourceSlots.length) {
+          throw new Error('Session duplication failed: slot copy count mismatch');
         }
+        const slotIdMap = {};
+        sourceSlots.forEach((s, j) => {
+          slotIdMap[s.id] = newSlots[j].id;
+        });
         await copySetLogTargets(slotIdMap);
       }
 

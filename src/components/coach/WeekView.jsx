@@ -37,11 +37,18 @@ export default function WeekView() {
   const archivedSessions = allSessions.filter((s) => s.archived_at);
 
   function handleAddSession() {
+    // max(sort_order)+1 over ALL sessions (archived included) — counting only
+    // the visible ones collides with an existing sort_order after any archive
+    // or delete, which UNIQUE(week_id, sort_order) rejects (and which used to
+    // make week duplication merge the tied sessions).
+    const nextSortOrder = allSessions.length > 0
+      ? Math.max(...allSessions.map((s) => s.sort_order ?? 0)) + 1
+      : 0;
     createSession.mutate({
       weekId,
       title: `Session ${sessions.length + 1}`,
       dayNumber: sessions.length + 1,
-      sortOrder: sessions.length,
+      sortOrder: nextSortOrder,
     });
   }
 
