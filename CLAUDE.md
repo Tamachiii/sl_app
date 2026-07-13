@@ -97,7 +97,10 @@ Jump straight to the relevant files. For *behavior* details, open the file — t
 | Coach feedback push fan-out | `supabase/functions/send-push/`, `supabase/migrations/2026_05_12_feedback_push.sql` (trigger calls send-push via pg_net) |
 | Chat message push (no bell row) | `supabase/migrations/2026_07_12_chat_message_push.sql` (`notify_recipient_on_chat_message` → send-push), online-only gates in `messaging/MessageComposer` + `coach/SessionFeedbackComposer` |
 | Offline support (student writes) | `lib/queryClient.js`, `lib/offlineMutations.js`, `hooks/useOnlineStatus.js`, `components/ui/OfflineBanner.jsx`, `vite.config.js`, `main.jsx`, `App.jsx` |
-| CI & deploys | `.github/workflows/test.yml` (reusable suite: dev pushes + PRs), `.github/workflows/deploy.yml` (test-gated gh-pages publish) |
+| Program trash / archive-first delete | `hooks/useProgram` (`useDeleteProgram`/`useTrashedPrograms`/`useRestoreProgram`/`useHardDeleteProgram`), `coach/ProgramSwitcher` (TrashDialog), migration `2026_07_13_programs_soft_delete.sql` (`programs.deleted_at` + `block_*_delete_with_logged_sets` triggers) |
+| Mutation error toast | `lib/toast.js`, `lib/mutationErrors.js`, `ui/ToastHost` (in `AppShell`), `queryClient.js` (MutationCache onError) |
+| Error telemetry | `lib/errorReporter.js`, `ui/ErrorBoundary`, `hooks/useClientErrors`, `coach/CoachDashboard` (triage list), migration `2026_07_13_client_errors.sql` |
+| CI & deploys | `.github/workflows/test.yml` (reusable suite: lint + tests + build on dev pushes/PRs), `.github/workflows/deploy.yml` (test-gated gh-pages publish), `eslint.config.js` |
 | Nightly DB backups | `.github/workflows/backup.yml` (encrypted dump artifact), `BACKUPS.md` (secrets setup + restore drill) |
 
 Periodization, confirmations, video storage/RLS, routing persistence, and React Query invalidation details are in `docs/ARCHITECTURE.md`. Design primitives, dark-mode rules, responsive layout, and the editorial page-header pattern are in `docs/DESIGN_SYSTEM.md`.
@@ -112,6 +115,7 @@ Behavioral rules and schema gotchas live in [`docs/INVARIANTS.md`](docs/INVARIAN
 npm run dev       # vite dev (5173)
 npm run build     # dist/
 npm run preview   # serve dist/ (4173)
+npm run lint      # eslint (correctness-only; rides the CI gate)
 npm test          # vitest watch
 npm test -- --run # single run (CI)
 npm run deploy    # gh-pages → GitHub Pages

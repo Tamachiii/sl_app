@@ -46,7 +46,8 @@ Apply `supabase/schema.sql` to a fresh Supabase project (creates tables, RLS pol
 npm run dev       # dev server
 npm run build     # production build → dist/
 npm run preview   # serve dist/
-npm test          # run vitest (~588 tests)
+npm run lint      # eslint (correctness-only; also runs in CI)
+npm test          # run vitest (~606 tests)
 npm run deploy    # emergency-only manual publish (CI deploy is the normal path)
 ```
 
@@ -237,7 +238,7 @@ supabase db query --linked \
 - Tests live alongside components as `*.test.jsx` / `*.test.js`.
 - `src/test/utils.jsx` exports `renderWithProviders(ui, { auth, route, queryClient })` which wraps with `ThemeProvider` + `QueryClientProvider` + `AuthContext` + `MemoryRouter`.
 - Mocks: child hooks are stubbed with `vi.mock('../../hooks/useX', () => ({ ... }))` per file.
-- 591 tests across 66 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations. The suite runs in CI on every dev push / PR and gates every deploy from main.
+- 606 tests across 69 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations — plus static guardrails (i18n key parity across EN/FR/DE, offline-safety of student mutations, error-key mapping). ESLint (correctness-only) + the suite run in CI on every dev push / PR and gate every deploy from main.
 
 Run:
 ```bash
