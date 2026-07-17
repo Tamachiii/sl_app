@@ -141,15 +141,17 @@ function ChangePasswordDialog({ open, onClose }) {
 
 function RestNotificationToggle() {
   const { t } = useI18n();
-  const { supported, enabled, permission, pending, error, enable, disable } = usePushSubscription();
+  const { supported, enabled, permission, pending, errorCode, enable, disable } = usePushSubscription();
 
   // Always render the section so users know the feature exists. Body
-  // copy adapts to capability + permission state.
-  const hint = !supported
-    ? t('student.profile.notifications.unsupported')
-    : permission === 'denied'
-      ? t('student.profile.notifications.denied')
-      : t('student.profile.notifications.restTimerHint');
+  // copy adapts to capability + permission state; a live errorCode wins.
+  const hint = errorCode
+    ? t(`common.pushError.${errorCode}`)
+    : !supported
+      ? t('student.profile.notifications.unsupported')
+      : permission === 'denied'
+        ? t('student.profile.notifications.denied')
+        : t('student.profile.notifications.restTimerHint');
 
   return (
     <section aria-labelledby="profile-notifications-heading" className="space-y-2">
@@ -169,11 +171,10 @@ function RestNotificationToggle() {
             onClick={enabled ? disable : enable}
             disabled={pending || !supported || permission === 'denied'}
             aria-pressed={enabled}
-            className="sl-pill shrink-0 disabled:opacity-50"
-            style={{
-              background: enabled ? 'var(--color-accent)' : 'var(--color-ink-100)',
-              color: enabled ? 'var(--color-ink-900)' : 'var(--color-ink-700)',
-            }}
+            // Off state via utility classes so it flips in dark mode; the
+            // enabled accent pill is theme-independent (matches sl-btn-primary).
+            className={`sl-pill shrink-0 disabled:opacity-50 ${enabled ? '' : 'bg-ink-100 text-ink-700'}`}
+            style={enabled ? { background: 'var(--color-accent)', color: 'var(--color-ink-900)' } : undefined}
           >
             {pending
               ? t('student.profile.notifications.pending')
@@ -182,9 +183,6 @@ function RestNotificationToggle() {
                 : t('student.profile.notifications.enable')}
           </button>
         </div>
-        {error && (
-          <p className="text-[12px]" style={{ color: 'var(--color-danger, #c00)' }}>{error}</p>
-        )}
       </div>
     </section>
   );

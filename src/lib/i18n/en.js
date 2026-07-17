@@ -37,6 +37,13 @@ const en = {
     openProfile: 'Open your profile',
     dismiss: 'Dismiss',
     offlineAction: 'You’re offline — reconnect to do this.',
+    pushError: {
+      unsupported: 'Push isn’t available on this device.',
+      not_signed_in: 'Sign in to enable notifications.',
+      permission_denied: 'Notifications are blocked or were declined — allow them in your browser settings.',
+      sw_not_ready: 'Something went wrong. Try again in a moment.',
+      generic: 'Couldn’t update notifications. Try again.',
+    },
   },
   errorBoundary: {
     title: 'Something went wrong.',
@@ -222,6 +229,14 @@ const en = {
     },
   },
   coach: {
+    notifications: {
+      label: 'Notifications',
+      enable: 'Enable',
+      on: 'On',
+      pending: '…',
+      hint: 'Get notified when a student messages you.',
+      denied: 'Blocked in your browser settings.',
+    },
     home: {
       kicker: 'Coach',
       hey: 'Hey',

@@ -55,6 +55,20 @@ registerRoute(
 // first one instead of stacking.
 // ============================================================
 
+// VAPID public key, injected at build time (see deploy.yml passing
+// VITE_VAPID_PUBLIC_KEY into the build). Needed so the SW can re-subscribe
+// itself when the push service rotates the endpoint (pushsubscriptionchange).
+const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || '';
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i += 1) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
 self.addEventListener('push', (event) => {
   let data = {};
   if (event.data) {
@@ -107,6 +121,30 @@ self.addEventListener('notificationclick', (event) => {
       // No window was open — pop one.
       if (self.clients.openWindow) {
         await self.clients.openWindow(target);
+      }
+    })(),
+  );
+});
+
+// Endpoint rotation self-heal: the push service can retire a subscription and
+// fire this event asking us to re-subscribe. Re-subscribe with the same VAPID
+// key so the device keeps a LIVE subscription; the app syncs the new endpoint
+// into push_subscriptions on its next focus (usePushAutoHeal → reconcile).
+// Best-effort — a failure just means the user re-toggles from settings.
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    (async () => {
+      try {
+        const existingKey = event.oldSubscription?.options?.applicationServerKey;
+        const applicationServerKey =
+          existingKey || (VAPID_PUBLIC_KEY ? urlBase64ToUint8Array(VAPID_PUBLIC_KEY) : null);
+        if (!applicationServerKey) return;
+        await self.registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey,
+        });
+      } catch {
+        // Best-effort; reconcile-on-focus or a manual re-toggle will recover.
       }
     })(),
   );

@@ -5,6 +5,7 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
 import { I18nProvider } from './hooks/useI18n';
+import { usePushAutoHeal } from './hooks/usePushAutoHeal';
 import { queryClient, queryPersister, shouldPersistQuery } from './lib/queryClient';
 import { routes } from './routes';
 import ErrorBoundary from './components/ui/ErrorBoundary';
@@ -35,6 +36,13 @@ function ClearOnUserChange() {
     }
     prevUserId.current = currentId;
   }, [user, isLoading]);
+  return null;
+}
+
+// Keeps this device's Web Push subscription in sync with the DB (heals a
+// rotated endpoint) for whoever is signed in. Mounted once, app-wide.
+function PushAutoHeal() {
+  usePushAutoHeal();
   return null;
 }
 
@@ -74,6 +82,7 @@ export default function App() {
         <CacheBoundary>
           <AuthProvider>
             <ClearOnUserChange />
+            <PushAutoHeal />
             <HashRouter>
               <ErrorBoundary>
                 <AppRoutes />

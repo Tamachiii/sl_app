@@ -19,7 +19,9 @@ export function usePushSubscription() {
   const [enabled, setEnabled] = useState(false);
   const [permission, setPermission] = useState(supported ? pushPermission() : 'denied');
   const [pending, setPending] = useState(supported);
-  const [error, setError] = useState('');
+  // A stable error CODE (see lib/pushNotifications pushError), not a raw
+  // English string — the consuming toggle localizes it. '' = no error.
+  const [errorCode, setErrorCode] = useState('');
 
   // Initial sync — what does the device + DB currently say?
   useEffect(() => {
@@ -48,32 +50,33 @@ export function usePushSubscription() {
   }, [supported, userId]);
 
   const enable = useCallback(async () => {
-    setError('');
+    setErrorCode('');
     setPending(true);
     try {
       await enablePush(userId);
       setEnabled(true);
       setPermission(pushPermission());
     } catch (e) {
-      setError(e?.message || 'Could not enable notifications');
+      setErrorCode(e?.code || 'generic');
       setEnabled(false);
+      setPermission(pushPermission());
     } finally {
       setPending(false);
     }
   }, [userId]);
 
   const disable = useCallback(async () => {
-    setError('');
+    setErrorCode('');
     setPending(true);
     try {
       await disablePush(userId);
       setEnabled(false);
     } catch (e) {
-      setError(e?.message || 'Could not disable notifications');
+      setErrorCode(e?.code || 'generic');
     } finally {
       setPending(false);
     }
   }, [userId]);
 
-  return { supported, enabled, permission, pending, error, enable, disable };
+  return { supported, enabled, permission, pending, errorCode, enable, disable };
 }

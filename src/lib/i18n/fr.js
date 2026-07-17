@@ -37,6 +37,13 @@ const fr = {
     openProfile: 'Ouvrir ton profil',
     dismiss: 'Fermer',
     offlineAction: 'Hors ligne — reconnecte-toi pour faire ça.',
+    pushError: {
+      unsupported: 'Les notifications push ne sont pas disponibles sur cet appareil.',
+      not_signed_in: 'Connecte-toi pour activer les notifications.',
+      permission_denied: 'Les notifications sont bloquées ou refusées — autorise-les dans les réglages de ton navigateur.',
+      sw_not_ready: 'Une erreur est survenue. Réessaie dans un instant.',
+      generic: 'Impossible de mettre à jour les notifications. Réessaie.',
+    },
   },
   errorBoundary: {
     title: 'Une erreur est survenue.',
@@ -222,6 +229,14 @@ const fr = {
     },
   },
   coach: {
+    notifications: {
+      label: 'Notifications',
+      enable: 'Activer',
+      on: 'Activé',
+      pending: '…',
+      hint: 'Sois notifié quand un élève t’envoie un message.',
+      denied: 'Bloqué dans les réglages de ton navigateur.',
+    },
     home: {
       kicker: 'Coach',
       hey: 'Salut',

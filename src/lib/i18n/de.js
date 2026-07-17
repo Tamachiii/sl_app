@@ -37,6 +37,13 @@ const de = {
     openProfile: 'Dein Profil öffnen',
     dismiss: 'Schließen',
     offlineAction: 'Offline — verbinde dich, um das zu tun.',
+    pushError: {
+      unsupported: 'Push ist auf diesem Gerät nicht verfügbar.',
+      not_signed_in: 'Melde dich an, um Benachrichtigungen zu aktivieren.',
+      permission_denied: 'Benachrichtigungen sind blockiert oder wurden abgelehnt — erlaube sie in den Browsereinstellungen.',
+      sw_not_ready: 'Etwas ist schiefgelaufen. Versuche es gleich erneut.',
+      generic: 'Benachrichtigungen konnten nicht aktualisiert werden. Versuche es erneut.',
+    },
   },
   errorBoundary: {
     title: 'Etwas ist schiefgelaufen.',
@@ -222,6 +229,14 @@ const de = {
     },
   },
   coach: {
+    notifications: {
+      label: 'Benachrichtigungen',
+      enable: 'Aktivieren',
+      on: 'An',
+      pending: '…',
+      hint: 'Werde benachrichtigt, wenn dir ein Sportler schreibt.',
+      denied: 'In den Browsereinstellungen blockiert.',
+    },
     home: {
       kicker: 'Coach',
       hey: 'Hey',

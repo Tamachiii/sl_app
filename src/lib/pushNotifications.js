@@ -26,6 +26,15 @@ export function pushPermission() {
   return Notification.permission; // 'default' | 'granted' | 'denied'
 }
 
+// Thrown errors carry a stable `.code` so the UI can localize the message
+// instead of surfacing the raw English string. Codes: 'unsupported',
+// 'not_signed_in', 'permission_denied', 'sw_not_ready', 'generic'.
+function pushError(message, code) {
+  const err = new Error(message);
+  err.code = code;
+  return err;
+}
+
 // Convert a Base64-URL VAPID public key into the Uint8Array PushManager
 // wants for applicationServerKey. Standard incantation.
 function urlBase64ToUint8Array(base64String) {
@@ -63,7 +72,7 @@ export async function getActivePushSubscription() {
 // Idempotent: if there's already a subscription, reuses it.
 async function ensurePushSubscription() {
   const reg = await getRegistration();
-  if (!reg) throw new Error('Service worker not ready');
+  if (!reg) throw pushError('Service worker not ready', 'sw_not_ready');
   let sub = await reg.pushManager.getSubscription();
   if (!sub) {
     sub = await reg.pushManager.subscribe({
@@ -74,24 +83,11 @@ async function ensurePushSubscription() {
   return sub;
 }
 
-// Public entry: ensure permission + subscription + a row in
-// push_subscriptions for the current user. Returns the persisted row.
-export async function enablePush(userId) {
-  if (!isPushSupported()) throw new Error('Push not supported on this device');
-  if (!userId) throw new Error('Not signed in');
-
-  if (Notification.permission === 'default') {
-    const perm = await Notification.requestPermission();
-    if (perm !== 'granted') throw new Error('Notification permission denied');
-  } else if (Notification.permission === 'denied') {
-    throw new Error('Notifications are blocked in your browser settings');
-  }
-
-  const sub = await ensurePushSubscription();
+// Persist (or refresh) a device subscription for a user. Endpoint is UNIQUE —
+// UPSERT so re-enabling on the same device just refreshes last_seen_at without
+// trying to INSERT a duplicate. Shared by enablePush and reconcilePushSubscription.
+async function upsertSubscriptionRow(userId, sub) {
   const row = subscriptionToRow(sub);
-
-  // Endpoint is UNIQUE — UPSERT so re-enabling on the same device just
-  // refreshes last_seen_at without trying to INSERT a duplicate.
   const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : null;
   const { data, error } = await supabase
     .from('push_subscriptions')
@@ -110,6 +106,44 @@ export async function enablePush(userId) {
     .maybeSingle();
   if (error) throw error;
   return data;
+}
+
+// Public entry: ensure permission + subscription + a row in
+// push_subscriptions for the current user. Returns the persisted row.
+export async function enablePush(userId) {
+  if (!isPushSupported()) throw pushError('Push not supported on this device', 'unsupported');
+  if (!userId) throw pushError('Not signed in', 'not_signed_in');
+
+  if (Notification.permission === 'default') {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') throw pushError('Notification permission denied', 'permission_denied');
+  } else if (Notification.permission === 'denied') {
+    throw pushError('Notifications are blocked in your browser settings', 'permission_denied');
+  }
+
+  const sub = await ensurePushSubscription();
+  return upsertSubscriptionRow(userId, sub);
+}
+
+/**
+ * Self-heal DB↔device drift for a user who already opted in on THIS device.
+ * The push service can rotate a subscription's endpoint; send-push then reaps
+ * the old (410) row, silently ending delivery even though the browser holds a
+ * fresh, valid subscription. Reconcile re-UPSERTs the CURRENT endpoint so the
+ * DB catches up.
+ *
+ * UPSERT-only and permission-gated: it never subscribes or prompts, so it can
+ * NEVER enable push for someone who didn't opt in — an active PushSubscription
+ * only exists because enablePush created one on this device. No-ops (returns
+ * false) when unsupported, permission isn't granted, or there's no live sub.
+ */
+export async function reconcilePushSubscription(userId) {
+  if (!isPushSupported() || !userId) return false;
+  if (pushPermission() !== 'granted') return false;
+  const sub = await getActivePushSubscription();
+  if (!sub) return false;
+  await upsertSubscriptionRow(userId, sub);
+  return true;
 }
 
 // Reverse of enablePush. Removes the row first so we never end up with a

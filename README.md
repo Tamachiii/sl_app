@@ -47,7 +47,7 @@ npm run dev       # dev server
 npm run build     # production build → dist/
 npm run preview   # serve dist/
 npm run lint      # eslint (correctness-only; also runs in CI)
-npm test          # run vitest (~637 tests)
+npm test          # run vitest (~649 tests)
 npm run deploy    # emergency-only manual publish (CI deploy is the normal path)
 ```
 
@@ -195,6 +195,8 @@ iOS Live Activities / Dynamic Island are not exposed to web — Web Push is the 
 
 The DB tables ([2026_05_11_push_notifications.sql](supabase/migrations/2026_05_11_push_notifications.sql)) are RLS-scoped to the owning user. The Edge Function runs as service role and double-checks `user_id` on every row. Delays > 350s are refused (Supabase Edge Function wall-time limit is 400s); typical rest periods (30–300s) are well within. Detailed invariants live in [docs/INVARIANTS.md](docs/INVARIANTS.md) under "Rest timer" and "Web Push".
 
+**Coaches** can opt into push too, from the header user-menu popover ([`PushToggleRow` in `UserMenu`](src/components/ui/UserMenu.jsx)) — the same role-agnostic `push_subscriptions` plumbing, so a subscribed coach receives the chat-message pushes the direction-agnostic trigger already fans out. **Subscription self-healing** ([`reconcilePushSubscription`](src/lib/pushNotifications.js) via [`usePushAutoHeal`](src/hooks/usePushAutoHeal.js) on load/focus, plus a `pushsubscriptionchange` re-subscribe in the SW) re-syncs a rotated endpoint into the DB so delivery doesn't silently stop after `send-push` reaps the stale row.
+
 A second Edge Function, [`send-push`](supabase/functions/send-push/index.ts), is a service-role-auth fan-out used by DB triggers (today: `notify_student_on_session_feedback` calls it via pg_net to push the student a "Feedback from <coach>" notification when the coach sends feedback on a session). The trigger reads `app_functions_url` and `app_service_role_key` from Supabase Vault — populate them once (see migration [2026_05_12_feedback_push.sql](supabase/migrations/2026_05_12_feedback_push.sql)).
 
 To deploy the functions:
@@ -238,7 +240,7 @@ supabase db query --linked \
 - Tests live alongside components as `*.test.jsx` / `*.test.js`.
 - `src/test/utils.jsx` exports `renderWithProviders(ui, { auth, route, queryClient })` which wraps with `ThemeProvider` + `QueryClientProvider` + `AuthContext` + `MemoryRouter`.
 - Mocks: child hooks are stubbed with `vi.mock('../../hooks/useX', () => ({ ... }))` per file.
-- 637 tests across 71 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats, records, last-performance), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations — plus static guardrails (i18n key parity across EN/FR/DE, offline-safety of student mutations, error-key mapping). ESLint (correctness-only) + the suite run in CI on every dev push / PR and gate every deploy from main.
+- 649 tests across 73 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats, records, last-performance, push self-healing), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations — plus static guardrails (i18n key parity across EN/FR/DE, offline-safety of student mutations, error-key mapping). ESLint (correctness-only) + the suite run in CI on every dev push / PR and gate every deploy from main.
 
 Run:
 ```bash

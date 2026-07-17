@@ -1,10 +1,60 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
+import { usePushSubscription } from '../../hooks/usePushSubscription';
 import { preloadLogin } from '../../lib/preload';
 import ThemeToggle from './ThemeToggle';
 import LanguageSelect from './LanguageSelect';
 import NotificationBell from '../notifications/NotificationBell';
+
+/**
+ * Web Push opt-in row for the coach popover (mirrors the student's
+ * StudentProfile toggle — same role-agnostic usePushSubscription hook). Only
+ * mounted while the popover is open, so the enabled-state DB check defers
+ * until the coach actually opens the menu. Renders nothing on devices where
+ * push isn't available (desktop without support, missing VAPID key, etc.).
+ */
+function PushToggleRow() {
+  const { t } = useI18n();
+  const { supported, enabled, permission, pending, errorCode, enable, disable } = usePushSubscription();
+  if (!supported) return null;
+
+  const denied = permission === 'denied';
+  const hint = errorCode
+    ? t(`common.pushError.${errorCode}`)
+    : denied
+      ? t('coach.notifications.denied')
+      : !enabled
+        ? t('coach.notifications.hint')
+        : null;
+
+  return (
+    <div className="px-3 py-2.5 border-b border-ink-100 space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="sl-label">{t('coach.notifications.label')}</span>
+        <button
+          type="button"
+          onClick={enabled ? disable : enable}
+          disabled={pending || denied}
+          aria-pressed={enabled}
+          // Off state uses utility classes so it flips in dark mode; the
+          // enabled accent pill is theme-independent (matches sl-btn-primary).
+          className={`sl-pill shrink-0 text-[11px] disabled:opacity-50 ${enabled ? '' : 'bg-ink-100 text-ink-700'}`}
+          style={enabled ? { background: 'var(--color-accent)', color: 'var(--color-ink-900)' } : undefined}
+        >
+          {pending
+            ? t('coach.notifications.pending')
+            : enabled
+              ? t('coach.notifications.on')
+              : t('coach.notifications.enable')}
+        </button>
+      </div>
+      {hint && (
+        <p className="text-[11px] text-ink-400 leading-snug">{hint}</p>
+      )}
+    </div>
+  );
+}
 
 /**
  * Right-aligned page header action — every top-level page renders this.
@@ -104,6 +154,7 @@ export default function UserMenu({ fullName, onSignOut, profileHref }) {
               <span className="sl-label">{t('common.language')}</span>
               <LanguageSelect />
             </div>
+            <PushToggleRow />
             {onSignOut && (
               <button
                 role="menuitem"
