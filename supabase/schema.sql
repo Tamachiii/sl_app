@@ -40,8 +40,19 @@ CREATE TABLE public.programs (
   -- is_active; every surface filters deleted_at IS NULL; restore NULLs it.
   -- Hard DELETE is blocked by trigger while logged sets exist (below).
   deleted_at  timestamptz,
-  created_at  timestamptz NOT NULL DEFAULT now()
+  -- Phase 3.4: student program authoring. created_by is NULL for coach-authored
+  -- programs; status defaults 'approved' so the coach flow is untouched. A
+  -- draft can never be active (CHECK); one in-flight draft per student.
+  created_by  uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  status      text NOT NULL DEFAULT 'approved' CHECK (status IN ('draft', 'approved')),
+  submitted_at timestamptz,
+  approved_at  timestamptz,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT programs_draft_not_active CHECK (NOT (status = 'draft' AND is_active))
 );
+CREATE INDEX IF NOT EXISTS idx_programs_created_by ON public.programs(created_by) WHERE created_by IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS programs_one_draft_per_student
+  ON public.programs(student_id) WHERE status = 'draft' AND deleted_at IS NULL;
 
 -- Weeks
 CREATE TABLE public.weeks (
@@ -1788,6 +1799,151 @@ $$;
 
 REVOKE ALL ON FUNCTION public.decline_promote_request(uuid) FROM public;
 GRANT EXECUTE ON FUNCTION public.decline_promote_request(uuid) TO authenticated;
+
+-- ============================================================
+-- Phase 3.4a: student program authoring (draft → coach approve). See
+-- 2026_07_21_student_program_authoring.sql for the full rationale. Recursion-
+-- firewall helpers (SECURITY DEFINER STABLE) + additive draft-scoped student
+-- RLS + the authoring-column pin trigger + approve_program.
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.program_is_own_draft(p_program_id uuid)
+RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.programs p
+     WHERE p.id = p_program_id AND p.created_by = auth.uid()
+       AND p.status = 'draft' AND p.deleted_at IS NULL
+  );
+$$;
+CREATE OR REPLACE FUNCTION public.week_is_own_draft(p_week_id uuid)
+RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public AS $$
+  SELECT public.program_is_own_draft((SELECT program_id FROM public.weeks WHERE id = p_week_id));
+$$;
+CREATE OR REPLACE FUNCTION public.session_is_own_draft(p_session_id uuid)
+RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public AS $$
+  SELECT public.week_is_own_draft((SELECT week_id FROM public.sessions WHERE id = p_session_id));
+$$;
+
+DROP POLICY IF EXISTS "Students insert own draft programs" ON public.programs;
+CREATE POLICY "Students insert own draft programs"
+  ON public.programs FOR INSERT
+  WITH CHECK (
+    created_by = auth.uid() AND status = 'draft' AND is_active = false
+    AND student_id IN (SELECT id FROM public.students WHERE profile_id = auth.uid())
+  );
+DROP POLICY IF EXISTS "Students update own draft programs" ON public.programs;
+CREATE POLICY "Students update own draft programs"
+  ON public.programs FOR UPDATE
+  USING (created_by = auth.uid() AND status = 'draft' AND deleted_at IS NULL)
+  WITH CHECK (created_by = auth.uid() AND status = 'draft' AND is_active = false);
+DROP POLICY IF EXISTS "Students delete own draft programs" ON public.programs;
+CREATE POLICY "Students delete own draft programs"
+  ON public.programs FOR DELETE
+  USING (created_by = auth.uid() AND status = 'draft');
+
+DROP POLICY IF EXISTS "Students author own draft weeks" ON public.weeks;
+CREATE POLICY "Students author own draft weeks"
+  ON public.weeks FOR ALL
+  USING (public.program_is_own_draft(program_id))
+  WITH CHECK (public.program_is_own_draft(program_id));
+DROP POLICY IF EXISTS "Students author own draft sessions" ON public.sessions;
+CREATE POLICY "Students author own draft sessions"
+  ON public.sessions FOR ALL
+  USING (public.week_is_own_draft(week_id))
+  WITH CHECK (public.week_is_own_draft(week_id));
+DROP POLICY IF EXISTS "Students author own draft slots" ON public.exercise_slots;
+CREATE POLICY "Students author own draft slots"
+  ON public.exercise_slots FOR ALL
+  USING (public.session_is_own_draft(session_id))
+  WITH CHECK (
+    public.session_is_own_draft(session_id)
+    AND exercise_id IN (
+      SELECT el.id FROM public.exercise_library el
+      JOIN public.students st ON st.coach_id = el.coach_id
+      WHERE st.profile_id = auth.uid()
+    )
+  );
+
+CREATE OR REPLACE FUNCTION public.pin_program_authoring_columns()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.created_by := OLD.created_by;
+  IF auth.uid() IS NOT DISTINCT FROM OLD.created_by THEN
+    NEW.status := OLD.status;
+    NEW.approved_at := OLD.approved_at;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+DROP TRIGGER IF EXISTS trg_pin_program_authoring_columns ON public.programs;
+CREATE TRIGGER trg_pin_program_authoring_columns
+  BEFORE UPDATE ON public.programs
+  FOR EACH ROW EXECUTE FUNCTION public.pin_program_authoring_columns();
+
+CREATE OR REPLACE FUNCTION public.approve_program(p_program_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_student_id   uuid;
+  v_student_prof uuid;
+  v_coach_id     uuid;
+  v_prog_name    text;
+  v_created      int := 0;
+  v_functions_url text;
+  v_service_key   text;
+BEGIN
+  SELECT p.student_id, p.name INTO v_student_id, v_prog_name
+    FROM public.programs p WHERE p.id = p_program_id AND p.status = 'draft';
+  IF v_student_id IS NULL THEN
+    RETURN jsonb_build_object('approved', false);
+  END IF;
+  SELECT s.coach_id, s.profile_id INTO v_coach_id, v_student_prof
+    FROM public.students s WHERE s.id = v_student_id;
+  IF v_coach_id IS NULL OR v_coach_id <> auth.uid() THEN
+    RAISE EXCEPTION 'not authorized';
+  END IF;
+
+  INSERT INTO public.set_logs
+    (exercise_slot_id, set_number, done, target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds)
+  SELECT es.id, gs.n, false, es.reps, es.duration_seconds, es.weight_kg, es.rest_seconds
+    FROM public.exercise_slots es
+    JOIN public.sessions s ON s.id = es.session_id
+    JOIN public.weeks w    ON w.id = s.week_id
+    CROSS JOIN LATERAL generate_series(1, GREATEST(es.sets, 1)) AS gs(n)
+   WHERE w.program_id = p_program_id
+     AND NOT EXISTS (SELECT 1 FROM public.set_logs sl WHERE sl.exercise_slot_id = es.id AND sl.set_number = gs.n);
+  GET DIAGNOSTICS v_created = ROW_COUNT;
+
+  UPDATE public.programs SET status = 'approved', approved_at = now(), submitted_at = NULL
+   WHERE id = p_program_id;
+
+  IF v_student_prof IS NOT NULL THEN
+    INSERT INTO public.notifications (recipient_id, kind, payload)
+    VALUES (v_student_prof, 'program_approved',
+      jsonb_build_object('program_id', p_program_id, 'program_name', v_prog_name));
+    BEGIN
+      SELECT decrypted_secret INTO v_functions_url FROM vault.decrypted_secrets WHERE name = 'app_functions_url';
+      SELECT decrypted_secret INTO v_service_key   FROM vault.decrypted_secrets WHERE name = 'app_service_role_key';
+      IF v_functions_url IS NOT NULL AND v_service_key IS NOT NULL
+         AND v_functions_url <> '' AND v_service_key <> '' THEN
+        PERFORM net.http_post(
+          url := v_functions_url || '/send-push',
+          headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || v_service_key),
+          body := jsonb_build_object('user_id', v_student_prof, 'payload', jsonb_build_object(
+            'title', 'Program approved',
+            'body',  'Your coach approved your program' || COALESCE(': ' || v_prog_name, ''),
+            'tag',   'program-approved-' || p_program_id::text,
+            'data',  jsonb_build_object('url', '/sl_app/#/student')))
+        );
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE WARNING 'send-push fan-out (program approved) failed: %', SQLERRM;
+    END;
+  END IF;
+
+  RETURN jsonb_build_object('approved', true, 'set_logs_created', v_created);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.approve_program(uuid) FROM public;
+GRANT EXECUTE ON FUNCTION public.approve_program(uuid) TO authenticated;
 
 -- Trigger: notify the student when their coach attaches a feedback message
 -- to a reviewed session. Fires only when messages.session_id IS NOT NULL.
