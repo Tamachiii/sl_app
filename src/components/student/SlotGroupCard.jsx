@@ -59,7 +59,13 @@ function SlotBody({
   const setsLocked = isConfirmed || isReadOnly;
   const deviation = (slotDeviations || []).find((d) => d.exercise_slot_id === slot.id) || null;
   const isExerciseSkipped = deviation?.kind === 'skip';
-  const lastPerf = lastPerformance ? lastPerformance[slot.exercise?.id] : null;
+  // Key the hint on the exercise the student is actually about to do: the
+  // substitute when this slot is swapped, otherwise the prescribed exercise.
+  const effectiveExerciseId =
+    deviation?.kind === 'swap' && deviation.substitute_exercise_id
+      ? deviation.substitute_exercise_id
+      : slot.exercise?.id;
+  const lastPerf = lastPerformance ? lastPerformance[effectiveExerciseId] : null;
   const online = useOnlineStatus();
   const addSet = useAddStudentSet();
 

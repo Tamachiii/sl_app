@@ -16,10 +16,17 @@ const RECENT_WINDOW_DAYS = 14;
  * we resolve it from the signed-in profile (programs.student_id references
  * students.id, NOT profiles.id).
  *
- * Note: uses the same effective-load model as the stats charts — an exercise
- * SWAP still attributes to the original exercise. useStudentProgressStats is
- * now swap-aware, but records/last-performance are not yet — a separate
- * follow-up (each would need its own slot_deviations join).
+ * SWAP-AWARE: a set logged on a swapped slot really belonged to the SUBSTITUTE
+ * exercise, so its PR is credited there — using ONLY the logged actuals, since
+ * the slot's pinned target_* are the coach's original exercise's numbers,
+ * foreign to the substitute.
+ *
+ * NOTE — intentional difference from useStudentProgressStats: Stats ESTIMATES
+ * volume from the slot's prescribed reps even on a swap-with-no-actual (the
+ * student did that rep scheme, just a different movement). A PR is a MEASURED
+ * fact, so a swap without a logged actual sets no record here — crediting the
+ * substitute from the coach's prescription would fabricate a PR. Same rationale
+ * in useLastPerformance.
  */
 export function useStudentRecords(studentRowId) {
   const { user } = useAuth();
@@ -46,6 +53,7 @@ export function useStudentRecords(studentRowId) {
         .select(`
           done, logged_at, target_reps, target_weight_kg, actual_reps, actual_weight_kg,
           exercise_slots!inner(
+            id,
             exercise:exercise_library!inner(id, name, type),
             sessions!inner(weeks!inner(programs!inner(student_id, deleted_at)))
           )
@@ -56,16 +64,42 @@ export function useStudentRecords(studentRowId) {
         .limit(20000);
       if (error) throw error;
 
-      // Lift the embedded exercise up onto each log for buildRecords.
-      const logs = (data || []).map((l) => ({
-        done: l.done,
-        logged_at: l.logged_at,
-        target_reps: l.target_reps,
-        target_weight_kg: l.target_weight_kg,
-        actual_reps: l.actual_reps,
-        actual_weight_kg: l.actual_weight_kg,
-        exercise: l.exercise_slots?.exercise || null,
-      }));
+      // Swap deviations for this student's slots, with the substitute exercise's
+      // metadata — so a swapped set's PR follows what the student actually did.
+      // Scoped through the same program join (coach reads via their RLS policy,
+      // student via own-rows), never an unbounded slot-id .in().
+      const { data: devs, error: devErr } = await supabase
+        .from('slot_deviations')
+        .select(`
+          exercise_slot_id,
+          substitute:exercise_library(id, name, type),
+          exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(student_id, deleted_at))))
+        `)
+        .eq('kind', 'swap')
+        .eq('exercise_slots.sessions.weeks.programs.student_id', resolvedId)
+        .is('exercise_slots.sessions.weeks.programs.deleted_at', null)
+        .limit(20000);
+      if (devErr) throw devErr;
+      const swapBySlot = new Map();
+      for (const d of devs || []) {
+        if (d.substitute) swapBySlot.set(d.exercise_slot_id, d.substitute);
+      }
+
+      // Lift the effective exercise onto each log for buildRecords. On a swapped
+      // slot the effective exercise is the substitute, and the pinned target_*
+      // (the original's load) are dropped so only the logged actuals count.
+      const logs = (data || []).map((l) => {
+        const swap = swapBySlot.get(l.exercise_slots?.id);
+        return {
+          done: l.done,
+          logged_at: l.logged_at,
+          target_reps: swap ? null : l.target_reps,
+          target_weight_kg: swap ? null : l.target_weight_kg,
+          actual_reps: l.actual_reps,
+          actual_weight_kg: l.actual_weight_kg,
+          exercise: swap || l.exercise_slots?.exercise || null,
+        };
+      });
 
       const recentSince = new Date();
       recentSince.setDate(recentSince.getDate() - RECENT_WINDOW_DAYS);

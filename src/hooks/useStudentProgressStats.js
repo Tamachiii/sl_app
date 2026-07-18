@@ -220,6 +220,11 @@ export function useStudentProgressStats(studentId, scope = 'all') {
       }
       // Reps a done set actually contributed (logged actual overrides the
       // prescribed target); non-done / skipped sets contribute nothing.
+      // On a swap we KEEP the target_reps fallback: the student performed the
+      // slot's prescribed rep scheme, just a different movement, so it's a fair
+      // VOLUME estimate. (The performance-reporting hooks — useStudentRecords /
+      // useLastPerformance — intentionally differ: a PR / "last time" is a
+      // measured fact, so they require a logged actual on a swap.)
       const performedReps = (l) => (l.done ? (l.actual_reps ?? l.target_reps ?? 0) : 0);
       // NOTE: performed LOAD is computed inline in the per-exercise tonnage loop
       // (not a shared helper) because a SWAPPED slot must not fall back to the
