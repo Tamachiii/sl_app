@@ -311,6 +311,19 @@ export default function StudentProfile() {
       <BodyweightCard />
       <PersonalRecords />
 
+      {/* Phase 3.4: draft a program for the coach to approve. English-only,
+          like the other student off-script surfaces. */}
+      <Link
+        to="/student/author"
+        className="sl-card p-4 flex items-center justify-between gap-3 hover:bg-ink-50 transition-colors"
+      >
+        <div className="min-w-0">
+          <div className="sl-display text-[15px] text-gray-900">Draft a program</div>
+          <p className="sl-mono text-[11px] text-ink-400 mt-0.5">Sketch a plan for your coach to approve</p>
+        </div>
+        <span className="sl-mono text-[12px]" style={{ color: 'var(--color-accent)' }}>Build →</span>
+      </Link>
+
       {/* Goals summary — count + tap-through. See activeGoalsCount comment
           above for why we no longer surface a single "featured" goal. */}
       <section aria-labelledby="profile-goals-heading" className="space-y-2">
