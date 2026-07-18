@@ -79,7 +79,12 @@ DROP POLICY IF EXISTS "Students update own draft programs" ON public.programs;
 CREATE POLICY "Students update own draft programs"
   ON public.programs FOR UPDATE
   USING (created_by = auth.uid() AND status = 'draft' AND deleted_at IS NULL)
-  WITH CHECK (created_by = auth.uid() AND status = 'draft' AND is_active = false);
+  WITH CHECK (
+    created_by = auth.uid() AND status = 'draft' AND is_active = false
+    -- Defense-in-depth (the pin trigger already forces student_id): the row
+    -- must still belong to one of the author's own students-rows.
+    AND student_id IN (SELECT id FROM public.students WHERE profile_id = auth.uid())
+  );
 
 DROP POLICY IF EXISTS "Students delete own draft programs" ON public.programs;
 CREATE POLICY "Students delete own draft programs"
@@ -119,8 +124,11 @@ CREATE POLICY "Students author own draft slots"
 CREATE OR REPLACE FUNCTION public.pin_program_authoring_columns()
 RETURNS TRIGGER AS $$
 BEGIN
-  -- created_by is immutable for everyone (authorship audit).
+  -- created_by and student_id are immutable for EVERYONE (a program never
+  -- changes student, and pinning student_id blocks a draft author from
+  -- re-pointing their draft to another student — tenant isolation).
   NEW.created_by := OLD.created_by;
+  NEW.student_id := OLD.student_id;
   -- The author (the student, auth.uid() = created_by) can never self-approve:
   -- status and approved_at are pinned against them. submitted_at is left
   -- unpinned so the student can submit/un-submit. A coach (auth.uid() <>

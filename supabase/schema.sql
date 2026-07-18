@@ -1834,7 +1834,10 @@ DROP POLICY IF EXISTS "Students update own draft programs" ON public.programs;
 CREATE POLICY "Students update own draft programs"
   ON public.programs FOR UPDATE
   USING (created_by = auth.uid() AND status = 'draft' AND deleted_at IS NULL)
-  WITH CHECK (created_by = auth.uid() AND status = 'draft' AND is_active = false);
+  WITH CHECK (
+    created_by = auth.uid() AND status = 'draft' AND is_active = false
+    AND student_id IN (SELECT id FROM public.students WHERE profile_id = auth.uid())
+  );
 DROP POLICY IF EXISTS "Students delete own draft programs" ON public.programs;
 CREATE POLICY "Students delete own draft programs"
   ON public.programs FOR DELETE
@@ -1866,7 +1869,10 @@ CREATE POLICY "Students author own draft slots"
 CREATE OR REPLACE FUNCTION public.pin_program_authoring_columns()
 RETURNS TRIGGER AS $$
 BEGIN
+  -- created_by + student_id immutable for everyone (tenant isolation: a draft
+  -- author can never re-point their draft to another student).
   NEW.created_by := OLD.created_by;
+  NEW.student_id := OLD.student_id;
   IF auth.uid() IS NOT DISTINCT FROM OLD.created_by THEN
     NEW.status := OLD.status;
     NEW.approved_at := OLD.approved_at;
