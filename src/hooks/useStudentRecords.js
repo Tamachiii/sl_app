@@ -17,8 +17,9 @@ const RECENT_WINDOW_DAYS = 14;
  * students.id, NOT profiles.id).
  *
  * Note: uses the same effective-load model as the stats charts — an exercise
- * SWAP still attributes to the original exercise (documented limitation of the
- * deviation-unaware stats path).
+ * SWAP still attributes to the original exercise. useStudentProgressStats is
+ * now swap-aware, but records/last-performance are not yet — a separate
+ * follow-up (each would need its own slot_deviations join).
  */
 export function useStudentRecords(studentRowId) {
   const { user } = useAuth();

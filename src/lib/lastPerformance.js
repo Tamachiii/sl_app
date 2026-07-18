@@ -4,8 +4,9 @@
 //
 // Reuses the effective-load model from lib/records (a done set's actual weight/
 // reps override the prescribed target). Like the stats/records paths, an
-// exercise SWAP still attributes its logs to the slot's original exercise — a
-// documented limitation of the deviation-unaware history read.
+// exercise SWAP still attributes its logs to the slot's original exercise.
+// (useStudentProgressStats is now swap-aware; this history read is not yet — a
+// separate follow-up.)
 
 import { effectiveWeight, effectiveReps } from './records';
 

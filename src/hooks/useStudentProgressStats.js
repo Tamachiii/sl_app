@@ -178,6 +178,35 @@ export function useStudentProgressStats(studentId, scope = 'all') {
       if (logErr) throw logErr;
       const setLogs = logRows || [];
 
+      // 3b. Swap deviations for the in-scope slots, with the substitute
+      //     exercise's metadata. Lets PERFORMED volume/tonnage follow an
+      //     exercise SWAP to what the student actually did, instead of
+      //     crediting the coach's original prescription. slot_deviations has a
+      //     single FK to exercise_library (substitute_exercise_id), so the
+      //     `substitute:exercise_library(...)` embed is unambiguous.
+      const { data: devRows, error: devErr } = hasSlots
+        ? await applyProgramScope(
+            supabase
+              .from('slot_deviations')
+              .select(
+                'exercise_slot_id, kind, substitute:exercise_library(id, name, type, difficulty, volume_weight), exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at))))'
+              )
+              .eq('kind', 'swap')
+              // Match the set_logs cap so a heavy-deviation student can't have
+              // swaps silently truncated (which would undercount performed work).
+              .limit(20000),
+            'exercise_slots.sessions.weeks.programs'
+          )
+        : { data: [], error: null };
+      if (devErr) throw devErr;
+      // slotId → substitute exercise meta ({id, name, type, difficulty,
+      // volume_weight}). Only 'swap' rows carry a substitute; skips are already
+      // reflected as done=false set_logs (0 performed).
+      const swapBySlot = new Map();
+      for (const d of devRows || []) {
+        if (d.kind === 'swap' && d.substitute) swapBySlot.set(d.exercise_slot_id, d.substitute);
+      }
+
       // Performance index: every set_log's actuals keyed by slot, so the
       // weekly-volume and per-exercise charts can reflect PERFORMED work
       // (what the student actually did — actuals override targets, skips and
@@ -192,12 +221,9 @@ export function useStudentProgressStats(studentId, scope = 'all') {
       // Reps a done set actually contributed (logged actual overrides the
       // prescribed target); non-done / skipped sets contribute nothing.
       const performedReps = (l) => (l.done ? (l.actual_reps ?? l.target_reps ?? 0) : 0);
-      // Effective load for tonnage: actual overrides target; bodyweight
-      // (null / 0) counts as 1kg so the curve stays visible.
-      const performedWeight = (l) => {
-        const w = l.actual_weight_kg ?? l.target_weight_kg;
-        return w != null && Number(w) > 0 ? Number(w) : 1;
-      };
+      // NOTE: performed LOAD is computed inline in the per-exercise tonnage loop
+      // (not a shared helper) because a SWAPPED slot must not fall back to the
+      // pinned target_weight_kg — that's the coach's ORIGINAL exercise's load.
 
       // ─── Derived aggregates ───────────────────────────────────────────────
 
@@ -241,7 +267,6 @@ export function useStudentProgressStats(studentId, scope = 'all') {
           pull += v.pull;
           push += v.push;
           for (const slot of s.exercise_slots || []) {
-            const ex = slot.exercise;
             const perf = perfBySlot.get(slot.id) || [];
             setsPrescribed += slot.sets || 0;
             // Adherence measures the PRESCRIBED work done, so student-added
@@ -249,16 +274,21 @@ export function useStudentProgressStats(studentId, scope = 'all') {
             // sets_prescribed never counts them). They still count toward
             // performed volume/tonnage below — that's real work.
             setsDone += perf.filter((l) => l.done && !l.is_student_added).length;
-            if (!ex || !ex.type) continue;
+            // Performed volume follows an exercise SWAP: credit the
+            // substitute's type/difficulty/volume_weight, since that's the work
+            // the student did. Planned (computeSessionVolume above) stays on
+            // the coach's original exercise.
+            const perfEx = swapBySlot.get(slot.id) || slot.exercise;
+            if (!perfEx || !perfEx.type) continue;
             // Performed training volume mirrors computeSessionVolume's
             // difficulty × reps × volume_weight, but sums ACTUAL reps of
             // done sets instead of prescribed reps.
             let doneReps = 0;
             for (const l of perf) doneReps += performedReps(l);
             if (doneReps <= 0) continue;
-            const vol = ex.difficulty * doneReps * Number(ex.volume_weight);
-            if (ex.type === 'pull') pullDone += vol;
-            else if (ex.type === 'push') pushDone += vol;
+            const vol = perfEx.difficulty * doneReps * Number(perfEx.volume_weight);
+            if (perfEx.type === 'pull') pullDone += vol;
+            else if (perfEx.type === 'push') pushDone += vol;
           }
         }
         let sessionsConfirmed = 0;
@@ -290,11 +320,10 @@ export function useStudentProgressStats(studentId, scope = 'all') {
       // One point per week per exercise. `tonnage` is PERFORMED — Σ(effective
       // reps × effective weight) over DONE sets (actuals override targets),
       // so a student who deviated sees their real numbers, not the plan.
-      // KNOWN LIMITATION: an exercise SWAP (slot_deviations.substitute_
-      // exercise_id) still credits performed work to the slot's ORIGINAL
-      // exercise, because this hook doesn't read slot_deviations. Skips are
-      // handled (done=false → 0). Correct swap attribution is deferred to the
-      // deviation-aware-stats follow-up (needs the substitute's metadata).
+      // An exercise SWAP splits the slot: PLANNED tonnage stays on the coach's
+      // original exercise (a dashed reference with no performed bar), while
+      // PERFORMED tonnage is credited to the SUBSTITUTE the student actually
+      // did (via swapBySlot). Skips are handled (done=false → 0).
       // `plannedTonnage` keeps the prescribed Σ(target_reps × target_weight)
       // as a reference. Bodyweight (null/0) counts as 1kg. Each point carries
       // program_id/program_name + a stable `key` so the chart can render
@@ -324,31 +353,59 @@ export function useStudentProgressStats(studentId, scope = 'all') {
             }
 
             // Performed tonnage, from the flat set_logs' actuals on done sets.
+            // On a SWAPPED slot the pinned target_weight_kg is the coach's
+            // ORIGINAL exercise's load — foreign to the substitute — so use the
+            // student's logged actual, else the 1kg bodyweight surrogate. Never
+            // import the original prescription's load onto the substitute.
+            const isSwapped = swapBySlot.has(slot.id);
             let performed = 0;
             for (const l of perfBySlot.get(slot.id) || []) {
               const reps = performedReps(l);
               if (reps <= 0) continue;
-              performed += reps * performedWeight(l);
+              const wRaw = isSwapped ? l.actual_weight_kg : (l.actual_weight_kg ?? l.target_weight_kg);
+              const w_ = wRaw != null && Number(wRaw) > 0 ? Number(wRaw) : 1;
+              performed += reps * w_;
             }
 
             if (planned <= 0 && performed <= 0) continue;
-            exerciseMeta[ex.id] = { id: ex.id, name: ex.name, type: ex.type };
-            const acc = perExercise[ex.id] || { tonnage: 0, plannedTonnage: 0 };
-            acc.tonnage += performed;
-            acc.plannedTonnage += planned;
-            perExercise[ex.id] = acc;
+            // Split on a swap: planned → original exercise, performed →
+            // substitute. When there's no swap these are the same exercise, so
+            // both land on one point (identical to the pre-swap behavior).
+            const perfEx = isSwapped ? swapBySlot.get(slot.id) : ex;
+            if (planned > 0) {
+              exerciseMeta[ex.id] = { id: ex.id, name: ex.name, type: ex.type };
+              const a = perExercise[ex.id] || { tonnage: 0, plannedTonnage: 0 };
+              a.plannedTonnage += planned;
+              // Prescribed, but swapped out this week — label so a 0 performed
+              // reads as a swap, not a miss.
+              if (isSwapped && performed > 0) a.swappedTo = perfEx.name;
+              perExercise[ex.id] = a;
+            }
+            if (performed > 0) {
+              exerciseMeta[perfEx.id] = { id: perfEx.id, name: perfEx.name, type: perfEx.type };
+              const b = perExercise[perfEx.id] || { tonnage: 0, plannedTonnage: 0 };
+              b.tonnage += performed;
+              if (isSwapped) b.swappedFrom = ex.name;
+              perExercise[perfEx.id] = b;
+            }
           }
         }
         for (const exId of Object.keys(perExercise)) {
           if (!byExercise[exId]) byExercise[exId] = [];
+          const acc = perExercise[exId];
           byExercise[exId].push({
             week_id: w.id,
             week_number: w.week_number,
             label: w.label,
             program_id: w.program_id,
             program_name: w.program_name,
-            tonnage: perExercise[exId].tonnage,
-            plannedTonnage: perExercise[exId].plannedTonnage,
+            tonnage: acc.tonnage,
+            // Only a genuinely prescribed exercise carries a planned reference;
+            // a swap-in substitute (planned 0) leaves it undefined so the chart
+            // doesn't draw a misleading flat-zero "planned" line.
+            plannedTonnage: acc.plannedTonnage > 0 ? acc.plannedTonnage : undefined,
+            swappedTo: acc.swappedTo,
+            swappedFrom: acc.swappedFrom,
             key: `${w.program_id}:${w.id}`,
           });
         }

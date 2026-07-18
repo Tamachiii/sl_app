@@ -89,7 +89,7 @@ Jump straight to the relevant files. For *behavior* details, open the file — t
 | Student goals | `student/MyGoals`, `hooks/useGoals` |
 | Student profile | `student/StudentProfile`, `hooks/useStudentLifetimeStats`, `hooks/useAuth`, `hooks/useStudents` (`useMyCoach`), `hooks/useGoals` (`useMyGoals`) |
 | Personal records + bodyweight | `student/PersonalRecords`, `student/BodyweightCard`, `hooks/useStudentRecords`, `hooks/useBodyweight`, `lib/records.js` (Epley e1RM), migration `2026_07_14_bodyweight_logs.sql` |
-| Performance-aware stats | `hooks/useStudentProgressStats` (performed vs planned volume/tonnage + adherence), `student/WeeklyVolumePanel` (shared with coach), `student/ExerciseProgressChart` |
+| Performance-aware stats | `hooks/useStudentProgressStats` (performed vs planned volume/tonnage + adherence; **swap-aware** — an exercise swap credits PERFORMED volume/tonnage to the substitute via a `slot_deviations` fetch, PLANNED stays on the coach's original), `student/WeeklyVolumePanel` (shared with coach), `student/ExerciseProgressChart`. NOTE: `useStudentRecords` + `useLastPerformance` are still swap-blind (separate follow-up) |
 | User menu popover | `ui/UserMenu` (every top-level page's right-aligned header action) |
 | Theming | `hooks/useTheme`, `ui/ThemeToggle`, `index.css` |
 | i18n (EN/FR/DE) | `hooks/useI18n`, `lib/i18n/`, `ui/LanguageSelect` |

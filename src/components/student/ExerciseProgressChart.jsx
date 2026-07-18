@@ -207,6 +207,8 @@ export default function ExerciseProgressChart({ exercises, byExercise, storageKe
                 <title>
                   {p.program_name ? `${p.program_name} · ` : ''}Week {p.week_number}
                   {p.label ? ` — ${p.label}` : ''}: {Math.round(p.tonnage)} kg
+                  {p.swappedTo ? ` · swapped to ${p.swappedTo}` : ''}
+                  {p.swappedFrom ? ` · substituted for ${p.swappedFrom}` : ''}
                 </title>
               </circle>
             ))}

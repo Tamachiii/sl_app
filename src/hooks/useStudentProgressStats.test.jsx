@@ -43,6 +43,7 @@ function setupChains({
   programsData,
   confirmationsData = [],
   setLogsData = [],
+  deviationsData = [],
   studentIdLookup = { id: 'st-1' },
 }) {
   const studentChain = {
@@ -86,10 +87,22 @@ function setupChains({
       Promise.resolve({ data: setLogsData, error: null }).then(resolve, reject);
     },
   };
+  // slot_deviations fetch (swap-aware attribution). Only reached when the
+  // scope tree has slots; select().eq('kind','swap') then applyProgramScope's
+  // .eq/.is.
+  const devChain = {
+    select: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    is: vi.fn().mockReturnThis(),
+    limit: vi.fn().mockReturnThis(),
+    then(resolve, reject) {
+      Promise.resolve({ data: deviationsData, error: null }).then(resolve, reject);
+    },
+  };
   // The hook order varies based on scope/studentId — but it always pulls
   // students FIRST when no studentId is provided. Track call index.
-  const sequenceWithStudent = [studentChain, programsChain, confChain, logsChain];
-  const sequenceNoStudent = [programsChain, confChain, logsChain];
+  const sequenceWithStudent = [studentChain, programsChain, confChain, logsChain, devChain];
+  const sequenceNoStudent = [programsChain, confChain, logsChain, devChain];
   let callIdx = 0;
   let useStudentLookup = true;
   return {
@@ -420,6 +433,101 @@ describe('useStudentProgressStats — completion + tonnage', () => {
     // (5×100)+(5×100)+(8×100) = 1800.
     const p = result.current.data.exerciseProgress.byExercise['e-1'][0];
     expect(p.tonnage).toBe(1800);
+  });
+
+  it('attributes performed work to the SWAP substitute, planned stays on the original', async () => {
+    const setup = setupChains({
+      programsData: [
+        {
+          id: 'p-1', name: 'A', sort_order: 0, is_active: true,
+          weeks: [{
+            id: 'w-1', week_number: 1, label: null,
+            sessions: [{
+              id: 's-1', title: 'Push', day_number: 1, sort_order: 0,
+              scheduled_date: null, archived_at: null,
+              exercise_slots: [{
+                id: 'sl-1', sets: 1, reps: 5, duration_seconds: null, weight_kg: 100,
+                // Coach prescribed a PUSH exercise…
+                exercise: { id: 'e-1', name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
+                set_logs: [{ set_number: 1, target_reps: 5, target_weight_kg: 100 }],
+              }],
+            }],
+          }],
+        },
+      ],
+      // …the student did the set (done), but SWAPPED to a PULL exercise.
+      setLogsData: [
+        { id: 'l-1', exercise_slot_id: 'sl-1', set_number: 1, done: true, target_reps: 5, target_weight_kg: 100, actual_reps: null, actual_weight_kg: null },
+      ],
+      deviationsData: [
+        {
+          exercise_slot_id: 'sl-1',
+          kind: 'swap',
+          substitute: { id: 'e-2', name: 'Machine Row', type: 'pull', difficulty: 1, volume_weight: 1 },
+        },
+      ],
+    });
+    setup.register();
+    const qc = makeClient();
+    const { result } = renderHook(() => useStudentProgressStats(), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const ex = result.current.data.exerciseProgress;
+    // Two exercises now surface: the prescribed Bench (planned only) and the
+    // performed Machine Row (performed only).
+    const bench = ex.byExercise['e-1'][0];
+    const row = ex.byExercise['e-2'][0];
+    expect(bench.plannedTonnage).toBe(500);       // 5 × 100 prescribed (target)
+    expect(bench.tonnage).toBe(0);                // no bench performed
+    expect(bench.swappedTo).toBe('Machine Row');  // labeled as a swap, not a miss
+    // No actual load was logged on the swap → 1kg bodyweight surrogate, NOT the
+    // coach's original 100kg (the substitute must never inherit a foreign load).
+    expect(row.tonnage).toBe(5);
+    expect(row.plannedTonnage).toBeUndefined();   // substitute was never prescribed
+    expect(row.swappedFrom).toBe('Bench');
+
+    // Weekly volume: performed follows the swap (push → pull); planned stays push.
+    const wk = result.current.data.weeklyVolume[0];
+    expect(wk.pull).toBe(5);        // performed pull from the substitute
+    expect(wk.push).toBe(0);        // no performed push
+    expect(wk.push_planned).toBe(5); // planned stayed on the original push
+    expect(wk.pull_planned).toBe(0);
+  });
+
+  it('honors a logged actual load on a swapped slot (not the original prescription)', async () => {
+    const setup = setupChains({
+      programsData: [
+        {
+          id: 'p-1', name: 'A', sort_order: 0, is_active: true,
+          weeks: [{
+            id: 'w-1', week_number: 1, label: null,
+            sessions: [{
+              id: 's-1', title: 'Push', day_number: 1, sort_order: 0,
+              scheduled_date: null, archived_at: null,
+              exercise_slots: [{
+                id: 'sl-1', sets: 1, reps: 5, duration_seconds: null, weight_kg: 100,
+                exercise: { id: 'e-1', name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
+                set_logs: [{ set_number: 1, target_reps: 5, target_weight_kg: 100 }],
+              }],
+            }],
+          }],
+        },
+      ],
+      // Swapped to a machine and logged an ACTUAL 60kg × 5.
+      setLogsData: [
+        { id: 'l-1', exercise_slot_id: 'sl-1', set_number: 1, done: true, target_reps: 5, target_weight_kg: 100, actual_reps: 5, actual_weight_kg: 60 },
+      ],
+      deviationsData: [
+        { exercise_slot_id: 'sl-1', kind: 'swap', substitute: { id: 'e-2', name: 'Machine Row', type: 'pull', difficulty: 1, volume_weight: 1 } },
+      ],
+    });
+    setup.register();
+    const qc = makeClient();
+    const { result } = renderHook(() => useStudentProgressStats(), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    // Performed tonnage uses the logged 60kg, not the original's pinned 100kg.
+    const row = result.current.data.exerciseProgress.byExercise['e-2'][0];
+    expect(row.tonnage).toBe(300); // 5 × 60
   });
 
   it('falls back to slot scalars when set_logs are empty', async () => {
