@@ -362,6 +362,7 @@ const en = {
     sessionCompleted: '{student} completed {session}.',
     sessionFeedback: '{coach} left feedback on {session}.',
     sessionDeviation: '{student} went off-plan on {session}.',
+    swapAdopted: 'Your coach made {substitute} your prescription in place of {original}.',
     unknown: 'New activity ({kind}).',
   },
   messaging: {

@@ -177,6 +177,19 @@ export function describeNotification(notif) {
         path,
       };
     }
+    case 'swap_adopted': {
+      // Student-side: the coach adopted your swap into the plan. Deep-link to
+      // the session it came from.
+      const path = p.session_id ? `/student/session/${p.session_id}` : null;
+      return {
+        i18nKey: 'notifications.swapAdopted',
+        params: {
+          original: p.original_exercise || '—',
+          substitute: p.substitute_exercise || '—',
+        },
+        path,
+      };
+    }
     default:
       return {
         i18nKey: 'notifications.unknown',

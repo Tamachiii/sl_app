@@ -16,7 +16,9 @@ import { useArchiveSession } from '../../hooks/useWeek';
 import { useSessionConfirmation } from '../../hooks/useSessionConfirmation';
 import { useStudents } from '../../hooks/useStudents';
 import { useSessionFeedback } from '../../hooks/useMessages';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import SlotProgress from './SlotProgress';
+import AdoptSwapDialog from './AdoptSwapDialog';
 import SessionFeedbackComposer from './SessionFeedbackComposer';
 import SessionFeedbackSent from './SessionFeedbackSent';
 import SessionReviewedNoFeedback from './SessionReviewedNoFeedback';
@@ -77,6 +79,12 @@ export default function SessionReview() {
   const { data: slotComments } = useSlotComments(sessionId, slots);
   const { data: slotDeviations } = useSlotDeviations(sessionId, slots);
   const { data: exerciseLibrary } = useExerciseLibrary();
+  const online = useOnlineStatus();
+  // Phase 3.1: adopting a student's swap into the program. `adoptTarget` drives
+  // the confirm dialog; `adoptedSlots` hides the button once done (the reviewed
+  // slot's deviation is preserved, so we track success client-side).
+  const [adoptTarget, setAdoptTarget] = useState(null);
+  const [adoptedSlots, setAdoptedSlots] = useState(() => new Set());
   const slotIds = useMemo(() => slots.map((s) => s.id), [slots]);
   const { data: videos } = useSetVideos(sessionId, slotIds);
   const videosBySlot = useMemo(() => {
@@ -224,6 +232,34 @@ export default function SessionReview() {
                     {deviation.kind === 'swap'
                       ? <>did <span className="font-semibold">{substituteName}</span> instead</>
                       : 'student skipped this exercise'}
+                    {deviation.kind === 'swap' && deviation.substitute_exercise_id && (
+                      <div className="mt-1.5">
+                        {adoptedSlots.has(slot.id) ? (
+                          <span className="sl-mono text-[11px] text-ink-400">
+                            ✓ Adopted into the program
+                          </span>
+                        ) : online ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setAdoptTarget({
+                                slotId: slot.id,
+                                substituteId: deviation.substitute_exercise_id,
+                                originalName: ex.name,
+                                substituteName,
+                              })
+                            }
+                            className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 px-2.5"
+                          >
+                            Adopt into program
+                          </button>
+                        ) : (
+                          <span className="sl-mono text-[11px] text-ink-400">
+                            Connect to adopt this swap.
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
                 <div className="sl-mono text-[11px] text-ink-400">
@@ -364,6 +400,25 @@ export default function SessionReview() {
       <VideoLightbox open={!!playing} onClose={() => setPlaying(null)}>
         {playing && <VideoPlayer storagePath={playing.storage_path} />}
       </VideoLightbox>
+
+      {adoptTarget && (
+        <AdoptSwapDialog
+          open
+          onClose={() => setAdoptTarget(null)}
+          slotId={adoptTarget.slotId}
+          sessionId={sessionId}
+          substituteId={adoptTarget.substituteId}
+          originalName={adoptTarget.originalName}
+          substituteName={adoptTarget.substituteName}
+          onAdopted={(applied) => {
+            // Only mark adopted when the rewrite actually changed something —
+            // a 0-applied no-op must not read as success.
+            if (applied > 0) {
+              setAdoptedSlots((prev) => new Set(prev).add(adoptTarget.slotId));
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -362,6 +362,7 @@ const fr = {
     sessionCompleted: '{student} a terminé {session}.',
     sessionFeedback: '{coach} a laissé un retour sur {session}.',
     sessionDeviation: '{student} a modifié le programme sur {session}.',
+    swapAdopted: 'Ton coach a fait de {substitute} ta prescription à la place de {original}.',
     unknown: 'Nouvelle activité ({kind}).',
   },
   messaging: {

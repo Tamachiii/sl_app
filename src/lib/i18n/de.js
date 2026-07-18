@@ -362,6 +362,7 @@ const de = {
     sessionCompleted: '{student} hat {session} abgeschlossen.',
     sessionFeedback: '{coach} hat Feedback zu {session} hinterlassen.',
     sessionDeviation: '{student} ist bei {session} vom Plan abgewichen.',
+    swapAdopted: 'Dein Coach hat {substitute} statt {original} zu deiner Vorgabe gemacht.',
     unknown: 'Neue Aktivität ({kind}).',
   },
   messaging: {

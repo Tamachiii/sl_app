@@ -6,9 +6,12 @@ let mockSessionData = { data: null, isLoading: false };
 let mockSetLogsData = { data: [], isLoading: false };
 let mockConfirmation = { data: null, isLoading: false };
 let mockSessionFeedback = { data: null, isLoading: false };
+let mockDeviations = { data: [], isLoading: false };
+let mockLibrary = { data: [], isLoading: false };
 const mockNavigate = vi.fn();
 const mockArchive = { mutate: vi.fn(), isPending: false };
 const mockMarkReviewed = { mutate: vi.fn(), isPending: false };
+const mockAdopt = { mutate: vi.fn(), isPending: false };
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
@@ -30,10 +33,17 @@ vi.mock('../../hooks/useSlotComments', () => ({
   useSlotComments: () => ({ data: [], isLoading: false }),
 }));
 vi.mock('../../hooks/useSlotDeviations', () => ({
-  useSlotDeviations: () => ({ data: [], isLoading: false }),
+  useSlotDeviations: () => mockDeviations,
 }));
 vi.mock('../../hooks/useExerciseLibrary', () => ({
-  useExerciseLibrary: () => ({ data: [], isLoading: false }),
+  useExerciseLibrary: () => mockLibrary,
+}));
+vi.mock('../../hooks/useOnlineStatus', () => ({
+  useOnlineStatus: () => true,
+}));
+vi.mock('../../hooks/useAdoptSwap', () => ({
+  useAdoptSwap: () => mockAdopt,
+  useAdoptSwapPreview: () => ({ data: 2, isLoading: false }),
 }));
 vi.mock('../../hooks/useSetVideo', () => ({
   useSetVideos: () => ({ data: [], isLoading: false }),
@@ -69,9 +79,12 @@ beforeEach(() => {
   mockSetLogsData = { data: [], isLoading: false };
   mockConfirmation = { data: null, isLoading: false };
   mockSessionFeedback = { data: null, isLoading: false };
+  mockDeviations = { data: [], isLoading: false };
+  mockLibrary = { data: [], isLoading: false };
   mockNavigate.mockReset();
   mockArchive.mutate.mockReset();
   mockMarkReviewed.mutate.mockReset();
+  mockAdopt.mutate.mockReset();
   window.localStorage.clear();
 });
 
@@ -236,5 +249,49 @@ describe('<SessionReview />', () => {
     const [, opts] = mockMarkReviewed.mutate.mock.calls[0];
     opts.onSettled();
     expect(mockNavigate).toHaveBeenCalledWith('/coach/sessions');
+  });
+
+  const swapSession = {
+    id: 'sess-1',
+    title: 'Push',
+    archived_at: null,
+    exercise_slots: [
+      { id: 'sl-1', sets: 3, exercise: { id: 'ex-orig', name: 'Ring Dip', type: 'push', difficulty: 2 } },
+    ],
+  };
+
+  it('offers "Adopt into program" for a swap deviation and adopts via the RPC hook', () => {
+    mockSessionData = { data: swapSession, isLoading: false };
+    mockConfirmation = { data: { confirmed_at: '2026-04-25T14:00:00Z' }, isLoading: false };
+    mockDeviations = {
+      data: [{ exercise_slot_id: 'sl-1', kind: 'swap', substitute_exercise_id: 'ex-sub' }],
+      isLoading: false,
+    };
+    mockLibrary = { data: [{ id: 'ex-sub', name: 'Weighted Dip' }], isLoading: false };
+    renderReview();
+
+    const btn = screen.getByRole('button', { name: /adopt into program/i });
+    fireEvent.click(btn);
+    // Confirm dialog opens with the blast-radius count (preview mock = 2).
+    expect(screen.getByText('Adopt swap')).toBeInTheDocument();
+    expect(screen.getByText(/2 upcoming sessions/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Adopt$/ }));
+    expect(mockAdopt.mutate).toHaveBeenCalledWith(
+      { slotId: 'sl-1', substituteId: 'ex-sub', sessionId: 'sess-1' },
+      expect.any(Object),
+    );
+  });
+
+  it('shows no Adopt affordance for a skip deviation', () => {
+    mockSessionData = { data: swapSession, isLoading: false };
+    mockConfirmation = { data: { confirmed_at: '2026-04-25T14:00:00Z' }, isLoading: false };
+    mockDeviations = {
+      data: [{ exercise_slot_id: 'sl-1', kind: 'skip', substitute_exercise_id: null }],
+      isLoading: false,
+    };
+    renderReview();
+    expect(screen.getByText(/Skipped/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /adopt into program/i })).not.toBeInTheDocument();
   });
 });

@@ -1307,6 +1307,158 @@ CREATE TRIGGER trg_notify_coach_on_slot_deviation
   AFTER INSERT ON public.slot_deviations
   FOR EACH ROW EXECUTE FUNCTION public.notify_coach_on_slot_deviation();
 
+-- Phase 3.1: adopt a student's swap into the standing prescription (forward-
+-- only). Coach-only SECURITY DEFINER RPC (self-authorizes); see
+-- 2026_07_18_adopt_swap.sql for the full rationale.
+CREATE OR REPLACE FUNCTION public.adopt_swap(
+  p_slot_id uuid,
+  p_substitute_id uuid,
+  p_dry_run boolean DEFAULT false
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_session_id     uuid;
+  v_original_ex    uuid;
+  v_coach_id       uuid;
+  v_student_prof   uuid;
+  v_program_id     uuid;
+  v_week_number    int;
+  v_sort_order     int;
+  v_slot_ids       uuid[];
+  v_applied        int := 0;
+  v_orig_name      text;
+  v_sub_name       text;
+  v_session_title  text;
+  v_coach_name     text;
+  v_functions_url  text;
+  v_service_key    text;
+BEGIN
+  SELECT es.session_id, es.exercise_id
+    INTO v_session_id, v_original_ex
+    FROM public.exercise_slots es
+   WHERE es.id = p_slot_id;
+  IF v_session_id IS NULL THEN
+    RAISE EXCEPTION 'slot not found';
+  END IF;
+
+  v_coach_id := public.coach_profile_for_session(v_session_id);
+  IF v_coach_id IS NULL OR v_coach_id <> auth.uid() THEN
+    RAISE EXCEPTION 'not authorized';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.exercise_library el
+     WHERE el.id = p_substitute_id AND el.coach_id = v_coach_id
+  ) THEN
+    RAISE EXCEPTION 'substitute not in coach library';
+  END IF;
+
+  SELECT w.program_id, w.week_number, s.sort_order
+    INTO v_program_id, v_week_number, v_sort_order
+    FROM public.sessions s
+    JOIN public.weeks w ON w.id = s.week_id
+   WHERE s.id = v_session_id;
+
+  -- Forward-only via a REAL ordinal bound (strictly later in program order),
+  -- not the optional "confirmed" flag: never rewrite an already-trained slot.
+  SELECT array_agg(es.id)
+    INTO v_slot_ids
+    FROM public.exercise_slots es
+    JOIN public.sessions s ON s.id = es.session_id
+    JOIN public.weeks w ON w.id = s.week_id
+   WHERE w.program_id = v_program_id
+     AND es.exercise_id = v_original_ex
+     AND s.archived_at IS NULL
+     AND s.id <> v_session_id
+     AND (w.week_number > v_week_number
+          OR (w.week_number = v_week_number AND s.sort_order > v_sort_order))
+     AND NOT EXISTS (
+       SELECT 1 FROM public.session_confirmations sc WHERE sc.session_id = s.id
+     )
+     AND NOT EXISTS (
+       SELECT 1 FROM public.set_logs sl
+        WHERE sl.exercise_slot_id = es.id
+          AND (sl.done = true OR sl.skipped = true
+               OR sl.actual_reps IS NOT NULL OR sl.actual_weight_kg IS NOT NULL)
+     )
+     AND NOT EXISTS (
+       SELECT 1 FROM public.slot_deviations d WHERE d.exercise_slot_id = es.id
+     );
+
+  v_applied := COALESCE(array_length(v_slot_ids, 1), 0);
+
+  IF p_dry_run THEN
+    RETURN jsonb_build_object('applied', v_applied, 'dry_run', true);
+  END IF;
+
+  IF v_slot_ids IS NOT NULL THEN
+    UPDATE public.exercise_slots
+       SET exercise_id = p_substitute_id
+     WHERE id = ANY(v_slot_ids);
+  END IF;
+
+  v_student_prof := public.student_profile_for_session(v_session_id);
+  IF v_student_prof IS NOT NULL AND v_applied > 0 THEN
+    SELECT el.name INTO v_orig_name FROM public.exercise_library el WHERE el.id = v_original_ex;
+    SELECT el.name INTO v_sub_name  FROM public.exercise_library el WHERE el.id = p_substitute_id;
+    SELECT COALESCE(NULLIF(BTRIM(s.title), ''), 'Session') INTO v_session_title
+      FROM public.sessions s WHERE s.id = v_session_id;
+    SELECT p.full_name INTO v_coach_name FROM public.profiles p WHERE p.id = v_coach_id;
+
+    INSERT INTO public.notifications (recipient_id, kind, payload)
+    VALUES (
+      v_student_prof,
+      'swap_adopted',
+      jsonb_build_object(
+        'session_id', v_session_id,
+        'session_title', v_session_title,
+        'coach_name', v_coach_name,
+        'original_exercise', v_orig_name,
+        'substitute_exercise', v_sub_name,
+        'applied_count', v_applied
+      )
+    );
+
+    BEGIN
+      SELECT decrypted_secret INTO v_functions_url FROM vault.decrypted_secrets WHERE name = 'app_functions_url';
+      SELECT decrypted_secret INTO v_service_key   FROM vault.decrypted_secrets WHERE name = 'app_service_role_key';
+      IF v_functions_url IS NOT NULL AND v_service_key IS NOT NULL
+         AND v_functions_url <> '' AND v_service_key <> '' THEN
+        PERFORM net.http_post(
+          url := v_functions_url || '/send-push',
+          headers := jsonb_build_object(
+            'Content-Type', 'application/json',
+            'Authorization', 'Bearer ' || v_service_key
+          ),
+          body := jsonb_build_object(
+            'user_id', v_student_prof,
+            'payload', jsonb_build_object(
+              'title', 'Program updated',
+              'body',  COALESCE(v_coach_name, 'Your coach') || ' adopted your swap: '
+                       || COALESCE(v_orig_name, 'an exercise') || ' → '
+                       || COALESCE(v_sub_name, 'another exercise'),
+              'tag',   'swap-adopted-' || p_slot_id::text,
+              'data',  jsonb_build_object('url', '/sl_app/#/student/session/' || v_session_id::text)
+            )
+          )
+        );
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE WARNING 'send-push fan-out (swap adopted) failed: %', SQLERRM;
+    END;
+  END IF;
+
+  RETURN jsonb_build_object('applied', v_applied, 'dry_run', false);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.adopt_swap(uuid, uuid, boolean) FROM public;
+GRANT EXECUTE ON FUNCTION public.adopt_swap(uuid, uuid, boolean) TO authenticated;
+
 -- Trigger: notify the student when their coach attaches a feedback message
 -- to a reviewed session. Fires only when messages.session_id IS NOT NULL.
 CREATE OR REPLACE FUNCTION public.notify_student_on_session_feedback()
