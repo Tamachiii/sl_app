@@ -1112,6 +1112,8 @@ DECLARE
   v_student_row_id    uuid;
   v_student_name      text;
   v_session_title     text;
+  v_functions_url     text;
+  v_service_key       text;
 BEGIN
   v_coach_id        := public.coach_profile_for_session(NEW.session_id);
   v_student_profile := public.student_profile_for_session(NEW.session_id);
@@ -1145,6 +1147,41 @@ BEGIN
       'confirmation_id', NEW.id
     )
   );
+
+  -- Best-effort Web Push (same pattern as notify_coach_on_slot_deviation).
+  BEGIN
+    SELECT decrypted_secret INTO v_functions_url
+      FROM vault.decrypted_secrets WHERE name = 'app_functions_url';
+    SELECT decrypted_secret INTO v_service_key
+      FROM vault.decrypted_secrets WHERE name = 'app_service_role_key';
+
+    IF v_functions_url IS NOT NULL AND v_service_key IS NOT NULL
+       AND v_functions_url <> '' AND v_service_key <> ''
+    THEN
+      PERFORM net.http_post(
+        url := v_functions_url || '/send-push',
+        headers := jsonb_build_object(
+          'Content-Type', 'application/json',
+          'Authorization', 'Bearer ' || v_service_key
+        ),
+        body := jsonb_build_object(
+          'user_id', v_coach_id,
+          'payload', jsonb_build_object(
+            'title', 'Session completed',
+            'body',  COALESCE(v_student_name, 'Your athlete')
+                     || ' completed ' || v_session_title,
+            'tag',   'session-confirm-' || NEW.id::text,
+            'data',  jsonb_build_object(
+              'url', '/sl_app/#/coach/student/' || COALESCE(v_student_row_id::text, '')
+                     || '/session/' || NEW.session_id::text || '/review'
+            )
+          )
+        )
+      );
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'send-push fan-out (session confirm) failed: %', SQLERRM;
+  END;
 
   RETURN NEW;
 END;
