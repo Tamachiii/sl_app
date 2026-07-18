@@ -58,6 +58,12 @@ export function useLogBodyweight() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['bodyweight-logs', user?.id] });
+      // Relative strength (×BW) is derived from this series inside
+      // useStudentRecords' queryFn — the series isn't in that query's key, so
+      // invalidate it explicitly or a freshly-logged bodyweight never unlocks
+      // the ×BW pill / clears the "log bodyweight" nudge. Prefix match covers
+      // the user.id-keyed student flow.
+      qc.invalidateQueries({ queryKey: ['student-records'] });
     },
   });
 }

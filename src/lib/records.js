@@ -24,14 +24,50 @@ export function effectiveReps(log) {
 }
 
 /**
+ * Total resistance the muscles moved on a set, given the exercise's load_mode:
+ *   - 'added' → bodyweight is the base and `addedKg` sits on top, so the system
+ *     load is bodyweight + added (null when bodyweight is unknown).
+ *   - 'full' / null (unclassified) → the logged weight already IS the total load.
+ */
+export function systemLoad(addedKg, bodyweightKg, loadMode) {
+  const added = addedKg > 0 ? Number(addedKg) : 0;
+  if (loadMode === 'added') {
+    if (!(bodyweightKg > 0)) return null; // unknown bodyweight → no system load
+    return Number(bodyweightKg) + added;
+  }
+  return added;
+}
+
+// ×BW to one decimal ("1.7"); whole-kg for loads.
+const round1 = (x) => Math.round(x * 10) / 10;
+
+/**
  * Reduce a student's DONE set_logs (each carrying its exercise + logged_at)
  * into one record per exercise:
  *   - bestE1rm / at / weight / reps  — heaviest estimated 1RM from a weighted set
  *   - bestReps / at                  — most reps in a single set (bodyweight PR)
- * `recentSince` (a Date) flags a record set on/after it as freshly earned, so
- * the UI can celebrate a new PR.
+ *
+ * Relative strength (×BW) is layered on WITHOUT changing the headline or PR
+ * selection: `bestE1rm` stays the bodyweight-independent added/logged-load e1RM
+ * (so weight gain can never manufacture or reshuffle a PR, and the est-1RM
+ * headline is byte-identical to before this feature). Separately, for a
+ * classified movement (`load_mode` 'full'/'added') where bodyweight is known,
+ * we track the best RELATIVE strength — the MAXIMUM over all qualifying sets of
+ * (system-load e1RM ÷ bodyweight at that set):
+ *   - loadMode    — 'full' | 'added' | null (unclassified)
+ *   - relStrength — the peak ×BW, one decimal (null when unknown/unclassified)
+ *   - bwAtBest    — bodyweight at the peak-×BW set (null when we never resolved
+ *                   a bodyweight for a scored set — drives the "log bodyweight"
+ *                   nudge and the graceful-degrade path)
+ * Tracking the ratio as a true MAX (not deriving it from the added-load PR set)
+ * means the strongest relative single always wins, and a bodyweight-only set on
+ * an 'added' movement (system load = bodyweight) still contributes.
+ *
+ * `recentSince` (a Date) flags a record set on/after it as freshly earned.
+ * `bodyweightAt(loggedAtIso)` returns the student's bodyweight at a set's date
+ * (default () => null → no ×BW, every existing caller/test stays byte-identical).
  */
-export function buildRecords(logs, { recentSince } = {}) {
+export function buildRecords(logs, { recentSince, bodyweightAt = () => null } = {}) {
   const byExercise = new Map();
   for (const l of logs) {
     if (!l.done || !l.exercise) continue;
@@ -47,12 +83,15 @@ export function buildRecords(logs, { recentSince } = {}) {
         exercise_id: ex.id,
         name: ex.name,
         type: ex.type,
+        loadMode: ex.load_mode ?? null,
         bestE1rm: 0,
         bestE1rmAt: null,
         bestE1rmWeight: 0,
         bestE1rmReps: 0,
         bestReps: 0,
         bestRepsAt: null,
+        bestRel: 0,       // peak system-load e1RM ÷ bodyweight
+        bestRelBw: null,  // bodyweight at that peak
       };
       byExercise.set(ex.id, rec);
     }
@@ -70,17 +109,37 @@ export function buildRecords(logs, { recentSince } = {}) {
       rec.bestReps = reps;
       rec.bestRepsAt = at;
     }
+
+    // Relative-strength track (classified movements with a resolvable bodyweight).
+    if (rec.loadMode === 'full' || rec.loadMode === 'added') {
+      const bw = bodyweightAt(at);
+      const sys = systemLoad(w, bw, rec.loadMode);
+      if (bw > 0 && sys > 0) {
+        const ratio = epley1rm(sys, reps) / bw;
+        if (ratio > rec.bestRel) {
+          rec.bestRel = ratio;
+          rec.bestRelBw = bw;
+        }
+      }
+    }
   }
 
   const since = recentSince ? recentSince.getTime() : null;
   const isRecent = (at) => (since && at ? new Date(at).getTime() >= since : false);
 
   return Array.from(byExercise.values())
-    .map((r) => ({
-      ...r,
-      bestE1rm: r.bestE1rm > 0 ? Math.round(r.bestE1rm) : null,
-      recent: isRecent(r.bestE1rmAt) || isRecent(r.bestRepsAt),
-    }))
+    .map((r) => {
+      const bestE1rm = r.bestE1rm > 0 ? Math.round(r.bestE1rm) : null;
+      return {
+        ...r,
+        bestE1rm,
+        relStrength: r.bestRel > 0 ? round1(r.bestRel) : null,
+        bwAtBest: r.bestRelBw ?? null,
+        recent: isRecent(r.bestE1rmAt) || isRecent(r.bestRepsAt),
+      };
+    })
     // Weighted records first (they carry an e1RM), then by e1RM / reps desc.
+    // Sort stays on the bodyweight-independent bestE1rm so ordering never shifts
+    // when a student's weight changes.
     .sort((a, b) => (b.bestE1rm ?? 0) - (a.bestE1rm ?? 0) || b.bestReps - a.bestReps);
 }

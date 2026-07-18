@@ -42,10 +42,12 @@ function ExerciseForm({ initial, onSubmit, onCancel, submitLabel, pending, pendi
   const [type, setType] = useState(initial?.type || 'pull');
   const [difficulty, setDifficulty] = useState(initial?.difficulty || 1);
   const [volumeWeight, setVolumeWeight] = useState(initial?.volume_weight ?? 1);
+  // Loading mode is opt-in: '' (unclassified) leaves records exactly as today.
+  const [loadMode, setLoadMode] = useState(initial?.load_mode ?? '');
 
   function handleSubmit(e) {
     e.preventDefault();
-    onSubmit({ name, type, difficulty, volume_weight: Number(volumeWeight) });
+    onSubmit({ name, type, difficulty, volume_weight: Number(volumeWeight), load_mode: loadMode || null });
   }
 
   return (
@@ -87,6 +89,15 @@ function ExerciseForm({ initial, onSubmit, onCancel, submitLabel, pending, pendi
           onChange={(e) => setVolumeWeight(e.target.value)}
           className={inputCls}
         />
+      </div>
+      <div>
+        <label className="sl-label text-ink-400 block mb-1">{t('coach.library.loadMode')}</label>
+        <select value={loadMode} onChange={(e) => setLoadMode(e.target.value)} className={inputCls}>
+          <option value="">{t('coach.library.loadModeUnset')}</option>
+          <option value="added">{t('coach.library.loadModeAdded')}</option>
+          <option value="full">{t('coach.library.loadModeFull')}</option>
+        </select>
+        <p className="sl-mono text-[10px] text-ink-400 mt-1">{t('coach.library.loadModeHelp')}</p>
       </div>
       <div className="flex gap-2">
         <button
@@ -262,6 +273,7 @@ export default function ExerciseLibrary() {
                   </span>
                   <span className="sl-mono text-[10px] text-ink-400">
                     D{ex.difficulty} · VW{ex.volume_weight}
+                    {ex.load_mode === 'added' ? ' · +BW' : ex.load_mode === 'full' ? ' · FULL' : ''}
                   </span>
                 </div>
                 <div className="flex gap-1 shrink-0">

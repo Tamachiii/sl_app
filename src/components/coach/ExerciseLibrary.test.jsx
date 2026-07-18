@@ -157,4 +157,44 @@ describe('ExerciseLibrary', () => {
     renderLibrary();
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
   });
+
+  it('add form threads a chosen load_mode into createExercise', async () => {
+    const user = userEvent.setup();
+    mockCreate.mutate.mockImplementation((vals, opts) => opts?.onSuccess?.());
+    renderLibrary();
+
+    await user.click(screen.getByText('+ ADD'));
+    await user.type(screen.getByPlaceholderText('Exercise name'), 'Weighted Pull-up');
+    // Selects in order: type, difficulty, loading mode.
+    const selects = screen.getAllByRole('combobox');
+    await user.selectOptions(selects[2], 'added');
+    await user.click(screen.getByText('Create'));
+
+    expect(mockCreate.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Weighted Pull-up', load_mode: 'added' }),
+      expect.any(Object),
+    );
+  });
+
+  it('unclassified exercises submit load_mode: null', async () => {
+    const user = userEvent.setup();
+    mockCreate.mutate.mockImplementation((vals, opts) => opts?.onSuccess?.());
+    renderLibrary();
+    await user.click(screen.getByText('+ ADD'));
+    await user.type(screen.getByPlaceholderText('Exercise name'), 'Row');
+    await user.click(screen.getByText('Create'));
+    expect(mockCreate.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ load_mode: null }),
+      expect.any(Object),
+    );
+  });
+
+  it('tags a classified exercise on its meta row', () => {
+    mockExercises = {
+      data: [{ id: 'ex-3', name: 'Weighted Dip', type: 'push', difficulty: 2, volume_weight: 1, load_mode: 'added' }],
+      isLoading: false,
+    };
+    renderLibrary();
+    expect(screen.getByText(/\+BW/)).toBeInTheDocument();
+  });
 });

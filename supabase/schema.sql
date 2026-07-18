@@ -92,6 +92,11 @@ CREATE TABLE public.exercise_library (
   type          exercise_type NOT NULL,
   difficulty    int  NOT NULL CHECK (difficulty BETWEEN 1 AND 3),
   volume_weight numeric(4,2) NOT NULL DEFAULT 1.0,
+  -- Loading mode for relative strength (×BW). NULL = unclassified (behaves like
+  -- today: added/logged-load e1RM, no ×BW). 'full' = logged weight IS the total
+  -- resistance; 'added' = logged weight is added on top of bodyweight (system
+  -- load = bodyweight + added). See 2026_07_23_exercise_load_mode.sql.
+  load_mode     text CHECK (load_mode IS NULL OR load_mode IN ('full','added')),
   created_at    timestamptz NOT NULL DEFAULT now()
 );
 

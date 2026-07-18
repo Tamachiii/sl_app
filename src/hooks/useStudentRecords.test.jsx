@@ -18,21 +18,25 @@ function withClient(qc) {
   return ({ children }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
 }
 
+// A thenable chain: every builder returns `this`, and both `.then` (awaited
+// chain) and `.maybeSingle` resolve to `data`.
 function chain(data) {
   const c = {
     select: vi.fn(() => c),
     eq: vi.fn(() => c),
     is: vi.fn(() => c),
+    order: vi.fn(() => c),
     limit: vi.fn(() => c),
+    maybeSingle: () => Promise.resolve({ data, error: null }),
     then: (resolve, reject) => Promise.resolve({ data, error: null }).then(resolve, reject),
   };
   return c;
 }
 
-// With a studentRowId passed the hook skips the students lookup: it fetches
-// set_logs, then slot_deviations.
-function wire({ setLogs = [], deviations = [] }) {
-  const seq = [chain(setLogs), chain(deviations)];
+// With a studentRowId passed the hook walks: students(profile_id) → set_logs →
+// slot_deviations → bodyweight_logs.
+function wire({ profile = { profile_id: 'prof-1' }, setLogs = [], deviations = [], bodyweight = [] }) {
+  const seq = [chain(profile), chain(setLogs), chain(deviations), chain(bodyweight)];
   let i = 0;
   supabase.from.mockImplementation(() => seq[i++]);
 }
@@ -97,5 +101,35 @@ describe('useStudentRecords — swap awareness', () => {
     const { result } = renderHook(() => useStudentRecords('st-1'), { wrapper: withClient(qc) });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual([]);
+  });
+});
+
+describe('useStudentRecords — relative strength (×BW)', () => {
+  it('computes ×BW for a classified exercise using the bodyweight series', async () => {
+    wire({
+      setLogs: [log({ slotId: 'sl-1', exercise: { id: 'e-1', name: 'Weighted Pull-up', type: 'pull', load_mode: 'added' }, loggedAt: '2026-04-10T10:00:00Z', aReps: 3, aW: 40 })],
+      bodyweight: [{ weight_kg: '70', logged_on: '2026-04-01' }],
+    });
+    const qc = makeClient();
+    const { result } = renderHook(() => useStudentRecords('st-1'), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const r = result.current.data.find((x) => x.exercise_id === 'e-1');
+    // +40 × 3 at BW 70 → system e1RM 121, 1.7× BW. Headline stays the added-load e1RM.
+    expect(r.bestE1rm).toBe(44);
+    expect(r.relStrength).toBe(1.7);
+    expect(r.bwAtBest).toBe(70);
+  });
+
+  it('omits ×BW when bodyweight is unknown (graceful degrade)', async () => {
+    wire({
+      setLogs: [log({ slotId: 'sl-1', exercise: { id: 'e-1', name: 'Weighted Pull-up', type: 'pull', load_mode: 'added' }, loggedAt: '2026-04-10T10:00:00Z', aReps: 3, aW: 40 })],
+      bodyweight: [],
+    });
+    const qc = makeClient();
+    const { result } = renderHook(() => useStudentRecords('st-1'), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const r = result.current.data.find((x) => x.exercise_id === 'e-1');
+    expect(r.bestE1rm).toBe(44); // added-load e1RM, as today
+    expect(r.relStrength).toBeNull();
   });
 });

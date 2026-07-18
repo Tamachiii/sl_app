@@ -1,9 +1,34 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
+import { isoDate } from '../lib/day';
 import { buildRecords } from '../lib/records';
 
 const RECENT_WINDOW_DAYS = 14;
+
+/**
+ * A resolver for the student's bodyweight at a given set's date, from their
+ * bodyweight_logs series (ascending). Returns the latest entry on/before the
+ * set's LOCAL date; failing that the earliest entry (a documented-approximate
+ * pre-history proxy); null when the series is empty. Feeds relative strength.
+ */
+function makeBodyweightAt(bwRows) {
+  const series = (bwRows || [])
+    .map((r) => ({ on: r.logged_on, kg: Number(r.weight_kg) }))
+    .filter((r) => r.on && r.kg > 0)
+    .sort((a, b) => a.on.localeCompare(b.on));
+  return (loggedAtIso) => {
+    if (series.length === 0) return null;
+    if (!loggedAtIso) return series[series.length - 1].kg; // undated → latest
+    const d = isoDate(new Date(loggedAtIso));
+    let match = null;
+    for (const e of series) {
+      if (e.on <= d) match = e;
+      else break;
+    }
+    return match ? match.kg : series[0].kg;
+  };
+}
 
 /**
  * All-time personal records per exercise. Fetches every DONE set_log with its
@@ -34,6 +59,10 @@ export function useStudentRecords(studentRowId) {
     queryKey: ['student-records', studentRowId ?? user?.id],
     queryFn: async () => {
       let resolvedId = studentRowId;
+      // bodyweight_logs.student_id references profiles.id, so we need the
+      // student's PROFILE id: the signed-in user in the student flow, or the
+      // students row's profile_id in the coach flow.
+      let bwProfileId = studentRowId ? null : user.id;
       if (!resolvedId) {
         // maybeSingle (not single): an unlinked/coach-less student has no
         // students row — that's an empty-records state, not a throw + retry
@@ -46,6 +75,14 @@ export function useStudentRecords(studentRowId) {
         if (sErr) throw sErr;
         if (!student) return [];
         resolvedId = student.id;
+      } else {
+        const { data: student, error: sErr } = await supabase
+          .from('students')
+          .select('profile_id')
+          .eq('id', studentRowId)
+          .maybeSingle();
+        if (sErr) throw sErr;
+        bwProfileId = student?.profile_id ?? null;
       }
 
       const { data, error } = await supabase
@@ -54,7 +91,7 @@ export function useStudentRecords(studentRowId) {
           done, logged_at, target_reps, target_weight_kg, actual_reps, actual_weight_kg,
           exercise_slots!inner(
             id,
-            exercise:exercise_library!inner(id, name, type),
+            exercise:exercise_library!inner(id, name, type, load_mode),
             sessions!inner(weeks!inner(programs!inner(student_id, deleted_at)))
           )
         `)
@@ -72,7 +109,7 @@ export function useStudentRecords(studentRowId) {
         .from('slot_deviations')
         .select(`
           exercise_slot_id,
-          substitute:exercise_library(id, name, type),
+          substitute:exercise_library(id, name, type, load_mode),
           exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(student_id, deleted_at))))
         `)
         .eq('kind', 'swap')
@@ -101,9 +138,23 @@ export function useStudentRecords(studentRowId) {
         };
       });
 
+      // Bodyweight series for relative strength (×BW). Empty/unknown → the
+      // records simply render without a ×BW figure (graceful degrade).
+      let bwRows = [];
+      if (bwProfileId) {
+        const { data: bw, error: bwErr } = await supabase
+          .from('bodyweight_logs')
+          .select('weight_kg, logged_on')
+          .eq('student_id', bwProfileId)
+          .order('logged_on', { ascending: true })
+          .limit(20000);
+        if (bwErr) throw bwErr;
+        bwRows = bw || [];
+      }
+
       const recentSince = new Date();
       recentSince.setDate(recentSince.getDate() - RECENT_WINDOW_DAYS);
-      return buildRecords(logs, { recentSince });
+      return buildRecords(logs, { recentSince, bodyweightAt: makeBodyweightAt(bwRows) });
     },
     enabled: !!(studentRowId || user?.id),
     staleTime: 1000 * 60,
