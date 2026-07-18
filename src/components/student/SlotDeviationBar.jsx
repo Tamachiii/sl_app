@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import Dialog from '../ui/Dialog';
-import { useSaveSlotDeviation } from '../../hooks/useSlotDeviations';
+import { useSaveSlotDeviation, useRequestPromote } from '../../hooks/useSlotDeviations';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 
 /**
  * Per-slot off-script controls: swap the prescribed exercise for another from
@@ -20,10 +21,13 @@ export default function SlotDeviationBar({
   locked = false,
 }) {
   const saveDeviation = useSaveSlotDeviation();
+  const requestPromote = useRequestPromote();
+  const online = useOnlineStatus();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [query, setQuery] = useState('');
 
   const kind = deviation?.kind || null;
+  const promoteRequested = !!deviation?.promote_requested_at;
   const substituteName = useMemo(() => {
     if (kind !== 'swap' || !deviation?.substitute_exercise_id) return null;
     const ex = (exerciseLibrary || []).find((e) => e.id === deviation.substitute_exercise_id);
@@ -94,6 +98,21 @@ export default function SlotDeviationBar({
             </button>
           </span>
         )}
+        {/* Phase 3.3: ask the coach to make this deviation the standing plan. */}
+        {promoteRequested ? (
+          <span className="sl-mono text-[11px] text-ink-600 basis-full">
+            ✓ Asked your coach to make this permanent
+          </span>
+        ) : !locked && online ? (
+          <button
+            type="button"
+            onClick={() => requestPromote.mutate({ sessionId, slotId: slot.id })}
+            disabled={requestPromote.isPending}
+            className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3 basis-full sm:basis-auto disabled:opacity-50"
+          >
+            Ask coach to make this permanent
+          </button>
+        ) : null}
         {isSwap && (
           <SwapPicker
             open={pickerOpen}

@@ -199,6 +199,30 @@ export function describeNotification(notif) {
         path,
       };
     }
+    case 'promote_requested': {
+      // Coach-side: the student asked to make a deviation permanent. Deep-link
+      // to the review, where Adopt / Remove / Decline live.
+      const path = p.student_row_id && p.session_id
+        ? `/coach/student/${p.student_row_id}/session/${p.session_id}/review`
+        : null;
+      return {
+        i18nKey: 'notifications.promoteRequested',
+        params: {
+          student: p.student_name || '—',
+          session: p.session_title || '—',
+        },
+        path,
+      };
+    }
+    case 'promote_declined': {
+      // Student-side: the coach kept the original prescription.
+      const path = p.session_id ? `/student/session/${p.session_id}` : null;
+      return {
+        i18nKey: 'notifications.promoteDeclined',
+        params: { original: p.original_exercise || '—' },
+        path,
+      };
+    }
     default:
       return {
         i18nKey: 'notifications.unknown',

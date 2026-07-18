@@ -31,6 +31,7 @@ const ONLINE_ONLY = new Set([
   'useSendMessage', // composers gate on useOnlineStatus + render inline errors
   'useDeleteMessage', // chat delete is online-only
   'useMarkThreadRead', // read receipts are low-stakes; no offline durability needed
+  'useRequestPromote', // "make permanent" ask isn't urgent; SlotDeviationBar gates on useOnlineStatus
 ]);
 
 // Split a file's text into top-level `export function useXxx(...) { ... }`

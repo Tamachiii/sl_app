@@ -364,6 +364,8 @@ const fr = {
     sessionDeviation: '{student} a modifié le programme sur {session}.',
     swapAdopted: 'Ton coach a fait de {substitute} ta prescription à la place de {original}.',
     skipAdopted: 'Ton coach a retiré {original} de tes prochaines séances.',
+    promoteRequested: '{student} demande de rendre un changement permanent sur {session}.',
+    promoteDeclined: 'Ton coach garde {original} dans ton programme.',
     unknown: 'Nouvelle activité ({kind}).',
   },
   messaging: {

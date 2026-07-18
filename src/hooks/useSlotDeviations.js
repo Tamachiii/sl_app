@@ -74,3 +74,44 @@ export function useSaveSlotDeviation() {
     mutateAsync: (vars, options) => m.mutateAsync({ ...vars, studentId }, options),
   };
 }
+
+/**
+ * Student asks the coach to make a deviation permanent (Phase 3.3): stamps
+ * slot_deviations.promote_requested_at, which the DB trigger turns into a coach
+ * notification. Optimistic into the ['slot-deviations', sessionId] cache. The
+ * caller gates the affordance on connectivity (an UPDATE of an existing row,
+ * but kept online-only for simplicity — a "make permanent" ask isn't urgent).
+ */
+export function useRequestPromote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ slotId }) => {
+      const { error } = await supabase
+        .from('slot_deviations')
+        .update({ promote_requested_at: new Date().toISOString() })
+        .eq('exercise_slot_id', slotId);
+      if (error) throw error;
+    },
+    onMutate: async ({ sessionId, slotId }) => {
+      const key = ['slot-deviations', sessionId];
+      await qc.cancelQueries({ queryKey: key });
+      const previous = qc.getQueryData(key);
+      qc.setQueryData(key, (old) =>
+        (old || []).map((d) =>
+          d.exercise_slot_id === slotId
+            ? { ...d, promote_requested_at: new Date().toISOString() }
+            : d,
+        ),
+      );
+      return { previous, sessionId };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.sessionId) {
+        qc.setQueryData(['slot-deviations', context.sessionId], context.previous);
+      }
+    },
+    onSettled: (_data, _err, vars) => {
+      qc.invalidateQueries({ queryKey: ['slot-deviations', vars?.sessionId] });
+    },
+  });
+}

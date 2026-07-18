@@ -3,8 +3,13 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mockSave = { mutate: vi.fn(), isPending: false };
+const mockRequestPromote = { mutate: vi.fn(), isPending: false };
 vi.mock('../../hooks/useSlotDeviations', () => ({
   useSaveSlotDeviation: () => mockSave,
+  useRequestPromote: () => mockRequestPromote,
+}));
+vi.mock('../../hooks/useOnlineStatus', () => ({
+  useOnlineStatus: () => true,
 }));
 
 // Render the dialog inline when open so the picker is queryable.
@@ -74,5 +79,23 @@ describe('SlotDeviationBar', () => {
   it('renders nothing actionable when locked and on-plan', () => {
     const { container } = renderBar({ locked: true });
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('lets the student ask the coach to make a deviation permanent', async () => {
+    const user = userEvent.setup();
+    renderBar({ deviation: { exercise_slot_id: 'sl-1', kind: 'swap', substitute_exercise_id: 'ex-3' } });
+    await user.click(screen.getByRole('button', { name: /make this permanent/i }));
+    expect(mockRequestPromote.mutate).toHaveBeenCalledWith({ sessionId: 'sess-1', slotId: 'sl-1' });
+  });
+
+  it('shows the requested state (no ask button) once a promote is pending', () => {
+    renderBar({
+      deviation: {
+        exercise_slot_id: 'sl-1', kind: 'swap', substitute_exercise_id: 'ex-3',
+        promote_requested_at: '2026-04-26T09:00:00Z',
+      },
+    });
+    expect(screen.getByText(/Asked your coach/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /make this permanent/i })).not.toBeInTheDocument();
   });
 });

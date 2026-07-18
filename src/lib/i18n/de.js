@@ -364,6 +364,8 @@ const de = {
     sessionDeviation: '{student} ist bei {session} vom Plan abgewichen.',
     swapAdopted: 'Dein Coach hat {substitute} statt {original} zu deiner Vorgabe gemacht.',
     skipAdopted: 'Dein Coach hat {original} aus deinen nächsten Einheiten entfernt.',
+    promoteRequested: '{student} möchte eine Änderung bei {session} dauerhaft machen.',
+    promoteDeclined: 'Dein Coach behält {original} in deinem Programm.',
     unknown: 'Neue Aktivität ({kind}).',
   },
   messaging: {

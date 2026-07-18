@@ -105,3 +105,23 @@ export function useAdoptSkipPreview(slotId, enabled) {
     staleTime: 0,
   });
 }
+
+/**
+ * Coach DECLINES a student's "make this permanent" request (Phase 3.3): clears
+ * slot_deviations.promote_requested_at and notifies the student, via the
+ * decline_promote_request coach-only RPC. The deviation itself stays (the
+ * student still did Y this session); only the standing plan is left unchanged.
+ */
+export function useDeclinePromote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ slotId }) => {
+      const { data, error } = await supabase.rpc('decline_promote_request', { p_slot_id: slotId });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (_data, { sessionId }) => {
+      if (sessionId) qc.invalidateQueries({ queryKey: ['slot-deviations', sessionId] });
+    },
+  });
+}

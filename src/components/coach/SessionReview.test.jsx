@@ -13,6 +13,7 @@ const mockArchive = { mutate: vi.fn(), isPending: false };
 const mockMarkReviewed = { mutate: vi.fn(), isPending: false };
 const mockAdopt = { mutate: vi.fn(), isPending: false };
 const mockSkip = { mutate: vi.fn(), isPending: false };
+const mockDecline = { mutate: vi.fn(), isPending: false };
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
@@ -47,6 +48,7 @@ vi.mock('../../hooks/useAdoptSwap', () => ({
   useAdoptSwapPreview: () => ({ data: 2, isLoading: false }),
   useAdoptSkip: () => mockSkip,
   useAdoptSkipPreview: () => ({ data: 3, isLoading: false }),
+  useDeclinePromote: () => mockDecline,
 }));
 vi.mock('../../hooks/useSetVideo', () => ({
   useSetVideos: () => ({ data: [], isLoading: false }),
@@ -89,6 +91,7 @@ beforeEach(() => {
   mockMarkReviewed.mutate.mockReset();
   mockAdopt.mutate.mockReset();
   mockSkip.mutate.mockReset();
+  mockDecline.mutate.mockReset();
   window.localStorage.clear();
 });
 
@@ -285,6 +288,24 @@ describe('<SessionReview />', () => {
       { slotId: 'sl-1', substituteId: 'ex-sub', sessionId: 'sess-1' },
       expect.any(Object),
     );
+  });
+
+  it('surfaces a promote request and declines it via the RPC hook', () => {
+    mockSessionData = { data: swapSession, isLoading: false };
+    mockConfirmation = { data: { confirmed_at: '2026-04-25T14:00:00Z' }, isLoading: false };
+    mockDeviations = {
+      data: [{
+        exercise_slot_id: 'sl-1', kind: 'swap', substitute_exercise_id: 'ex-sub',
+        promote_requested_at: '2026-04-26T09:00:00Z',
+      }],
+      isLoading: false,
+    };
+    mockLibrary = { data: [{ id: 'ex-sub', name: 'Weighted Dip' }], isLoading: false };
+    renderReview();
+
+    expect(screen.getByText(/asked to make this permanent/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Decline$/ }));
+    expect(mockDecline.mutate).toHaveBeenCalledWith({ slotId: 'sl-1', sessionId: 'sess-1' });
   });
 
   it('offers "Remove from upcoming" for a skip deviation and drops it via the RPC hook', () => {

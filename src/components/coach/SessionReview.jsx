@@ -17,6 +17,7 @@ import { useSessionConfirmation } from '../../hooks/useSessionConfirmation';
 import { useStudents } from '../../hooks/useStudents';
 import { useSessionFeedback } from '../../hooks/useMessages';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { useDeclinePromote } from '../../hooks/useAdoptSwap';
 import SlotProgress from './SlotProgress';
 import AdoptSwapDialog from './AdoptSwapDialog';
 import RemoveExerciseDialog from './RemoveExerciseDialog';
@@ -87,6 +88,7 @@ export default function SessionReview() {
   const [adoptTarget, setAdoptTarget] = useState(null);
   const [removeTarget, setRemoveTarget] = useState(null);
   const [adoptedSlots, setAdoptedSlots] = useState(() => new Set());
+  const declinePromote = useDeclinePromote();
   const slotIds = useMemo(() => slots.map((s) => s.id), [slots]);
   const { data: videos } = useSetVideos(sessionId, slotIds);
   const videosBySlot = useMemo(() => {
@@ -234,6 +236,23 @@ export default function SessionReview() {
                     {deviation.kind === 'swap'
                       ? <>did <span className="font-semibold">{substituteName}</span> instead</>
                       : 'student skipped this exercise'}
+                    {deviation.promote_requested_at && !adoptedSlots.has(slot.id) && (
+                      <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                        <span className="sl-mono text-[11px]" style={{ color: 'var(--color-accent)' }}>
+                          ★ Student asked to make this permanent
+                        </span>
+                        {online && (
+                          <button
+                            type="button"
+                            onClick={() => declinePromote.mutate({ slotId: slot.id, sessionId })}
+                            disabled={declinePromote.isPending}
+                            className="sl-pill bg-ink-100 text-ink-500 hover:bg-ink-200 px-2.5 disabled:opacity-50"
+                          >
+                            Decline
+                          </button>
+                        )}
+                      </div>
+                    )}
                     {deviation.kind === 'swap' && deviation.substitute_exercise_id && (
                       <div className="mt-1.5">
                         {adoptedSlots.has(slot.id) ? (

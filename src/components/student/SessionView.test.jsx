@@ -32,6 +32,7 @@ let mockDeviations = { data: [], isLoading: false };
 vi.mock('../../hooks/useSlotDeviations', () => ({
   useSlotDeviations: () => mockDeviations,
   useSaveSlotDeviation: () => ({ mutate: vi.fn(), isPending: false }),
+  useRequestPromote: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 let mockLastPerformance = { data: {} };
