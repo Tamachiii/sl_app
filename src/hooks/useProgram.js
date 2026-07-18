@@ -20,7 +20,7 @@ export function useProgramsForStudent(studentId) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('programs')
-        .select('id, student_id, name, sort_order, is_active, created_at, weeks(id)')
+        .select('id, student_id, name, sort_order, is_active, status, submitted_at, created_at, weeks(id)')
         .eq('student_id', studentId)
         .is('deleted_at', null)
         .order('sort_order', { ascending: true });
@@ -161,6 +161,35 @@ export function useCreateProgram() {
       });
       invalidateProgramQueries(qc, vars.studentId);
     },
+  });
+}
+
+/**
+ * Coach approves a student-authored draft (Phase 3.4c): the approve_program RPC
+ * materializes set_logs from the slot scalars and flips status to 'approved'.
+ */
+export function useApproveProgram() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ programId }) => {
+      const { data, error } = await supabase.rpc('approve_program', { p_program_id: programId });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (_d, vars) => invalidateProgramQueries(qc, vars.studentId),
+  });
+}
+
+/** Coach sends a submitted draft back for revision (clears submitted_at). */
+export function useSendBackProgram() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ programId }) => {
+      const { data, error } = await supabase.rpc('send_back_program', { p_program_id: programId });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (_d, vars) => invalidateProgramQueries(qc, vars.studentId),
   });
 }
 

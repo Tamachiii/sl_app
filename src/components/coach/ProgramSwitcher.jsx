@@ -25,6 +25,8 @@ import {
   useTrashedPrograms,
   useRestoreProgram,
   useHardDeleteProgram,
+  useApproveProgram,
+  useSendBackProgram,
 } from '../../hooks/useProgram';
 import { useDuplicateProgram } from '../../hooks/useDuplicate';
 import { useI18n } from '../../hooks/useI18n';
@@ -41,6 +43,25 @@ function ActiveBadge({ t }) {
     >
       <span className="w-1.5 h-1.5 rounded-full bg-current" aria-hidden="true" />
       {t('coach.home.activeBadge')}
+    </span>
+  );
+}
+
+function DraftBadge({ submitted, t }) {
+  // The un-submitted variant uses the `text-ink-500` utility class (not an inline
+  // color) so the `.dark` remap flips it and it stays legible in dark mode; the
+  // submitted variant's accent is a saturated brand token that reads in both themes.
+  return (
+    <span
+      className={`sl-mono text-[10px] inline-flex items-center gap-1 px-1 rounded shrink-0 ${submitted ? '' : 'text-ink-500'}`}
+      style={{
+        background: submitted
+          ? 'color-mix(in srgb, var(--color-accent) 18%, transparent)'
+          : 'color-mix(in srgb, var(--color-ink-400) 18%, transparent)',
+        ...(submitted ? { color: 'var(--color-accent)' } : {}),
+      }}
+    >
+      {submitted ? t('coach.home.submittedBadge') : t('coach.home.draftBadge')}
     </span>
   );
 }
@@ -97,6 +118,7 @@ function SortableProgramRow({ program, isSelected, t, onSelect }) {
             {program.name}
           </span>
           {program.is_active && <ActiveBadge t={t} />}
+          {program.status === 'draft' && <DraftBadge submitted={!!program.submitted_at} t={t} />}
         </div>
         {weekCount > 0 && (
           <span className="sl-mono text-[10px] text-ink-400 block mt-0.5">
@@ -114,6 +136,8 @@ function ManageProgramDialog({ program, studentId, t, onClose, onDeleted, onDupl
   const rename = useRenameProgram();
   const setActive = useSetActiveProgram();
   const duplicate = useDuplicateProgram();
+  const approve = useApproveProgram();
+  const sendBack = useSendBackProgram();
   const del = useDeleteProgram();
 
   useEffect(() => {
@@ -171,6 +195,21 @@ function ManageProgramDialog({ program, studentId, t, onClose, onDeleted, onDupl
     );
   }
 
+  function handleApprove() {
+    approve.mutate({ programId: program.id, studentId }, { onSuccess: () => onClose() });
+  }
+
+  function handleSendBack() {
+    sendBack.mutate({ programId: program.id, studentId }, { onSuccess: () => onClose() });
+  }
+
+  const isDraft = program.status === 'draft';
+  const isSubmitted = isDraft && !!program.submitted_at;
+  // Approve and Send-back are mutually exclusive terminal actions on the same
+  // draft — disable BOTH while either is in flight so a coach can't fire the
+  // pair and hand the student contradictory notifications.
+  const approvalBusy = approve.isPending || sendBack.isPending;
+
   return (
     <Dialog open={true} onClose={onClose} title={t('coach.home.manageProgram')}>
       <div className="space-y-4">
@@ -187,6 +226,44 @@ function ManageProgramDialog({ program, studentId, t, onClose, onDeleted, onDupl
           />
         </label>
 
+        {isDraft && (
+          <div
+            className="rounded-lg p-3 space-y-2"
+            style={{
+              background: 'color-mix(in srgb, var(--color-accent) 10%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--color-accent) 35%, transparent)',
+            }}
+          >
+            <p className="sl-label text-ink-700">
+              {isSubmitted ? t('coach.home.submittedForApproval') : t('coach.home.draftInProgress')}
+            </p>
+            <p className="sl-mono text-[11px] text-ink-500">
+              {isSubmitted ? t('coach.home.submittedHint') : t('coach.home.draftInProgressHint')}
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleApprove}
+                disabled={approvalBusy}
+                className="sl-btn-primary flex-1 text-[13px] disabled:opacity-50"
+                style={{ padding: '10px 16px' }}
+              >
+                {approve.isPending ? t('common.saving') : t('coach.home.approve')}
+              </button>
+              {isSubmitted && (
+                <button
+                  type="button"
+                  onClick={handleSendBack}
+                  disabled={approvalBusy}
+                  className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 flex-1 justify-center disabled:opacity-50"
+                >
+                  {sendBack.isPending ? t('common.saving') : t('coach.home.sendBack')}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col gap-2">
           <button
             type="button"
@@ -198,7 +275,7 @@ function ManageProgramDialog({ program, studentId, t, onClose, onDeleted, onDupl
             {rename.isPending ? t('common.saving') : t('coach.home.rename')}
           </button>
 
-          {!program.is_active && (
+          {!program.is_active && !isDraft && (
             <button
               type="button"
               onClick={handleSetActive}
@@ -467,6 +544,7 @@ export default function ProgramSwitcher({ studentId, programs, selectedId, onSel
                   {selected?.name ?? '—'}
                 </span>
                 {selected?.is_active && <ActiveBadge t={t} />}
+                {selected?.status === 'draft' && <DraftBadge submitted={!!selected.submitted_at} t={t} />}
               </div>
               {selected && (
                 <span className="sl-mono text-[10px] text-ink-400 block mt-0.5">

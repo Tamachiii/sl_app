@@ -9,6 +9,8 @@ const mockDelete = { mutate: vi.fn(), isPending: false };
 const mockSetActive = { mutate: vi.fn(), isPending: false };
 const mockReorder = { mutate: vi.fn(), isPending: false };
 const mockDuplicate = { mutate: vi.fn(), isPending: false };
+const mockApprove = { mutate: vi.fn(), isPending: false };
+const mockSendBack = { mutate: vi.fn(), isPending: false };
 
 vi.mock('../../hooks/useProgram', () => ({
   useCreateProgram: () => mockCreate,
@@ -19,6 +21,8 @@ vi.mock('../../hooks/useProgram', () => ({
   useTrashedPrograms: () => ({ data: [], isLoading: false }),
   useRestoreProgram: () => ({ mutate: vi.fn(), isPending: false }),
   useHardDeleteProgram: () => ({ mutate: vi.fn(), isPending: false }),
+  useApproveProgram: () => mockApprove,
+  useSendBackProgram: () => mockSendBack,
 }));
 
 vi.mock('../../hooks/useDuplicate', () => ({
@@ -125,6 +129,51 @@ describe('ProgramSwitcher', () => {
     const onSuccess = mockDuplicate.mutate.mock.calls[0][1].onSuccess;
     act(() => onSuccess({ id: 'p-copy' }));
     expect(onSelect).toHaveBeenCalledWith('p-copy');
+  });
+
+  it('shows a SUBMITTED badge and coach approve/send-back for a submitted draft', async () => {
+    const user = userEvent.setup();
+    const draftPrograms = [
+      { id: 'd-1', name: 'Student Block', is_active: false, status: 'draft', submitted_at: '2026-04-26T00:00:00Z', sort_order: 0, weeks: [{ id: 'w-1' }] },
+    ];
+    render(
+      <MemoryRouter>
+        <ProgramSwitcher studentId="s-1" programs={draftPrograms} selectedId="d-1" onSelect={vi.fn()} />
+      </MemoryRouter>,
+    );
+    // Badge on the trigger.
+    expect(screen.getByRole('button', { name: /select program/i })).toHaveTextContent('SUBMITTED');
+
+    await user.click(screen.getByRole('button', { name: /program options/i }));
+    await user.click(screen.getByRole('button', { name: /^approve$/i }));
+    expect(mockApprove.mutate).toHaveBeenCalledWith(
+      { programId: 'd-1', studentId: 's-1' },
+      expect.any(Object),
+    );
+
+    await user.click(screen.getByRole('button', { name: /send back/i }));
+    expect(mockSendBack.mutate).toHaveBeenCalledWith(
+      { programId: 'd-1', studentId: 's-1' },
+      expect.any(Object),
+    );
+  });
+
+  it('an unsubmitted draft can be approved but offers no send-back', async () => {
+    const user = userEvent.setup();
+    const draftPrograms = [
+      { id: 'd-2', name: 'WIP Block', is_active: false, status: 'draft', submitted_at: null, sort_order: 0, weeks: [] },
+    ];
+    render(
+      <MemoryRouter>
+        <ProgramSwitcher studentId="s-1" programs={draftPrograms} selectedId="d-2" onSelect={vi.fn()} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('button', { name: /select program/i })).toHaveTextContent('DRAFT');
+    await user.click(screen.getByRole('button', { name: /program options/i }));
+    expect(screen.getByRole('button', { name: /^approve$/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /send back/i })).not.toBeInTheDocument();
+    // Draft is never active → the "Set active" affordance is suppressed.
+    expect(screen.queryByRole('button', { name: /set active/i })).not.toBeInTheDocument();
   });
 
   it('trashing an inactive program requires confirm and calls the mutation', async () => {

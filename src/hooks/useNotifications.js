@@ -223,6 +223,40 @@ export function describeNotification(notif) {
         path,
       };
     }
+    case 'program_submitted': {
+      // Coach-side: a student submitted a self-authored draft for approval.
+      // Deep-link to that student's programming tab, where Approve / Send back live.
+      const path = p.student_row_id
+        ? `/coach/students/${p.student_row_id}/programming`
+        : null;
+      return {
+        i18nKey: 'notifications.programSubmitted',
+        params: {
+          student: p.student_name || '—',
+          program: p.program_name || '—',
+        },
+        path,
+      };
+    }
+    case 'program_approved': {
+      // Student-side: the coach approved your draft. It lands approved-but-
+      // INACTIVE (the coach activates it separately), so deep-link to the
+      // sessions list — which lists every non-deleted program — rather than the
+      // home screen, which only renders the active program.
+      return {
+        i18nKey: 'notifications.programApproved',
+        params: { program: p.program_name || '—' },
+        path: '/student/sessions',
+      };
+    }
+    case 'program_sent_back': {
+      // Student-side: the coach returned the draft for changes.
+      return {
+        i18nKey: 'notifications.programSentBack',
+        params: { program: p.program_name || '—' },
+        path: '/student/author',
+      };
+    }
     default:
       return {
         i18nKey: 'notifications.unknown',
