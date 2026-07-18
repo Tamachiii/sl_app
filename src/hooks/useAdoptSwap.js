@@ -59,3 +59,49 @@ export function useAdoptSwapPreview(slotId, substituteId, enabled) {
     staleTime: 0,
   });
 }
+
+/**
+ * Coach adopts a student's SKIP: the exercise is dropped from every UPCOMING
+ * occurrence in the program (forward-only DELETE via the adopt_skip RPC). Same
+ * online-only, coach-only, atomic shape as useAdoptSwap.
+ */
+export function useAdoptSkip() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ slotId }) => {
+      const { data, error } = await supabase.rpc('adopt_skip', {
+        p_slot_id: slotId,
+        p_dry_run: false,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (_data, { sessionId }) => {
+      qc.invalidateQueries({ queryKey: ['session'] });
+      if (sessionId) {
+        qc.invalidateQueries({ queryKey: ['slot-deviations', sessionId] });
+      }
+      qc.invalidateQueries({ queryKey: ['week'] });
+      qc.invalidateQueries({ queryKey: ['program'] });
+      qc.invalidateQueries({ queryKey: ['student-program-details'] });
+      qc.invalidateQueries({ queryKey: ['student-progress-stats'] });
+    },
+  });
+}
+
+/** Blast-radius preview for the skip-adopt (how many upcoming slots get dropped). */
+export function useAdoptSkipPreview(slotId, enabled) {
+  return useQuery({
+    queryKey: ['adopt-skip-preview', slotId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('adopt_skip', {
+        p_slot_id: slotId,
+        p_dry_run: true,
+      });
+      if (error) throw error;
+      return data?.applied ?? 0;
+    },
+    enabled: !!enabled && !!slotId,
+    staleTime: 0,
+  });
+}

@@ -190,6 +190,15 @@ export function describeNotification(notif) {
         path,
       };
     }
+    case 'skip_adopted': {
+      // Student-side: the coach dropped the exercise from upcoming sessions.
+      const path = p.session_id ? `/student/session/${p.session_id}` : null;
+      return {
+        i18nKey: 'notifications.skipAdopted',
+        params: { original: p.original_exercise || '—' },
+        path,
+      };
+    }
     default:
       return {
         i18nKey: 'notifications.unknown',

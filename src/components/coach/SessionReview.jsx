@@ -19,6 +19,7 @@ import { useSessionFeedback } from '../../hooks/useMessages';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import SlotProgress from './SlotProgress';
 import AdoptSwapDialog from './AdoptSwapDialog';
+import RemoveExerciseDialog from './RemoveExerciseDialog';
 import SessionFeedbackComposer from './SessionFeedbackComposer';
 import SessionFeedbackSent from './SessionFeedbackSent';
 import SessionReviewedNoFeedback from './SessionReviewedNoFeedback';
@@ -84,6 +85,7 @@ export default function SessionReview() {
   // the confirm dialog; `adoptedSlots` hides the button once done (the reviewed
   // slot's deviation is preserved, so we track success client-side).
   const [adoptTarget, setAdoptTarget] = useState(null);
+  const [removeTarget, setRemoveTarget] = useState(null);
   const [adoptedSlots, setAdoptedSlots] = useState(() => new Set());
   const slotIds = useMemo(() => slots.map((s) => s.id), [slots]);
   const { data: videos } = useSetVideos(sessionId, slotIds);
@@ -260,6 +262,27 @@ export default function SessionReview() {
                         )}
                       </div>
                     )}
+                    {deviation.kind === 'skip' && (
+                      <div className="mt-1.5">
+                        {adoptedSlots.has(slot.id) ? (
+                          <span className="sl-mono text-[11px] text-ink-400">
+                            ✓ Removed from upcoming sessions
+                          </span>
+                        ) : online ? (
+                          <button
+                            type="button"
+                            onClick={() => setRemoveTarget({ slotId: slot.id, exerciseName: ex.name })}
+                            className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 px-2.5"
+                          >
+                            Remove from upcoming
+                          </button>
+                        ) : (
+                          <span className="sl-mono text-[11px] text-ink-400">
+                            Connect to update the program.
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
                 <div className="sl-mono text-[11px] text-ink-400">
@@ -415,6 +438,21 @@ export default function SessionReview() {
             // a 0-applied no-op must not read as success.
             if (applied > 0) {
               setAdoptedSlots((prev) => new Set(prev).add(adoptTarget.slotId));
+            }
+          }}
+        />
+      )}
+
+      {removeTarget && (
+        <RemoveExerciseDialog
+          open
+          onClose={() => setRemoveTarget(null)}
+          slotId={removeTarget.slotId}
+          sessionId={sessionId}
+          exerciseName={removeTarget.exerciseName}
+          onAdopted={(applied) => {
+            if (applied > 0) {
+              setAdoptedSlots((prev) => new Set(prev).add(removeTarget.slotId));
             }
           }}
         />

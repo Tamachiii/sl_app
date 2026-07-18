@@ -12,6 +12,7 @@ const mockNavigate = vi.fn();
 const mockArchive = { mutate: vi.fn(), isPending: false };
 const mockMarkReviewed = { mutate: vi.fn(), isPending: false };
 const mockAdopt = { mutate: vi.fn(), isPending: false };
+const mockSkip = { mutate: vi.fn(), isPending: false };
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
@@ -44,6 +45,8 @@ vi.mock('../../hooks/useOnlineStatus', () => ({
 vi.mock('../../hooks/useAdoptSwap', () => ({
   useAdoptSwap: () => mockAdopt,
   useAdoptSwapPreview: () => ({ data: 2, isLoading: false }),
+  useAdoptSkip: () => mockSkip,
+  useAdoptSkipPreview: () => ({ data: 3, isLoading: false }),
 }));
 vi.mock('../../hooks/useSetVideo', () => ({
   useSetVideos: () => ({ data: [], isLoading: false }),
@@ -85,6 +88,7 @@ beforeEach(() => {
   mockArchive.mutate.mockReset();
   mockMarkReviewed.mutate.mockReset();
   mockAdopt.mutate.mockReset();
+  mockSkip.mutate.mockReset();
   window.localStorage.clear();
 });
 
@@ -283,7 +287,7 @@ describe('<SessionReview />', () => {
     );
   });
 
-  it('shows no Adopt affordance for a skip deviation', () => {
+  it('offers "Remove from upcoming" for a skip deviation and drops it via the RPC hook', () => {
     mockSessionData = { data: swapSession, isLoading: false };
     mockConfirmation = { data: { confirmed_at: '2026-04-25T14:00:00Z' }, isLoading: false };
     mockDeviations = {
@@ -292,6 +296,17 @@ describe('<SessionReview />', () => {
     };
     renderReview();
     expect(screen.getByText(/Skipped/)).toBeInTheDocument();
+    // A skip has no substitute, so it never offers the swap-adopt action…
     expect(screen.queryByRole('button', { name: /adopt into program/i })).not.toBeInTheDocument();
+
+    // …but it can be dropped forward.
+    fireEvent.click(screen.getByRole('button', { name: /remove from upcoming/i }));
+    // Dialog opened — blast-radius count (skip preview mock = 3).
+    expect(screen.getByText(/3 upcoming sessions/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /remove forward/i }));
+    expect(mockSkip.mutate).toHaveBeenCalledWith(
+      { slotId: 'sl-1', sessionId: 'sess-1' },
+      expect.any(Object),
+    );
   });
 });

@@ -363,6 +363,7 @@ const fr = {
     sessionFeedback: '{coach} a laissé un retour sur {session}.',
     sessionDeviation: '{student} a modifié le programme sur {session}.',
     swapAdopted: 'Ton coach a fait de {substitute} ta prescription à la place de {original}.',
+    skipAdopted: 'Ton coach a retiré {original} de tes prochaines séances.',
     unknown: 'Nouvelle activité ({kind}).',
   },
   messaging: {

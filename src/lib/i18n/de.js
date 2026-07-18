@@ -363,6 +363,7 @@ const de = {
     sessionFeedback: '{coach} hat Feedback zu {session} hinterlassen.',
     sessionDeviation: '{student} ist bei {session} vom Plan abgewichen.',
     swapAdopted: 'Dein Coach hat {substitute} statt {original} zu deiner Vorgabe gemacht.',
+    skipAdopted: 'Dein Coach hat {original} aus deinen nächsten Einheiten entfernt.',
     unknown: 'Neue Aktivität ({kind}).',
   },
   messaging: {
