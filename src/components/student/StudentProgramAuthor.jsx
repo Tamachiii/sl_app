@@ -6,17 +6,14 @@ import UserMenu from '../ui/UserMenu';
 import { useAuth } from '../../hooks/useAuth';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
-import {
-  useMyDraft, useDraftTree, useCreateDraft,
-  useAddDraftWeek, useAddDraftSession, useAddDraftSlot, useUpdateDraftSlot,
-  useDeleteDraftRow, useSubmitDraft, useDeleteDraft,
-} from '../../hooks/useAuthoring';
+import { useMyDraft, useDraftTree, useCreateDraft, useDraftActions } from '../../hooks/useAuthoring';
 
 /**
- * Phase 3.4b — student program authoring. A student drafts a whole program
- * (weeks → sessions → exercise slots + slot-level targets) that stays inert
- * until the coach approves it. ONLINE-ONLY: every mutating control gates on
- * connectivity. English-only, matching the other student off-script surfaces.
+ * Phase 3.4d — student program authoring, OFFLINE-CAPABLE. A student drafts a
+ * whole program (weeks → sessions → exercise slots + slot-level targets) that
+ * stays inert until the coach approves it. Every edit is an optimistic local
+ * cache write that syncs as one idempotent whole-tree snapshot when online (or
+ * on reconnect). English-only, matching the other student off-script surfaces.
  */
 export default function StudentProgramAuthor() {
   const navigate = useNavigate();
@@ -39,22 +36,22 @@ export default function StudentProgramAuthor() {
           className="rounded-lg px-3 py-2 sl-mono text-[12px] text-ink-600"
           style={{ background: 'color-mix(in srgb, var(--color-warn) 12%, transparent)' }}
         >
-          You're offline — reconnect to build or edit a program.
+          You're offline — changes sync when you reconnect.
         </div>
       )}
 
       {isLoading ? (
         <div className="flex justify-center py-12"><Spinner /></div>
       ) : draft ? (
-        <DraftBuilder programId={draft.id} online={online} onDiscarded={() => navigate('/student')} />
+        <DraftBuilder programId={draft.id} onDiscarded={() => navigate('/student')} />
       ) : (
-        <CreateDraftCard online={online} />
+        <CreateDraftCard />
       )}
     </div>
   );
 }
 
-function CreateDraftCard({ online }) {
+function CreateDraftCard() {
   const [name, setName] = useState('');
   const create = useCreateDraft();
   return (
@@ -74,7 +71,7 @@ function CreateDraftCard({ online }) {
       <button
         type="button"
         onClick={() => create.mutate({ name })}
-        disabled={!online || create.isPending}
+        disabled={create.isPending}
         className="sl-btn-primary w-full text-[13px] disabled:opacity-50"
         style={{ padding: '10px 16px' }}
       >
@@ -84,27 +81,25 @@ function CreateDraftCard({ online }) {
   );
 }
 
-function DraftBuilder({ programId, online, onDiscarded }) {
+function DraftBuilder({ programId, onDiscarded }) {
   const { data: tree, isLoading } = useDraftTree(programId);
   const { data: library } = useExerciseLibrary();
-  const addWeek = useAddDraftWeek();
-  const submit = useSubmitDraft();
-  const discard = useDeleteDraft();
+  const actions = useDraftActions(programId);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   const submitted = !!tree?.submitted_at;
-  const canEdit = online && !submitted;
-  const nextWeekNumber = useMemo(
-    () => (tree?.weeks || []).reduce((m, w) => Math.max(m, w.week_number), 0) + 1,
+  const canEdit = !submitted;
+
+  const totalSlots = useMemo(
+    () =>
+      (tree?.weeks || []).reduce(
+        (a, w) => a + (w.sessions || []).reduce((b, s) => b + (s.exercise_slots || []).length, 0), 0,
+      ),
     [tree],
   );
 
   if (isLoading) return <div className="flex justify-center py-12"><Spinner /></div>;
   if (!tree) return <p className="sl-mono text-[12px] text-ink-400">Draft not found.</p>;
-
-  const totalSlots = (tree.weeks || []).reduce(
-    (a, w) => a + (w.sessions || []).reduce((b, s) => b + (s.exercise_slots || []).length, 0), 0,
-  );
 
   return (
     <div className="space-y-4">
@@ -124,15 +119,14 @@ function DraftBuilder({ programId, online, onDiscarded }) {
       )}
 
       {(tree.weeks || []).map((week) => (
-        <WeekCard key={week.id} programId={programId} week={week} library={library || []} canEdit={canEdit} />
+        <WeekCard key={week.id} week={week} library={library || []} canEdit={canEdit} actions={actions} />
       ))}
 
       {canEdit && (
         <button
           type="button"
-          onClick={() => addWeek.mutate({ programId, weekNumber: nextWeekNumber })}
-          disabled={addWeek.isPending}
-          className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3 disabled:opacity-50"
+          onClick={actions.addWeek}
+          className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3"
         >
           + Add week
         </button>
@@ -143,13 +137,13 @@ function DraftBuilder({ programId, online, onDiscarded }) {
           <>
             <button
               type="button"
-              onClick={() => submit.mutate({ programId })}
-              disabled={!canEdit || submit.isPending || totalSlots === 0}
+              onClick={actions.submit}
+              disabled={totalSlots === 0}
               title={totalSlots === 0 ? 'Add at least one exercise first' : undefined}
               className="sl-btn-primary w-full text-[13px] disabled:opacity-50"
               style={{ padding: '10px 16px' }}
             >
-              {submit.isPending ? 'Submitting…' : 'Submit for approval'}
+              Submit for approval
             </button>
             {totalSlots === 0 && (
               <p className="sl-mono text-[11px] text-ink-400 text-center">Add at least one exercise before submitting.</p>
@@ -162,9 +156,8 @@ function DraftBuilder({ programId, online, onDiscarded }) {
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => discard.mutate({ programId }, { onSuccess: onDiscarded })}
-                disabled={discard.isPending}
-                className="flex-1 rounded-lg py-2 sl-mono text-[12px] text-white disabled:opacity-50"
+                onClick={() => actions.discard({ onSettled: onDiscarded })}
+                className="flex-1 rounded-lg py-2 sl-mono text-[12px] text-white"
                 style={{ background: 'var(--color-danger)' }}
               >
                 DISCARD
@@ -175,44 +168,38 @@ function DraftBuilder({ programId, online, onDiscarded }) {
             </div>
           </div>
         ) : (
-          online && (
-            <button
-              type="button"
-              onClick={() => setConfirmDiscard(true)}
-              className="sl-mono text-[11px] text-ink-400 hover:text-danger underline w-full"
-            >
-              Discard draft
-            </button>
-          )
+          <button
+            type="button"
+            onClick={() => setConfirmDiscard(true)}
+            className="sl-mono text-[11px] text-ink-400 hover:text-danger underline w-full"
+          >
+            Discard draft
+          </button>
         )}
       </div>
     </div>
   );
 }
 
-function WeekCard({ programId, week, library, canEdit }) {
-  const addSession = useAddDraftSession();
-  const del = useDeleteDraftRow();
-  const nextSort = (week.sessions || []).reduce((m, s) => Math.max(m, s.sort_order), -1) + 1;
+function WeekCard({ week, library, canEdit, actions }) {
   return (
     <div className="sl-card p-4 space-y-3">
       <div className="flex items-center justify-between gap-2">
         <span className="sl-display text-[15px] text-gray-900">Week {week.week_number}</span>
         {canEdit && (
-          <button type="button" onClick={() => del.mutate({ table: 'weeks', id: week.id, programId })} className="sl-pill bg-ink-100 text-ink-500 hover:bg-ink-200 px-2.5">
+          <button type="button" onClick={() => actions.deleteRow('weeks', week.id)} className="sl-pill bg-ink-100 text-ink-500 hover:bg-ink-200 px-2.5">
             Remove week
           </button>
         )}
       </div>
       {(week.sessions || []).map((session) => (
-        <SessionCard key={session.id} programId={programId} session={session} library={library} canEdit={canEdit} />
+        <SessionCard key={session.id} session={session} library={library} canEdit={canEdit} actions={actions} />
       ))}
       {canEdit && (
         <button
           type="button"
-          onClick={() => addSession.mutate({ programId, weekId: week.id, title: `Day ${nextSort + 1}`, dayNumber: nextSort + 1, sortOrder: nextSort })}
-          disabled={addSession.isPending}
-          className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3 disabled:opacity-50"
+          onClick={() => actions.addSession(week.id)}
+          className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3"
         >
           + Add session
         </button>
@@ -221,24 +208,21 @@ function WeekCard({ programId, week, library, canEdit }) {
   );
 }
 
-function SessionCard({ programId, session, library, canEdit }) {
-  const addSlot = useAddDraftSlot();
-  const del = useDeleteDraftRow();
+function SessionCard({ session, library, canEdit, actions }) {
   const [pickerOpen, setPickerOpen] = useState(false);
-  const nextSort = (session.exercise_slots || []).reduce((m, s) => Math.max(m, s.sort_order), -1) + 1;
   return (
     <div className="rounded-lg border border-ink-100 p-3 space-y-2">
       <div className="flex items-center justify-between gap-2">
         <span className="sl-display text-[14px] text-gray-900">{session.title}</span>
         {canEdit && (
-          <button type="button" onClick={() => del.mutate({ table: 'sessions', id: session.id, programId })} className="sl-mono text-[11px] text-ink-400 hover:text-danger">
+          <button type="button" onClick={() => actions.deleteRow('sessions', session.id)} className="sl-mono text-[11px] text-ink-400 hover:text-danger">
             Remove
           </button>
         )}
       </div>
       <div className="space-y-1.5">
         {(session.exercise_slots || []).map((slot) => (
-          <SlotRow key={slot.id} programId={programId} slot={slot} canEdit={canEdit} />
+          <SlotRow key={slot.id} slot={slot} canEdit={canEdit} actions={actions} />
         ))}
       </div>
       {canEdit && (
@@ -250,8 +234,8 @@ function SessionCard({ programId, session, library, canEdit }) {
             open={pickerOpen}
             onClose={() => setPickerOpen(false)}
             library={library}
-            onPick={(exId) => {
-              addSlot.mutate({ programId, sessionId: session.id, exerciseId: exId, sets: 3, reps: 5, sortOrder: nextSort });
+            onPick={(exercise) => {
+              actions.addSlot(session.id, exercise);
               setPickerOpen(false);
             }}
           />
@@ -261,19 +245,18 @@ function SessionCard({ programId, session, library, canEdit }) {
   );
 }
 
-function SlotRow({ programId, slot, canEdit }) {
-  const update = useUpdateDraftSlot();
-  const del = useDeleteDraftRow();
+function SlotRow({ slot, canEdit, actions }) {
   const [sets, setSets] = useState(String(slot.sets ?? 3));
   const [reps, setReps] = useState(String(slot.reps ?? 5));
   const [weight, setWeight] = useState(slot.weight_kg != null ? String(Number(slot.weight_kg)) : '');
 
   function commit() {
-    update.mutate({
-      programId, slotId: slot.id,
+    actions.updateSlot(slot.id, {
       sets: Math.max(1, parseInt(sets, 10) || 1),
-      reps: reps.trim() === '' ? null : Math.max(1, parseInt(reps, 10) || 1),
-      weightKg: weight.trim() === '' ? null : parseFloat(weight),
+      // XOR safety: this UI never sets a duration, so reps must stay non-null
+      // (a both-null slot would abort the whole-tree upsert at sync). Clamp ≥ 1.
+      reps: Math.max(1, parseInt(reps, 10) || 1),
+      weight_kg: weight.trim() === '' ? null : parseFloat(weight),
     });
   }
 
@@ -285,7 +268,7 @@ function SlotRow({ programId, slot, canEdit }) {
           <NumberField label="sets" value={sets} onChange={setSets} onBlur={commit} width="w-12" />
           <NumberField label="reps" value={reps} onChange={setReps} onBlur={commit} width="w-12" />
           <NumberField label="kg" value={weight} onChange={setWeight} onBlur={commit} width="w-16" step="0.5" />
-          <button type="button" onClick={() => del.mutate({ table: 'exercise_slots', id: slot.id, programId })} aria-label="Remove exercise" className="sl-pill bg-ink-100 text-ink-500 hover:bg-ink-200 px-2.5">
+          <button type="button" onClick={() => actions.deleteRow('exercise_slots', slot.id)} aria-label="Remove exercise" className="sl-pill bg-ink-100 text-ink-500 hover:bg-ink-200 px-2.5">
             ✕
           </button>
         </>
@@ -339,7 +322,7 @@ function ExercisePicker({ open, onClose, library, onPick }) {
           <p className="sl-mono text-[12px] text-ink-400 py-4 text-center">No exercises found.</p>
         ) : (
           candidates.map((ex) => (
-            <button key={ex.id} type="button" onClick={() => onPick(ex.id)} className="w-full flex items-center gap-2 rounded-lg px-3 py-2.5 text-left hover:bg-ink-50">
+            <button key={ex.id} type="button" onClick={() => onPick(ex)} className="w-full flex items-center gap-2 rounded-lg px-3 py-2.5 text-left hover:bg-ink-50">
               <span className="sl-display text-[15px] text-gray-900 flex-1 min-w-0 truncate">{ex.name}</span>
               <span className={`sl-pill ${ex.type === 'pull' ? 'bg-pull/15 text-pull' : 'bg-push/15 text-push'}`}>{ex.type}</span>
             </button>

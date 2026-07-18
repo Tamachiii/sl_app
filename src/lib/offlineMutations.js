@@ -13,6 +13,7 @@
 // the patch helpers below — replays remain constraint-safe.
 
 import { supabase } from './supabase';
+import { pushToast } from './toast';
 
 export const MUTATION_KEYS = {
   toggleDone: ['set-log', 'toggle-done'],
@@ -24,6 +25,11 @@ export const MUTATION_KEYS = {
   unconfirmSession: ['session-confirmation', 'unconfirm'],
   saveSlotComment: ['slot-comment', 'save'],
   saveSlotDeviation: ['slot-deviation', 'save'],
+  // Phase 3.4d — offline program authoring. The whole draft syncs as ONE
+  // idempotent snapshot (save_draft_tree RPC), so authoring never queues a
+  // fragile stream of per-node INSERTs.
+  saveDraftTree: ['draft-tree', 'save'],
+  discardDraft: ['draft-tree', 'discard'],
 };
 
 export function patchForDone(done) {
@@ -206,6 +212,21 @@ async function saveSlotCommentFn({ slotId, studentId, body }) {
   return data;
 }
 
+// Whole draft tree → one declarative, idempotent server upsert. Re-running the
+// same snapshot converges (the RPC replaces children by client-minted id), so a
+// FIFO replay of stacked snapshots or a double-run after a cold reload can never
+// duplicate rows.
+async function saveDraftTreeFn({ tree }) {
+  const { data, error } = await supabase.rpc('save_draft_tree', { p_tree: tree });
+  if (error) throw error;
+  return data;
+}
+async function discardDraftFn({ programId }) {
+  const { error } = await supabase.from('programs').delete().eq('id', programId);
+  if (error) throw error;
+  return { programId, deleted: true };
+}
+
 export const MUTATION_FNS = {
   toggleDone: toggleDoneFn,
   setFailed: setFailedFn,
@@ -216,7 +237,54 @@ export const MUTATION_FNS = {
   unconfirmSession: unconfirmSessionFn,
   saveSlotComment: saveSlotCommentFn,
   saveSlotDeviation: saveSlotDeviationFn,
+  saveDraftTree: saveDraftTreeFn,
+  discardDraft: discardDraftFn,
 };
+
+// Authoring writes ride a DEDICATED FIFO scope so a hung draft sync can't
+// head-of-line-block a workout set_log replay (or vice-versa).
+const DRAFT_MUTATIONS = new Set(['saveDraftTree', 'discardDraft']);
+
+/**
+ * Error handling for a draft-tree snapshot save, applied via mutation DEFAULTS
+ * so a LIVE save and a HYDRATED (post-cold-reload) save behave identically —
+ * neither is silent, and neither clobbers unsynced local edits:
+ *   - exercise_unavailable → a slot's exercise left the coach library: keep the
+ *     local tree (so it can be fixed) + a specific toast.
+ *   - draft_not_editable / 23505 / 42501 → coach approved/removed it, or a second
+ *     device owns the one draft: reconcile to the canonical server state.
+ *   - anything else (transient) → keep the local tree + a plain toast; the next
+ *     edit re-sends the whole snapshot.
+ */
+function draftSaveErrorHandler(queryClient, error) {
+  const code = error?.code;
+  const msg = error?.message || '';
+  if (/exercise_unavailable/.test(msg)) {
+    pushToast('One exercise is no longer in your coach’s library — remove or replace it.', { kind: 'error' });
+    return;
+  }
+  if (code === '23505' || code === '42501' || /draft_not_editable/.test(msg)) {
+    queryClient.invalidateQueries({ queryKey: ['my-draft'] });
+    queryClient.invalidateQueries({ queryKey: ['draft-tree'] });
+    return;
+  }
+  pushToast('Couldn’t sync your draft — it’s saved on this device.', { kind: 'error' });
+}
+
+/**
+ * True when any draft-tree save is still un-synced (paused, pending, or errored).
+ * The resume-time reconcile MUST skip its refetch in that case: refetching a
+ * draft the local optimistic cache holds edits the server doesn't have would
+ * clobber them (and for an offline-CREATED draft the server row doesn't exist
+ * yet, so my-draft would refetch to null and the whole draft would vanish).
+ */
+export function hasUnsyncedDraftSave(queryClient) {
+  return queryClient.getMutationCache().getAll().some((m) => {
+    const key = m.options.mutationKey;
+    if (!Array.isArray(key) || key[0] !== 'draft-tree' || key[1] !== 'save') return false;
+    return m.state.isPaused || m.state.status === 'pending' || m.state.status === 'error';
+  });
+}
 
 /**
  * Register each offline-safe mutation under a stable key so resumed-after-
@@ -227,6 +295,22 @@ export const MUTATION_FNS = {
  */
 export function registerOfflineMutationDefaults(queryClient) {
   for (const [name, key] of Object.entries(MUTATION_KEYS)) {
+    if (name === 'saveDraftTree') {
+      // The authoring snapshot save carries its reconcile/toast onError, the
+      // my-draft invalidation onSuccess, and skipErrorToast HERE (in defaults)
+      // so a hydrated resume behaves exactly like a live save — the review
+      // caught that a hydrated failure would otherwise be silent, and that the
+      // hook-only onError didn't cover the resumed path.
+      queryClient.setMutationDefaults(key, {
+        mutationFn: MUTATION_FNS[name],
+        networkMode: 'online',
+        scope: { id: 'draft-tree' },
+        meta: { skipErrorToast: true },
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['my-draft'] }),
+        onError: (error) => draftSaveErrorHandler(queryClient, error),
+      });
+      continue;
+    }
     queryClient.setMutationDefaults(key, {
       mutationFn: MUTATION_FNS[name],
       // 'online' pauses the mutation while offline so resumePausedMutations
@@ -240,8 +324,9 @@ export function registerOfflineMutationDefaults(queryClient) {
       // scope is the fallback for mutations HYDRATED after a reload (their
       // options come from these defaults); live set-log hooks override it
       // with a per-row scope (see useSetLogs.rowScope) so unrelated rows
-      // don't head-of-line-block each other while online.
-      scope: { id: 'offline-writes' },
+      // don't head-of-line-block each other while online. Authoring rides its
+      // OWN scope so a stuck draft sync and a stuck workout write stay isolated.
+      scope: { id: DRAFT_MUTATIONS.has(name) ? 'draft-tree' : 'offline-writes' },
     });
   }
 }

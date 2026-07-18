@@ -23,6 +23,14 @@ const PERSISTED_QUERY_ROOTS = new Set([
   // useMyConfirmedSessionIds derives its Set via `select`, not in the cache.
   'student-program-details',
   'my-confirmed-session-ids',
+  // Phase 3.4d — offline program authoring. The optimistic draft tree +
+  // "my draft" pointer must survive a cold offline reload so a student can keep
+  // building with no connection; 'exercise-library' rides along so the picker
+  // and slot names still render offline. All three cache plain JSON, and a
+  // purely-offline setQueryData tree has status 'success' → persisted.
+  'my-draft',
+  'draft-tree',
+  'exercise-library',
 ]);
 
 const idbStore =

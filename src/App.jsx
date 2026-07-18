@@ -7,6 +7,7 @@ import { ThemeProvider } from './hooks/useTheme';
 import { I18nProvider } from './hooks/useI18n';
 import { usePushAutoHeal } from './hooks/usePushAutoHeal';
 import { queryClient, queryPersister, shouldPersistQuery } from './lib/queryClient';
+import { hasUnsyncedDraftSave } from './lib/offlineMutations';
 import { routes } from './routes';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import { installGlobalErrorReporting } from './lib/errorReporter';
@@ -67,7 +68,18 @@ function CacheBoundary({ children }) {
       onSuccess={() => {
         // Replay any mutations queued offline in a previous session. No-op if
         // the queue is empty or we're still offline (network-mode pauses).
-        queryClient.resumePausedMutations();
+        // After the replay settles, reconcile the draft caches to canonical
+        // server rows (client-minted ids echo back, so it's flicker-free) so any
+        // coach approval / send-back during the offline window is observed —
+        // but ONLY when the draft is fully synced. If a save errored or is still
+        // pending, refetching would clobber the optimistic tree that holds the
+        // only copy of the unsynced edits (a recognized-code reconcile is
+        // handled by the save's own onError).
+        queryClient.resumePausedMutations().then(() => {
+          if (hasUnsyncedDraftSave(queryClient)) return;
+          queryClient.invalidateQueries({ queryKey: ['my-draft'] });
+          queryClient.invalidateQueries({ queryKey: ['draft-tree'] });
+        });
       }}
     >
       {children}

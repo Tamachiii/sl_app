@@ -33,17 +33,10 @@ const ONLINE_ONLY = new Set([
   'useDeleteMessage', // chat delete is online-only
   'useMarkThreadRead', // read receipts are low-stakes; no offline durability needed
   'useRequestPromote', // "make permanent" ask isn't urgent; SlotDeviationBar gates on useOnlineStatus
-  // Phase 3.4: student program authoring is ONLINE-ONLY by design — the whole
-  // draft builder gates on useOnlineStatus (planning is a connected activity;
-  // offline client-UUID INSERT replay is the deferred 3.4d). See INVARIANTS.
-  'useCreateDraft',
-  'useAddDraftWeek',
-  'useAddDraftSession',
-  'useAddDraftSlot',
-  'useUpdateDraftSlot',
-  'useDeleteDraftRow',
-  'useSubmitDraft',
-  'useDeleteDraft',
+  // Phase 3.4d: authoring is now OFFLINE-CAPABLE. The whole draft syncs as one
+  // keyed snapshot mutation (useSaveDraftTree) + useDiscardDraft — both carry a
+  // mutationKey, so they pass the scan directly. The per-edit hooks became plain
+  // optimistic-cache editors (no useMutation), so they no longer appear here.
 ]);
 
 // Split a file's text into top-level `export function useXxx(...) { ... }`

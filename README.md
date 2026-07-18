@@ -162,6 +162,8 @@ Quick summary:
 
 Students can fully record their sessions without a connection — RPE, set validation (done/failed), off-plan actuals (actual reps/load), set skips, exercise swap/skip, session confirm/unconfirm, and slot comments all work offline and replay automatically when the device reconnects. (Adding a brand-new extra set is the one online-only action — a new-row INSERT can't be safely queued offline.)
 
+Program **authoring** is offline too: a student can draft a whole program (weeks → sessions → exercises) with no connection. Each edit is an optimistic local write with client-minted ids that syncs as one idempotent whole-tree snapshot (the `save_draft_tree` RPC) when the device reconnects.
+
 How it works:
 
 - **App-shell precache** — `vite-plugin-pwa` (`registerType: 'autoUpdate'`) compiles a service worker (`dist/sw.js`) that precaches the JS/CSS bundles, the manifest, and Google Fonts. The page loads with no network at all.

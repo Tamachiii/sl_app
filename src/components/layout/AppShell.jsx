@@ -7,6 +7,7 @@ import OfflineBanner from '../ui/OfflineBanner';
 import ToastHost from '../ui/ToastHost';
 import { useMessagesRealtime } from '../../hooks/useMessages';
 import { useNotificationsRealtime } from '../../hooks/useNotifications';
+import { hasUnsyncedDraftSave } from '../../lib/offlineMutations';
 
 /**
  * Keep `--kb-inset` on the document root in sync with the soft keyboard's
@@ -53,7 +54,15 @@ function useAutoResumeMutations() {
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const onOnline = () => {
-      qc.resumePausedMutations();
+      // Reconcile the draft caches once the queued authoring snapshot has synced
+      // (coach approval/send-back during the offline window then shows) — but
+      // ONLY when fully synced. A refetch while a save is errored/pending would
+      // clobber the optimistic tree holding the unsynced edits.
+      qc.resumePausedMutations().then(() => {
+        if (hasUnsyncedDraftSave(qc)) return;
+        qc.invalidateQueries({ queryKey: ['my-draft'] });
+        qc.invalidateQueries({ queryKey: ['draft-tree'] });
+      });
     };
     window.addEventListener('online', onOnline);
     return () => window.removeEventListener('online', onOnline);

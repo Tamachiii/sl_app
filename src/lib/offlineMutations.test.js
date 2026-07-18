@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, onlineManager } from '@tanstack/react-query';
 
 vi.mock('./supabase', () => ({ supabase: { from: vi.fn() } }));
+vi.mock('./toast', () => ({ pushToast: vi.fn() }));
 
 import { supabase } from './supabase';
 import {
@@ -10,7 +11,11 @@ import {
   patchForFailed,
   patchForSkipped,
   registerOfflineMutationDefaults,
+  hasUnsyncedDraftSave,
 } from './offlineMutations';
+
+const fakeQc = (mutations) => ({ getMutationCache: () => ({ getAll: () => mutations }) });
+const draftSave = (state) => ({ options: { mutationKey: ['draft-tree', 'save'] }, state });
 
 const onlineDescriptor = Object.getOwnPropertyDescriptor(
   Object.getPrototypeOf(navigator),
@@ -128,12 +133,39 @@ describe('registerOfflineMutationDefaults', () => {
     expect(payload.failed).toBe(false);
   });
 
-  it('registers a shared scope so every default carries it', () => {
+  it('registers a FIFO scope on every default — authoring gets its own lane', () => {
     const qc = new QueryClient();
     registerOfflineMutationDefaults(qc);
-    for (const key of Object.values(MUTATION_KEYS)) {
-      expect(qc.getMutationDefaults(key).scope).toEqual({ id: 'offline-writes' });
+    for (const [name, key] of Object.entries(MUTATION_KEYS)) {
+      const expected = name === 'saveDraftTree' || name === 'discardDraft' ? 'draft-tree' : 'offline-writes';
+      expect(qc.getMutationDefaults(key).scope).toEqual({ id: expected });
     }
+  });
+
+  it('the draft-save default carries onError/onSuccess/skipErrorToast (so a hydrated resume is not silent)', () => {
+    const qc = new QueryClient();
+    registerOfflineMutationDefaults(qc);
+    const d = qc.getMutationDefaults(MUTATION_KEYS.saveDraftTree);
+    expect(typeof d.onError).toBe('function');
+    expect(typeof d.onSuccess).toBe('function');
+    expect(d.meta).toEqual({ skipErrorToast: true });
+  });
+
+  describe('hasUnsyncedDraftSave (guards the resume-time reconcile)', () => {
+    it('is false with no draft saves', () => {
+      expect(hasUnsyncedDraftSave(fakeQc([]))).toBe(false);
+      expect(hasUnsyncedDraftSave(fakeQc([
+        { options: { mutationKey: ['set-log', 'toggle-done'] }, state: { status: 'error', isPaused: false } },
+      ]))).toBe(false);
+    });
+    it('is true while a draft save is errored, pending, or paused', () => {
+      expect(hasUnsyncedDraftSave(fakeQc([draftSave({ status: 'error', isPaused: false })]))).toBe(true);
+      expect(hasUnsyncedDraftSave(fakeQc([draftSave({ status: 'pending', isPaused: false })]))).toBe(true);
+      expect(hasUnsyncedDraftSave(fakeQc([draftSave({ status: 'idle', isPaused: true })]))).toBe(true);
+    });
+    it('is false once every draft save succeeded (safe to reconcile)', () => {
+      expect(hasUnsyncedDraftSave(fakeQc([draftSave({ status: 'success', isPaused: false })]))).toBe(false);
+    });
   });
 
   it('replays queued writes serially in FIFO order (shared scope)', async () => {

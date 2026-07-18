@@ -5,8 +5,10 @@ import { MemoryRouter } from 'react-router-dom';
 let mockMyDraft = { data: null, isLoading: false };
 let mockTree = { data: null, isLoading: false };
 const mockCreate = { mutate: vi.fn(), isPending: false };
-const mockAddWeek = { mutate: vi.fn(), isPending: false };
-const mockSubmit = { mutate: vi.fn(), isPending: false };
+const mockActions = {
+  addWeek: vi.fn(), addSession: vi.fn(), addSlot: vi.fn(), updateSlot: vi.fn(),
+  deleteRow: vi.fn(), submit: vi.fn(), discard: vi.fn(), saving: false,
+};
 let mockOnline = true;
 
 vi.mock('react-router-dom', async () => {
@@ -22,15 +24,8 @@ vi.mock('../../hooks/useAuthoring', () => ({
   useMyDraft: () => mockMyDraft,
   useDraftTree: () => mockTree,
   useCreateDraft: () => mockCreate,
-  useAddDraftWeek: () => mockAddWeek,
-  useAddDraftSession: () => ({ mutate: vi.fn(), isPending: false }),
-  useAddDraftSlot: () => ({ mutate: vi.fn(), isPending: false }),
-  useUpdateDraftSlot: () => ({ mutate: vi.fn(), isPending: false }),
-  useDeleteDraftRow: () => ({ mutate: vi.fn(), isPending: false }),
-  useSubmitDraft: () => mockSubmit,
-  useDeleteDraft: () => ({ mutate: vi.fn(), isPending: false }),
+  useDraftActions: () => mockActions,
 }));
-// NotificationBell inside UserMenu pulls in hooks we don't care about here.
 vi.mock('../../components/notifications/NotificationBell', () => ({ default: () => null }), { virtual: true });
 
 import StudentProgramAuthor from './StudentProgramAuthor';
@@ -43,9 +38,7 @@ beforeEach(() => {
   mockMyDraft = { data: null, isLoading: false };
   mockTree = { data: null, isLoading: false };
   mockOnline = true;
-  mockCreate.mutate.mockReset();
-  mockAddWeek.mutate.mockReset();
-  mockSubmit.mutate.mockReset();
+  vi.clearAllMocks();
 });
 
 describe('<StudentProgramAuthor />', () => {
@@ -57,11 +50,11 @@ describe('<StudentProgramAuthor />', () => {
     expect(mockCreate.mutate).toHaveBeenCalledWith({ name: 'My block' });
   });
 
-  it('disables authoring and shows an offline banner when offline', () => {
+  it('stays editable offline — Create is enabled and the banner says changes sync', () => {
     mockOnline = false;
     renderAuthor();
-    expect(screen.getByText(/you're offline/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /create draft/i })).toBeDisabled();
+    expect(screen.getByText(/changes sync when you reconnect/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /create draft/i })).not.toBeDisabled();
   });
 
   it('renders the draft tree and gates submit until an exercise exists', () => {
@@ -81,11 +74,19 @@ describe('<StudentProgramAuthor />', () => {
     expect(screen.getByText('Block A')).toBeInTheDocument();
     expect(screen.getByText('Week 1')).toBeInTheDocument();
     expect(screen.getByText('Squat')).toBeInTheDocument();
-    // One exercise present → submit is enabled and wired.
     const submitBtn = screen.getByRole('button', { name: /submit for approval/i });
     expect(submitBtn).not.toBeDisabled();
     fireEvent.click(submitBtn);
-    expect(mockSubmit.mutate).toHaveBeenCalledWith({ programId: 'p-1' });
+    expect(mockActions.submit).toHaveBeenCalled();
+  });
+
+  it('adds a week via the optimistic action (works offline)', () => {
+    mockOnline = false;
+    mockMyDraft = { data: { id: 'p-1', name: 'Block A', status: 'draft', submitted_at: null }, isLoading: false };
+    mockTree = { data: { id: 'p-1', name: 'Block A', status: 'draft', submitted_at: null, weeks: [] }, isLoading: false };
+    renderAuthor();
+    fireEvent.click(screen.getByRole('button', { name: /add week/i }));
+    expect(mockActions.addWeek).toHaveBeenCalled();
   });
 
   it('shows the submitted state (read-only) once submitted', () => {
