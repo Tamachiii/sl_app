@@ -104,12 +104,12 @@ Invalidation is scoped intentionally to avoid over-fetching. When you add a muta
 
 | Hook | Reads | Writes invalidate |
 |---|---|---|
-| [useProgram](../src/hooks/useProgram.js) | `['program', studentId]`, `['programs', studentId]`, `['active-program', studentId]`, `['coach-dashboard-programs']` | `['program', studentId]` on changes; `['program']` broad on add/delete |
-| [useWeek](../src/hooks/useWeek.js) | `['week', weekId]` | `['week', weekId]` + `['program']`; session-level writes also hit `['session', id]`; session-archive also invalidates `['student-confirmations']` |
+| [useProgram](../src/hooks/useProgram.js) | `['program', studentId]`, `['programs', studentId]`, `['active-program', studentId]`, `['coach-dashboard-programs']` | `['program', studentId]` on changes; `['program']` broad on add/delete; every program write also drops `['coach-dashboard-programs']` via the exported `invalidateCoachDashboard` |
+| [useWeek](../src/hooks/useWeek.js) | `['week', weekId]` | `['week', weekId]` + `['program']`; session-level writes also hit `['session', id]`; writes that move, rename, archive or delete a session also drop `['all-confirmations']` (the coach's Confirmed feed carries the session payload) and `['coach-dashboard-programs']` (the strip) |
 | [useSession](../src/hooks/useSession.js) | `['session', sessionId]` | `['session', sessionId]` + `['week']` (broad) |
 | [useSetLogs](../src/hooks/useSetLogs.js) | `['set-logs', sessionId, slotIds]` | `['set-logs']` (broad), optimistically updated in `onMutate` |
 | [useSetVideo](../src/hooks/useSetVideo.js) | `['set-videos', sessionId]`, `['set-video-signed-url', storagePath]` | `['set-videos', sessionId]` |
-| [useSessionConfirmation](../src/hooks/useSessionConfirmation.js) | `['session-confirmation', sessionId]`, `['all-confirmations', userId]`, `['my-confirmed-session-ids', userId]`, `['week-confirmed-session-ids', weekId]` | `invalidateConfirmationCaches(qc)` hits all four prefixes + `['student-confirmations']` |
+| [useSessionConfirmation](../src/hooks/useSessionConfirmation.js) | `['session-confirmation', sessionId]`, `['all-confirmations', userId]`, `['my-confirmed-session-ids', userId]`, `['week-confirmed-session-ids', weekId]` | `invalidateConfirmationQueries(qc)` hits the student-side prefixes. It deliberately does NOT drop `['all-confirmations']`: that is the coach's feed and this mutation runs on the student's device. |
 | [useSlotComments](../src/hooks/useSlotComments.js) | `['slot-comments', sessionId]` | `['slot-comments', sessionId]` |
 | [useExerciseLibrary](../src/hooks/useExerciseLibrary.js) | `['exercise-library']` | `['exercise-library']` |
 | [useStudents](../src/hooks/useStudents.js) | `['students']` | n/a |
@@ -117,7 +117,7 @@ Invalidation is scoped intentionally to avoid over-fetching. When you add a muta
 | [useStudentProgramDetails](../src/hooks/useStudentProgramDetails.js) | `['student-program-details', userId, 'active' \| 'all']` | read-only |
 | [useStudentProgressStats](../src/hooks/useStudentProgressStats.js) | `['student-progress-stats', userId]` | read-only |
 | [useStudentHistoricalSessions](../src/hooks/useStudentHistoricalSessions.js) | `['student-historical-sessions', userId]` | read-only |
-| [useDuplicate](../src/hooks/useDuplicate.js) | n/a | `['program']`, `['week']`, `['session']`, `['student-weeks']` |
+| [useDuplicate](../src/hooks/useDuplicate.js) | n/a | `['program']`, `['week']`, `['session']`, `['set-logs']`, `['coach-dashboard-programs']` |
 
 ### Two-pass reorder writes
 

@@ -73,12 +73,16 @@ export default function SessionView() {
   const slots = session?.exercise_slots || [];
   const { data: logs, isLoading: logsLoading } = useSetLogs(sessionId, slots);
   const { data: slotComments } = useSlotComments(sessionId, slots);
-  const { data: slotDeviations } = useSlotDeviations(sessionId, slots);
+  const { data: slotDeviations, isFetched: deviationsFetched } = useSlotDeviations(
+    sessionId,
+    slots,
+  );
   const { data: lastPerformance } = useLastPerformance(
     sessionId,
     slots,
     session?.scheduled_date,
     slotDeviations,
+    deviationsFetched,
   );
   const { data: exerciseLibrary } = useExerciseLibrary();
   const slotIds = useMemo(() => slots.map((s) => s.id), [slots]);

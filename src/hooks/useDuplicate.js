@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { invalidateCoachDashboard } from './useProgram';
 
 // Copies the per-set targets from each source slot's set_logs into fresh
 // rows on the destination slots. Actuals (done/rpe/weight_kg/logged_at) are
@@ -175,7 +176,7 @@ export function useDuplicateWeek() {
       qc.invalidateQueries({ queryKey: ['program'] });
       qc.invalidateQueries({ queryKey: ['week'] });
       qc.invalidateQueries({ queryKey: ['set-logs'] });
-      qc.invalidateQueries({ queryKey: ['student-weeks'] });
+      invalidateCoachDashboard(qc);
     },
   });
 }
@@ -275,7 +276,7 @@ export function useDuplicateProgram() {
       qc.invalidateQueries({ queryKey: ['program'] });
       qc.invalidateQueries({ queryKey: ['week'] });
       qc.invalidateQueries({ queryKey: ['set-logs'] });
-      qc.invalidateQueries({ queryKey: ['student-weeks'] });
+      invalidateCoachDashboard(qc);
     },
   });
 }
@@ -351,7 +352,7 @@ export function useDuplicateSession() {
       qc.invalidateQueries({ queryKey: ['session'] });
       qc.invalidateQueries({ queryKey: ['set-logs'] });
       qc.invalidateQueries({ queryKey: ['program'] });
-      qc.invalidateQueries({ queryKey: ['student-weeks'] });
+      invalidateCoachDashboard(qc);
     },
   });
 }

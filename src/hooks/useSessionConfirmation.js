@@ -146,7 +146,6 @@ function invalidateConfirmationQueries(qc) {
   qc.invalidateQueries({ queryKey: ['session-confirmation'] });
   qc.invalidateQueries({ queryKey: ['my-confirmed-session-ids'] });
   qc.invalidateQueries({ queryKey: ['week-confirmed-session-ids'] });
-  qc.invalidateQueries({ queryKey: ['student-confirmations'] });
 }
 
 export function useConfirmSession() {

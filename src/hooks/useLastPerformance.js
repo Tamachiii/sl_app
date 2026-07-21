@@ -43,7 +43,13 @@ import { buildLastPerformance } from '../lib/lastPerformance';
  * Returns a plain object keyed by exercise_library id (see buildLastPerformance)
  * so the result survives the React Query IndexedDB persister.
  */
-export function useLastPerformance(sessionId, slots, currentScheduledDate, currentDeviations) {
+export function useLastPerformance(
+  sessionId,
+  slots,
+  currentScheduledDate,
+  currentDeviations,
+  deviationsReady = true,
+) {
   const { user } = useAuth();
 
   // Effective exercise per open slot: a current-session SWAP means the student
@@ -136,7 +142,12 @@ export function useLastPerformance(sessionId, slots, currentScheduledDate, curre
         currentScheduledDate: currentScheduledDate || isoDate(new Date()),
       });
     },
-    enabled: !!user?.id && !!sessionId && exerciseIds.length > 0,
+    // `exerciseIds` is part of the key and shifts the moment a current-session
+    // swap resolves, so firing before the deviations query has settled costs a
+    // full (20k-row) fetch that is immediately superseded. Gate on SETTLED, not
+    // success: a failed deviations fetch degrades to the un-swapped hint rather
+    // than to no hint at all.
+    enabled: !!user?.id && !!sessionId && exerciseIds.length > 0 && !!deviationsReady,
     staleTime: 1000 * 60,
   });
 }

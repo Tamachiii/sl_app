@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { invalidateCoachDashboard } from './useProgram';
 
 export function useWeek(weekId) {
   return useQuery({
@@ -59,6 +60,7 @@ export function useCreateSession() {
     onSuccess: ({ weekId }) => {
       qc.invalidateQueries({ queryKey: ['week', weekId] });
       qc.invalidateQueries({ queryKey: ['program'] });
+      invalidateCoachDashboard(qc);
     },
   });
 }
@@ -96,6 +98,7 @@ export function useDeleteWeek() {
     onSuccess: (weekId) => {
       qc.invalidateQueries({ queryKey: ['program'] });
       qc.invalidateQueries({ queryKey: ['week', weekId] });
+      invalidateCoachDashboard(qc);
     },
   });
 }
@@ -177,6 +180,10 @@ export function useUpdateSession() {
     onSuccess: ({ id, weekId }) => {
       qc.invalidateQueries({ queryKey: ['week', weekId] });
       qc.invalidateQueries({ queryKey: ['session', id] });
+      // Title/day_number ride along in the coach's Confirmed-feed payload and
+      // in the dashboard strip, so both go stale on a rename or a day move.
+      qc.invalidateQueries({ queryKey: ['all-confirmations'] });
+      invalidateCoachDashboard(qc);
     },
   });
 }
@@ -203,7 +210,9 @@ export function useArchiveSession() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['week', data.week_id] });
       qc.invalidateQueries({ queryKey: ['session', data.id] });
-      qc.invalidateQueries({ queryKey: ['student-confirmations'] });
+      // Archiving hides the session from the coach's Confirmed feed.
+      qc.invalidateQueries({ queryKey: ['all-confirmations'] });
+      invalidateCoachDashboard(qc);
     },
   });
 }
@@ -227,6 +236,8 @@ export function useDeleteSession() {
     onSuccess: (weekId) => {
       if (weekId) qc.invalidateQueries({ queryKey: ['week', weekId] });
       else qc.invalidateQueries({ queryKey: ['week'] });
+      qc.invalidateQueries({ queryKey: ['all-confirmations'] });
+      invalidateCoachDashboard(qc);
     },
   });
 }

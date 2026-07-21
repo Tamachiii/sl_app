@@ -264,6 +264,10 @@ describe('useConfirmSession / useUnconfirmSession', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(chain.eq).toHaveBeenCalledWith('session_id', 's-1');
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['session-confirmation'] });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['student-confirmations'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['my-confirmed-session-ids'] });
+    // 'student-confirmations' is not a key any query uses — invalidating it was
+    // a no-op, and the coach's feed ('all-confirmations') is deliberately NOT
+    // dropped here: this runs on the student's device.
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ['student-confirmations'] });
   });
 });

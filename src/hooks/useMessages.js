@@ -158,8 +158,15 @@ export function useSendMessage() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: [MESSAGES_ROOT] });
+      // A session-attached message IS the coach's session feedback: the review
+      // screen and the Confirmed feed both key off "has feedback", so they go
+      // stale on send. Ordinary chat stays messages-root-only.
+      if (data?.session_id) {
+        qc.invalidateQueries({ queryKey: ['all-confirmations'] });
+        qc.invalidateQueries({ queryKey: ['session', data.session_id] });
+      }
     },
   });
 }

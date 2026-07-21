@@ -23,6 +23,11 @@ const PERSISTED_QUERY_ROOTS = new Set([
   // useMyConfirmedSessionIds derives its Set via `select`, not in the cache.
   'student-program-details',
   'my-confirmed-session-ids',
+  // The "last time" hint on the logging surface. Its cached value is the small
+  // reduced object from buildLastPerformance (not the 20k-row scan behind it),
+  // and the surface is student-only — so a gym with no signal still shows the
+  // student a number to beat.
+  'last-performance',
   // Phase 3.4d — offline program authoring. The optimistic draft tree +
   // "my draft" pointer must survive a cold offline reload so a student can keep
   // building with no connection; 'exercise-library' rides along so the picker

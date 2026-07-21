@@ -161,7 +161,10 @@ describe('useArchiveSession', () => {
 
     const archivePayload = mockUpdate.update.mock.calls[0][0];
     expect(typeof archivePayload.archived_at).toBe('string');
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['student-confirmations'] });
+    // Archiving hides the session from the coach's Confirmed feed and moves it
+    // out of the dashboard week strip, so both roll-ups have to drop.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['all-confirmations'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['coach-dashboard-programs'] });
 
     // Now unarchive — should pass null.
     mockUpdate.single.mockResolvedValueOnce({

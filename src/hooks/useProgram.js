@@ -78,6 +78,16 @@ export function useActiveProgram(studentId) {
   });
 }
 
+/**
+ * The coach dashboard's week strips are derived from their own summary query,
+ * so any edit that moves a session or renames a program has to drop it too —
+ * otherwise the dashboard keeps rendering the pre-edit strip until remount.
+ * Exported because the session/week mutations in `useWeek` need the same drop.
+ */
+export function invalidateCoachDashboard(qc) {
+  qc.invalidateQueries({ queryKey: ['coach-dashboard-programs'] });
+}
+
 function invalidateProgramQueries(qc, studentId) {
   qc.invalidateQueries({ queryKey: ['programs', studentId] });
   qc.invalidateQueries({ queryKey: ['programs-trash', studentId] });
@@ -86,6 +96,7 @@ function invalidateProgramQueries(qc, studentId) {
   // Student-side views read through is_active; refresh them too.
   qc.invalidateQueries({ queryKey: ['student-program-details'] });
   qc.invalidateQueries({ queryKey: ['student-progress-stats'] });
+  invalidateCoachDashboard(qc);
 }
 
 /**
