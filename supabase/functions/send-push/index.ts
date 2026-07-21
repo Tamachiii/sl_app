@@ -4,10 +4,13 @@
 // caller via user JWT and sleeps until fire_at), this function is the
 // one a DB trigger calls when an event should produce a Web Push *now*.
 //
-// Today the only caller is the `notify_student_on_session_feedback`
-// trigger on `messages`, which fires when a coach inserts a feedback
-// message with session_id set. The trigger reads `app.functions_url`
-// and `app.service_role_key` from DB GUCs and POSTs here via pg_net.
+// The callers are the notification triggers and RPCs: session feedback,
+// session confirm, slot deviation, promote request, and program submit /
+// approve / send-back, plus chat messages. Each reads `app_functions_url`
+// and `app_service_role_key` from `vault.decrypted_secrets` and POSTs here
+// via pg_net, wrapped in an EXCEPTION block so a push failure can never
+// roll back the write that triggered it. See the fan-out block in
+// schema.sql (search for `send-push`).
 //
 // Authorization: must present the service-role bearer (i.e. only the
 // project itself can invoke this — the DB trigger does). Anything else

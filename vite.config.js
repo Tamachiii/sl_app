@@ -44,6 +44,13 @@ export default defineConfig({
         // for offline reads; runtime caching of authed API responses risks
         // serving cross-user data on shared devices. Runtime caching for
         // Google Fonts is wired up directly in src/sw.js.
+        //
+        // '**/*.js' deliberately precaches EVERY lazy route chunk, including
+        // the tree for the role this device will never use. That is the price
+        // of both roles working offline straight after install — a student who
+        // installs at home and first opens the app in a basement gym has no
+        // second chance to fetch a chunk. Narrowing this to per-role chunks
+        // would trade a one-time download for an offline dead-end.
         globPatterns: ['**/*.{js,css,html,svg,woff2}'],
       },
       devOptions: {

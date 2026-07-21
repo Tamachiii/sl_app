@@ -6,6 +6,21 @@ on:
   # deploy.yml calls this as its pre-publish gate, so the job definition
   # (node version, env, steps) lives in exactly one place.
   workflow_call:
+    inputs:
+      skip-build:
+        description: >-
+          Skip the placeholder-env build. The deploy pipeline sets this because
+          it runs its own build with the real secrets straight after — building
+          twice per deploy proves nothing the second build doesn't.
+        type: boolean
+        default: false
+
+# A rapid second push supersedes the first: only the newest commit on a branch
+# (or PR) is worth a runner.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -21,7 +36,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
       - run: npm ci
       - run: npm run lint
       - run: npm test -- --run
       - run: npm run build
+        if: ${{ !inputs.skip-build }}

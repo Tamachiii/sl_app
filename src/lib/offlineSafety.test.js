@@ -19,7 +19,18 @@ const FILES = [
   'useSlotDeviations.js',
   'useMessages.js',
   'useAuthoring.js',
+  'useGoals.js',
+  'useBodyweight.js',
+  'useSetVideo.js',
 ];
+
+// Coach-device mutations that happen to live in a scanned file. The offline
+// lane is a STUDENT-surface contract — a coach edits at their desk — so these
+// are outside the scan rather than online-only exceptions to it.
+const COACH_ONLY = new Set([
+  'useCreateGoal',
+  'useDeleteGoal',
+]);
 
 // Mutations that are intentionally NOT offline-queued. Each must be UI-gated
 // on connectivity (useOnlineStatus) so it can't silently hang/drop offline.
@@ -28,7 +39,13 @@ const FILES = [
 const ONLINE_ONLY = new Set([
   'useAddStudentSet', // brand-new-row INSERT can't queue offline (UNIQUE collision)
   'useRemoveStudentSet', // symmetry with add
-  'useEnsureSetLogs', // safety-net INSERT, coach/materialization path
+  'useEnsureSetLogs', // student SessionView safety-net INSERT; self-heals on the next mount, so no gate needed
+  'useAddGoalProgress', // brand-new-row INSERT, no offline id story; MyGoals gates on useOnlineStatus
+  'useDeleteGoalProgress', // symmetry with add
+  'useToggleGoalAchieved', // low-stakes flag; MyGoals gates on useOnlineStatus
+  'useLogBodyweight', // BodyweightCard gates on useOnlineStatus
+  'useUploadSetVideo', // a file upload can't be queued in the mutation cache; VideoUploadButton gates
+  'useDeleteSetVideo', // storage delete, same reason
   'useSendMessage', // composers gate on useOnlineStatus + render inline errors
   'useDeleteMessage', // chat delete is online-only
   'useMarkThreadRead', // read receipts are low-stakes; no offline durability needed
@@ -83,6 +100,7 @@ describe('offline-safety guardrail', () => {
     const src = readFileSync(resolve(hooksDir, file), 'utf8');
     for (const { name, body } of extractHooks(src)) {
       if (!body.includes('useMutation')) continue; // read hook, skip
+      if (COACH_ONLY.has(name)) continue;
       const hasMutationKey = /mutationKey\s*:/.test(body);
       const isOnlineOnly = ONLINE_ONLY.has(name);
       if (!hasMutationKey && !isOnlineOnly) {

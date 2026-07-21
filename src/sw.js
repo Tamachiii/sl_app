@@ -101,8 +101,9 @@ self.addEventListener('notificationclick', (event) => {
     (async () => {
       const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       // If the app is already open in some window, focus it and try to
-      // navigate. Hash route changes don't trigger navigation, so we post
-      // a message and the page can react if it wants.
+      // navigate. A hash-only change doesn't count as a navigation, so an
+      // already-open tab may stay on the page it was on — focus is the part
+      // that's guaranteed.
       for (const client of allClients) {
         try {
           await client.focus();

@@ -8,6 +8,11 @@ export function useSession(sessionId) {
       // Pull the parent program's is_active so the student SessionView can
       // lock writes once the block is no longer the active one — see
       // SessionView's `isReadOnly` derivation. Coach views ignore this flag.
+      //
+      // The embedded set_logs exist ONLY for the coach's SessionEditor /
+      // ExerciseSlotRow, which read the per-set targets from here. Every
+      // student and review surface renders from ['set-logs'] instead, so
+      // that — not this projection — is the source of truth for outcomes.
       const { data, error } = await supabase
         .from('sessions')
         .select(`

@@ -287,6 +287,29 @@ export function hasUnsyncedDraftSave(queryClient) {
 }
 
 /**
+ * Replay mutations queued offline, then reconcile the draft caches to the
+ * canonical server rows so a coach approval or send-back that happened during
+ * the offline window is observed. Client-minted ids echo back, so the
+ * reconcile is flicker-free.
+ *
+ * The `hasUnsyncedDraftSave` guard is load-bearing, not defensive: refetching
+ * while a save is paused, pending or errored would replace the optimistic tree
+ * that holds the ONLY copy of the unsynced edits — and for a draft created
+ * offline the server row doesn't exist yet, so `my-draft` would refetch to null
+ * and the whole session's work would disappear.
+ *
+ * Called from two places that both need the exact same semantics: the
+ * persister's hydration `onSuccess` and the window `online` listener.
+ */
+export function resumeMutationsAndReconcileDrafts(queryClient) {
+  return queryClient.resumePausedMutations().then(() => {
+    if (hasUnsyncedDraftSave(queryClient)) return;
+    queryClient.invalidateQueries({ queryKey: ['my-draft'] });
+    queryClient.invalidateQueries({ queryKey: ['draft-tree'] });
+  });
+}
+
+/**
  * Register each offline-safe mutation under a stable key so resumed-after-
  * reload mutations (whose closure-bound mutationFn didn't survive JSON
  * persistence) can still execute. The optimistic onMutate / invalidation
@@ -308,6 +331,19 @@ export function registerOfflineMutationDefaults(queryClient) {
         meta: { skipErrorToast: true },
         onSuccess: () => queryClient.invalidateQueries({ queryKey: ['my-draft'] }),
         onError: (error) => draftSaveErrorHandler(queryClient, error),
+      });
+      continue;
+    }
+    if (name === 'discardDraft') {
+      // Same reasoning as the save above: put the cache refresh in the
+      // DEFAULTS so a discard that was queued offline and replayed after a
+      // reload clears 'my-draft' exactly like a live one. It keeps the generic
+      // error toast — a failed discard is worth telling the student about.
+      queryClient.setMutationDefaults(key, {
+        mutationFn: MUTATION_FNS[name],
+        networkMode: 'online',
+        scope: { id: 'draft-tree' },
+        onSettled: () => queryClient.invalidateQueries({ queryKey: ['my-draft'] }),
       });
       continue;
     }

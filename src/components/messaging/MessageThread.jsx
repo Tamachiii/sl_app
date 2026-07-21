@@ -11,6 +11,7 @@ import {
   useDeleteMessage,
 } from '../../hooks/useMessages';
 import { useStudents } from '../../hooks/useStudents';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import ConfirmDialog from '../ui/ConfirmDialog';
@@ -36,6 +37,7 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
   const markRead = useMarkThreadRead();
   const { mutate: markReadMutate } = markRead;
   const deleteMessage = useDeleteMessage();
+  const isOnline = useOnlineStatus();
   const groups = useGroupedThread(messages);
   const sessionRefs = useSessionRefsForMessages(messages);
 
@@ -72,20 +74,27 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
     pressOriginRef.current = null;
   }, []);
 
-  const startPress = useCallback((messageId, e) => {
-    pressMovedRef.current = false;
-    pressOriginRef.current = { x: e.clientX, y: e.clientY };
-    setPressingId(messageId);
-    if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
-    pressTimerRef.current = setTimeout(() => {
-      pressTimerRef.current = null;
-      if (pressMovedRef.current) return;
-      // Light haptic on devices that support it — confirms the press fired.
-      if (navigator.vibrate) navigator.vibrate(10);
-      setPendingDeleteId(messageId);
-      setPressingId(null);
-    }, 450);
-  }, []);
+  const startPress = useCallback(
+    (messageId, e) => {
+      // Deleting a message is online-only (it is not offline-queued), so
+      // offline the long-press simply doesn't arm — better than opening a
+      // dialog whose confirm would pause forever.
+      if (!isOnline) return;
+      pressMovedRef.current = false;
+      pressOriginRef.current = { x: e.clientX, y: e.clientY };
+      setPressingId(messageId);
+      if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = setTimeout(() => {
+        pressTimerRef.current = null;
+        if (pressMovedRef.current) return;
+        // Light haptic on devices that support it — confirms the press fired.
+        if (navigator.vibrate) navigator.vibrate(10);
+        setPendingDeleteId(messageId);
+        setPressingId(null);
+      }, 450);
+    },
+    [isOnline],
+  );
 
   const movePress = useCallback((e) => {
     const o = pressOriginRef.current;
@@ -216,6 +225,7 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
                           onContextMenu: (e) => {
                             e.preventDefault();
                             cancelPress();
+                            if (!isOnline) return;
                             setPendingDeleteId(m.id);
                           },
                         }

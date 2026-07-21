@@ -4,6 +4,7 @@ import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import { useI18n } from '../../hooks/useI18n';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import {
   useMyGoals,
   useAddGoalProgress,
@@ -14,6 +15,10 @@ import {
 
 function GoalCard({ goal }) {
   const { t } = useI18n();
+  // Goal writes are not offline-queued (a client-minted progress INSERT has no
+  // offline id story), so they are gated rather than left to pause silently —
+  // same treatment as the bodyweight card and the video upload button.
+  const isOnline = useOnlineStatus();
   const addProgress = useAddGoalProgress();
   const deleteProgress = useDeleteGoalProgress();
   const toggleAchieved = useToggleGoalAchieved();
@@ -83,7 +88,9 @@ function GoalCard({ goal }) {
           onClick={() =>
             toggleAchieved.mutate({ id: goal.id, achieved: !goal.achieved })
           }
-          className={`sl-pill shrink-0 ${
+          disabled={!isOnline}
+          title={!isOnline ? t('common.offlineAction') : undefined}
+          className={`sl-pill shrink-0 disabled:opacity-50 ${
             goal.achieved
               ? 'bg-ink-100 text-ink-500 hover:bg-ink-200'
               : ''
@@ -128,6 +135,8 @@ function GoalCard({ goal }) {
                     <button
                       type="button"
                       onClick={() => setPendingDeleteId(e.id)}
+                      disabled={!isOnline}
+                      title={!isOnline ? t('common.offlineAction') : undefined}
                       aria-label={t('student.goals.deleteAttemptAria', {
                         when: new Date(e.recorded_at).toLocaleDateString(),
                       })}
@@ -191,7 +200,8 @@ function GoalCard({ goal }) {
           <div className="flex gap-2">
             <button
               type="submit"
-              disabled={addProgress.isPending}
+              disabled={addProgress.isPending || !isOnline}
+              title={!isOnline ? t('common.offlineAction') : undefined}
               className="flex-1 sl-btn-primary text-[13px] disabled:opacity-50"
               style={{ padding: '10px 16px' }}
             >

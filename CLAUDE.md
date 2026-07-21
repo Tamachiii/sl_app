@@ -128,7 +128,8 @@ npm run preview   # serve dist/ (4173)
 npm run lint      # eslint (correctness-only; rides the CI gate)
 npm test          # vitest watch
 npm test -- --run # single run (CI)
-npm run deploy    # gh-pages → GitHub Pages
+npm run deploy    # emergency-only manual publish — bypasses the CI test gate.
+                  # The normal path is the CI deploy from main.
 ```
 
 Test runs are via WSL: `wsl -d Ubuntu -- bash -lc "cd /home/tamachi/sl_app && npm test -- --run"`.
@@ -136,7 +137,7 @@ Test runs are via WSL: `wsl -d Ubuntu -- bash -lc "cd /home/tamachi/sl_app && np
 ## When you add a feature
 
 1. Load only the files listed in the matching row above. Load `docs/INVARIANTS.md` if the change touches DB / hooks / RLS / routing / messaging / `set_logs`. Load `docs/ARCHITECTURE.md` if the change ripples across modules.
-2. DB changes → SQL in `supabase/migrations/<date>_<name>.sql` *and* append to `schema.sql`.
+2. DB changes → SQL in `supabase/migrations/2026_MM_DD_<name>.sql` *and* append to `schema.sql`. (One historical outlier, `20260416_set_logs_weight_kg.sql`, uses the 8-digit form — it is already applied, so leave it be rather than renaming it.)
 3. Tests next to components; stub the hook layer with `vi.mock(...)` and render directly. `useAuth`'s context is module-private, so a test can only control auth by mocking the hook — never by wrapping in a provider.
 4. Update the feature-files table here only if you introduced a new feature area.
 5. Run `npm test -- --run` and `npm run build` before committing.
