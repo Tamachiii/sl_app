@@ -239,8 +239,11 @@ export function useMyFeedbackSessionIds() {
         .eq('recipient_id', me)
         .not('session_id', 'is', null);
       if (error) throw error;
-      return new Set((data || []).map((r) => r.session_id));
+      // Plain array in the cache (a Set dehydrates to {} through the
+      // persister); `select` hands consumers the Set.
+      return (data || []).map((r) => r.session_id);
     },
+    select: (ids) => new Set(ids),
     enabled: !!me,
   });
 }
@@ -330,34 +333,13 @@ export function useMessagesRealtime() {
       .channel(`messages-${me}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages' },
+        { event: '*', schema: 'public', table: 'messages' },
         (payload) => {
           if (cancelled) return;
-          const m = payload.new || {};
-          if (m.sender_id === me || m.recipient_id === me) {
-            qc.invalidateQueries({ queryKey: [MESSAGES_ROOT] });
-          }
-        },
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'messages' },
-        (payload) => {
-          if (cancelled) return;
+          // One handler for INSERT/UPDATE/DELETE: `new` carries the row on the
+          // first two, and REPLICA IDENTITY FULL puts the deleted row in `old`,
+          // so either way we can scope invalidation to events that touched me.
           const m = payload.new || payload.old || {};
-          if (m.sender_id === me || m.recipient_id === me) {
-            qc.invalidateQueries({ queryKey: [MESSAGES_ROOT] });
-          }
-        },
-      )
-      .on(
-        'postgres_changes',
-        { event: 'DELETE', schema: 'public', table: 'messages' },
-        (payload) => {
-          if (cancelled) return;
-          // REPLICA IDENTITY FULL means payload.old carries the deleted row,
-          // so we can scope invalidation to events that touched me.
-          const m = payload.old || {};
           if (m.sender_id === me || m.recipient_id === me) {
             qc.invalidateQueries({ queryKey: [MESSAGES_ROOT] });
           }

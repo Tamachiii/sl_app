@@ -167,12 +167,12 @@ describe('useMyConfirmedSessionIds', () => {
 });
 
 describe('useWeekConfirmedSessionIds', () => {
-  it('returns an empty Set when the week has no sessions', async () => {
-    const sessionsChain = {
+  it('returns an empty Set when the week has no confirmations', async () => {
+    const confChain = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockResolvedValue({ data: [], error: null }),
     };
-    supabase.from.mockReturnValue(sessionsChain);
+    supabase.from.mockReturnValue(confChain);
 
     const qc = makeClient();
     const { result } = renderHook(() => useWeekConfirmedSessionIds('w-1'), {
@@ -182,31 +182,42 @@ describe('useWeekConfirmedSessionIds', () => {
     expect(result.current.data.size).toBe(0);
   });
 
-  it('returns confirmed ids for the supplied week', async () => {
-    const sessionsChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({
-        data: [{ id: 's-1' }, { id: 's-2' }],
-        error: null,
-      }),
-    };
+  it('filters confirmations through the session join in one query', async () => {
     const confChain = {
       select: vi.fn().mockReturnThis(),
-      in: vi.fn().mockResolvedValue({
+      eq: vi.fn().mockResolvedValue({
         data: [{ session_id: 's-1' }],
         error: null,
       }),
     };
-    let call = 0;
-    supabase.from.mockImplementation(() => (call++ === 0 ? sessionsChain : confChain));
+    supabase.from.mockReturnValue(confChain);
 
     const qc = makeClient();
     const { result } = renderHook(() => useWeekConfirmedSessionIds('w-1'), {
       wrapper: withClient(qc),
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(supabase.from).toHaveBeenCalledTimes(1);
+    expect(supabase.from).toHaveBeenCalledWith('session_confirmations');
+    expect(confChain.eq).toHaveBeenCalledWith('sessions.week_id', 'w-1');
     expect(result.current.data.has('s-1')).toBe(true);
     expect(result.current.data.has('s-2')).toBe(false);
+  });
+
+  it('caches a plain array so the persister can round-trip it', async () => {
+    const confChain = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ data: [{ session_id: 's-1' }], error: null }),
+    };
+    supabase.from.mockReturnValue(confChain);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useWeekConfirmedSessionIds('w-1'), {
+      wrapper: withClient(qc),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    // A Set here would dehydrate to {} on the way through IndexedDB.
+    expect(qc.getQueryData(['week-confirmed-session-ids', 'w-1'])).toEqual(['s-1']);
   });
 });
 

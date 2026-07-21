@@ -120,24 +120,19 @@ export function useWeekConfirmedSessionIds(weekId) {
   return useQuery({
     queryKey: ['week-confirmed-session-ids', weekId],
     queryFn: async () => {
-      // First fetch sessions in this week so we can filter confirmations.
-      const { data: sessions, error: sErr } = await supabase
-        .from('sessions')
-        .select('id')
-        .eq('week_id', weekId);
-      if (sErr) throw sErr;
-
-      const ids = (sessions || []).map((s) => s.id);
-      if (ids.length === 0) return new Set();
-
-      const { data: confs, error: cErr } = await supabase
+      // Filter THROUGH the session join rather than fetching the week's
+      // session ids and feeding them back as an `.in(...)` list — same reason
+      // as useAllConfirmations, and it halves the round trips.
+      const { data, error } = await supabase
         .from('session_confirmations')
-        .select('session_id')
-        .in('session_id', ids);
-      if (cErr) throw cErr;
-
-      return new Set((confs || []).map((c) => c.session_id));
+        .select('session_id, sessions!inner(week_id)')
+        .eq('sessions.week_id', weekId);
+      if (error) throw error;
+      // Cache a plain ARRAY, not a Set: a Set dehydrates to {} through the
+      // persister. `select` hands consumers the Set they expect.
+      return (data || []).map((c) => c.session_id);
     },
+    select: (ids) => new Set(ids),
     enabled: !!weekId,
   });
 }
@@ -146,6 +141,16 @@ function invalidateConfirmationQueries(qc) {
   qc.invalidateQueries({ queryKey: ['session-confirmation'] });
   qc.invalidateQueries({ queryKey: ['my-confirmed-session-ids'] });
   qc.invalidateQueries({ queryKey: ['week-confirmed-session-ids'] });
+  // Confirming is what moves adherence, tonnage and lifetime totals. Those
+  // three queries reduce over set_logs INSIDE their queryFn, so nothing about
+  // their keys changes when a session is confirmed and they would otherwise
+  // sit on pre-confirmation numbers until their staleTime expired. Session
+  // confirmation is the right chokepoint for this — deviation and set-log
+  // writes fire mid-workout and would re-trigger the same heavy scans on
+  // every tap.
+  qc.invalidateQueries({ queryKey: ['student-progress-stats'] });
+  qc.invalidateQueries({ queryKey: ['student-records'] });
+  qc.invalidateQueries({ queryKey: ['student-lifetime-stats'] });
 }
 
 export function useConfirmSession() {

@@ -2,6 +2,23 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 
 /**
+ * Both adopt RPCs rewrite UPCOMING slots — which live in OTHER ['session', X]
+ * caches, not the reviewed one — so the whole 'session' subtree goes, plus the
+ * student-facing views and the swap-aware stats. Shared so the two adopt paths
+ * can't drift apart.
+ */
+function invalidateAdoptCaches(qc, sessionId) {
+  qc.invalidateQueries({ queryKey: ['session'] });
+  if (sessionId) {
+    qc.invalidateQueries({ queryKey: ['slot-deviations', sessionId] });
+  }
+  qc.invalidateQueries({ queryKey: ['week'] });
+  qc.invalidateQueries({ queryKey: ['program'] });
+  qc.invalidateQueries({ queryKey: ['student-program-details'] });
+  qc.invalidateQueries({ queryKey: ['student-progress-stats'] });
+}
+
+/**
  * Coach adopts a student's exercise SWAP into the standing prescription: every
  * UPCOMING occurrence of the original exercise in the same program flips to the
  * substitute (forward-only — the reviewed session keeps its honest history).
@@ -23,19 +40,7 @@ export function useAdoptSwap() {
       if (error) throw error;
       return data; // { applied, dry_run: false }
     },
-    onSuccess: (_data, { sessionId }) => {
-      // The rewrite flips exercise_id on UPCOMING slots — which live in OTHER
-      // ['session', X] caches, not the reviewed one — so invalidate the whole
-      // 'session' subtree, plus the student-facing views and swap-aware stats.
-      qc.invalidateQueries({ queryKey: ['session'] });
-      if (sessionId) {
-        qc.invalidateQueries({ queryKey: ['slot-deviations', sessionId] });
-      }
-      qc.invalidateQueries({ queryKey: ['week'] });
-      qc.invalidateQueries({ queryKey: ['program'] });
-      qc.invalidateQueries({ queryKey: ['student-program-details'] });
-      qc.invalidateQueries({ queryKey: ['student-progress-stats'] });
-    },
+    onSuccess: (_data, { sessionId }) => invalidateAdoptCaches(qc, sessionId),
   });
 }
 
@@ -76,16 +81,7 @@ export function useAdoptSkip() {
       if (error) throw error;
       return data;
     },
-    onSuccess: (_data, { sessionId }) => {
-      qc.invalidateQueries({ queryKey: ['session'] });
-      if (sessionId) {
-        qc.invalidateQueries({ queryKey: ['slot-deviations', sessionId] });
-      }
-      qc.invalidateQueries({ queryKey: ['week'] });
-      qc.invalidateQueries({ queryKey: ['program'] });
-      qc.invalidateQueries({ queryKey: ['student-program-details'] });
-      qc.invalidateQueries({ queryKey: ['student-progress-stats'] });
-    },
+    onSuccess: (_data, { sessionId }) => invalidateAdoptCaches(qc, sessionId),
   });
 }
 
