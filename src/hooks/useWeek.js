@@ -6,27 +6,29 @@ export function useWeek(weekId) {
   return useQuery({
     queryKey: ['week', weekId],
     queryFn: async () => {
-      const { data: week, error: wErr } = await supabase
+      // One nested read, not a week fetch followed by a dependent session
+      // fetch. Both levels are sorted here rather than via `order` on the
+      // embed, so the ordering doesn't depend on PostgREST's referenced-table
+      // ordering behaviour.
+      const { data: week, error } = await supabase
         .from('weeks')
-        .select('*')
-        .eq('id', weekId)
-        .single();
-      if (wErr) throw wErr;
-
-      const { data: sessions, error: sErr } = await supabase
-        .from('sessions')
         .select(`
           *,
-          exercise_slots(
+          sessions(
             *,
-            exercise:exercise_library(*)
+            exercise_slots(
+              *,
+              exercise:exercise_library(*)
+            )
           )
         `)
-        .eq('week_id', weekId)
-        .order('sort_order');
-      if (sErr) throw sErr;
+        .eq('id', weekId)
+        .single();
+      if (error) throw error;
 
-      // Sort exercise_slots within each session
+      const sessions = (week.sessions || [])
+        .slice()
+        .sort((a, b) => a.sort_order - b.sort_order);
       for (const sess of sessions) {
         sess.exercise_slots = (sess.exercise_slots || []).sort(
           (a, b) => a.sort_order - b.sort_order
@@ -36,6 +38,30 @@ export function useWeek(weekId) {
       return { ...week, sessions };
     },
     enabled: !!weekId,
+  });
+}
+
+export function useCreateWeek() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ programId, weekNumber, label }) => {
+      const { data, error } = await supabase
+        .from('weeks')
+        .insert({ program_id: programId, week_number: weekNumber, label })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['program'] });
+      qc.invalidateQueries({ queryKey: ['programs'] });
+      qc.invalidateQueries({ queryKey: ['active-program'] });
+      // The student's Home/Sessions views read the program tree too.
+      qc.invalidateQueries({ queryKey: ['student-program-details'] });
+      invalidateCoachDashboard(qc);
+    },
   });
 }
 
@@ -117,21 +143,21 @@ export function useReorderWeeks() {
     mutationFn: async ({ programId, orderedIds }) => {
       const TMP_BASE = 100000;
 
-      for (let i = 0; i < orderedIds.length; i++) {
-        const { error } = await supabase
-          .from('weeks')
-          .update({ week_number: TMP_BASE + i })
-          .eq('id', orderedIds[i]);
-        if (error) throw error;
+      // The two passes must stay ordered relative to each other (that is what
+      // dodges the UNIQUE), but the writes WITHIN a pass are independent —
+      // every row gets a distinct number — so they go out together instead of
+      // costing one round trip each.
+      async function writeAll(numberFor) {
+        const results = await Promise.all(
+          orderedIds.map((id, i) =>
+            supabase.from('weeks').update({ week_number: numberFor(i) }).eq('id', id),
+          ),
+        );
+        for (const { error } of results) if (error) throw error;
       }
 
-      for (let i = 0; i < orderedIds.length; i++) {
-        const { error } = await supabase
-          .from('weeks')
-          .update({ week_number: i + 1 })
-          .eq('id', orderedIds[i]);
-        if (error) throw error;
-      }
+      await writeAll((i) => TMP_BASE + i);
+      await writeAll((i) => i + 1);
 
       return { programId };
     },

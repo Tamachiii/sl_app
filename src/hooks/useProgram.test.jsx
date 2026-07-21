@@ -18,7 +18,6 @@ import {
   useSetActiveProgram,
   useReorderPrograms,
   useCoachDashboardPrograms,
-  useCreateWeek,
 } from './useProgram';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
@@ -478,13 +477,12 @@ describe('useCoachDashboardPrograms', () => {
     };
     const confChain = {
       select: vi.fn().mockReturnThis(),
-      in: vi.fn().mockResolvedValue({
+      eq: vi.fn().mockResolvedValue({
         data: [{ session_id: 's-1' }, { session_id: 's-2' }],
         error: null,
       }),
     };
-    let call = 0;
-    supabase.from.mockImplementation(() => (call++ === 0 ? programsChain : confChain));
+    supabase.from.mockImplementation((table) => (table === 'programs' ? programsChain : confChain));
 
     const qc = makeClient();
     const { result } = renderHook(() => useCoachDashboardPrograms(), {
@@ -517,13 +515,12 @@ describe('useCoachDashboardPrograms', () => {
     };
     const confChain = {
       select: vi.fn().mockReturnThis(),
-      in: vi.fn().mockResolvedValue({
+      eq: vi.fn().mockResolvedValue({
         data: [{ session_id: 's-1' }, { session_id: 's-2' }],
         error: null,
       }),
     };
-    let call = 0;
-    supabase.from.mockImplementation(() => (call++ === 0 ? programsChain : confChain));
+    supabase.from.mockImplementation((table) => (table === 'programs' ? programsChain : confChain));
 
     const qc = makeClient();
     const { result } = renderHook(() => useCoachDashboardPrograms(), {
@@ -563,13 +560,12 @@ describe('useCoachDashboardPrograms', () => {
     };
     const confChain = {
       select: vi.fn().mockReturnThis(),
-      in: vi.fn().mockResolvedValue({
+      eq: vi.fn().mockResolvedValue({
         data: [{ session_id: 's-mon' }],
         error: null,
       }),
     };
-    let call = 0;
-    supabase.from.mockImplementation(() => (call++ === 0 ? programsChain : confChain));
+    supabase.from.mockImplementation((table) => (table === 'programs' ? programsChain : confChain));
 
     const qc = makeClient();
     const { result } = renderHook(() => useCoachDashboardPrograms(), {
@@ -613,10 +609,9 @@ describe('useCoachDashboardPrograms', () => {
     };
     const confChain = {
       select: vi.fn().mockReturnThis(),
-      in: vi.fn().mockResolvedValue({ data: [], error: null }),
+      eq: vi.fn().mockResolvedValue({ data: [], error: null }),
     };
-    let call = 0;
-    supabase.from.mockImplementation(() => (call++ === 0 ? programsChain : confChain));
+    supabase.from.mockImplementation((table) => (table === 'programs' ? programsChain : confChain));
 
     const qc = makeClient();
     const { result } = renderHook(() => useCoachDashboardPrograms(), {
@@ -647,13 +642,12 @@ describe('useCoachDashboardPrograms', () => {
       };
       const confChain = {
         select: vi.fn().mockReturnThis(),
-        in: vi.fn().mockResolvedValue({
+        eq: vi.fn().mockResolvedValue({
           data: confirmations.map((id) => ({ session_id: id })),
           error: null,
         }),
       };
-      let call = 0;
-      supabase.from.mockImplementation(() => (call++ === 0 ? programsChain : confChain));
+      supabase.from.mockImplementation((table) => (table === 'programs' ? programsChain : confChain));
     }
 
     async function renderDashboard() {
@@ -735,25 +729,3 @@ describe('useCoachDashboardPrograms', () => {
   });
 });
 
-describe('useCreateWeek', () => {
-  it('inserts a week and invalidates ["program"]', async () => {
-    const chain = {
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: { id: 'w-new' }, error: null }),
-    };
-    supabase.from.mockReturnValue(chain);
-
-    const qc = makeClient();
-    const invalidate = vi.spyOn(qc, 'invalidateQueries');
-    const { result } = renderHook(() => useCreateWeek(), { wrapper: withClient(qc) });
-    result.current.mutate({ programId: 'p-1', weekNumber: 5, label: null });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(chain.insert).toHaveBeenCalledWith({
-      program_id: 'p-1',
-      week_number: 5,
-      label: null,
-    });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['program'] });
-  });
-});

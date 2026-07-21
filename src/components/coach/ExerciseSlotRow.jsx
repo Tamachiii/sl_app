@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import ConfirmDialog from '../ui/ConfirmDialog';
@@ -12,8 +12,12 @@ function PerSetRow({ log, isTimeBased, onUpdateSet, onRemoveSet, canRemove }) {
   const [seconds, setSeconds] = useState(log.target_duration_seconds ?? '');
   const [weight, setWeight] = useState(log.target_weight_kg ?? '');
   const [rest, setRest] = useState(log.target_rest_seconds ?? '');
+  const rowRef = useRef(null);
 
   useEffect(() => {
+    // See the matching guard in ExerciseSlotRow: never overwrite fields the
+    // coach is typing in right now.
+    if (rowRef.current?.contains(document.activeElement)) return;
     setReps(log.target_reps ?? '');
     setSeconds(log.target_duration_seconds ?? '');
     setWeight(log.target_weight_kg ?? '');
@@ -27,7 +31,7 @@ function PerSetRow({ log, isTimeBased, onUpdateSet, onRemoveSet, canRemove }) {
   }
 
   return (
-    <tr>
+    <tr ref={rowRef}>
       <td className="sl-mono text-[11px] text-ink-400 pr-2 text-center w-8">{log.set_number}</td>
       {isTimeBased ? (
         <td className="px-1">
@@ -158,13 +162,31 @@ export default function ExerciseSlotRow({
     isDragging,
   } = useSortable({ id: slot.id });
 
+  // dnd-kit owns the node via a callback ref; keep our own handle on the same
+  // element so the resync effect below can ask whether focus is inside it.
+  const rootRef = useRef(null);
+  const setRefs = useCallback(
+    (node) => {
+      rootRef.current = node;
+      setNodeRef(node);
+    },
+    [setNodeRef],
+  );
+
   const sortableStyle = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
   };
 
+  // Pull fresh server values into the local draft — but never while the coach
+  // is typing inside this card. Committing one field on blur refetches the
+  // whole slot, and without this guard that response lands mid-keystroke in
+  // the NEXT field and replaces what has been typed so far with the stored
+  // value. Non-focused fields already equal what was committed, so skipping
+  // the sync while focus is inside the card loses nothing.
   useEffect(() => {
+    if (rootRef.current?.contains(document.activeElement)) return;
     setSets(slot.sets);
     setReps(headLog ? (headLog.target_reps ?? '') : (slot.reps ?? ''));
     setSeconds(headLog ? (headLog.target_duration_seconds ?? '') : (slot.duration_seconds ?? ''));
@@ -246,7 +268,7 @@ export default function ExerciseSlotRow({
   }
 
   return (
-    <div ref={setNodeRef} style={sortableStyle} className="sl-card p-4 space-y-3">
+    <div ref={setRefs} style={sortableStyle} className="sl-card p-4 space-y-3">
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <button

@@ -9,6 +9,7 @@ import {
   useArchiveSession,
   useDeleteSession,
   useCreateSession,
+  useCreateWeek,
 } from './useWeek';
 import { createTestQueryClient } from '../test/utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -34,43 +35,67 @@ beforeEach(() => {
 });
 
 describe('useWeek', () => {
-  it('fetches week and its sessions, sorting slots by sort_order', async () => {
+  it('fetches the week tree in one query, sorting sessions and slots by sort_order', async () => {
     const mockWeekQuery = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: { id: 'w-1', week_number: 1 } }),
-    };
-    const mockSessionsQuery = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockResolvedValue({
-        data: [
-          {
-            id: 's-1',
-            week_id: 'w-1',
-            exercise_slots: [
-              { id: 'sl-2', sort_order: 2 },
-              { id: 'sl-1', sort_order: 1 },
-            ],
-          },
-        ],
+      single: vi.fn().mockResolvedValue({
+        data: {
+          id: 'w-1',
+          week_number: 1,
+          sessions: [
+            { id: 's-2', week_id: 'w-1', sort_order: 2, exercise_slots: [] },
+            {
+              id: 's-1',
+              week_id: 'w-1',
+              sort_order: 1,
+              exercise_slots: [
+                { id: 'sl-2', sort_order: 2 },
+                { id: 'sl-1', sort_order: 1 },
+              ],
+            },
+          ],
+        },
       }),
     };
-    supabase.from.mockImplementation((table) => {
-      if (table === 'weeks') return mockWeekQuery;
-      if (table === 'sessions') return mockSessionsQuery;
-      return {};
-    });
+    supabase.from.mockImplementation((table) => (table === 'weeks' ? mockWeekQuery : {}));
 
     const { wrapper } = createWrapper();
     const { result } = renderHook(() => useWeek('w-1'), { wrapper });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data.id).toBe('w-1');
+    // One round trip, not a week fetch plus a dependent sessions fetch.
+    expect(supabase.from).toHaveBeenCalledTimes(1);
+    expect(result.current.data.sessions.map((s) => s.id)).toEqual(['s-1', 's-2']);
     expect(result.current.data.sessions[0].exercise_slots.map((s) => s.id)).toEqual([
       'sl-1',
       'sl-2',
     ]);
+  });
+});
+
+describe('useCreateWeek', () => {
+  it('inserts a week and invalidates the program caches', async () => {
+    const chain = {
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: { id: 'w-new' }, error: null }),
+    };
+    supabase.from.mockReturnValue(chain);
+
+    const { qc, wrapper } = createWrapper();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useCreateWeek(), { wrapper });
+    result.current.mutate({ programId: 'p-1', weekNumber: 5, label: null });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(chain.insert).toHaveBeenCalledWith({
+      program_id: 'p-1',
+      week_number: 5,
+      label: null,
+    });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['program'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['active-program'] });
   });
 });
 

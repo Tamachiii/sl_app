@@ -17,8 +17,7 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useCreateWeek } from '../../hooks/useProgram';
-import { useReorderWeeks } from '../../hooks/useWeek';
+import { useCreateWeek, useReorderWeeks } from '../../hooks/useWeek';
 
 function SortableWeek({ week, studentId }) {
   const navigate = useNavigate();

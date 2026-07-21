@@ -11,11 +11,8 @@ vi.mock('react-router-dom', async () => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
-vi.mock('../../hooks/useProgram', () => ({
-  useCreateWeek: () => mockCreateWeek,
-}));
-
 vi.mock('../../hooks/useWeek', () => ({
+  useCreateWeek: () => mockCreateWeek,
   useReorderWeeks: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 

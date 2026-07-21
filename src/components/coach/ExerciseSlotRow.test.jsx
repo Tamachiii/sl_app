@@ -84,6 +84,37 @@ describe('ExerciseSlotRow', () => {
     expect(props.onUpdate).toHaveBeenCalledWith(expect.objectContaining({ sets: 5 }));
   });
 
+  it('keeps what the coach is typing when a refetched slot arrives mid-edit', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <DndContext>
+        <SortableContext items={['slot-1']}>
+          <ExerciseSlotRow slot={defaultSlot} onUpdate={vi.fn()} onDelete={vi.fn()} />
+        </SortableContext>
+      </DndContext>
+    );
+
+    // Commit Sets, then tab into Weight and keep typing. Committing Sets
+    // refetches the slot, so the new props land while Weight has focus.
+    const setsInput = screen.getByLabelText('Sets');
+    await user.clear(setsInput);
+    await user.type(setsInput, '5');
+    const weightInput = screen.getByLabelText('Weight');
+    await user.click(weightInput);
+    await user.clear(weightInput);
+    await user.type(weightInput, '7');
+
+    rerender(
+      <DndContext>
+        <SortableContext items={['slot-1']}>
+          <ExerciseSlotRow slot={{ ...defaultSlot, sets: 5 }} onUpdate={vi.fn()} onDelete={vi.fn()} />
+        </SortableContext>
+      </DndContext>
+    );
+
+    expect(screen.getByLabelText('Weight')).toHaveValue(7);
+  });
+
   it('shows "+ Add coach note" button when slot has no notes', () => {
     renderSlotRow();
     expect(screen.getByRole('button', { name: /add coach note/i })).toBeInTheDocument();

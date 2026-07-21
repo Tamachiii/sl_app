@@ -449,6 +449,10 @@ function TrashDialog({ studentId, t, onClose }) {
 
 export default function ProgramSwitcher({ studentId, programs, selectedId, onSelect, onProgramDeleted }) {
   const { t } = useI18n();
+  // Mirrors the `programs` prop so a drag reorders the list on the frame the
+  // pointer moves. useReorderPrograms does write the same order optimistically,
+  // but only after an awaited cancelQueries, which is a tick too late — without
+  // this the dragged row snaps back before the cache update lands.
   const [localPrograms, setLocalPrograms] = useState(programs || []);
   const [isOpen, setIsOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);

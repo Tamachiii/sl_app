@@ -60,7 +60,7 @@ export function useProgram(programId) {
  */
 export function useActiveProgram(studentId) {
   return useQuery({
-    queryKey: ['activeProgram', studentId],
+    queryKey: ['active-program', studentId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('programs')
@@ -91,7 +91,7 @@ export function invalidateCoachDashboard(qc) {
 function invalidateProgramQueries(qc, studentId) {
   qc.invalidateQueries({ queryKey: ['programs', studentId] });
   qc.invalidateQueries({ queryKey: ['programs-trash', studentId] });
-  qc.invalidateQueries({ queryKey: ['activeProgram', studentId] });
+  qc.invalidateQueries({ queryKey: ['active-program', studentId] });
   qc.invalidateQueries({ queryKey: ['program'] });
   // Student-side views read through is_active; refresh them too.
   qc.invalidateQueries({ queryKey: ['student-program-details'] });
@@ -370,21 +370,18 @@ export function useReorderPrograms() {
     mutationFn: async ({ studentId, orderedIds }) => {
       const TMP_BASE = 100000;
 
-      for (let i = 0; i < orderedIds.length; i++) {
-        const { error } = await supabase
-          .from('programs')
-          .update({ sort_order: TMP_BASE + i })
-          .eq('id', orderedIds[i]);
-        if (error) throw error;
+      // Writes within a pass are independent; only the passes are ordered.
+      async function writeAll(orderFor) {
+        const results = await Promise.all(
+          orderedIds.map((id, i) =>
+            supabase.from('programs').update({ sort_order: orderFor(i) }).eq('id', id),
+          ),
+        );
+        for (const { error } of results) if (error) throw error;
       }
 
-      for (let i = 0; i < orderedIds.length; i++) {
-        const { error } = await supabase
-          .from('programs')
-          .update({ sort_order: i })
-          .eq('id', orderedIds[i]);
-        if (error) throw error;
-      }
+      await writeAll((i) => TMP_BASE + i);
+      await writeAll((i) => i);
 
       return { studentId };
     },
@@ -436,32 +433,31 @@ export function useCoachDashboardPrograms() {
   return useQuery({
     queryKey: ['coach-dashboard-programs', user?.id],
     queryFn: async () => {
-      const { data: programs, error: pErr } = await supabase
-        .from('programs')
-        .select(`
-          student_id, name,
-          weeks(id, week_number, label,
-            sessions(id, title, day_number, scheduled_date, archived_at))
-        `)
-        .eq('is_active', true);
-      if (pErr) throw pErr;
-
-      const sessionIds = [];
-      for (const p of programs || []) {
-        for (const w of p.weeks || []) {
-          for (const s of w.sessions || []) sessionIds.push(s.id);
-        }
-      }
-
-      let confirmedIds = new Set();
-      if (sessionIds.length > 0) {
-        const { data: confs, error: cErr } = await supabase
+      // Both reads are independent — the confirmations query filters through
+      // the join rather than through an id list, so it no longer has to wait
+      // for the program tree. See useAllConfirmations for why: a
+      // `.in('session_id', [...])` over every session the coach owns grows the
+      // GET URL by ~37 bytes per session and hard-fails once a coach has a few
+      // hundred of them.
+      const [programsRes, confsRes] = await Promise.all([
+        supabase
+          .from('programs')
+          .select(`
+            student_id, name,
+            weeks(id, week_number, label,
+              sessions(id, title, day_number, scheduled_date, archived_at))
+          `)
+          .eq('is_active', true),
+        supabase
           .from('session_confirmations')
-          .select('session_id')
-          .in('session_id', sessionIds);
-        if (cErr) throw cErr;
-        confirmedIds = new Set((confs || []).map((c) => c.session_id));
-      }
+          .select('session_id, session:sessions!inner(week:weeks!inner(program:programs!inner(is_active)))')
+          .eq('session.week.program.is_active', true),
+      ]);
+      if (programsRes.error) throw programsRes.error;
+      if (confsRes.error) throw confsRes.error;
+
+      const programs = programsRes.data;
+      const confirmedIds = new Set((confsRes.data || []).map((c) => c.session_id));
 
       const monday = startOfWeekMonday(new Date());
 
@@ -528,23 +524,3 @@ export function useCoachDashboardPrograms() {
   });
 }
 
-export function useCreateWeek() {
-  const qc = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({ programId, weekNumber, label }) => {
-      const { data, error } = await supabase
-        .from('weeks')
-        .insert({ program_id: programId, week_number: weekNumber, label })
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['program'] });
-      qc.invalidateQueries({ queryKey: ['programs'] });
-      qc.invalidateQueries({ queryKey: ['activeProgram'] });
-    },
-  });
-}
