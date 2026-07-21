@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-vi.mock('../lib/supabase', () => ({ supabase: { from: vi.fn() } }));
+vi.mock('../lib/supabase', () => ({ supabase: { from: vi.fn(), rpc: vi.fn() } }));
 vi.mock('./useAuth', () => ({ useAuth: vi.fn() }));
 
 import {
@@ -18,6 +18,8 @@ import {
   useSetActiveProgram,
   useReorderPrograms,
   useCoachDashboardPrograms,
+  useApproveProgram,
+  useSendBackProgram,
 } from './useProgram';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
@@ -729,3 +731,42 @@ describe('useCoachDashboardPrograms', () => {
   });
 });
 
+
+// Phase 3.4c: approve materializes set_logs from the draft's slot scalars and
+// flips status to 'approved'; send-back clears submitted_at. Both are
+// coach-only SECURITY DEFINER RPCs — the client half is just the call and the
+// cache drop, and neither was covered before.
+describe('useApproveProgram / useSendBackProgram', () => {
+  beforeEach(() => {
+    supabase.rpc.mockResolvedValue({ data: null, error: null });
+  });
+
+  it('useApproveProgram calls approve_program and refreshes the program caches', async () => {
+    const qc = makeClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useApproveProgram(), { wrapper: withClient(qc) });
+    result.current.mutate({ programId: 'p-1', studentId: 'st-1' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(supabase.rpc).toHaveBeenCalledWith('approve_program', { p_program_id: 'p-1' });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['programs', 'st-1'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['active-program', 'st-1'] });
+    // Approval materializes the student's set_logs, so their views must drop too.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['student-program-details'] });
+  });
+
+  it('useSendBackProgram calls send_back_program', async () => {
+    const qc = makeClient();
+    const { result } = renderHook(() => useSendBackProgram(), { wrapper: withClient(qc) });
+    result.current.mutate({ programId: 'p-1', studentId: 'st-1' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(supabase.rpc).toHaveBeenCalledWith('send_back_program', { p_program_id: 'p-1' });
+  });
+
+  it('surfaces an RPC rejection (a non-coach caller) as a failed mutation', async () => {
+    supabase.rpc.mockResolvedValue({ data: null, error: new Error('permission denied') });
+    const { result } = renderHook(() => useApproveProgram(), { wrapper: withClient(makeClient()) });
+    result.current.mutate({ programId: 'p-1', studentId: 'st-1' });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+});

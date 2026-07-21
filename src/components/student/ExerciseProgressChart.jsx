@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useI18n } from '../../hooks/useI18n';
 
+// ink-100 is a near-white cream: a faint rule on the light card, but bright
+// lines across the dark one. A tint of the mid-tone ink reads correctly in
+// both themes — and unlike a utility class, an SVG `stroke` gets no dark-mode
+// remap from index.css.
+const GRIDLINE_STROKE = 'color-mix(in srgb, var(--color-ink-400) 30%, transparent)';
+
 function readStoredExerciseId(storageKey) {
   if (!storageKey) return '';
   try { return localStorage.getItem(storageKey) || ''; } catch { return ''; }
@@ -136,7 +142,7 @@ export default function ExerciseProgressChart({ exercises, byExercise, storageKe
                     x2={W - PAD_R}
                     y1={y}
                     y2={y}
-                    stroke="var(--color-ink-100)"
+                    stroke={GRIDLINE_STROKE}
                     strokeWidth="1"
                   />
                   <text

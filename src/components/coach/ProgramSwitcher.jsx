@@ -601,8 +601,7 @@ export default function ProgramSwitcher({ studentId, programs, selectedId, onSel
         {isOpen && (
           <div
             role="listbox"
-            className="absolute left-0 right-0 top-full mt-1 z-20 rounded-lg bg-white shadow-lg overflow-hidden"
-            style={{ border: '1px solid var(--color-ink-200)' }}
+            className="absolute left-0 right-0 top-full mt-1 z-20 rounded-lg bg-white border border-ink-200 shadow-lg overflow-hidden"
           >
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <div className="py-1 max-h-[60vh] overflow-y-auto">
@@ -629,8 +628,7 @@ export default function ProgramSwitcher({ studentId, programs, selectedId, onSel
                   setIsOpen(false);
                   setTrashOpen(true);
                 }}
-                className="w-full text-left px-3 py-2 sl-mono text-[11px] text-ink-400 hover:bg-ink-100 transition-colors"
-                style={{ borderTop: '1px solid var(--color-ink-200)' }}
+                className="w-full text-left px-3 py-2 sl-mono text-[11px] text-ink-400 border-t border-ink-200 hover:bg-ink-100 transition-colors"
               >
                 {t('coach.home.trashCount', { n: trashedPrograms.length })}
               </button>
