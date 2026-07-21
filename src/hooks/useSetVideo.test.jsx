@@ -53,33 +53,32 @@ describe('useSetVideos', () => {
     expect(supabase.from).not.toHaveBeenCalled();
   });
 
-  it('joins set_logs to set_log_videos and decorates with slot/set numbers', async () => {
-    const logsChain = {
-      select: vi.fn().mockReturnThis(),
-      in: vi.fn().mockResolvedValue({
-        data: [
-          { id: 'l-1', exercise_slot_id: 'sl-1', set_number: 2 },
-        ],
-        error: null,
-      }),
-    };
+  it('fetches videos in one join and flattens slot/set numbers onto each row', async () => {
     const videosChain = {
       select: vi.fn().mockReturnThis(),
       in: vi.fn().mockResolvedValue({
         data: [
-          { id: 'v-1', set_log_id: 'l-1', storage_path: 'p/1.mp4' },
+          {
+            id: 'v-1',
+            set_log_id: 'l-1',
+            storage_path: 'p/1.mp4',
+            set_log: { exercise_slot_id: 'sl-1', set_number: 2 },
+          },
         ],
         error: null,
       }),
     };
-    let call = 0;
-    supabase.from.mockImplementation(() => (call++ === 0 ? logsChain : videosChain));
+    supabase.from.mockReturnValue(videosChain);
 
     const qc = makeClient();
     const { result } = renderHook(() => useSetVideos('s-1', ['sl-1']), {
       wrapper: withClient(qc),
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(supabase.from).toHaveBeenCalledTimes(1);
+    expect(supabase.from).toHaveBeenCalledWith('set_log_videos');
+    expect(videosChain.in).toHaveBeenCalledWith('set_log.exercise_slot_id', ['sl-1']);
+    // The embedded row is flattened away, not left nested.
     expect(result.current.data).toEqual([
       {
         id: 'v-1',

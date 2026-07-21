@@ -85,38 +85,57 @@ export function useStudentRecords(studentRowId) {
         bwProfileId = student?.profile_id ?? null;
       }
 
-      const { data, error } = await supabase
-        .from('set_logs')
-        .select(`
-          done, logged_at, target_reps, target_weight_kg, actual_reps, actual_weight_kg,
-          exercise_slots!inner(
-            id,
-            exercise:exercise_library!inner(id, name, type, load_mode),
-            sessions!inner(weeks!inner(programs!inner(student_id, deleted_at)))
-          )
-        `)
-        .eq('done', true)
-        .eq('exercise_slots.sessions.weeks.programs.student_id', resolvedId)
-        .is('exercise_slots.sessions.weeks.programs.deleted_at', null)
-        .limit(20000);
-      if (error) throw error;
+      // These three reads are independent of one another (only the student id
+      // they all filter on had to be resolved first), so they go out together.
+      //   1. every done set,
+      //   2. the swap deviations that re-point some of them at a substitute —
+      //      so a swapped set's PR follows what the student actually did.
+      //      Scoped through the same program join (coach reads via their RLS
+      //      policy, student via own-rows), never an unbounded slot-id .in(),
+      //   3. the bodyweight series behind the ×BW figure. Empty or unknown →
+      //      records simply render without it (graceful degrade).
+      const [logRes, devRes, bwRes] = await Promise.all([
+        supabase
+          .from('set_logs')
+          .select(`
+            done, logged_at, target_reps, target_weight_kg, actual_reps, actual_weight_kg,
+            exercise_slots!inner(
+              id,
+              exercise:exercise_library!inner(id, name, type, load_mode),
+              sessions!inner(weeks!inner(programs!inner(student_id, deleted_at)))
+            )
+          `)
+          .eq('done', true)
+          .eq('exercise_slots.sessions.weeks.programs.student_id', resolvedId)
+          .is('exercise_slots.sessions.weeks.programs.deleted_at', null)
+          .limit(20000),
+        supabase
+          .from('slot_deviations')
+          .select(`
+            exercise_slot_id,
+            substitute:exercise_library(id, name, type, load_mode),
+            exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(student_id, deleted_at))))
+          `)
+          .eq('kind', 'swap')
+          .eq('exercise_slots.sessions.weeks.programs.student_id', resolvedId)
+          .is('exercise_slots.sessions.weeks.programs.deleted_at', null)
+          .limit(20000),
+        bwProfileId
+          ? supabase
+              .from('bodyweight_logs')
+              .select('weight_kg, logged_on')
+              .eq('student_id', bwProfileId)
+              .order('logged_on', { ascending: true })
+              .limit(20000)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (logRes.error) throw logRes.error;
+      if (devRes.error) throw devRes.error;
+      if (bwRes.error) throw bwRes.error;
+      const data = logRes.data;
+      const devs = devRes.data;
+      const bwRows = bwRes.data || [];
 
-      // Swap deviations for this student's slots, with the substitute exercise's
-      // metadata — so a swapped set's PR follows what the student actually did.
-      // Scoped through the same program join (coach reads via their RLS policy,
-      // student via own-rows), never an unbounded slot-id .in().
-      const { data: devs, error: devErr } = await supabase
-        .from('slot_deviations')
-        .select(`
-          exercise_slot_id,
-          substitute:exercise_library(id, name, type, load_mode),
-          exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(student_id, deleted_at))))
-        `)
-        .eq('kind', 'swap')
-        .eq('exercise_slots.sessions.weeks.programs.student_id', resolvedId)
-        .is('exercise_slots.sessions.weeks.programs.deleted_at', null)
-        .limit(20000);
-      if (devErr) throw devErr;
       const swapBySlot = new Map();
       for (const d of devs || []) {
         if (d.substitute) swapBySlot.set(d.exercise_slot_id, d.substitute);
@@ -138,19 +157,6 @@ export function useStudentRecords(studentRowId) {
         };
       });
 
-      // Bodyweight series for relative strength (×BW). Empty/unknown → the
-      // records simply render without a ×BW figure (graceful degrade).
-      let bwRows = [];
-      if (bwProfileId) {
-        const { data: bw, error: bwErr } = await supabase
-          .from('bodyweight_logs')
-          .select('weight_kg, logged_on')
-          .eq('student_id', bwProfileId)
-          .order('logged_on', { ascending: true })
-          .limit(20000);
-        if (bwErr) throw bwErr;
-        bwRows = bw || [];
-      }
 
       const recentSince = new Date();
       recentSince.setDate(recentSince.getDate() - RECENT_WINDOW_DAYS);

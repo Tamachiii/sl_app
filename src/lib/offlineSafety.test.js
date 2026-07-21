@@ -95,12 +95,19 @@ function extractHooks(src) {
 
 describe('offline-safety guardrail', () => {
   const offending = [];
+  const inspected = [];
 
   for (const file of FILES) {
     const src = readFileSync(resolve(hooksDir, file), 'utf8');
     for (const { name, body } of extractHooks(src)) {
-      if (!body.includes('useMutation')) continue; // read hook, skip
+      // A write hook either calls useMutation directly or delegates to a
+      // local factory that does — in both cases it names a `mutationFn`.
+      // Testing only for `useMutation` would silently stop covering any hook
+      // that gets refactored onto a factory.
+      const isWriteHook = body.includes('useMutation') || /mutationFn\s*:/.test(body);
+      if (!isWriteHook) continue; // read hook, skip
       if (COACH_ONLY.has(name)) continue;
+      inspected.push(name);
       const hasMutationKey = /mutationKey\s*:/.test(body);
       const isOnlineOnly = ONLINE_ONLY.has(name);
       if (!hasMutationKey && !isOnlineOnly) {
@@ -121,5 +128,21 @@ describe('offline-safety guardrail', () => {
     const hooks = extractHooks(setLogs).map((h) => h.name);
     expect(hooks).toContain('useToggleSetDone');
     expect(hooks).toContain('useAddStudentSet');
+  });
+
+  it('covers the set-log writes that delegate to the optimistic factory', () => {
+    // These five don't call useMutation in their own body — they hand off to
+    // useOptimisticSetLogMutation. A detector keyed on the literal
+    // "useMutation" would skip them as read hooks and pass vacuously, which
+    // is exactly how a workout write could lose its offline key unnoticed.
+    expect(inspected).toEqual(
+      expect.arrayContaining([
+        'useToggleSetDone',
+        'useSetFailed',
+        'useLogActual',
+        'useSetSkipped',
+        'useSetRpe',
+      ]),
+    );
   });
 });

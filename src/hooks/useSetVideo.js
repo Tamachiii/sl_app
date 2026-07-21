@@ -19,27 +19,20 @@ export function useSetVideos(sessionId, slotIds) {
     queryKey: ['set-videos', sessionId, sortedIds],
     queryFn: async () => {
       if (sortedIds.length === 0) return [];
-      const { data: logs, error: logErr } = await supabase
-        .from('set_logs')
-        .select('id, exercise_slot_id, set_number')
-        .in('exercise_slot_id', sortedIds);
-      if (logErr) throw logErr;
-      const logIds = (logs || []).map((l) => l.id);
-      if (logIds.length === 0) return [];
-      const { data: videos, error: vidErr } = await supabase
+      // One join instead of "fetch every set_log in the session, then feed its
+      // ids back as an .in(...) list" — the second list was the larger of the
+      // two and most of it had no video attached.
+      const { data, error } = await supabase
         .from('set_log_videos')
-        .select('*')
-        .in('set_log_id', logIds);
-      if (vidErr) throw vidErr;
-      const byLogId = new Map((logs || []).map((l) => [l.id, l]));
-      return (videos || []).map((v) => {
-        const log = byLogId.get(v.set_log_id);
-        return {
-          ...v,
-          exercise_slot_id: log?.exercise_slot_id,
-          set_number: log?.set_number,
-        };
-      });
+        .select('*, set_log:set_logs!inner(exercise_slot_id, set_number)')
+        .in('set_log.exercise_slot_id', sortedIds);
+      if (error) throw error;
+      // Flatten back to the shape SessionView and SessionReview already read.
+      return (data || []).map(({ set_log: log, ...video }) => ({
+        ...video,
+        exercise_slot_id: log?.exercise_slot_id,
+        set_number: log?.set_number,
+      }));
     },
     enabled: !!sessionId && sortedIds.length > 0,
   });

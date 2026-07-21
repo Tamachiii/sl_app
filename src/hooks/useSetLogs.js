@@ -86,84 +86,33 @@ function rowScope(logId) {
   return logId ? { scope: { id: `set-log-${logId}` } } : {};
 }
 
-export function useToggleSetDone(logId) {
+/**
+ * Every single-row set-log write shares one protocol: patch the row into all
+ * ['set-logs'] caches so the change shows instantly (including while parked
+ * offline), restore the snapshot on error, and invalidate once the write
+ * settles. `buildPatch` receives the mutation's variables and returns the
+ * fields to merge onto the matching row.
+ *
+ * The mutationKey / mutationFn wiring stays explicit at each call site: those
+ * are what `registerOfflineMutationDefaults` looks up to revive a mutation
+ * hydrated after a cold reload, whose closure-bound fn didn't survive
+ * serialization.
+ */
+function useOptimisticSetLogMutation(logId, { mutationKey, mutationFn, buildPatch }) {
   const qc = useQueryClient();
 
   return useMutation({
-    mutationKey: MUTATION_KEYS.toggleDone,
-    mutationFn: MUTATION_FNS.toggleDone,
+    mutationKey,
+    mutationFn,
     ...rowScope(logId),
-    onMutate: async ({ logId, done }) => {
+    onMutate: async (variables) => {
       await qc.cancelQueries({ queryKey: ['set-logs'] });
       const previousQueries = qc.getQueriesData({ queryKey: ['set-logs'] });
-      const patch = patchForDone(done);
-      qc.setQueriesData({ queryKey: ['set-logs'] }, (old) => {
-        if (!old) return old;
-        return old.map((log) => (log.id === logId ? { ...log, ...patch } : log));
-      });
-      return { previousQueries };
-    },
-    onError: (err, newLog, context) => {
-      context?.previousQueries?.forEach(([queryKey, oldData]) => {
-        qc.setQueryData(queryKey, oldData);
-      });
-    },
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: ['set-logs'] });
-    },
-  });
-}
-
-export function useSetFailed(logId) {
-  const qc = useQueryClient();
-
-  return useMutation({
-    mutationKey: MUTATION_KEYS.setFailed,
-    mutationFn: MUTATION_FNS.setFailed,
-    ...rowScope(logId),
-    onMutate: async ({ logId, failed }) => {
-      await qc.cancelQueries({ queryKey: ['set-logs'] });
-      const previousQueries = qc.getQueriesData({ queryKey: ['set-logs'] });
-      const patch = patchForFailed(failed);
-      qc.setQueriesData({ queryKey: ['set-logs'] }, (old) => {
-        if (!old) return old;
-        return old.map((log) => (log.id === logId ? { ...log, ...patch } : log));
-      });
-      return { previousQueries };
-    },
-    onError: (err, newLog, context) => {
-      context?.previousQueries?.forEach(([queryKey, oldData]) => {
-        qc.setQueryData(queryKey, oldData);
-      });
-    },
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: ['set-logs'] });
-    },
-  });
-}
-
-// Records the student's off-plan actuals (reps performed / load used) on a
-// single set_log. Same offline-safe shape as the other set-log writes: an
-// UPDATE of a pre-existing row, optimistic patch into every ['set-logs'] cache,
-// rollback on error. Callers pass already-normalized values (a dimension equal
-// to its prescribed target is sent as null) so a stored actual_* always means
-// a genuine deviation.
-export function useLogActual(logId) {
-  const qc = useQueryClient();
-
-  return useMutation({
-    mutationKey: MUTATION_KEYS.logActual,
-    mutationFn: MUTATION_FNS.logActual,
-    ...rowScope(logId),
-    onMutate: async ({ logId, actualReps, actualWeightKg }) => {
-      await qc.cancelQueries({ queryKey: ['set-logs'] });
-      const previousQueries = qc.getQueriesData({ queryKey: ['set-logs'] });
+      const patch = buildPatch(variables);
       qc.setQueriesData({ queryKey: ['set-logs'] }, (old) => {
         if (!old) return old;
         return old.map((log) =>
-          log.id === logId
-            ? { ...log, actual_reps: actualReps ?? null, actual_weight_kg: actualWeightKg ?? null }
-            : log,
+          log.id === variables.logId ? { ...log, ...patch } : log,
         );
       });
       return { previousQueries };
@@ -177,32 +126,47 @@ export function useLogActual(logId) {
   });
 }
 
+export function useToggleSetDone(logId) {
+  return useOptimisticSetLogMutation(logId, {
+    mutationKey: MUTATION_KEYS.toggleDone,
+    mutationFn: MUTATION_FNS.toggleDone,
+    buildPatch: ({ done }) => patchForDone(done),
+  });
+}
+
+export function useSetFailed(logId) {
+  return useOptimisticSetLogMutation(logId, {
+    mutationKey: MUTATION_KEYS.setFailed,
+    mutationFn: MUTATION_FNS.setFailed,
+    buildPatch: ({ failed }) => patchForFailed(failed),
+  });
+}
+
+// Records the student's off-plan actuals (reps performed / load used) on a
+// single set_log. Same offline-safe shape as the other set-log writes: an
+// UPDATE of a pre-existing row, optimistic patch into every ['set-logs'] cache,
+// rollback on error. Callers pass already-normalized values (a dimension equal
+// to its prescribed target is sent as null) so a stored actual_* always means
+// a genuine deviation.
+export function useLogActual(logId) {
+  return useOptimisticSetLogMutation(logId, {
+    mutationKey: MUTATION_KEYS.logActual,
+    mutationFn: MUTATION_FNS.logActual,
+    buildPatch: ({ actualReps, actualWeightKg }) => ({
+      actual_reps: actualReps ?? null,
+      actual_weight_kg: actualWeightKg ?? null,
+    }),
+  });
+}
+
 // Marks a prescribed set as intentionally skipped (or un-skips it). Offline-
 // safe UPDATE; clears any done/failed/rpe/actual on the same patch to satisfy
 // the DB CHECK that a skipped set isn't also resolved.
 export function useSetSkipped(logId) {
-  const qc = useQueryClient();
-
-  return useMutation({
+  return useOptimisticSetLogMutation(logId, {
     mutationKey: MUTATION_KEYS.setSkipped,
     mutationFn: MUTATION_FNS.setSkipped,
-    ...rowScope(logId),
-    onMutate: async ({ logId, skipped }) => {
-      await qc.cancelQueries({ queryKey: ['set-logs'] });
-      const previousQueries = qc.getQueriesData({ queryKey: ['set-logs'] });
-      const patch = patchForSkipped(skipped);
-      qc.setQueriesData({ queryKey: ['set-logs'] }, (old) => {
-        if (!old) return old;
-        return old.map((log) => (log.id === logId ? { ...log, ...patch } : log));
-      });
-      return { previousQueries };
-    },
-    onError: (_err, _vars, context) => {
-      context?.previousQueries?.forEach(([queryKey, oldData]) => {
-        qc.setQueryData(queryKey, oldData);
-      });
-    },
-    onSettled: () => qc.invalidateQueries({ queryKey: ['set-logs'] }),
+    buildPatch: ({ skipped }) => patchForSkipped(skipped),
   });
 }
 
@@ -253,27 +217,10 @@ export function useRemoveStudentSet() {
 }
 
 export function useSetRpe(logId) {
-  const qc = useQueryClient();
-
-  return useMutation({
+  return useOptimisticSetLogMutation(logId, {
     mutationKey: MUTATION_KEYS.setRpe,
     mutationFn: MUTATION_FNS.setRpe,
-    ...rowScope(logId),
-    onMutate: async ({ logId, rpe }) => {
-      await qc.cancelQueries({ queryKey: ['set-logs'] });
-      const previousQueries = qc.getQueriesData({ queryKey: ['set-logs'] });
-      qc.setQueriesData({ queryKey: ['set-logs'] }, (old) => {
-        if (!old) return old;
-        return old.map((log) => (log.id === logId ? { ...log, rpe } : log));
-      });
-      return { previousQueries };
-    },
-    onError: (_err, _vars, context) => {
-      context?.previousQueries?.forEach(([queryKey, oldData]) => {
-        qc.setQueryData(queryKey, oldData);
-      });
-    },
-    onSettled: () => qc.invalidateQueries({ queryKey: ['set-logs'] }),
+    buildPatch: ({ rpe }) => ({ rpe }),
   });
 }
 

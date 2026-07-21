@@ -47,6 +47,50 @@ async function nextSessionSortOrder(weekId) {
   return (data?.[0]?.sort_order ?? -1) + 1;
 }
 
+/**
+ * Copy `sourceSlots` (pre-sorted by sort_order) onto `destSessionId` and return
+ * the old→new slot id map. Owns the field list for a slot copy so week and
+ * session duplication can't drift apart on it — a divergence here previously
+ * dropped `record_video_set_numbers` and silently disabled the coach's per-set
+ * video requests on every propagated week.
+ *
+ * Deliberately does NOT touch set_logs: week duplication batches ONE
+ * copySetLogTargets call for the whole week, so that stays the caller's job.
+ * `errorContext` prefixes the count-mismatch error so the failing operation is
+ * still identifiable.
+ */
+async function copySlotsInto(destSessionId, sourceSlots, errorContext) {
+  if (sourceSlots.length === 0) return {};
+  const slotRows = sourceSlots.map((sl) => ({
+    session_id: destSessionId,
+    exercise_id: sl.exercise_id,
+    sets: sl.sets,
+    reps: sl.reps,
+    weight_kg: sl.weight_kg,
+    sort_order: sl.sort_order,
+    notes: sl.notes,
+    duration_seconds: sl.duration_seconds,
+    superset_group: sl.superset_group,
+    rest_seconds: sl.rest_seconds,
+    // Part of the prescription, not a rendering detail — see above.
+    record_video_set_numbers: sl.record_video_set_numbers,
+  }));
+  const { data: newSlots, error } = await supabase
+    .from('exercise_slots')
+    .insert(slotRows)
+    .select('id');
+  if (error) throw error;
+  // Index-based pairing, not sort_order: legacy rows can carry ties.
+  if ((newSlots || []).length !== sourceSlots.length) {
+    throw new Error(`${errorContext}: slot copy count mismatch`);
+  }
+  const slotIdMap = {};
+  sourceSlots.forEach((src, j) => {
+    slotIdMap[src.id] = newSlots[j].id;
+  });
+  return slotIdMap;
+}
+
 // Copy a source week's sessions → slots → set_log TARGETS into an already-
 // created destination week. Actuals (done/rpe/weight_kg/logged_at) and per-
 // session scheduling (scheduled_date/reviewed_at) are intentionally NOT
@@ -97,33 +141,7 @@ async function copyWeekTree(srcWeekId, destWeekId) {
     const sourceSlots = (sess.exercise_slots || []).slice().sort(
       (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
     );
-    if (sourceSlots.length === 0) continue;
-    const slotRows = sourceSlots.map((sl) => ({
-      session_id: newSessId,
-      exercise_id: sl.exercise_id,
-      sets: sl.sets,
-      reps: sl.reps,
-      weight_kg: sl.weight_kg,
-      sort_order: sl.sort_order,
-      notes: sl.notes,
-      duration_seconds: sl.duration_seconds,
-      superset_group: sl.superset_group,
-      rest_seconds: sl.rest_seconds,
-      // The coach's per-set video requests are part of the prescription —
-      // dropping them here silently disabled recording on every propagated week.
-      record_video_set_numbers: sl.record_video_set_numbers,
-    }));
-    const { data: newSlots, error: slErr } = await supabase
-      .from('exercise_slots')
-      .insert(slotRows)
-      .select('id');
-    if (slErr) throw slErr;
-    if ((newSlots || []).length !== sourceSlots.length) {
-      throw new Error('Week duplication failed: slot copy count mismatch');
-    }
-    sourceSlots.forEach((src, j) => {
-      slotIdMap[src.id] = newSlots[j].id;
-    });
+    Object.assign(slotIdMap, await copySlotsInto(newSessId, sourceSlots, 'Week duplication failed'));
   }
   await copySetLogTargets(slotIdMap);
 }
@@ -314,36 +332,12 @@ export function useDuplicateSession() {
       const sourceSlots = (src.exercise_slots || []).slice().sort(
         (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
       );
-      if (sourceSlots.length > 0) {
-        const slotRows = sourceSlots.map((sl) => ({
-          session_id: newSess.id,
-          exercise_id: sl.exercise_id,
-          sets: sl.sets,
-          reps: sl.reps,
-          weight_kg: sl.weight_kg,
-          sort_order: sl.sort_order,
-          notes: sl.notes,
-          duration_seconds: sl.duration_seconds,
-          superset_group: sl.superset_group,
-          rest_seconds: sl.rest_seconds,
-          record_video_set_numbers: sl.record_video_set_numbers,
-        }));
-        const { data: newSlots, error: slErr } = await supabase
-          .from('exercise_slots')
-          .insert(slotRows)
-          .select('id');
-        if (slErr) throw slErr;
-        // Index-based mapping — see useDuplicateWeek for why sort_order
-        // pairing is unsafe on legacy data.
-        if ((newSlots || []).length !== sourceSlots.length) {
-          throw new Error('Session duplication failed: slot copy count mismatch');
-        }
-        const slotIdMap = {};
-        sourceSlots.forEach((s, j) => {
-          slotIdMap[s.id] = newSlots[j].id;
-        });
-        await copySetLogTargets(slotIdMap);
-      }
+      const slotIdMap = await copySlotsInto(
+        newSess.id,
+        sourceSlots,
+        'Session duplication failed',
+      );
+      await copySetLogTargets(slotIdMap);
 
       return newSess;
     },
