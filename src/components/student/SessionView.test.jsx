@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -832,10 +832,38 @@ describe('SessionView', () => {
     expect(screen.getByText(/session confirmed/i)).toBeInTheDocument();
     expect(screen.getByText('great session')).toBeInTheDocument();
 
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    // Undo goes through the app's ConfirmDialog now, not a native confirm() —
+    // so the click opens the dialog and the mutation waits for its button.
     await user.click(screen.getByRole('button', { name: /undo confirmation/i }));
+    expect(mockUnconfirm.mutate).not.toHaveBeenCalled();
+
+    // Both the confirm-session Dialog and this one live in the DOM, so pick
+    // the one carrying the undo title rather than by role alone.
+    const dialog = screen.getByText(/undo confirmation\?/i).closest('dialog');
+    await user.click(within(dialog).getByRole('button', { name: /undo confirmation/i }));
     expect(mockUnconfirm.mutate).toHaveBeenCalledWith({ sessionId: 'sess-1' });
-    window.confirm.mockRestore();
+  });
+
+  it('dismissing the undo dialog leaves the confirmation in place', async () => {
+    const user = userEvent.setup();
+    mockConfirmation = {
+      data: {
+        id: 'c-1',
+        session_id: 'sess-1',
+        student_id: 'u-1',
+        confirmed_at: '2026-04-14T10:00:00Z',
+        notes: null,
+      },
+      isLoading: false,
+    };
+    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
+    mockSetLogsData = { data: [], isLoading: false };
+    renderSessionView();
+
+    await user.click(screen.getByRole('button', { name: /undo confirmation/i }));
+    const dialog = screen.getByText(/undo confirmation\?/i).closest('dialog');
+    await user.click(within(dialog).getByRole('button', { name: /cancel/i }));
+    expect(mockUnconfirm.mutate).not.toHaveBeenCalled();
   });
 
   // Past-program sessions reach SessionView via the stats calendar history

@@ -84,7 +84,9 @@ function SlotBody({
             borderLeft: '2px solid var(--color-accent)',
           }}
         >
-          <div className="sl-label mb-1" style={{ color: 'var(--color-accent)' }}>Coach note</div>
+          <div className="sl-label mb-1" style={{ color: 'var(--color-accent)' }}>
+            {t('student.session.coachNote')}
+          </div>
           <p className="text-[13px] leading-snug text-gray-800 whitespace-pre-wrap">{slot.notes}</p>
         </div>
       )}
@@ -188,11 +190,13 @@ function Chevron({ open }) {
 // for the note feature — students who haven't expanded a card before see
 // the icon on slots they HAVE noted, learning the affordance exists.
 function NoteBadge() {
+  const { t } = useI18n();
+  const label = t('student.session.noteAttached');
   return (
     <span
       className="inline-flex items-center justify-center shrink-0 self-center text-ink-400"
-      aria-label="Note attached"
-      title="Note attached"
+      aria-label={label}
+      title={label}
     >
       <svg
         className="w-3.5 h-3.5"

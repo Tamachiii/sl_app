@@ -1,4 +1,5 @@
 import { useRestTimer } from '../../hooks/useRestTimer';
+import { useI18n } from '../../hooks/useI18n';
 
 // Brief "Rest done" flash window after the timer expires. After this, the
 // banner fully hides until the next set is validated. The hook's ticker
@@ -26,6 +27,7 @@ function formatMMSS(seconds) {
  */
 export default function RestTimerBanner() {
   const snap = useRestTimer();
+  const { t } = useI18n();
   if (snap.endsAt == null) return null;
 
   const remainingMs = snap.endsAt - Date.now();
@@ -38,7 +40,11 @@ export default function RestTimerBanner() {
     <div
       role="status"
       aria-live="polite"
-      aria-label={expired ? 'Rest done' : `Rest remaining ${seconds} seconds`}
+      aria-label={
+        expired
+          ? t('student.session.restDone')
+          : t('student.session.restRemainingAria', { n: seconds })
+      }
       className="inline-flex items-center gap-1.5 px-2.5 h-8 rounded-full whitespace-nowrap"
       style={{
         background: expired
@@ -50,7 +56,7 @@ export default function RestTimerBanner() {
         className="sl-label"
         style={{ color: expired ? 'var(--color-success)' : 'var(--color-accent)' }}
       >
-        {expired ? 'Rest done' : 'Rest'}
+        {expired ? t('student.session.restDone') : t('student.session.restLabel')}
       </span>
       {!expired && (
         <span

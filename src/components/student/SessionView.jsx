@@ -16,6 +16,7 @@ import { useSessionFeedback, formatMessageStamp } from '../../hooks/useMessages'
 import { useI18n } from '../../hooks/useI18n';
 import Spinner from '../ui/Spinner';
 import Dialog from '../ui/Dialog';
+import ConfirmDialog from '../ui/ConfirmDialog';
 import { groupSlotsBySuperset } from '../../lib/volume';
 import { DAY_FULL } from '../../lib/day';
 import SlotGroupCard from './SlotGroupCard';
@@ -122,6 +123,7 @@ export default function SessionView() {
 
   const [notes, setNotes] = useState('');
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [undoDialogOpen, setUndoDialogOpen] = useState(false);
   // Accordion-style manual override:
   //   null      → no manual override; defer to auto (firstOpenIdx).
   //   string    → that group key is the only open one (closes any auto-open).
@@ -222,9 +224,8 @@ export default function SessionView() {
   }
 
   function handleUnconfirm() {
-    if (confirm('Undo confirmation for this session?')) {
-      unconfirmSession.mutate({ sessionId });
-    }
+    setUndoDialogOpen(false);
+    unconfirmSession.mutate({ sessionId });
   }
 
   // Build total-sets progress numbers. The text counts only successfully
@@ -343,7 +344,7 @@ export default function SessionView() {
               </svg>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="sl-display text-[16px] text-gray-900">Session confirmed</p>
+              <p className="sl-display text-[16px] text-gray-900">{t('student.session.confirmed')}</p>
               <p className="sl-mono text-[11px] text-ink-400 mt-0.5">
                 {new Date(confirmation.confirmed_at).toLocaleString()}
               </p>
@@ -357,16 +358,16 @@ export default function SessionView() {
           {isReadOnly ? (
             <p className="sl-mono text-[11px] text-ink-400 text-center">
               {isArchived
-                ? 'Archived by your coach — confirmation is locked.'
-                : 'From a past program — confirmation is locked.'}
+                ? t('student.session.lockedArchived')
+                : t('student.session.lockedPast')}
             </p>
           ) : (
             <button
-              onClick={handleUnconfirm}
+              onClick={() => setUndoDialogOpen(true)}
               disabled={unconfirmSession.isPending}
               className="sl-mono text-[11px] text-ink-400 hover:text-danger underline w-full"
             >
-              Undo confirmation
+              {t('student.session.undoConfirmation')}
             </button>
           )}
         </div>
@@ -377,8 +378,8 @@ export default function SessionView() {
         >
           <p className="sl-mono text-[11px] text-ink-400">
             {isArchived
-              ? 'Archived by your coach — read-only.'
-              : 'From a past program — read-only.'}
+              ? t('student.session.readOnlyArchived')
+              : t('student.session.readOnlyPast')}
           </p>
         </div>
       ) : (
@@ -388,7 +389,9 @@ export default function SessionView() {
           className="sl-btn-primary w-full text-[13px] disabled:opacity-50"
           style={{ padding: '10px 16px' }}
         >
-          {confirmSession.isPending ? 'Confirming…' : 'Confirm session'}
+          {confirmSession.isPending
+            ? t('student.session.confirming')
+            : t('student.session.confirmCta')}
         </button>
       ))}
 
@@ -397,19 +400,19 @@ export default function SessionView() {
         onClose={() => {
           if (!confirmSession.isPending) setConfirmDialogOpen(false);
         }}
-        title="Confirm session"
+        title={t('student.session.confirmDialogTitle')}
       >
         <p className="sl-mono text-[12px] text-ink-400 mb-3 leading-relaxed">
-          Add an optional note for your coach before confirming.
+          {t('student.session.confirmDialogBody')}
         </p>
         <label htmlFor="confirm-notes" className="sr-only">
-          Notes for your coach
+          {t('student.session.notesLabel')}
         </label>
         <textarea
           id="confirm-notes"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Optional notes for your coach…"
+          placeholder={t('student.session.notesPlaceholder')}
           rows={4}
           className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[16px] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] mb-4"
         />
@@ -420,17 +423,28 @@ export default function SessionView() {
             className="flex-1 rounded-lg py-2.5 sl-display text-[13px] text-white disabled:opacity-50"
             style={{ background: 'var(--color-accent)' }}
           >
-            {confirmSession.isPending ? 'Confirming…' : 'Confirm'}
+            {confirmSession.isPending
+              ? t('student.session.confirming')
+              : t('common.confirm')}
           </button>
           <button
             onClick={() => setConfirmDialogOpen(false)}
             disabled={confirmSession.isPending}
             className="flex-1 bg-ink-100 text-ink-700 rounded-lg py-2.5 sl-display text-[13px] hover:bg-ink-200 disabled:opacity-50"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
         </div>
       </Dialog>
+
+      <ConfirmDialog
+        open={undoDialogOpen}
+        onClose={() => setUndoDialogOpen(false)}
+        onConfirm={handleUnconfirm}
+        title={t('student.session.undoConfirmTitle')}
+        message={t('student.session.undoConfirmBody')}
+        confirmText={t('student.session.undoConfirmation')}
+      />
     </div>
   );
 }
