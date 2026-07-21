@@ -25,14 +25,13 @@
 
   /* Accent & semantic */
   --color-accent: #ff5a1f;
-  --color-accent-dim: #c43d0f;
   --color-danger: #ff4a2e;
   --color-success: #8cf06a;
   --color-warn: #ffb347;
 
-  /* Legacy aliases — kept so untouched components still compile */
+  /* Legacy alias — still backs the `*-primary` utilities in SlotCommentBox
+     and EditableText. New work should use the accent scale. */
   --color-primary: #ff5a1f;
-  --color-primary-dark: #c43d0f;
   /* Pull/Push volume colors — the archived-pill amber for pull and the
      accent orange for push. Intentionally avoids the success-lime,
      which is reserved for "done" states elsewhere in the app. */
@@ -70,12 +69,6 @@ body {
     font-weight: 800;
     letter-spacing: -0.03em;
     line-height: 1.05;
-  }
-  .sl-condensed {
-    font-family: "Archivo Narrow", var(--font-display);
-    font-weight: 600;
-    letter-spacing: 0.01em;
-    text-transform: uppercase;
   }
   .sl-label {
     font-family: var(--font-mono);

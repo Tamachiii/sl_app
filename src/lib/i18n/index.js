@@ -4,7 +4,7 @@ import de from './de';
 
 export const LANGUAGES = ['en', 'fr', 'de'];
 
-export const messages = { en, fr, de };
+const messages = { en, fr, de };
 
 export function resolveInitialLang() {
   try {

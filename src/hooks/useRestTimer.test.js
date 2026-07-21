@@ -5,8 +5,17 @@ import {
   startRestTimer,
   clearRestTimer,
   resetRestTimer,
-  remainingSecondsFor,
 } from './useRestTimer';
+
+// The consumers (RestTimerBanner, useRestTimerEffects) each derive remaining
+// time inline because they need the SIGNED remainder for their flash/expiry
+// windows. This clamped, logId-guarded read is what the store's contract
+// promises, so the tests keep their own copy rather than the source exporting
+// one nobody calls.
+function remainingSecondsFor(snapshot, logId) {
+  if (!snapshot || snapshot.logId !== logId || snapshot.endsAt == null) return null;
+  return Math.max(0, Math.ceil((snapshot.endsAt - Date.now()) / 1000));
+}
 
 beforeEach(() => {
   resetRestTimer();

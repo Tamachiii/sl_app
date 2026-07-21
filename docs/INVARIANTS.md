@@ -15,7 +15,7 @@ Load this file when the change touches: routing/scroll-shell, dark mode, RLS, `s
 
 - **Rules of Hooks:** never call `useMemo` (or any hook) after an early return like `if (isLoading) return <Spinner/>`.
 - **`useWeek.js` owns `useUpdateWeek` AND `useUpdateSession`** — not `useSession.js`.
-- **Test wrapper:** use `renderWithProviders` from `src/test/utils.jsx` (wraps ThemeProvider + QueryClientProvider + AuthContext + MemoryRouter). `matchMedia` polyfill lives in `src/test/setup.js`.
+- **Test auth is mocked, never provided:** `useAuth`'s context is module-private, so wrapping a component in your own `AuthContext.Provider` silently provides a value nothing reads and the component renders signed-out. Always `vi.mock('../../hooks/useAuth', ...)` instead. `src/test/utils.jsx` exports only `createTestQueryClient`; supply Router/Theme wrappers per test as needed. `matchMedia` polyfill lives in `src/test/setup.js`.
 
 ## `set_logs` — per-set targets, outcomes, RPE
 

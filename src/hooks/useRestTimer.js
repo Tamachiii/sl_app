@@ -87,9 +87,3 @@ export function useRestTimer() {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
-// Returns whole seconds remaining for `logId`, or null if a different log
-// (or no log) currently owns the timer.
-export function remainingSecondsFor(snapshot, logId) {
-  if (!snapshot || snapshot.logId !== logId || snapshot.endsAt == null) return null;
-  return Math.max(0, Math.ceil((snapshot.endsAt - Date.now()) / 1000));
-}

@@ -53,7 +53,7 @@ src/
     ui/          EditableText  ThemeToggle  LanguageSelect  UserMenu  Dialog
                  VideoPlayer  Spinner  EmptyState  CopyDialog  ConfirmDialog
                  ErrorBoundary  NotFound
-  test/          setup.js  utils.jsx (renderWithProviders)
+  test/          setup.js  utils.jsx (createTestQueryClient)
 supabase/        schema.sql  migrations/  functions/dispatch-rest-push/
 docs/            INVARIANTS.md  ARCHITECTURE.md  DESIGN_SYSTEM.md  ENVIRONMENT.md
 ```
@@ -137,7 +137,7 @@ Test runs are via WSL: `wsl -d Ubuntu -- bash -lc "cd /home/tamachi/sl_app && np
 
 1. Load only the files listed in the matching row above. Load `docs/INVARIANTS.md` if the change touches DB / hooks / RLS / routing / messaging / `set_logs`. Load `docs/ARCHITECTURE.md` if the change ripples across modules.
 2. DB changes → SQL in `supabase/migrations/<date>_<name>.sql` *and* append to `schema.sql`.
-3. Tests next to components; stub hooks with `vi.mock(...)`; use `renderWithProviders`.
+3. Tests next to components; stub the hook layer with `vi.mock(...)` and render directly. `useAuth`'s context is module-private, so a test can only control auth by mocking the hook — never by wrapping in a provider.
 4. Update the feature-files table here only if you introduced a new feature area.
 5. Run `npm test -- --run` and `npm run build` before committing.
 6. Update `README.md` / `CLAUDE.md` / `docs/*` to reflect the change before pushing.

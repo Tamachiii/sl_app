@@ -10,7 +10,6 @@ import {
   useStudentProfileId,
   useMyGoals,
   useCreateGoal,
-  useUpdateGoal,
   useDeleteGoal,
   useAddGoalProgress,
   useToggleGoalAchieved,
@@ -110,22 +109,7 @@ describe('useCreateGoal', () => {
   });
 });
 
-describe('useUpdateGoal / useDeleteGoal / useAddGoalProgress', () => {
-  it('useUpdateGoal updates by id', async () => {
-    const chain = {
-      update: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: { id: 'g-1' }, error: null }),
-    };
-    supabase.from.mockReturnValue(chain);
-    const qc = makeClient();
-    const { result } = renderHook(() => useUpdateGoal(), { wrapper: withClient(qc) });
-    result.current.mutate({ id: 'g-1', target_weight_kg: 100 });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(chain.update).toHaveBeenCalledWith({ target_weight_kg: 100 });
-  });
-
+describe('useDeleteGoal / useAddGoalProgress', () => {
   it('useDeleteGoal deletes by id', async () => {
     const chain = {
       delete: vi.fn().mockReturnThis(),

@@ -82,23 +82,6 @@ export function useCreateGoal() {
   });
 }
 
-export function useUpdateGoal() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, ...updates }) => {
-      const { data, error } = await supabase
-        .from('goals')
-        .update(updates)
-        .eq('id', id)
-        .select('*, exercise:exercise_library(*)')
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => invalidateGoals(qc),
-  });
-}
-
 export function useDeleteGoal() {
   const qc = useQueryClient();
   return useMutation({
