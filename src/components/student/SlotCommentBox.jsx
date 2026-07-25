@@ -44,10 +44,10 @@ export default function SlotCommentBox({ sessionId, slotId, comment, locked = fa
         type="button"
         onClick={() => setOpen(true)}
         aria-label={body ? 'Edit note for coach' : 'Add note for coach'}
-        className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-primary"
+        className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3 max-w-full align-middle"
       >
         <svg
-          className="w-3.5 h-3.5"
+          className="w-3.5 h-3.5 shrink-0"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -61,7 +61,7 @@ export default function SlotCommentBox({ sessionId, slotId, comment, locked = fa
           />
         </svg>
         {body ? (
-          <span className="truncate max-w-[14rem]">{body}</span>
+          <span className="truncate max-w-[14rem] normal-case tracking-normal">{body}</span>
         ) : (
           <span>Add note for coach</span>
         )}
