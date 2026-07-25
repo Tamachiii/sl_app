@@ -124,7 +124,9 @@ function SlotBody({
                 // align-top keeps this level with the sibling "Add note for
                 // coach" pill (SlotCommentBox); both inline-flex pills must
                 // share align-top — its icon breaks baseline/middle alignment.
-                className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3 disabled:opacity-50 align-top"
+                // mr-2 spaces this from that sibling (they flow inline, so the
+                // JSX newline between them collapses to no gap).
+                className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3 disabled:opacity-50 align-top mr-2"
               >
                 + Add set
               </button>
