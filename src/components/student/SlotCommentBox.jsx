@@ -50,7 +50,10 @@ export default function SlotCommentBox({ sessionId, slotId, comment, locked = fa
         className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3 max-w-full align-top"
       >
         <svg
-          className="w-3.5 h-3.5 shrink-0"
+          // Nudge the bubble down ~1px: its tail hangs below the body, so the
+          // SVG's box-center sits lower than the bubble's visual center and the
+          // icon otherwise reads as floating high next to the text.
+          className="w-3.5 h-3.5 shrink-0 translate-y-px"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -66,7 +69,7 @@ export default function SlotCommentBox({ sessionId, slotId, comment, locked = fa
         {body ? (
           <span className="truncate max-w-[14rem] normal-case tracking-normal">{body}</span>
         ) : (
-          <span>Add note for coach</span>
+          <span className="leading-none">Add note</span>
         )}
       </button>
     );
