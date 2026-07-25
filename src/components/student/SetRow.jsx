@@ -324,23 +324,30 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
             {indicatorContent}
           </button>
 
-          <span className="sl-label normal-case text-ink-500">
-            {isExtra ? 'Extra set' : formatSetTarget(log)}
-          </span>
+          {isExtra ? (
+            !locked && online ? (
+              // Student-added set: fold the "Extra" marker and its remove
+              // control into ONE compact chip. A separate ✕ pill made this row
+              // wider than a normal one (indicator + label + ✕ + Actual + RPE),
+              // overflowing on mobile so RPE wrapped to a second line. Merging
+              // them drops an element + its gap and keeps the row to one line.
+              <button
+                type="button"
+                onClick={handleRemoveExtra}
+                disabled={removeStudentSet.isPending}
+                aria-label="Remove extra set"
+                className="sl-pill bg-ink-100 text-ink-500 hover:bg-ink-200 px-2.5 gap-1 shrink-0 disabled:opacity-50"
+              >
+                Extra <span aria-hidden="true">✕</span>
+              </button>
+            ) : (
+              <span className="sl-label normal-case text-ink-500">Extra set</span>
+            )
+          ) : (
+            <span className="sl-label normal-case text-ink-500">{formatSetTarget(log)}</span>
+          )}
 
           <div className="flex-1" />
-
-          {isExtra && !locked && online && (
-            <button
-              type="button"
-              onClick={handleRemoveExtra}
-              disabled={removeStudentSet.isPending}
-              aria-label="Remove extra set"
-              className="sl-pill bg-ink-100 text-ink-500 hover:bg-ink-200 px-2.5 shrink-0 disabled:opacity-50"
-            >
-              ✕
-            </button>
-          )}
 
           {recordVideo && (
             <VideoUploadButton

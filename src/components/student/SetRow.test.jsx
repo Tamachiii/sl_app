@@ -326,11 +326,14 @@ describe('SetRow', () => {
       expect(mockSetSkipped.mutate).toHaveBeenCalledWith({ logId: 'log-1', skipped: true });
     });
 
-    it('labels a student-added set "Extra set" and removes it on demand', async () => {
+    it('marks a student-added set as extra and removes it on demand', async () => {
       const user = userEvent.setup();
       renderSetRow({ ...baseLog, is_student_added: true });
-      expect(screen.getByText('Extra set')).toBeInTheDocument();
-      await user.click(screen.getByRole('button', { name: /remove extra set/i }));
+      // The "Extra" marker and its remove control are one chip (keeps the row
+      // to a single line on mobile); its accessible name is "Remove extra set".
+      const removeBtn = screen.getByRole('button', { name: /remove extra set/i });
+      expect(removeBtn).toHaveTextContent(/extra/i);
+      await user.click(removeBtn);
       expect(mockRemoveStudentSet.mutate).toHaveBeenCalledWith({ logId: 'log-1' });
     });
 
