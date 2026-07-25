@@ -44,7 +44,10 @@ export default function SlotCommentBox({ sessionId, slotId, comment, locked = fa
         type="button"
         onClick={() => setOpen(true)}
         aria-label={body ? 'Edit note for coach' : 'Add note for coach'}
-        className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3 max-w-full align-middle"
+        // align-top pairs with the sibling "+ Add set" pill in SlotBody so the
+        // two inline-flex pills sit level; the leading icon here throws off
+        // baseline/middle alignment, and both must share the same value.
+        className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3 max-w-full align-top"
       >
         <svg
           className="w-3.5 h-3.5 shrink-0"

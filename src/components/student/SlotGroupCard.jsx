@@ -121,7 +121,10 @@ function SlotBody({
                 type="button"
                 onClick={handleAddSet}
                 disabled={addSet.isPending}
-                className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3 disabled:opacity-50"
+                // align-top keeps this level with the sibling "Add note for
+                // coach" pill (SlotCommentBox); both inline-flex pills must
+                // share align-top — its icon breaks baseline/middle alignment.
+                className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3 disabled:opacity-50 align-top"
               >
                 + Add set
               </button>
