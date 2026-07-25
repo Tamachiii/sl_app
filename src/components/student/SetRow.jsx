@@ -420,10 +420,14 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
         )}
 
         {actualOpen && !locked && (
-          <div className="pt-2 flex items-center flex-wrap gap-2">
-            <span className="sl-label normal-case text-ink-400">Actually did</span>
+          // Compact off-plan editor: mirror the row's own "10 @ 100kg" notation
+          // as two inputs joined by "@" so the whole thing stays on one line on
+          // mobile. The "Actually did" lead-in and the "reps" unit label are
+          // dropped — tapping Actual already framed the intent, and the set
+          // target sits directly above for reference.
+          <div className="pt-2 flex items-center flex-wrap gap-x-1.5 gap-y-2">
             {repsApplies && (
-              <label className="flex items-center gap-1.5 text-[13px] text-ink-500">
+              <>
                 <input
                   type="number"
                   inputMode="numeric"
@@ -431,10 +435,10 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
                   value={actualReps}
                   onChange={(e) => setActualReps(e.target.value)}
                   aria-label="Actual reps performed"
-                  className="w-16 rounded-lg bg-ink-50 border border-ink-200 px-2 py-1.5 text-[16px] text-gray-900"
+                  className="w-12 rounded-lg bg-ink-50 border border-ink-200 px-2 py-1.5 text-[16px] text-gray-900"
                 />
-                <span className="sl-label normal-case">reps</span>
-              </label>
+                <span className="sl-label normal-case text-ink-400" aria-hidden="true">@</span>
+              </>
             )}
             <label className="flex items-center gap-1.5 text-[13px] text-ink-500">
               <input
@@ -445,7 +449,7 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
                 value={actualWeight}
                 onChange={(e) => setActualWeight(e.target.value)}
                 aria-label="Actual weight in kilograms"
-                className="w-20 rounded-lg bg-ink-50 border border-ink-200 px-2 py-1.5 text-[16px] text-gray-900"
+                className="w-16 rounded-lg bg-ink-50 border border-ink-200 px-2 py-1.5 text-[16px] text-gray-900"
               />
               <span className="sl-label normal-case">kg</span>
             </label>
@@ -471,7 +475,7 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
                 onClick={handleSkip}
                 className="sl-pill shrink-0 min-h-11 px-3 bg-ink-100 text-ink-500 hover:brightness-95"
               >
-                Skip set
+                Skip
               </button>
             )}
           </div>

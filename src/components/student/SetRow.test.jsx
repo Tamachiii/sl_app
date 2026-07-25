@@ -322,7 +322,7 @@ describe('SetRow', () => {
       const user = userEvent.setup();
       renderSetRow(repLog);
       await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
-      await user.click(screen.getByRole('button', { name: /^skip set$/i }));
+      await user.click(screen.getByRole('button', { name: /^skip$/i }));
       expect(mockSetSkipped.mutate).toHaveBeenCalledWith({ logId: 'log-1', skipped: true });
     });
 
@@ -337,11 +337,11 @@ describe('SetRow', () => {
       expect(mockRemoveStudentSet.mutate).toHaveBeenCalledWith({ logId: 'log-1' });
     });
 
-    it('does not offer "Skip set" on an extra set (it is removed instead)', async () => {
+    it('does not offer "Skip" on an extra set (it is removed instead)', async () => {
       const user = userEvent.setup();
       renderSetRow({ ...baseLog, is_student_added: true });
       await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
-      expect(screen.queryByRole('button', { name: /^skip set$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^skip$/i })).not.toBeInTheDocument();
     });
   });
 });
