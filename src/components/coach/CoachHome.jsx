@@ -12,7 +12,6 @@ import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
 import StudentWeekStrip from './StudentWeekStrip';
-import { useRememberCoachStudentsPath } from '../../hooks/useRememberCoachStudentsPath';
 
 function initialsOf(fullName) {
   return (fullName || '')
@@ -254,11 +253,6 @@ export default function CoachHome() {
   const { data: students, isLoading } = useStudents();
 
   const selected = (students || []).find((s) => s.id === studentId) || null;
-
-  // Persist the current Students-tab path so the coach's deep week/session
-  // editing routes (WeekView / SessionEditor also write it) are remembered.
-  // The Athletes tab itself always lands on the roster now — no auto-restore.
-  useRememberCoachStudentsPath();
 
   return (
     <div className="p-4 pb-6 md:p-8 space-y-5">

@@ -32,7 +32,7 @@ src/
                  pushNotifications.js
   hooks/         auth · theme · i18n · program · week · session · goals
                  students · set-logs · set-video · confirmations · slot-comments
-                 stats · exercise-library · duplicate · remember-coach-students-path
+                 stats · exercise-library · duplicate
                  rest-timer (singleton) · rest-timer-effects (wake lock + audio)
                  rest-timer-push (Web Push bridge) · push-subscription (toggle)
   components/

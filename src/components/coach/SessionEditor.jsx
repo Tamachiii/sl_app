@@ -32,12 +32,10 @@ import ExerciseSlotRow from './ExerciseSlotRow';
 import Spinner from '../ui/Spinner';
 import EditableText from '../ui/EditableText';
 import CopyDialog from '../ui/CopyDialog';
-import { useRememberCoachStudentsPath } from '../../hooks/useRememberCoachStudentsPath';
 
 export default function SessionEditor() {
   const { sessionId, studentId, weekId } = useParams();
   const navigate = useNavigate();
-  useRememberCoachStudentsPath();
   const { data: session, isLoading } = useSession(sessionId);
   const { data: library } = useExerciseLibrary();
   const addSlot = useAddSlot();

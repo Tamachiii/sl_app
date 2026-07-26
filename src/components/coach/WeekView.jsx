@@ -8,12 +8,10 @@ import EditableText from '../ui/EditableText';
 import CopyDialog from '../ui/CopyDialog';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import { useWeekConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
-import { useRememberCoachStudentsPath } from '../../hooks/useRememberCoachStudentsPath';
 
 export default function WeekView() {
   const { studentId, weekId } = useParams();
   const navigate = useNavigate();
-  useRememberCoachStudentsPath();
   const { data: week, isLoading } = useWeek(weekId);
   const createSession = useCreateSession();
   const deleteSession = useDeleteSession();

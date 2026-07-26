@@ -169,15 +169,14 @@ Vite `base` is `/sl_app/` and `vite.config.js` declares manual chunks for `route
 
 ### Coach-section persistence across tab switches
 
-Two flows drive "pick up where you left off" via three localStorage keys:
+Two flows drive "pick up where you left off" via two localStorage keys:
 
-- **`sl_last_coach_students_path`** — full pathname (+ search) of the coach's deepest Students-section view (CoachHome, WeekView, or SessionEditor). Written by `useRememberCoachStudentsPath()` ([src/hooks/useRememberCoachStudentsPath.jsx](../src/hooks/useRememberCoachStudentsPath.jsx)), called unconditionally in each of those components. Read by `CoachHome`'s restore effect when the route is `/coach/students` with no `:studentId` — it validates the saved student is still in the students list, then `navigate(saved, { replace: true })`. Cleared when the coach explicitly picks "— Select a student —" from the dropdown.
 - **`sl_last_coach_session`** — `JSON.stringify({ studentId, sessionId })` for the last-open `SessionReview`. Read by `SessionsFeed`'s mount effect (redirects into the saved review). Cleared by the review's back button.
 - **`sl_last_coach_sessions_student`** — the student-id the coach last picked in `SessionsFeed`'s filter dropdown. Written by `handleFilterChange` (removed when the coach picks "All students"). On mount, a dedicated effect copies the saved id back into the `?student=` search param when the URL has none. The filter lives in the URL — localStorage just repopulates it on return to `/coach/sessions`.
 
 ### Back-button routing in coach deep views
 
-Because the tab-restore `navigate(saved, { replace: true })` pollutes browser history (the previous entry is whichever tab the coach came through), `navigate(-1)` can land somewhere unexpected. Use logical parents instead:
+Because these deep views are reachable from several entry points (a roster card, a week view, the sessions feed), the previous history entry is unpredictable, so `navigate(-1)` can land somewhere unexpected. Use logical parents instead:
 
 - `WeekView` back → `/coach/students/:studentId`
 - `SessionEditor` back → `/coach/student/:studentId/week/:weekId`
