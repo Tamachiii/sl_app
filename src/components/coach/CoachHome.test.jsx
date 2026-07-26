@@ -23,38 +23,36 @@ vi.mock('../../hooks/useClientErrors', () => ({
   useClientErrors: () => mockClientErrors,
 }));
 
-// Inline section stubs that read the outlet context the same way the real
-// sections do — verifies the layout's <Outlet context> wiring without pulling
-// in their data hooks.
-function ProgrammingStub() {
+// Inline stubs that read the outlet context the same way the real sections do
+// — verifies the layout's <Outlet context> wiring without pulling in their
+// data hooks.
+function OverviewStub() {
   const { student } = useOutletContext();
-  return <div data-testid="programming-section">programming:{student.id}</div>;
+  return <div data-testid="overview">overview:{student.id}</div>;
 }
-function ProgressStub() {
+function SessionStub() {
   const { student } = useOutletContext();
-  return <div data-testid="progress-section">progress:{student.id}</div>;
+  return <div data-testid="session-editor">session:{student.id}</div>;
 }
-
-vi.mock('./StudentProgrammingSection', () => ({ default: ProgrammingStub }));
-vi.mock('./StudentProgressSection', () => ({ default: ProgressStub }));
 
 import CoachHome from './CoachHome';
 
-// Mirrors the real route tree: two destinations, with the surfaces that were
-// absorbed (profile → header, goals/stats → progress) kept as redirects.
+// Mirrors the real route tree: the athlete is ONE page, with every surface that
+// used to be a tab redirecting back to it.
 function renderCoachHome(path = '/coach/students') {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/coach/students" element={<CoachHome />} />
         <Route path="/coach/students/:studentId" element={<CoachHome />}>
-          <Route index element={<Navigate to="programming" replace />} />
-          <Route path="programming" element={<ProgrammingStub />} />
-          <Route path="progress" element={<ProgressStub />} />
-          <Route path="profile" element={<Navigate to="../programming" replace />} />
-          <Route path="goals" element={<Navigate to="../progress" replace />} />
-          <Route path="stats" element={<Navigate to="../progress" replace />} />
-          <Route path="messaging" element={<Navigate to="../programming" replace />} />
+          <Route index element={<OverviewStub />} />
+          <Route path="s/:sessionId" element={<SessionStub />} />
+          <Route path="programming" element={<Navigate to=".." replace relative="path" />} />
+          <Route path="progress" element={<Navigate to=".." replace relative="path" />} />
+          <Route path="profile" element={<Navigate to=".." replace relative="path" />} />
+          <Route path="goals" element={<Navigate to=".." replace relative="path" />} />
+          <Route path="stats" element={<Navigate to=".." replace relative="path" />} />
+          <Route path="messaging" element={<Navigate to=".." replace relative="path" />} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -175,58 +173,51 @@ describe('CoachHome', () => {
     });
 
     it('renders a back link to all athletes', () => {
-      renderCoachHome('/coach/students/s-1/programming');
+      renderCoachHome('/coach/students/s-1');
       expect(screen.getByRole('link', { name: /all athletes/i })).toHaveAttribute('href', '/coach/students');
     });
 
-    it('renders exactly two tabs — Programming and Progress', () => {
-      renderCoachHome('/coach/students/s-1/programming');
-      expect(screen.getByRole('tablist')).toBeInTheDocument();
-      const tabs = screen.getAllByRole('tab');
-      expect(tabs).toHaveLength(2);
-      expect(tabs.map((el) => el.textContent)).toEqual(['Programming', 'Progress']);
-      // Profile is a header now, not a destination.
-      expect(screen.queryByRole('tab', { name: /profile/i })).not.toBeInTheDocument();
+    it('renders no tab strip — the athlete is one page', () => {
+      renderCoachHome('/coach/students/s-1');
+      expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+      expect(screen.queryAllByRole('tab')).toHaveLength(0);
     });
 
-    it('shows the athlete header on every tab, so identity is never hidden', () => {
-      renderCoachHome('/coach/students/s-1/programming');
+    it('shows the athlete header, and keeps it while a session is open', () => {
+      renderCoachHome('/coach/students/s-1');
       expect(screen.getByRole('heading', { level: 2, name: 'Alice' })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /view sessions/i })).toHaveAttribute(
         'href', '/coach/sessions?student=s-1',
       );
 
-      renderCoachHome('/coach/students/s-1/progress');
+      // The editor is a child route, so identity must survive the drill-down.
+      renderCoachHome('/coach/students/s-1/s/sess-1');
       expect(screen.getAllByRole('heading', { level: 2, name: 'Alice' }).length).toBeGreaterThan(0);
+      expect(screen.getByTestId('session-editor')).toHaveTextContent('session:s-1');
     });
 
     it('links the header Message action to the thread by profile id', () => {
-      renderCoachHome('/coach/students/s-1/programming');
+      renderCoachHome('/coach/students/s-1');
       expect(screen.getByRole('link', { name: /message/i })).toHaveAttribute(
         'href', '/coach/messages/p-1',
       );
     });
 
-    it('redirects bare /coach/students/:id to programming', () => {
+    it('renders the overview on the bare athlete URL', () => {
       renderCoachHome('/coach/students/s-1');
-      expect(screen.getByTestId('programming-section')).toBeInTheDocument();
-      expect(screen.queryByTestId('progress-section')).not.toBeInTheDocument();
-    });
-
-    it('renders the merged Progress tab on /progress', () => {
-      renderCoachHome('/coach/students/s-1/progress');
-      expect(screen.getByTestId('progress-section')).toHaveTextContent('progress:s-1');
-      expect(screen.queryByTestId('programming-section')).not.toBeInTheDocument();
+      expect(screen.getByTestId('overview')).toHaveTextContent('overview:s-1');
     });
 
     it.each([
-      ['/coach/students/s-1/goals', 'progress-section'],
-      ['/coach/students/s-1/stats', 'progress-section'],
-      ['/coach/students/s-1/profile', 'programming-section'],
-      ['/coach/students/s-1/messaging', 'programming-section'],
-    ])('absorbed deep link %s lands on the surface that took it over', (path, testId) => {
+      '/coach/students/s-1/programming',
+      '/coach/students/s-1/progress',
+      '/coach/students/s-1/profile',
+      '/coach/students/s-1/goals',
+      '/coach/students/s-1/stats',
+      '/coach/students/s-1/messaging',
+    ])('former tab URL %s falls back to the one page', (path) => {
       renderCoachHome(path);
-      expect(screen.getByTestId(testId)).toBeInTheDocument();
+      expect(screen.getByTestId('overview')).toBeInTheDocument();
     });
   });
 });

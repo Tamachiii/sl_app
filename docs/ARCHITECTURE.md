@@ -178,14 +178,14 @@ Two flows drive "pick up where you left off" via two localStorage keys:
 
 Because these deep views are reachable from several entry points (a roster card, a week view, the sessions feed), the previous history entry is unpredictable, so `navigate(-1)` can land somewhere unexpected. Use logical parents instead:
 
-- `SessionEditor` back → `/coach/students/:studentId/programming`
+- `SessionEditor` back → `/coach/students/:studentId`
 - `SessionReview` back → `/coach/sessions`
 
 ### Nav tab active-state overrides
 
 `BottomNav`'s "Athletes" (`/coach/students`) and "Home" (`/student`) links use `NavLink`'s `end` prop so they only match on exact routes — without it they stay active on all child routes.
 
-The single-student tab strip in `CoachHome` passes `end={key !== 'programming'}`: Programming owns a child route (`…/programming/s/:sessionId`) and must match by prefix so the tab stays lit while a session is open; the three leaf tabs stay exact.
+The single-student view has **no tab strip** — the athlete is one page of collapsible sections at `/coach/students/:studentId`, with session editing as its only child route (`…/s/:sessionId`). `AppShell` restores each route's scroll offset instead of hard-resetting to top, so stepping into a session and back keeps the coach's place; see the persistence invariant in [INVARIANTS.md](INVARIANTS.md).
 
 For coach tabs, **Students** and **Sessions** both live under the shared `/coach/student/:sid/…` prefix, so a plain `end: false` NavLink would light up BOTH tabs on any deep route. Each tab in `layout/navItems` instead declares a `matches(pathname)` predicate:
 

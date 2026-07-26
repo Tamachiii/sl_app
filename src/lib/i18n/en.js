@@ -304,6 +304,11 @@ const en = {
     stats: {
       noData: 'No training logged yet for this scope.',
     },
+    prev: {
+      label: 'Last time',
+      perSet: 'per-set',
+      empty: 'No exercises in that session.',
+    },
     profile: {
       coachingSinceLabel: 'Coaching since',
       roleStudent: 'Student',

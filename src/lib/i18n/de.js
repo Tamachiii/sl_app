@@ -303,6 +303,11 @@ const de = {
     stats: {
       noData: 'Für diese Auswahl ist noch kein Training protokolliert.',
     },
+    prev: {
+      label: 'Letztes Mal',
+      perSet: 'pro Satz',
+      empty: 'Keine Übungen in dieser Einheit.',
+    },
     profile: {
       coachingSinceLabel: 'Coaching seit',
       roleStudent: 'Athlet',

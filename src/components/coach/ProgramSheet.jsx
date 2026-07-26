@@ -56,6 +56,28 @@ function activeSessions(week) {
   return (week.sessions || []).filter((s) => !s.archived_at);
 }
 
+// Which week the coach had open, per program. Survives stepping into a session
+// editor and back, which is the whole point — the sheet is where the coach
+// works, and re-collapsing it every time loses their place.
+const OPEN_WEEK_KEY = 'sl_coach_open_week';
+
+function readOpenWeek(programId) {
+  try {
+    return JSON.parse(localStorage.getItem(OPEN_WEEK_KEY) || '{}')[programId] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeOpenWeek(programId, weekId) {
+  try {
+    const all = JSON.parse(localStorage.getItem(OPEN_WEEK_KEY) || '{}');
+    localStorage.setItem(OPEN_WEEK_KEY, JSON.stringify({ ...all, [programId]: weekId }));
+  } catch {
+    /* private mode / quota — the sheet still works, it just won't remember */
+  }
+}
+
 function DayPill({ session, onPick, t }) {
   const [open, setOpen] = useState(false);
   const dn = session.day_number;
@@ -123,7 +145,7 @@ function SessionRow({ session, studentId, confirmed, onSetDay, onDelete, t }) {
       <DayPill session={session} onPick={onSetDay} t={t} />
       <button
         type="button"
-        onClick={() => navigate(`/coach/students/${studentId}/programming/s/${session.id}`)}
+        onClick={() => navigate(`/coach/students/${studentId}/s/${session.id}`)}
         aria-label={t('coach.week.openSession')}
         className="flex-1 min-w-0 text-left flex items-baseline gap-2 group"
       >
@@ -282,15 +304,30 @@ function WeekCard({
 
         {/* Sibling of the toggle, not nested inside it — an editable field
             inside a button is not operable. Tap the number/meta to expand,
-            tap the label to rename. */}
+            tap the label to rename.
+
+            Only the OPEN week offers the editable field: an unlabelled week
+            renders EditableText's "Label" placeholder, and a stack of those
+            down a 12-week block reads as noise rather than affordance. */}
         <div className="flex-1 min-w-0">
-          <EditableText
-            value={week.label || ''}
-            onSave={(label) => updateWeek.mutate({ id: week.id, label })}
-            placeholder={t('coach.week.labelPlaceholder')}
-            ariaLabel={t('coach.week.editLabelAria')}
-            className="sl-display text-[13px] text-ink-700"
-          />
+          {expanded ? (
+            <EditableText
+              value={week.label || ''}
+              onSave={(label) => updateWeek.mutate({ id: week.id, label })}
+              placeholder={t('coach.week.labelPlaceholder')}
+              ariaLabel={t('coach.week.editLabelAria')}
+              className="sl-display text-[13px] text-ink-700"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-label={t('coach.week.weekLabel', { n: week.week_number })}
+              className="w-full text-left sl-display text-[13px] text-ink-700 truncate"
+            >
+              {week.label || ''}
+            </button>
+          )}
         </div>
 
         <button
@@ -433,7 +470,9 @@ export default function ProgramSheet({ studentId, program }) {
   const { data: confirmedIds } = useProgramConfirmedSessionIds(program.id);
 
   const weeks = useMemo(() => program.weeks || [], [program.weeks]);
-  const [openWeekId, setOpenWeekId] = useState(null);
+  // Seeded from the remembered choice so returning from a session editor lands
+  // on the same week. `null` = never chosen → fall back to the active week.
+  const [openWeekId, setOpenWeekId] = useState(() => readOpenWeek(program.id));
   const [reordering, setReordering] = useState(false);
 
   // Uncontrolled until the coach picks a week: default to where the athlete
@@ -442,7 +481,16 @@ export default function ProgramSheet({ studentId, program }) {
     () => currentWeekId(weeks, confirmedIds),
     [weeks, confirmedIds],
   );
-  const expandedId = openWeekId ?? defaultOpen;
+  // A remembered week that no longer exists (deleted, or a different program
+  // selected) must not leave every week collapsed.
+  const remembered = openWeekId && weeks.some((w) => w.id === openWeekId) ? openWeekId : null;
+  const expandedId = remembered ?? (openWeekId === '' ? '' : defaultOpen);
+
+  function handleToggleWeek(weekId) {
+    const next = weekId === expandedId ? '' : weekId;
+    setOpenWeekId(next);
+    writeOpenWeek(program.id, next);
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -496,7 +544,7 @@ export default function ProgramSheet({ studentId, program }) {
                 week={w}
                 studentId={studentId}
                 expanded={!reordering && w.id === expandedId}
-                onToggle={() => setOpenWeekId(w.id === expandedId ? '' : w.id)}
+                onToggle={() => handleToggleWeek(w.id)}
                 confirmedIds={confirmedIds}
                 reordering={reordering}
                 t={t}

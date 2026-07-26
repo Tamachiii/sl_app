@@ -303,6 +303,11 @@ const fr = {
     stats: {
       noData: 'Aucun entraînement enregistré pour cette sélection.',
     },
+    prev: {
+      label: 'La dernière fois',
+      perSet: 'par série',
+      empty: 'Aucun exercice dans cette séance.',
+    },
     profile: {
       coachingSinceLabel: 'Coaché depuis le',
       roleStudent: 'Athlète',

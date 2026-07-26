@@ -29,6 +29,7 @@ import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
 import { useDuplicateSession } from '../../hooks/useDuplicate';
 import { groupSlotsBySuperset } from '../../lib/volume';
 import ExerciseSlotRow from './ExerciseSlotRow';
+import PreviousSessionPanel from './PreviousSessionPanel';
 import Spinner from '../ui/Spinner';
 import EditableText from '../ui/EditableText';
 import CopyDialog from '../ui/CopyDialog';
@@ -151,7 +152,7 @@ export default function SessionEditor() {
     <div className="space-y-4">
       <div className="flex items-start gap-3">
         <button
-          onClick={() => navigate(`/coach/students/${studentId}/programming`)}
+          onClick={() => navigate(`/coach/students/${studentId}`)}
           aria-label={t('common.back')}
           className="w-9 h-9 rounded-lg bg-ink-100 flex items-center justify-center text-ink-700 hover:bg-ink-200 shrink-0"
         >
@@ -201,6 +202,10 @@ export default function SessionEditor() {
           className="flex-1 rounded-lg border border-ink-200 bg-white px-3 py-1.5 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
         />
       </div>
+
+      {/* What this session looked like a week ago, in place — writing week N
+          against week N-1 was previously a round trip that lost the editor. */}
+      <PreviousSessionPanel programId={currentProgramId} sessionId={sessionId} />
 
       <DndContext
         sensors={sensors}

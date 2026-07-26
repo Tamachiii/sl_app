@@ -35,7 +35,7 @@ const MessagesIcon = (
 );
 
 // Athletes-tab content all lives under `/coach/students/…` now (including
-// session editing at `…/programming/s/:sessionId`). The legacy singular
+// session editing at `…/s/:sessionId`). The legacy singular
 // `/coach/student/:sid/week/…` paths still resolve as redirects, and the
 // Sessions-tab drill-down at `/coach/student/:sid/session/…/review` shares
 // that prefix — so a plain `end: false` NavLink would light up both tabs at

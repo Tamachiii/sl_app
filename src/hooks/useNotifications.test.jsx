@@ -40,14 +40,14 @@ describe('describeNotification', () => {
     expect(describeNotification(undefined).path).toBeNull();
   });
 
-  it('maps program_submitted to the coach programming tab', () => {
+  it('maps program_submitted to the coach athlete page', () => {
     const result = describeNotification({
       kind: 'program_submitted',
       payload: { program_id: 'p-1', program_name: 'Block A', student_row_id: 'srow-1', student_name: 'Alice' },
     });
     expect(result.i18nKey).toBe('notifications.programSubmitted');
     expect(result.params).toEqual({ student: 'Alice', program: 'Block A' });
-    expect(result.path).toBe('/coach/students/srow-1/programming');
+    expect(result.path).toBe('/coach/students/srow-1');
   });
 
   it('maps program_approved to the student sessions list (program lands inactive)', () => {

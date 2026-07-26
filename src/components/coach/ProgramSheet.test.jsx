@@ -87,6 +87,10 @@ describe('ProgramSheet', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockConfirmed = { data: new Set() };
+    // The sheet remembers the open week per program in localStorage so it
+    // survives a trip into the session editor — clear it so cases don't
+    // inherit whichever week a previous case expanded.
+    localStorage.clear();
   });
 
   it('lists every week with its session count and exercise total', () => {
@@ -115,7 +119,21 @@ describe('ProgramSheet', () => {
     const user = userEvent.setup();
     renderSheet();
     await user.click(screen.getAllByRole('button', { name: /open session/i })[0]);
-    expect(mockNavigate).toHaveBeenCalledWith('/coach/students/s-1/programming/s/sess-1');
+    expect(mockNavigate).toHaveBeenCalledWith('/coach/students/s-1/s/sess-1');
+  });
+
+  it('remembers the open week so returning from a session keeps your place', async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderSheet();
+    // Collapse the default week and open W2 instead.
+    await user.click(screen.getAllByRole('button', { name: /week 2/i })[0]);
+    expect(screen.getByText('Legs')).toBeInTheDocument();
+
+    // Simulate stepping into the session editor and coming back.
+    unmount();
+    renderSheet();
+    expect(screen.getByText('Legs')).toBeInTheDocument();
+    expect(screen.queryByText('Pull')).not.toBeInTheDocument();
   });
 
   it('writes day_number when a weekday is picked', async () => {

@@ -59,6 +59,57 @@ function useAutoResumeMutations() {
   }, [qc]);
 }
 
+/**
+ * Remember each route's scroll offset and put it back on return.
+ *
+ * `main` used to hard-reset to top on every pathname change, so stepping into a
+ * session editor and back dropped the coach at the top of a long athlete page —
+ * "I lose the page". A route seen for the first time still starts at the top;
+ * only a revisit restores.
+ *
+ * Restoring needs a retry: the target route is `React.lazy`, so at the moment
+ * the effect runs the container is often still the Suspense fallback and has no
+ * scrollable height yet. We re-apply across a few animation frames until the
+ * content is tall enough, then stop.
+ */
+function useScrollRestoration(ref, pathname) {
+  const positions = useRef(new Map());
+
+  // Record continuously rather than on unmount: by the time an effect cleanup
+  // runs, the new route may already have clamped scrollTop.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const onScroll = () => positions.current.set(pathname, el.scrollTop);
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [ref, pathname]);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const target = positions.current.get(pathname) ?? 0;
+    if (target === 0) {
+      el.scrollTo({ top: 0, left: 0 });
+      return undefined;
+    }
+
+    let frame;
+    let tries = 0;
+    const apply = () => {
+      if (!ref.current) return;
+      ref.current.scrollTop = target;
+      // Stop once it sticks, or after ~20 frames of the content not growing.
+      if (Math.abs(ref.current.scrollTop - target) > 1 && tries < 20) {
+        tries += 1;
+        frame = requestAnimationFrame(apply);
+      }
+    };
+    frame = requestAnimationFrame(apply);
+    return () => cancelAnimationFrame(frame);
+  }, [ref, pathname]);
+}
+
 export default function AppShell() {
   const mainRef = useRef(null);
   const { pathname } = useLocation();
@@ -75,9 +126,7 @@ export default function AppShell() {
   // Drain any offline mutation queue the moment connectivity returns.
   useAutoResumeMutations();
 
-  useEffect(() => {
-    mainRef.current?.scrollTo({ top: 0, left: 0 });
-  }, [pathname]);
+  useScrollRestoration(mainRef, pathname);
 
   return (
     <div className="flex flex-col md:flex-row h-full bg-gray-50">

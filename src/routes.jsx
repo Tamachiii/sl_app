@@ -7,18 +7,18 @@ function RedirectToStudentGoals() {
   return <Navigate to={`/coach/students/${studentId}/goals`} replace />;
 }
 
-// The week page is gone — the Programming tab now lists every week with its
-// sessions inline. Old /coach/student/:id/week/:weekId links land on the tab.
+// The week page is gone — the athlete page lists every week with its sessions
+// inline. Old /coach/student/:id/week/:weekId links land on that page.
 function RedirectToProgramming() {
   const { studentId } = useParams();
-  return <Navigate to={`/coach/students/${studentId}/programming`} replace />;
+  return <Navigate to={`/coach/students/${studentId}`} replace />;
 }
 
-// Session editing moved inside the athlete shell so the tab strip and athlete
-// header stop unmounting. A plain <Navigate> can't interpolate params.
+// Session editing lives inside the athlete shell so the header stops
+// unmounting. A plain <Navigate> can't interpolate params.
 function RedirectToSessionEditor() {
   const { studentId, sessionId } = useParams();
-  return <Navigate to={`/coach/students/${studentId}/programming/s/${sessionId}`} replace />;
+  return <Navigate to={`/coach/students/${studentId}/s/${sessionId}`} replace />;
 }
 
 // Bare "/" lands here when an already-authenticated user opens the app
@@ -38,8 +38,7 @@ import Spinner from './components/ui/Spinner';
 
 const LoginPage = lazy(() => import('./components/auth/LoginPage'));
 const CoachHome = lazy(() => import('./components/coach/CoachHome'));
-const StudentProgrammingSection = lazy(() => import('./components/coach/StudentProgrammingSection'));
-const StudentProgressSection = lazy(() => import('./components/coach/StudentProgressSection'));
+const StudentOverview = lazy(() => import('./components/coach/StudentOverview'));
 const SessionsFeed = lazy(() => import('./components/coach/SessionsFeed'));
 const SessionEditor = lazy(() => import('./components/coach/SessionEditor'));
 const ExerciseLibrary = lazy(() => import('./components/coach/ExerciseLibrary'));
@@ -91,19 +90,20 @@ export const routes = [
                 path: '/coach/students/:studentId',
                 element: <Lazy><CoachHome /></Lazy>,
                 children: [
-                  { index: true, element: <Navigate to="programming" replace /> },
-                  { path: 'programming', element: <Lazy><StudentProgrammingSection /></Lazy> },
-                  // Session editing lives INSIDE the shell now, so the tab
-                  // strip and athlete context stay mounted while editing.
-                  { path: 'programming/s/:sessionId', element: <Lazy><SessionEditor /></Lazy> },
-                  { path: 'progress', element: <Lazy><StudentProgressSection /></Lazy> },
-                  // Profile dissolved into the always-visible StudentHeader;
-                  // Goals + Stats merged into Progress. Old deep links and
-                  // bookmarks land on the surface that absorbed them.
-                  { path: 'profile', element: <Navigate to="../programming" replace /> },
-                  { path: 'goals', element: <Navigate to="../progress" replace /> },
-                  { path: 'stats', element: <Navigate to="../progress" replace /> },
-                  { path: 'messaging', element: <Navigate to="../programming" replace /> },
+                  // The athlete IS one page — no tabs, just collapsible
+                  // sections. Session editing is the only child destination.
+                  { index: true, element: <Lazy><StudentOverview /></Lazy> },
+                  { path: 's/:sessionId', element: <Lazy><SessionEditor /></Lazy> },
+                  // Every surface that used to be its own tab now lives in a
+                  // section of the index page; old bookmarks and deep links
+                  // land there rather than 404ing.
+                  { path: 'programming', element: <Navigate to=".." replace relative="path" /> },
+                  { path: 'progress', element: <Navigate to=".." replace relative="path" /> },
+                  { path: 'profile', element: <Navigate to=".." replace relative="path" /> },
+                  { path: 'goals', element: <Navigate to=".." replace relative="path" /> },
+                  { path: 'stats', element: <Navigate to=".." replace relative="path" /> },
+                  { path: 'messaging', element: <Navigate to=".." replace relative="path" /> },
+                  { path: 'programming/s/:sessionId', element: <RedirectToSessionEditor /> },
                 ],
               },
               { path: '/coach/student/:studentId/goals', element: <RedirectToStudentGoals /> },

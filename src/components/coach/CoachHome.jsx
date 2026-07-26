@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, NavLink, Outlet, useParams } from 'react-router-dom';
+import { Link, Outlet, useParams } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { useStudents } from '../../hooks/useStudents';
@@ -184,50 +184,9 @@ function RosterView({ students, t, lang }) {
   );
 }
 
-// Two destinations, not four: PLAN the block, or read how it is GOING.
-// Identity and the cross-surface actions moved into StudentHeader (always
-// visible), and Goals folded in with Stats as targets-then-evidence.
-const TABS = [
-  { key: 'programming', i18n: 'coach.tabs.programming' },
-  { key: 'progress', i18n: 'coach.tabs.progress' },
-];
-
-function StudentTabStrip({ studentId, t }) {
-  return (
-    <nav
-      role="tablist"
-      aria-label={t('nav.athletes')}
-      className="sl-no-scrollbar -mx-1 px-1 flex gap-2 overflow-x-auto pb-1"
-    >
-      {TABS.map(({ key, i18n }) => (
-        <NavLink
-          key={key}
-          to={`/coach/students/${studentId}/${key}`}
-          role="tab"
-          // Programming owns a child route (…/programming/s/:sessionId), so it
-          // matches by prefix; the leaf tabs stay exact.
-          end={key !== 'programming'}
-          className={({ isActive }) =>
-            `sl-pill shrink-0 transition-colors ${
-              isActive ? 'text-gray-900' : 'bg-ink-100 text-ink-700 hover:bg-ink-200'
-            }`
-          }
-          style={({ isActive }) =>
-            isActive
-              ? {
-                  background: 'color-mix(in srgb, var(--color-accent) 18%, transparent)',
-                  border: '1px solid color-mix(in srgb, var(--color-accent) 35%, transparent)',
-                }
-              : undefined
-          }
-        >
-          {t(i18n)}
-        </NavLink>
-      ))}
-    </nav>
-  );
-}
-
+// No tab strip: the athlete is ONE page (StudentOverview) with collapsible
+// sections. Tabs made every area a separate destination that remounted and
+// scroll-reset, which is what "I lose the page" was describing.
 function SelectedStudentView({ student, t }) {
   return (
     <div className="space-y-4">
@@ -241,7 +200,6 @@ function SelectedStudentView({ student, t }) {
         {t('coach.roster.backToAll')}
       </Link>
       <StudentHeader student={student} />
-      <StudentTabStrip studentId={student.id} t={t} />
       <div>
         <Outlet context={{ student }} />
       </div>

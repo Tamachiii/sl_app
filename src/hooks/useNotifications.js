@@ -225,9 +225,10 @@ export function describeNotification(notif) {
     }
     case 'program_submitted': {
       // Coach-side: a student submitted a self-authored draft for approval.
-      // Deep-link to that student's programming tab, where Approve / Send back live.
+      // Deep-link to that athlete's page, where Approve / Send back live in the
+      // program menu of the Programming section.
       const path = p.student_row_id
-        ? `/coach/students/${p.student_row_id}/programming`
+        ? `/coach/students/${p.student_row_id}`
         : null;
       return {
         i18nKey: 'notifications.programSubmitted',
