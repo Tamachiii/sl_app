@@ -118,13 +118,13 @@ function DayCell({ dayLabel, dayName, dateNumber, session, confirmed, archived, 
 
 // ─── Greeting block ────────────────────────────────────────────────────────
 
-function Greeting({ fullName, todayDN, todaysMessage, adherence, activeWeek, onSignOut }) {
+// Just the name and the week's adherence. The week/day kicker and the
+// "today is a rest day" line both restated what the Week overview strip
+// directly below already shows — week number, which day it is, and whether
+// today is a training day — so they were noise above the fold.
+function Greeting({ fullName, adherence, onSignOut }) {
   const { t } = useI18n();
   const firstName = (fullName || '').split(' ')[0] || 'there';
-
-  const metaBits = [`${t('student.home.week')} ${activeWeek?.week_number ?? '—'}`];
-  if (activeWeek?.label) metaBits.push(activeWeek.label);
-  metaBits.push(DAY_FULL[todayDN - 1]);
 
   return (
     <div
@@ -133,11 +133,9 @@ function Greeting({ fullName, todayDN, todaysMessage, adherence, activeWeek, onS
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="sl-label mb-1.5 truncate">{metaBits.join(' · ')}</div>
           <div className="sl-display text-[32px] md:text-[44px] text-gray-900 truncate">{t('student.home.hey')}, {firstName}.</div>
-          <p className="sl-mono text-[11px] text-ink-400 mt-2">{todaysMessage}</p>
           {adherence && adherence.total > 0 && (
-            <p className="sl-mono text-[11px] text-ink-400 mt-1">
+            <p className="sl-mono text-[11px] text-ink-400 mt-2">
               {t('student.home.weekAdherence', { done: adherence.done, total: adherence.total })}
             </p>
           )}
@@ -252,9 +250,16 @@ export default function StudentHome() {
     [displayedMonday, sessionsByDate, undatedByDay, weekOffset, confirmedIds]
   );
 
-  // Training-week context for the strip header — only when every dated
-  // session in the displayed week comes from the same training week. (The
-  // greeting already names the active training week, so no fallback here.)
+  // Training-week context for the strip header. Named only when it can be
+  // stated honestly: either every dated session in the displayed week comes
+  // from one training week, or there are no dated sessions at all and we are
+  // on the current calendar week — in which case the strip is showing the
+  // ACTIVE week's undated sessions (undated placement is gated on
+  // weekOffset === 0, see daySlots), so that is the right label.
+  //
+  // The greeting used to name the active week and this deliberately had no
+  // fallback. The greeting no longer does, so a program built with undated
+  // sessions would otherwise show no week number anywhere.
   const displayedTrainingWeek = useMemo(() => {
     const weeksSeen = new Set();
     let match = null;
@@ -265,8 +270,10 @@ export default function StudentHome() {
         match = dated.week;
       }
     }
-    return weeksSeen.size === 1 ? match : null;
-  }, [sessionsByDate, displayedMonday]);
+    if (weeksSeen.size === 1) return match;
+    if (weeksSeen.size === 0 && weekOffset === 0) return activeWeek;
+    return null;
+  }, [sessionsByDate, displayedMonday, weekOffset, activeWeek]);
 
   // Chronological position for a session: its real date when scheduled,
   // otherwise its day_number projected onto the current calendar week.
@@ -305,27 +312,6 @@ export default function StudentHome() {
         .sort((a, b) => effectiveTime(a) - effectiveTime(b) || a.sort_order - b.sort_order),
     [activeSessions, confirmedIds, effectiveTime]
   );
-
-  // Today's session: an exact scheduled_date match competes with the active
-  // week's undated weekday match through the same preference rule as the
-  // strip, so a confirmed dated session never masks a pending one due today.
-  const todaysSession = useMemo(() => {
-    const dated = sessionsByDate.get(todayIso)?.session ?? null;
-    const fallback =
-      activeSessions.find((s) => !s.scheduled_date && s.day_number === todayDN) ?? null;
-    const winner = preferSession(dated, fallback, confirmedIds);
-    return winner && !winner.archived_at ? winner : null;
-  }, [sessionsByDate, todayIso, activeSessions, todayDN, confirmedIds]);
-  const todayConfirmed = todaysSession ? confirmedIds.has(todaysSession.id) : false;
-
-  let todaysMessage;
-  if (!todaysSession) {
-    todaysMessage = t('student.home.todayRest');
-  } else if (todayConfirmed) {
-    todaysMessage = t('student.home.todayDone');
-  } else {
-    todaysMessage = t('student.home.todayPending');
-  }
 
   // "2/3 sessions done this week" — always the REAL current week (weekOffset
   // navigation doesn't move it), placed by the same placeDay rule as the
@@ -368,10 +354,7 @@ export default function StudentHome() {
         {profile?.full_name && (
           <Greeting
             fullName={profile.full_name}
-            todayDN={todayDN}
-            todaysMessage={todaysMessage}
             adherence={weekAdherence}
-            activeWeek={activeWeek}
             onSignOut={signOut}
           />
         )}

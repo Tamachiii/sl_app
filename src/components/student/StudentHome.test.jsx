@@ -106,10 +106,20 @@ describe('StudentHome', () => {
     expect(screen.getByText(/no program assigned yet/i)).toBeInTheDocument();
   });
 
-  it('renders the active week heading', () => {
+  it('shows the training week number in the week strip', () => {
     mockWeeks = { data: sampleWeeks, isLoading: false };
     renderHome();
-    expect(screen.getByText(/Week 1/)).toBeInTheDocument();
+    // The greeting no longer repeats the week/day — the strip is the single
+    // place that states which training week is on screen.
+    expect(screen.getByLabelText('Week overview')).toHaveTextContent('Week 1');
+  });
+
+  it('does not repeat the week, day or a rest-day line in the greeting', () => {
+    mockWeeks = { data: sampleWeeks, isLoading: false };
+    renderHome();
+    expect(screen.queryByText(/day off/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/session to finish today/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Hey,/)).toBeInTheDocument();
   });
 
   it('shows the weekly adherence line for the current week', () => {
@@ -353,8 +363,9 @@ describe('StudentHome', () => {
       const cell = screen.getByLabelText(/Thursday 9 — Todo Bench/);
       expect(cell).toBeEnabled();
       expect(screen.queryByLabelText(/Done Squat/)).toBeNull();
-      // …and the greeting still says there is a session to finish today.
-      expect(screen.getByText(/session to finish today/i)).toBeInTheDocument();
+      // …and it is the one offered as the next session.
+      const section = screen.getByRole('region', { name: /next session/i });
+      expect(within(section).getByText('Todo Bench')).toBeInTheDocument();
     });
 
     it('surfaces a cross-week session dated today as the Next session', () => {
@@ -394,11 +405,11 @@ describe('StudentHome', () => {
         isLoading: false,
       };
       renderHome();
-      // The strip, greeting, and Next card must agree: today's dated session
-      // comes first even though it belongs to a non-active training week.
+      // The strip and the Next card must agree: today's dated session comes
+      // first even though it belongs to a non-active training week.
       const section = screen.getByRole('region', { name: /next session/i });
       expect(within(section).getByText('Today Press')).toBeInTheDocument();
-      expect(screen.getByText(/session to finish today/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Thursday 9 — Today Press/)).toBeInTheDocument();
     });
   });
 });
