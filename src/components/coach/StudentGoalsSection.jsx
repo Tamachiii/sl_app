@@ -64,7 +64,7 @@ export default function StudentGoalsSection() {
   return (
     <div className="space-y-2">
       {(!goals || goals.length === 0) && !showForm && (
-        <EmptyState message={t('coach.home.noGoals')} />
+        <EmptyState message={t('coach.home.noGoals')} compact />
       )}
 
       {goals?.map((g) => {

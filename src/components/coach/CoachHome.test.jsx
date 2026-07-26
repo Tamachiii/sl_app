@@ -26,30 +26,22 @@ vi.mock('../../hooks/useClientErrors', () => ({
 // Inline section stubs that read the outlet context the same way the real
 // sections do — verifies the layout's <Outlet context> wiring without pulling
 // in their data hooks.
-function ProfileStub() {
-  const { student } = useOutletContext();
-  return <div data-testid="profile-section">profile:{student.id}</div>;
-}
 function ProgrammingStub() {
   const { student } = useOutletContext();
   return <div data-testid="programming-section">programming:{student.id}</div>;
 }
-function GoalsStub() {
+function ProgressStub() {
   const { student } = useOutletContext();
-  return <div data-testid="goals-section">goals:{student.id}</div>;
-}
-function StatsStub() {
-  const { student } = useOutletContext();
-  return <div data-testid="stats-section">stats:{student.id}</div>;
+  return <div data-testid="progress-section">progress:{student.id}</div>;
 }
 
-vi.mock('./StudentProfileSection', () => ({ default: ProfileStub }));
 vi.mock('./StudentProgrammingSection', () => ({ default: ProgrammingStub }));
-vi.mock('./StudentGoalsSection', () => ({ default: GoalsStub }));
-vi.mock('./StudentStatsSection', () => ({ default: StatsStub }));
+vi.mock('./StudentProgressSection', () => ({ default: ProgressStub }));
 
 import CoachHome from './CoachHome';
 
+// Mirrors the real route tree: two destinations, with the surfaces that were
+// absorbed (profile → header, goals/stats → progress) kept as redirects.
 function renderCoachHome(path = '/coach/students') {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -57,12 +49,12 @@ function renderCoachHome(path = '/coach/students') {
         <Route path="/coach/students" element={<CoachHome />} />
         <Route path="/coach/students/:studentId" element={<CoachHome />}>
           <Route index element={<Navigate to="programming" replace />} />
-          <Route path="profile" element={<ProfileStub />} />
           <Route path="programming" element={<ProgrammingStub />} />
-          <Route path="goals" element={<GoalsStub />} />
-          <Route path="stats" element={<StatsStub />} />
-          {/* Legacy /messaging deep links bounce to profile. */}
-          <Route path="messaging" element={<Navigate to="../profile" replace />} />
+          <Route path="progress" element={<ProgressStub />} />
+          <Route path="profile" element={<Navigate to="../programming" replace />} />
+          <Route path="goals" element={<Navigate to="../progress" replace />} />
+          <Route path="stats" element={<Navigate to="../progress" replace />} />
+          <Route path="messaging" element={<Navigate to="../programming" replace />} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -172,7 +164,12 @@ describe('CoachHome', () => {
   describe('with a selected student', () => {
     beforeEach(() => {
       mockStudentsData = {
-        data: [{ id: 's-1', profile: { full_name: 'Alice' } }],
+        data: [{
+          id: 's-1',
+          profile_id: 'p-1',
+          created_at: '2025-03-04T00:00:00Z',
+          profile: { full_name: 'Alice' },
+        }],
         isLoading: false,
       };
     });
@@ -182,33 +179,54 @@ describe('CoachHome', () => {
       expect(screen.getByRole('link', { name: /all athletes/i })).toHaveAttribute('href', '/coach/students');
     });
 
-    it('renders the tab strip with four tabs (no Messaging)', () => {
+    it('renders exactly two tabs — Programming and Progress', () => {
       renderCoachHome('/coach/students/s-1/programming');
       expect(screen.getByRole('tablist')).toBeInTheDocument();
-      expect(screen.getAllByRole('tab')).toHaveLength(4);
-      expect(screen.queryByRole('tab', { name: /messaging/i })).not.toBeInTheDocument();
+      const tabs = screen.getAllByRole('tab');
+      expect(tabs).toHaveLength(2);
+      expect(tabs.map((el) => el.textContent)).toEqual(['Programming', 'Progress']);
+      // Profile is a header now, not a destination.
+      expect(screen.queryByRole('tab', { name: /profile/i })).not.toBeInTheDocument();
+    });
+
+    it('shows the athlete header on every tab, so identity is never hidden', () => {
+      renderCoachHome('/coach/students/s-1/programming');
+      expect(screen.getByRole('heading', { level: 2, name: 'Alice' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /view sessions/i })).toHaveAttribute(
+        'href', '/coach/sessions?student=s-1',
+      );
+
+      renderCoachHome('/coach/students/s-1/progress');
+      expect(screen.getAllByRole('heading', { level: 2, name: 'Alice' }).length).toBeGreaterThan(0);
+    });
+
+    it('links the header Message action to the thread by profile id', () => {
+      renderCoachHome('/coach/students/s-1/programming');
+      expect(screen.getByRole('link', { name: /message/i })).toHaveAttribute(
+        'href', '/coach/messages/p-1',
+      );
     });
 
     it('redirects bare /coach/students/:id to programming', () => {
       renderCoachHome('/coach/students/s-1');
       expect(screen.getByTestId('programming-section')).toBeInTheDocument();
-      expect(screen.queryByTestId('profile-section')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('progress-section')).not.toBeInTheDocument();
     });
 
-    it('renders only the profile tab on /profile', () => {
-      renderCoachHome('/coach/students/s-1/profile');
-      expect(screen.getByTestId('profile-section')).toHaveTextContent('profile:s-1');
+    it('renders the merged Progress tab on /progress', () => {
+      renderCoachHome('/coach/students/s-1/progress');
+      expect(screen.getByTestId('progress-section')).toHaveTextContent('progress:s-1');
       expect(screen.queryByTestId('programming-section')).not.toBeInTheDocument();
     });
 
-    it('renders only the stats tab on /stats', () => {
-      renderCoachHome('/coach/students/s-1/stats');
-      expect(screen.getByTestId('stats-section')).toHaveTextContent('stats:s-1');
-    });
-
-    it('redirects legacy /messaging to /profile', () => {
-      renderCoachHome('/coach/students/s-1/messaging');
-      expect(screen.getByTestId('profile-section')).toBeInTheDocument();
+    it.each([
+      ['/coach/students/s-1/goals', 'progress-section'],
+      ['/coach/students/s-1/stats', 'progress-section'],
+      ['/coach/students/s-1/profile', 'programming-section'],
+      ['/coach/students/s-1/messaging', 'programming-section'],
+    ])('absorbed deep link %s lands on the surface that took it over', (path, testId) => {
+      renderCoachHome(path);
+      expect(screen.getByTestId(testId)).toBeInTheDocument();
     });
   });
 });

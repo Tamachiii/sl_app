@@ -295,10 +295,14 @@ const en = {
       appErrors: 'App errors ({n})',
     },
     tabs: {
-      profile: 'Profile',
       programming: 'Programming',
+      progress: 'Progress',
+      // Still used as the section headings inside the merged Progress tab.
       goals: 'Goals',
       stats: 'Stats',
+    },
+    stats: {
+      noData: 'No training logged yet for this scope.',
     },
     profile: {
       coachingSinceLabel: 'Coaching since',

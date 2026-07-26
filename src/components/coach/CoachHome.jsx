@@ -12,6 +12,7 @@ import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
 import StudentWeekStrip from './StudentWeekStrip';
+import StudentHeader from './StudentHeader';
 
 function initialsOf(fullName) {
   return (fullName || '')
@@ -183,13 +184,12 @@ function RosterView({ students, t, lang }) {
   );
 }
 
-// Profile owns the "view sessions" + "message" actions and shows the avatar +
-// name, so we no longer render a separate header card above the tab strip.
+// Two destinations, not four: PLAN the block, or read how it is GOING.
+// Identity and the cross-surface actions moved into StudentHeader (always
+// visible), and Goals folded in with Stats as targets-then-evidence.
 const TABS = [
-  { key: 'profile', i18n: 'coach.tabs.profile' },
   { key: 'programming', i18n: 'coach.tabs.programming' },
-  { key: 'goals', i18n: 'coach.tabs.goals' },
-  { key: 'stats', i18n: 'coach.tabs.stats' },
+  { key: 'progress', i18n: 'coach.tabs.progress' },
 ];
 
 function StudentTabStrip({ studentId, t }) {
@@ -240,6 +240,7 @@ function SelectedStudentView({ student, t }) {
         </svg>
         {t('coach.roster.backToAll')}
       </Link>
+      <StudentHeader student={student} />
       <StudentTabStrip studentId={student.id} t={t} />
       <div>
         <Outlet context={{ student }} />

@@ -116,7 +116,10 @@ export default function StudentStatsSection() {
         />
       )}
 
-      {!hasData && <EmptyState message={t('student.home.noProgram')} />}
+      {/* Coach-voice, and accurate: the athlete may well have a program, they
+          just have not logged anything in the selected scope yet. This used to
+          render the student-side "No program assigned yet". */}
+      {!hasData && <EmptyState message={t('coach.stats.noData')} compact />}
 
       {hasData && <CoachStatsBody
         stats={stats}

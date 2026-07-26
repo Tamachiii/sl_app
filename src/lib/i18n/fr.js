@@ -295,10 +295,13 @@ const fr = {
       appErrors: 'Erreurs de l’app ({n})',
     },
     tabs: {
-      profile: 'Profil',
       programming: 'Programme',
+      progress: 'Progression',
       goals: 'Objectifs',
       stats: 'Stats',
+    },
+    stats: {
+      noData: 'Aucun entraînement enregistré pour cette sélection.',
     },
     profile: {
       coachingSinceLabel: 'Coaché depuis le',

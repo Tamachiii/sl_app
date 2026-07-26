@@ -38,10 +38,8 @@ import Spinner from './components/ui/Spinner';
 
 const LoginPage = lazy(() => import('./components/auth/LoginPage'));
 const CoachHome = lazy(() => import('./components/coach/CoachHome'));
-const StudentProfileSection = lazy(() => import('./components/coach/StudentProfileSection'));
 const StudentProgrammingSection = lazy(() => import('./components/coach/StudentProgrammingSection'));
-const StudentGoalsSection = lazy(() => import('./components/coach/StudentGoalsSection'));
-const StudentStatsSection = lazy(() => import('./components/coach/StudentStatsSection'));
+const StudentProgressSection = lazy(() => import('./components/coach/StudentProgressSection'));
 const SessionsFeed = lazy(() => import('./components/coach/SessionsFeed'));
 const SessionEditor = lazy(() => import('./components/coach/SessionEditor'));
 const ExerciseLibrary = lazy(() => import('./components/coach/ExerciseLibrary'));
@@ -94,16 +92,18 @@ export const routes = [
                 element: <Lazy><CoachHome /></Lazy>,
                 children: [
                   { index: true, element: <Navigate to="programming" replace /> },
-                  { path: 'profile', element: <Lazy><StudentProfileSection /></Lazy> },
                   { path: 'programming', element: <Lazy><StudentProgrammingSection /></Lazy> },
                   // Session editing lives INSIDE the shell now, so the tab
                   // strip and athlete context stay mounted while editing.
                   { path: 'programming/s/:sessionId', element: <Lazy><SessionEditor /></Lazy> },
-                  { path: 'goals', element: <Lazy><StudentGoalsSection /></Lazy> },
-                  { path: 'stats', element: <Lazy><StudentStatsSection /></Lazy> },
-                  // Legacy /messaging deep links: bounce to profile, where the
-                  // "Message" action now lives.
-                  { path: 'messaging', element: <Navigate to="../profile" replace /> },
+                  { path: 'progress', element: <Lazy><StudentProgressSection /></Lazy> },
+                  // Profile dissolved into the always-visible StudentHeader;
+                  // Goals + Stats merged into Progress. Old deep links and
+                  // bookmarks land on the surface that absorbed them.
+                  { path: 'profile', element: <Navigate to="../programming" replace /> },
+                  { path: 'goals', element: <Navigate to="../progress" replace /> },
+                  { path: 'stats', element: <Navigate to="../progress" replace /> },
+                  { path: 'messaging', element: <Navigate to="../programming" replace /> },
                 ],
               },
               { path: '/coach/student/:studentId/goals', element: <RedirectToStudentGoals /> },
