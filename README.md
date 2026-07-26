@@ -69,7 +69,7 @@ src/
     coach/             CoachHome (Athletes roster + single-student tabs), StudentWeekStrip,
                        StudentProfileSection, StudentProgrammingSection,
                        StudentGoalsSection, StudentStatsSection,
-                       ProgramSwitcher, WeekTimeline, WeekView, SessionEditor, SessionReview,
+                       ProgramSwitcher, ProgramSheet, SessionEditor, SessionReview,
                        ExerciseSlotRow, ExerciseLibrary, SessionsFeed, SlotProgress,
                        CoachMessages
     messaging/         MessageThread, MessageComposer, ConversationList,
@@ -128,7 +128,7 @@ Deep architectural details — RLS helpers, React Query invalidation, routing/pe
 
 **Coach**
 1. Logs in → the **Athletes** roster (`CoachHome` at `/coach/students`) — a searchable, attention-first list of athletes. Each card carries a compact M..S `StudentWeekStrip` (completed / today / upcoming / missed / rest for the active week) plus attention chips that surface *why* an athlete needs you: **sessions to review**, **missed this week**, **no active program** — all derived client-side, no new query. Ordered attention-first, then A–Z; a search box filters by name/program. The old Dashboard is merged in here (`/coach/dashboard` redirects), and the client-error triage collapses at the bottom. Tap a card to open their single-student view.
-2. **Single-student view** (`/coach/students/:studentId/{profile,programming,goals,stats}`) — a "← All athletes" back link over a four-tab pill strip that splits the per-student view into **Profile** (avatar, role, coaching-since date, plus **View sessions** and **Message** action buttons), **Programming** (`ProgramSwitcher` + `WeekTimeline` → `WeekView` → `SessionEditor`; the program menu can **duplicate** a whole block — an inactive copy of every week/session/target, no logged training — to seed the next block), **Goals**, and **Stats**. Bare `/coach/students/:id` redirects to `…/programming`. Legacy `…/messaging` deep links redirect to `…/profile`.
+2. **Single-student view** (`/coach/students/:studentId/{profile,programming,goals,stats}`) — a "← All athletes" back link over a four-tab pill strip that splits the per-student view into **Profile** (avatar, role, coaching-since date, plus **View sessions** and **Message** action buttons), **Programming** (the **Program Sheet**: a program picker over a vertical list of week cards, each listing its own sessions inline — weekday pill, title, exercise count, a ✓ once the athlete confirms — so the whole block is readable without navigating. Tap a session to edit its exercises in a full-width pane that stays *inside* this shell, so the tab strip and athlete context never disappear. The weekday pill re-places a session on any Mon–Sun; each week's ⋯ menu duplicates, copies or deletes it; the program menu can **duplicate** a whole block — an inactive copy of every week/session/target, no logged training — to seed the next one), **Goals**, and **Stats**. Bare `/coach/students/:id` redirects to `…/programming`. Legacy `…/messaging` deep links redirect to `…/profile`.
 3. **Sessions tab** (`/coach/sessions`) — a needs-review inbox by default (confirmations awaiting review, with a pending count); the **All** toggle restores the full history. Arriving via a student profile's "View sessions" deep link lands on All. Tap a card to open `SessionReview`.
 4. **Messages tab** (`/coach/messages`, `/coach/messages/:otherProfileId`) — conversation rollup over every student, plus "start a conversation" cards for students with no thread yet. Unread count appears as a dot on the bottom-nav icon (count chip in the side-nav). Tapping the kebab on an outgoing chat bubble opens a confirm dialog and deletes the message for both sides via realtime; coach session-feedback bubbles (the "Re: <session>" cards) are pinned and don't expose the action. The most recent outgoing bubble carries an iMessage-style "Sent" / "Read · {time}" caption fed by `messages.read_at` so the sender knows whether the recipient has opened the thread. Realtime updates via the Supabase `messages` channel keep threads + the badge live across tabs.
 5. **Library tab** — exercise CRUD with search + type filter.
@@ -261,7 +261,7 @@ npm test -- --run        # single run (CI)
 - Vite manual chunks for `router`, `query`, `supabase` (`vite.config.js`) — vendor caching survives deploys.
 - `index.html`: meta description, theme-color, manifest, favicon, Supabase `preconnect`.
 - PWA installability: `vite-plugin-pwa`-generated `manifest.webmanifest` references SVG + PNG (192, 512, 512-maskable) icons; `index.html` declares an `apple-touch-icon` for iOS home-screen installs (iOS does not honor SVG manifest icons).
-- A11y: `aria-label` / `aria-pressed` / `aria-modal` / `role="status"` on Spinner, Dialog, SetRow, RpeInput, ExerciseSlotRow, WeekView, ExerciseLibrary, BottomNav, LoginPage.
+- A11y: `aria-label` / `aria-pressed` / `aria-modal` / `role="status"` on Spinner, Dialog, SetRow, RpeInput, ExerciseSlotRow, ProgramSheet, ExerciseLibrary, BottomNav, LoginPage.
 
 ---
 

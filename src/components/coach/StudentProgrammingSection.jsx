@@ -7,7 +7,7 @@ import {
 } from '../../hooks/useProgram';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
-import WeekTimeline from './WeekTimeline';
+import ProgramSheet from './ProgramSheet';
 import ProgramSwitcher from './ProgramSwitcher';
 
 export default function StudentProgrammingSection() {
@@ -96,7 +96,7 @@ export default function StudentProgrammingSection() {
       {!selectedProgram ? (
         <div className="flex justify-center py-4"><Spinner /></div>
       ) : (
-        <WeekTimeline studentId={studentId} program={selectedProgram} />
+        <ProgramSheet studentId={studentId} program={selectedProgram} />
       )}
     </div>
   );

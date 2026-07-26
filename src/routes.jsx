@@ -7,6 +7,20 @@ function RedirectToStudentGoals() {
   return <Navigate to={`/coach/students/${studentId}/goals`} replace />;
 }
 
+// The week page is gone — the Programming tab now lists every week with its
+// sessions inline. Old /coach/student/:id/week/:weekId links land on the tab.
+function RedirectToProgramming() {
+  const { studentId } = useParams();
+  return <Navigate to={`/coach/students/${studentId}/programming`} replace />;
+}
+
+// Session editing moved inside the athlete shell so the tab strip and athlete
+// header stop unmounting. A plain <Navigate> can't interpolate params.
+function RedirectToSessionEditor() {
+  const { studentId, sessionId } = useParams();
+  return <Navigate to={`/coach/students/${studentId}/programming/s/${sessionId}`} replace />;
+}
+
 // Bare "/" lands here when an already-authenticated user opens the app
 // without a hash route — most commonly an iOS PWA cold launch, which
 // loads the manifest start_url (`/sl_app/`) with no hash. Without this,
@@ -29,7 +43,6 @@ const StudentProgrammingSection = lazy(() => import('./components/coach/StudentP
 const StudentGoalsSection = lazy(() => import('./components/coach/StudentGoalsSection'));
 const StudentStatsSection = lazy(() => import('./components/coach/StudentStatsSection'));
 const SessionsFeed = lazy(() => import('./components/coach/SessionsFeed'));
-const WeekView = lazy(() => import('./components/coach/WeekView'));
 const SessionEditor = lazy(() => import('./components/coach/SessionEditor'));
 const ExerciseLibrary = lazy(() => import('./components/coach/ExerciseLibrary'));
 const SessionReview = lazy(() => import('./components/coach/SessionReview'));
@@ -83,6 +96,9 @@ export const routes = [
                   { index: true, element: <Navigate to="programming" replace /> },
                   { path: 'profile', element: <Lazy><StudentProfileSection /></Lazy> },
                   { path: 'programming', element: <Lazy><StudentProgrammingSection /></Lazy> },
+                  // Session editing lives INSIDE the shell now, so the tab
+                  // strip and athlete context stay mounted while editing.
+                  { path: 'programming/s/:sessionId', element: <Lazy><SessionEditor /></Lazy> },
                   { path: 'goals', element: <Lazy><StudentGoalsSection /></Lazy> },
                   { path: 'stats', element: <Lazy><StudentStatsSection /></Lazy> },
                   // Legacy /messaging deep links: bounce to profile, where the
@@ -93,8 +109,9 @@ export const routes = [
               { path: '/coach/student/:studentId/goals', element: <RedirectToStudentGoals /> },
               { path: '/coach/sessions', element: <Lazy><SessionsFeed /></Lazy> },
               { path: '/coach/student/:studentId/session/:sessionId/review', element: <Lazy><SessionReview /></Lazy> },
-              { path: '/coach/student/:studentId/week/:weekId', element: <Lazy><WeekView /></Lazy> },
-              { path: '/coach/student/:studentId/week/:weekId/session/:sessionId', element: <Lazy><SessionEditor /></Lazy> },
+              // Legacy singular-prefix authoring routes → the merged surface.
+              { path: '/coach/student/:studentId/week/:weekId', element: <RedirectToProgramming /> },
+              { path: '/coach/student/:studentId/week/:weekId/session/:sessionId', element: <RedirectToSessionEditor /> },
               { path: '/coach/messages', element: <Lazy><CoachMessages /></Lazy> },
               { path: '/coach/messages/:otherProfileId', element: <Lazy><CoachMessages /></Lazy> },
               { path: '/coach/exercises', element: <Lazy><ExerciseLibrary /></Lazy> },

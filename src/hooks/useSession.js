@@ -111,6 +111,9 @@ export function useAddSlot() {
       qc.invalidateQueries({ queryKey: ['session', vars.sessionId] });
       qc.invalidateQueries({ queryKey: ['set-logs'] });
       qc.invalidateQueries({ queryKey: ['week'] });
+      // Adding a slot changes the per-session exercise count the Program Sheet
+      // renders, and that count comes from ['program'] — not ['week'].
+      qc.invalidateQueries({ queryKey: ['program'] });
     },
   });
 }
@@ -455,6 +458,8 @@ export function useDeleteSlot() {
         qc.invalidateQueries({ queryKey: ['session'] });
       }
       qc.invalidateQueries({ queryKey: ['week'] });
+      // Deleting a slot changes the Program Sheet's exercise count (['program']).
+      qc.invalidateQueries({ queryKey: ['program'] });
     },
   });
 }

@@ -32,21 +32,38 @@ export function useProgramsForStudent(studentId) {
 }
 
 /**
- * Fetch a single program with its weeks (and session ids) by program id.
- * This is the detail fetch that `WeekTimeline` consumes.
+ * Fetch a single program with its weeks and their sessions by program id.
+ * This is the detail fetch that `ProgramSheet` consumes.
  */
 export function useProgram(programId) {
   return useQuery({
     queryKey: ['program', programId],
     queryFn: async () => {
+      // Sessions carry their display fields (not just `id`) so the Programming
+      // tab can list a whole block — week → its sessions → an exercise count —
+      // without a per-week fetch. `exercise_slots(id)` is an id-only embed
+      // purely to count against; widening it further would balloon the payload.
       const { data, error } = await supabase
         .from('programs')
-        .select('*, weeks(*, sessions(id))')
+        .select(`
+          *,
+          weeks(
+            *,
+            sessions(id, title, day_number, sort_order, archived_at, exercise_slots(id))
+          )
+        `)
         .eq('id', programId)
         .maybeSingle();
       if (error) throw error;
       if (!data) return null;
-      data.weeks = (data.weeks || []).sort((a, b) => a.week_number - b.week_number);
+      data.weeks = (data.weeks || [])
+        .sort((a, b) => a.week_number - b.week_number)
+        .map((w) => ({
+          ...w,
+          sessions: (w.sessions || [])
+            .slice()
+            .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
+        }));
       return data;
     },
     enabled: !!programId,
@@ -247,7 +264,10 @@ export function useDeleteProgram() {
 }
 
 /** Programs currently in the trash, newest first. */
-export function useTrashedPrograms(studentId) {
+// `enabled` lets a caller defer this fetch until the trash UI is actually
+// reachable — the trash is a rare corner, so the Programming tab should not
+// pay for it on every visit.
+export function useTrashedPrograms(studentId, { enabled = true } = {}) {
   return useQuery({
     queryKey: ['programs-trash', studentId],
     queryFn: async () => {
@@ -260,7 +280,7 @@ export function useTrashedPrograms(studentId) {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!studentId,
+    enabled: !!studentId && enabled,
   });
 }
 

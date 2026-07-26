@@ -204,7 +204,9 @@ function StudentTabStrip({ studentId, t }) {
           key={key}
           to={`/coach/students/${studentId}/${key}`}
           role="tab"
-          end
+          // Programming owns a child route (…/programming/s/:sessionId), so it
+          // matches by prefix; the leaf tabs stay exact.
+          end={key !== 'programming'}
           className={({ isActive }) =>
             `sl-pill shrink-0 transition-colors ${
               isActive ? 'text-gray-900' : 'bg-ink-100 text-ink-700 hover:bg-ink-200'

@@ -137,10 +137,34 @@ export function useWeekConfirmedSessionIds(weekId) {
   });
 }
 
+/**
+ * Every confirmed session id across ONE program — the Program Sheet lists a
+ * whole block at once, so a per-week lookup would be an N+1. Same shape and
+ * caching rules as `useWeekConfirmedSessionIds`: filter through the session →
+ * week join rather than fanning ids back in, and cache a plain array because a
+ * Set dehydrates to {} through the persister.
+ */
+export function useProgramConfirmedSessionIds(programId) {
+  return useQuery({
+    queryKey: ['program-confirmed-session-ids', programId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('session_confirmations')
+        .select('session_id, sessions!inner(weeks!inner(program_id))')
+        .eq('sessions.weeks.program_id', programId);
+      if (error) throw error;
+      return (data || []).map((c) => c.session_id);
+    },
+    select: (ids) => new Set(ids),
+    enabled: !!programId,
+  });
+}
+
 function invalidateConfirmationQueries(qc) {
   qc.invalidateQueries({ queryKey: ['session-confirmation'] });
   qc.invalidateQueries({ queryKey: ['my-confirmed-session-ids'] });
   qc.invalidateQueries({ queryKey: ['week-confirmed-session-ids'] });
+  qc.invalidateQueries({ queryKey: ['program-confirmed-session-ids'] });
   // Confirming is what moves adherence, tonnage and lifetime totals. Those
   // three queries reduce over set_logs INSIDE their queryFn, so nothing about
   // their keys changes when a session is confirmed and they would otherwise

@@ -34,12 +34,12 @@ const MessagesIcon = (
   </svg>
 );
 
-// Under the Students tab, deep routes live at `/coach/student/:sid/week/…` and
-// `/coach/student/:sid/week/…/session/…`. Sessions-tab drill-down lives at
-// `/coach/student/:sid/session/…/review`. They share the `/coach/student/`
-// prefix, so a plain `end: false` NavLink match would light up both tabs at
-// once — instead each coach tab declares a `matches(pathname)` predicate that
-// distinguishes /week/ routes (Students) from /review routes (Sessions).
+// Athletes-tab content all lives under `/coach/students/…` now (including
+// session editing at `…/programming/s/:sessionId`). The legacy singular
+// `/coach/student/:sid/week/…` paths still resolve as redirects, and the
+// Sessions-tab drill-down at `/coach/student/:sid/session/…/review` shares
+// that prefix — so a plain `end: false` NavLink would light up both tabs at
+// once. Each coach tab declares a `matches(pathname)` predicate instead.
 const isCoachStudentsPath = (p) =>
   p.startsWith('/coach/students') || /^\/coach\/student\/[^/]+\/week/.test(p);
 const isCoachSessionsPath = (p) =>

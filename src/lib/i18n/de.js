@@ -366,6 +366,13 @@ const de = {
       del: 'löschen',
       confirmDelete: '„{name}" löschen?',
     },
+    sheet: {
+      weekMenu: 'Wochen-Optionen',
+      reorderWeeks: 'Neu anordnen',
+      weekMeta: '{s} Einheiten · {e} Üb.',
+      noWeeks: 'Noch keine Wochen — füge unten die erste hinzu.',
+      setDay: 'Tag: {day}',
+    },
     week: {
       weekShort: 'W{n}',
       reorderWeek: 'Woche {n} neu anordnen',

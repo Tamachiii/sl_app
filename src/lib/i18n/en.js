@@ -366,6 +366,13 @@ const en = {
       del: 'del',
       confirmDelete: 'Delete "{name}"?',
     },
+    sheet: {
+      weekMenu: 'Week options',
+      reorderWeeks: 'Reorder weeks',
+      weekMeta: '{s} sessions · {e} ex',
+      noWeeks: 'No weeks yet — add the first one below.',
+      setDay: 'Day: {day}',
+    },
     week: {
       weekShort: 'W{n}',
       reorderWeek: 'Reorder week {n}',

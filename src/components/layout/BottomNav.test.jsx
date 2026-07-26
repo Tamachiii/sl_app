@@ -62,7 +62,7 @@ describe('BottomNav', () => {
     expect(screen.queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument();
   });
 
-  it('Athletes tab is active on Students-section deep routes (WeekView, SessionEditor)', () => {
+  it('Athletes tab is active on legacy singular-prefix authoring routes (now redirects)', () => {
     renderBottomNav('/coach/student/s-1/week/w-1');
     const athletesLink = screen.getByRole('link', { name: /athletes/i });
     expect(athletesLink).toHaveClass('text-[var(--color-accent)]');

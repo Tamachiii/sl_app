@@ -35,10 +35,13 @@ import CopyDialog from '../ui/CopyDialog';
 import { useI18n } from '../../hooks/useI18n';
 
 export default function SessionEditor() {
-  const { sessionId, studentId, weekId } = useParams();
+  const { sessionId, studentId } = useParams();
   const navigate = useNavigate();
   const { t } = useI18n();
   const { data: session, isLoading } = useSession(sessionId);
+  // The route no longer carries weekId — the session row owns it. Keeps the
+  // editor addressable by session id alone from inside the athlete shell.
+  const weekId = session?.week_id;
   const { data: library } = useExerciseLibrary();
   const addSlot = useAddSlot();
   const updateSlot = useUpdateSlot();
@@ -141,11 +144,14 @@ export default function SessionEditor() {
   const inputCls =
     'w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
 
+  // No page padding: this renders inside the athlete shell (CoachHome already
+  // applies p-4 pb-6 md:p-8), under the athlete header and tab strip. The
+  // header below is a breadcrumb back to the sheet, not a page header.
   return (
-    <div className="p-4 pb-6 md:p-8 space-y-5">
+    <div className="space-y-4">
       <div className="flex items-start gap-3">
         <button
-          onClick={() => navigate(`/coach/student/${studentId}/week/${weekId}`)}
+          onClick={() => navigate(`/coach/students/${studentId}/programming`)}
           aria-label={t('common.back')}
           className="w-9 h-9 rounded-lg bg-ink-100 flex items-center justify-center text-ink-700 hover:bg-ink-200 shrink-0"
         >
@@ -155,7 +161,7 @@ export default function SessionEditor() {
         </button>
         <div className="flex-1 min-w-0">
           <div className="sl-label text-ink-400">{t('coach.editor.kicker')}</div>
-          <div className="sl-display text-[22px] text-gray-900 leading-tight mt-0.5">
+          <div className="sl-display text-[20px] text-gray-900 leading-tight mt-0.5">
             <EditableText
               value={session?.title || ''}
               onSave={(title) => updateSession.mutate({ id: sessionId, title })}

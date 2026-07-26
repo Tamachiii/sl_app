@@ -123,7 +123,7 @@ Invalidation is scoped intentionally to avoid over-fetching. When you add a muta
 
 Week reordering (`useReorderWeeks`) does an **optimistic two-pass write**: park all weeks at `week_number = 100000 + idx`, then set them to `idx + 1`. The two-pass dodges the `UNIQUE(program_id, week_number)` constraint mid-update. `useReorderPrograms` mirrors the same two-pass pattern for programs (even though `sort_order` has no unique constraint) so the code reads identically.
 
-`WeekTimeline` is dnd-kit sortable: each week pill has a separate drag handle (6-dot grip) — the label area still navigates on click. Touch drag needs a 200ms press delay (`TouchSensor` activation) so taps don't trigger drags. Tests that render `WeekTimeline` (directly or via `CoachHome`) must mock `useReorderWeeks` from `hooks/useWeek`.
+`ProgramSheet` is dnd-kit sortable, but only behind an explicit **"Reorder weeks"** toggle: dragging and vertical scrolling compete for the same axis, so the drag handles (6-dot grip) exist only while reordering, and the session rows collapse out of the way. Touch drag still needs the 200ms press delay (`TouchSensor` activation) so taps don't trigger drags. Tests that render `ProgramSheet` (directly or via `CoachHome`) must mock `useReorderWeeks` from `hooks/useWeek`.
 
 ## Auth and Row-Level Security
 
@@ -178,14 +178,14 @@ Two flows drive "pick up where you left off" via two localStorage keys:
 
 Because these deep views are reachable from several entry points (a roster card, a week view, the sessions feed), the previous history entry is unpredictable, so `navigate(-1)` can land somewhere unexpected. Use logical parents instead:
 
-- `WeekView` back → `/coach/students/:studentId`
-- `SessionEditor` back → `/coach/student/:studentId/week/:weekId`
+- `SessionEditor` back → `/coach/students/:studentId/programming`
 - `SessionReview` back → `/coach/sessions`
-- `WeekView`'s `deleteWeek` success handler navigates the same way.
 
 ### Nav tab active-state overrides
 
-`BottomNav`'s "Students" (`/coach/students`) and "Home" (`/student`) links use `NavLink`'s `end` prop so they only match on exact routes — without it they stay active on all child routes.
+`BottomNav`'s "Athletes" (`/coach/students`) and "Home" (`/student`) links use `NavLink`'s `end` prop so they only match on exact routes — without it they stay active on all child routes.
+
+The single-student tab strip in `CoachHome` passes `end={key !== 'programming'}`: Programming owns a child route (`…/programming/s/:sessionId`) and must match by prefix so the tab stays lit while a session is open; the three leaf tabs stay exact.
 
 For coach tabs, **Students** and **Sessions** both live under the shared `/coach/student/:sid/…` prefix, so a plain `end: false` NavLink would light up BOTH tabs on any deep route. Each tab in `layout/navItems` instead declares a `matches(pathname)` predicate:
 

@@ -233,6 +233,10 @@ export function useUpdateSession() {
     onSuccess: ({ id, weekId }) => {
       qc.invalidateQueries({ queryKey: ['week', weekId] });
       qc.invalidateQueries({ queryKey: ['session', id] });
+      // The Program Sheet renders session titles and day pills straight from
+      // ['program'] — without this a rename or a day move writes through to the
+      // DB but the sheet keeps showing the old value until it refetches.
+      qc.invalidateQueries({ queryKey: ['program'] });
       // Title/day_number ride along in the coach's Confirmed-feed payload and
       // in the dashboard strip, so both go stale on a rename or a day move.
       qc.invalidateQueries({ queryKey: ['all-confirmations'] });
@@ -263,6 +267,9 @@ export function useArchiveSession() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['week', data.week_id] });
       qc.invalidateQueries({ queryKey: ['session', data.id] });
+      // Archiving moves the session between the sheet's active list and its
+      // "N archived" drawer, both of which read ['program'].
+      qc.invalidateQueries({ queryKey: ['program'] });
       // Archiving hides the session from the coach's Confirmed feed.
       qc.invalidateQueries({ queryKey: ['all-confirmations'] });
       invalidateCoachDashboard(qc);
@@ -289,6 +296,8 @@ export function useDeleteSession() {
     onSuccess: (weekId) => {
       if (weekId) qc.invalidateQueries({ queryKey: ['week', weekId] });
       else qc.invalidateQueries({ queryKey: ['week'] });
+      // The deleted row must leave the Program Sheet's week list too.
+      qc.invalidateQueries({ queryKey: ['program'] });
       qc.invalidateQueries({ queryKey: ['all-confirmations'] });
       invalidateCoachDashboard(qc);
     },

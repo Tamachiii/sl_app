@@ -39,7 +39,8 @@ src/
     auth/        LoginPage  ProtectedRoute  RoleGate
     layout/      AppShell  BottomNav  SideNav  navItems
     coach/       CoachHome (Athletes roster + single-student tabs)  StudentWeekStrip  ProgramSwitcher
-                 WeekTimeline  WeekView  SessionEditor  SessionReview
+                 ProgramSheet  SessionEditor  SessionReview
+                 ProgramManageDialog  ProgramTrashDialog  ProgramBadges
                  ExerciseSlotRow  ExerciseLibrary  SessionsFeed  SlotProgress
                  StudentProfileSection  StudentProgrammingSection
                  StudentGoalsSection  StudentStatsSection  CoachMessages
@@ -69,12 +70,12 @@ Jump straight to the relevant files. For *behavior* details, open the file — t
 | Auth / login | `auth/LoginPage`, `hooks/useAuth`, `routes.jsx` |
 | Coach Athletes roster (attention-first list; merged Dashboard + Students into one tab) | `coach/CoachHome` (roster landing + single-student tab host), `coach/StudentWeekStrip`, `lib/coachRoster` (`buildRoster` — pure), `lib/day` (`statusOf`/`deriveWeekStats`), `hooks/useStudents`, `hooks/useSessionConfirmation` (`useAllConfirmations`), `hooks/useProgram` (`useCoachDashboardPrograms`), `hooks/useClientErrors`. Search + per-athlete attention chips (to-review / missed / no-program), all derived client-side from already-loaded coach-wide queries; ordered attention-first then A–Z; card → single-student tabs. `/coach/dashboard` now redirects here |
 | Coach single-student view (tabbed) | `coach/CoachHome`, `coach/StudentProfileSection`, `coach/StudentProgrammingSection`, `coach/StudentGoalsSection`, `coach/StudentStatsSection`, `routes.jsx` |
-| Coach programs CRUD | `coach/ProgramSwitcher`, `hooks/useProgram` |
+| Coach programs CRUD | `coach/ProgramSwitcher` (picker + reorder), `coach/ProgramManageDialog` (rename / set active / duplicate / trash / draft approve-send back), `coach/ProgramTrashDialog`, `coach/ProgramBadges`, `hooks/useProgram`. `useTrashedPrograms` takes `{ enabled }` and only fires while the picker is open |
 | Program duplicate (whole-block copy, same student) | `coach/ProgramSwitcher` (ManageProgramDialog "Duplicate program"), `hooks/useDuplicate` (`useDuplicateProgram` + shared `copyWeekTree` helper). Copy is inactive, week numbers/labels preserved, prescription-only (no student actuals) |
-| Coach week reordering | `coach/WeekTimeline`, `hooks/useWeek` (`useReorderWeeks`) |
+| Coach week reordering | `coach/ProgramSheet` ("Reorder weeks" toggle → dnd-kit vertical sort), `hooks/useWeek` (`useReorderWeeks`) |
 | Coach sessions feed | `coach/SessionsFeed`, `hooks/useSessionConfirmation` |
-| Coach week view | `coach/WeekView`, `hooks/useWeek`, `hooks/useDuplicate` |
-| Coach session editor | `coach/SessionEditor`, `coach/ExerciseSlotRow`, `hooks/useSession`, `hooks/useExerciseLibrary` |
+| Coach Program Sheet (the Programming tab — whole block on one page) | `coach/ProgramSheet` (week cards listing their sessions inline: day pill + title + N ex + confirmed ✓ + archived drawer; week ⋯ menu = duplicate / copy to… / delete), `coach/StudentProgrammingSection`, `hooks/useProgram` (`useProgram` carries weeks→sessions→slot ids), `hooks/useSessionConfirmation` (`useProgramConfirmedSessionIds`), `hooks/useWeek`, `hooks/useDuplicate`, `lib/day` (`nextFreeDayNumber`). **Replaced `WeekTimeline` + the `WeekView` page** — editing an exercise is now 1 navigation, not 3 |
+| Coach session editor | `coach/SessionEditor` (renders INSIDE the athlete shell at `/coach/students/:studentId/programming/s/:sessionId` — no page padding of its own), `coach/ExerciseSlotRow`, `hooks/useSession`, `hooks/useExerciseLibrary` |
 | Coach session review | `coach/SessionReview`, `coach/SessionFeedbackComposer`, `coach/SessionFeedbackSent`, `coach/SessionReviewedNoFeedback`, `hooks/useSession`, `hooks/useSetLogs`, `hooks/useSlotComments`, `hooks/useSessionConfirmation`, `hooks/useMessages` |
 | Set video upload/playback | `student/VideoUploadButton`, `ui/VideoPlayer`, `coach/SessionReview`, `hooks/useSetVideo` |
 | Coach exercise library | `coach/ExerciseLibrary`, `hooks/useExerciseLibrary` |

@@ -366,6 +366,13 @@ const fr = {
       del: 'suppr',
       confirmDelete: 'Supprimer « {name} » ?',
     },
+    sheet: {
+      weekMenu: 'Options de la semaine',
+      reorderWeeks: 'Réorganiser',
+      weekMeta: '{s} séances · {e} ex',
+      noWeeks: 'Aucune semaine — ajoute la première ci-dessous.',
+      setDay: 'Jour : {day}',
+    },
     week: {
       weekShort: 'S{n}',
       reorderWeek: 'Réorganiser la semaine {n}',
