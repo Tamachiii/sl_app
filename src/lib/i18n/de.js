@@ -373,7 +373,8 @@ const de = {
     },
     sheet: {
       weekMenu: 'Wochen-Optionen',
-      reorderWeeks: 'Neu anordnen',
+      reorderWeeks: 'Wochen neu anordnen',
+      reorderHint: 'Ziehe die Griffe zum Neuanordnen.',
       weekMeta: '{s} Einheiten · {e} Üb.',
       noWeeks: 'Noch keine Wochen — füge unten die erste hinzu.',
       setDay: 'Tag: {day}',

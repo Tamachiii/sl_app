@@ -373,7 +373,8 @@ const fr = {
     },
     sheet: {
       weekMenu: 'Options de la semaine',
-      reorderWeeks: 'Réorganiser',
+      reorderWeeks: 'Réorganiser les semaines',
+      reorderHint: 'Fais glisser les poignées pour réorganiser.',
       weekMeta: '{s} séances · {e} ex',
       noWeeks: 'Aucune semaine — ajoute la première ci-dessous.',
       setDay: 'Jour : {day}',

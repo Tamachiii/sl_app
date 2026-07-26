@@ -375,6 +375,7 @@ const en = {
     sheet: {
       weekMenu: 'Week options',
       reorderWeeks: 'Reorder weeks',
+      reorderHint: 'Drag the handles to reorder.',
       weekMeta: '{s} sessions · {e} ex',
       noWeeks: 'No weeks yet — add the first one below.',
       setDay: 'Day: {day}',

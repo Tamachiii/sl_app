@@ -184,13 +184,36 @@ describe('ProgramSheet', () => {
     expect(screen.queryByLabelText(/confirmed by student/i)).not.toBeInTheDocument();
   });
 
-  it('toggles into reorder mode, which hides the per-session rows', async () => {
+  it('enters reorder mode from the week menu, not a standing top-level button', async () => {
     const user = userEvent.setup();
     renderSheet();
+    // No reorder control until you ask for one.
+    expect(screen.queryByRole('button', { name: /reorder weeks/i })).not.toBeInTheDocument();
     expect(screen.getByText('Pull')).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole('button', { name: /week options/i })[0]);
     await user.click(screen.getByRole('button', { name: /reorder weeks/i }));
+
+    // Session rows collapse out of the way and drag handles appear.
     expect(screen.queryByText('Pull')).not.toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /reorder week 1/i })[0]).toBeInTheDocument();
+
+    // Done exits the mode and the sheet comes back.
+    await user.click(screen.getByRole('button', { name: /done/i }));
+    expect(screen.getByText('Pull')).toBeInTheDocument();
+  });
+
+  it('offers no reorder entry when there is only one week to order', async () => {
+    const user = userEvent.setup();
+    renderSheet({ id: 'prog-1', weeks: [program.weeks[0]] });
+    await user.click(screen.getByRole('button', { name: /week options/i }));
+    expect(screen.queryByRole('button', { name: /reorder weeks/i })).not.toBeInTheDocument();
+  });
+
+  it('keeps destructive session delete off the sheet rows', () => {
+    renderSheet();
+    expect(screen.getByText('Pull')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /delete session/i })).not.toBeInTheDocument();
   });
 
   it('renders an empty state when the program has no weeks', () => {

@@ -55,8 +55,11 @@ vi.mock('../../hooks/useDuplicate', () => ({
   useDuplicateSession: () => mockDuplicateSession,
 }));
 
+const mockDeleteSession = { mutate: vi.fn(), isPending: false };
+
 vi.mock('../../hooks/useWeek', () => ({
   useUpdateSession: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteSession: () => mockDeleteSession,
   useProgramIdForWeek: () => ({ data: 'prog-1' }),
 }));
 
@@ -157,6 +160,21 @@ describe('SessionEditor', () => {
 
     await user.click(screen.getByText('duplicate'));
     expect(mockDuplicateSession.mutate).toHaveBeenCalledWith({ sessionId: 'sess-1' });
+  });
+
+  it('deletes the session from here — the sheet rows no longer carry a trash icon', async () => {
+    const user = userEvent.setup();
+    mockSessionData = {
+      data: { title: 'Day 1', exercise_slots: [] },
+      isLoading: false,
+    };
+    renderEditor();
+
+    await user.click(screen.getByText('delete'));
+    // Destructive, so it must go through the confirm step.
+    expect(mockDeleteSession.mutate).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(mockDeleteSession.mutate).toHaveBeenCalledWith('sess-1', expect.any(Object));
   });
 
   it('copies the session to another student via the dialog', async () => {

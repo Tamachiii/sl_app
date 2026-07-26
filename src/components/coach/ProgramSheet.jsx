@@ -24,7 +24,6 @@ import {
   useDeleteWeek,
   useCreateSession,
   useUpdateSession,
-  useDeleteSession,
 } from '../../hooks/useWeek';
 import { useDuplicateWeek } from '../../hooks/useDuplicate';
 import { useProgramConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
@@ -136,7 +135,11 @@ function DayPill({ session, onPick, t }) {
   );
 }
 
-function SessionRow({ session, studentId, confirmed, onSetDay, onDelete, t }) {
+// No delete control here on purpose: a destructive icon on every row of the
+// main authoring surface is both visual noise and a mis-tap waiting to happen
+// on a phone. Deleting a session lives in the session editor, where the coach
+// has already committed to that one session.
+function SessionRow({ session, studentId, confirmed, onSetDay, t }) {
   const navigate = useNavigate();
   const exCount = (session.exercise_slots || []).length;
 
@@ -168,21 +171,15 @@ function SessionRow({ session, studentId, confirmed, onSetDay, onDelete, t }) {
           </svg>
         </span>
       )}
-      <button
-        type="button"
-        onClick={onDelete}
-        aria-label={t('coach.week.deleteSessionAria')}
-        className="text-ink-400 hover:text-danger p-1 shrink-0"
-      >
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-        </svg>
-      </button>
     </div>
   );
 }
 
-function WeekMenu({ onDuplicate, onCopy, onDelete, t }) {
+// Reorder lives here rather than as a standing top-level button: it is a rare,
+// mode-entering action, and the ⋯ already exists so it costs no extra chrome.
+// It has to stay a mode (not always-on drag handles) because on touch a drag
+// handle competes with vertical scroll.
+function WeekMenu({ onDuplicate, onCopy, onDelete, onReorder, canReorder, t }) {
   const [open, setOpen] = useState(false);
   return (
     <span className="relative shrink-0">
@@ -210,6 +207,9 @@ function WeekMenu({ onDuplicate, onCopy, onDelete, t }) {
             {[
               { label: t('coach.week.duplicate'), fn: onDuplicate, danger: false },
               { label: t('coach.week.copyTo'), fn: onCopy, danger: false },
+              ...(canReorder
+                ? [{ label: t('coach.sheet.reorderWeeks'), fn: onReorder, danger: false }]
+                : []),
               { label: t('coach.week.delete'), fn: onDelete, danger: true },
             ].map(({ label, fn, danger }) => (
               <button
@@ -231,17 +231,15 @@ function WeekMenu({ onDuplicate, onCopy, onDelete, t }) {
 }
 
 function WeekCard({
-  week, studentId, expanded, onToggle, confirmedIds, reordering, t,
+  week, studentId, expanded, onToggle, confirmedIds, reordering, canReorder, onReorder, t,
 }) {
   const updateWeek = useUpdateWeek();
   const updateSession = useUpdateSession();
   const createSession = useCreateSession();
-  const deleteSession = useDeleteSession();
   const deleteWeek = useDeleteWeek();
   const duplicateWeek = useDuplicateWeek();
   const [showCopy, setShowCopy] = useState(false);
   const [confirmDeleteWeek, setConfirmDeleteWeek] = useState(false);
-  const [confirmDeleteSession, setConfirmDeleteSession] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
   const navigate = useNavigate();
   const archived = (week.sessions || []).filter((s) => s.archived_at);
@@ -351,6 +349,8 @@ function WeekCard({
         {!reordering && (
           <WeekMenu
             t={t}
+            canReorder={canReorder}
+            onReorder={onReorder}
             onDuplicate={() => duplicateWeek.mutate({ weekId: week.id })}
             onCopy={() => setShowCopy(true)}
             onDelete={() => setConfirmDeleteWeek(true)}
@@ -373,7 +373,6 @@ function WeekCard({
               studentId={studentId}
               confirmed={confirmedIds?.has(s.id)}
               onSetDay={(day) => updateSession.mutate({ id: s.id, day_number: day })}
-              onDelete={() => setConfirmDeleteSession(s.id)}
               t={t}
             />
           ))}
@@ -443,14 +442,6 @@ function WeekCard({
         message={t('coach.week.deleteWeekMessage', { n: week.week_number })}
         onConfirm={() => deleteWeek.mutate(week.id)}
       />
-
-      <ConfirmDialog
-        open={!!confirmDeleteSession}
-        onClose={() => setConfirmDeleteSession(null)}
-        title={t('coach.week.deleteSessionTitle')}
-        message={t('coach.week.deleteSessionMessage')}
-        onConfirm={() => deleteSession.mutate(confirmDeleteSession)}
-      />
     </div>
   );
 }
@@ -518,17 +509,21 @@ export default function ProgramSheet({ studentId, program }) {
 
   return (
     <div className="space-y-2">
-      {weeks.length > 1 && (
-        <div className="flex justify-end">
+      {/* Only visible WHILE reordering — entering the mode is a rare action and
+          lives in each week's ⋯ menu, so it no longer occupies a standing
+          top-level button above every block. */}
+      {reordering && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="sl-mono text-[11px] text-ink-400">
+            {t('coach.sheet.reorderHint')}
+          </span>
           <button
             type="button"
-            onClick={() => setReordering((v) => !v)}
-            aria-pressed={reordering}
-            className={`sl-pill transition-colors ${
-              reordering ? 'bg-accent text-ink-900' : 'bg-ink-100 text-ink-700 hover:bg-ink-200'
-            }`}
+            onClick={() => setReordering(false)}
+            className="sl-pill shrink-0"
+            style={{ background: 'var(--color-accent)', color: 'var(--color-ink-900)' }}
           >
-            {reordering ? t('common.done') : t('coach.sheet.reorderWeeks')}
+            {t('common.done')}
           </button>
         </div>
       )}
@@ -545,6 +540,8 @@ export default function ProgramSheet({ studentId, program }) {
                 studentId={studentId}
                 expanded={!reordering && w.id === expandedId}
                 onToggle={() => handleToggleWeek(w.id)}
+                canReorder={weeks.length > 1}
+                onReorder={() => setReordering(true)}
                 confirmedIds={confirmedIds}
                 reordering={reordering}
                 t={t}

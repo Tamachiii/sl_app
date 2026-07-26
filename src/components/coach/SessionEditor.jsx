@@ -24,7 +24,7 @@ import {
   useResetSlotToUniform,
   useRemoveSet,
 } from '../../hooks/useSession';
-import { useUpdateSession, useProgramIdForWeek } from '../../hooks/useWeek';
+import { useUpdateSession, useDeleteSession, useProgramIdForWeek } from '../../hooks/useWeek';
 import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
 import { useDuplicateSession } from '../../hooks/useDuplicate';
 import { groupSlotsBySuperset } from '../../lib/volume';
@@ -33,6 +33,7 @@ import PreviousSessionPanel from './PreviousSessionPanel';
 import Spinner from '../ui/Spinner';
 import EditableText from '../ui/EditableText';
 import CopyDialog from '../ui/CopyDialog';
+import ConfirmDialog from '../ui/ConfirmDialog';
 import { useI18n } from '../../hooks/useI18n';
 
 export default function SessionEditor() {
@@ -52,6 +53,7 @@ export default function SessionEditor() {
   const removeSet = useRemoveSet();
   const duplicateSession = useDuplicateSession();
   const updateSession = useUpdateSession();
+  const deleteSession = useDeleteSession();
   // Lets CopyDialog offer THIS athlete's other weeks as a destination.
   const { data: currentProgramId } = useProgramIdForWeek(weekId);
 
@@ -60,6 +62,7 @@ export default function SessionEditor() {
   const [addUnit, setAddUnit] = useState('reps');
   const [pairAsSuperset, setPairAsSuperset] = useState(false);
   const [showCopy, setShowCopy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const slots = session?.exercise_slots || [];
   const slotGroups = useMemo(() => groupSlotsBySuperset(slots), [slots]);
@@ -184,6 +187,16 @@ export default function SessionEditor() {
             className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 disabled:opacity-50"
           >
             {t('coach.editor.duplicate')}
+          </button>
+          {/* Deleting lives here, not on every row of the sheet: by this point
+              the coach has opened this one session, so the destructive action
+              can't be a stray thumb on a list. */}
+          <button
+            onClick={() => setConfirmDelete(true)}
+            disabled={deleteSession.isPending}
+            className="sl-pill bg-ink-100 text-danger hover:bg-red-50 disabled:opacity-50"
+          >
+            {t('coach.week.delete')}
           </button>
         </div>
       </div>
@@ -354,6 +367,20 @@ export default function SessionEditor() {
         showWeekSelect
         onCopy={handleCopyToStudent}
         isPending={duplicateSession.isPending}
+      />
+
+      <ConfirmDialog
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        title={t('coach.week.deleteSessionTitle')}
+        message={t('coach.week.deleteSessionMessage')}
+        onConfirm={() =>
+          deleteSession.mutate(sessionId, {
+            // The editor's own subject is gone — return to the sheet rather
+            // than leaving a page bound to a deleted row.
+            onSuccess: () => navigate(`/coach/students/${studentId}`),
+          })
+        }
       />
     </div>
   );
