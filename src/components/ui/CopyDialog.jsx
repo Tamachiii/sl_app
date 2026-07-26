@@ -1,16 +1,22 @@
 import { useState } from 'react';
 import Dialog from './Dialog';
 import { useStudents } from '../../hooks/useStudents';
-import { useActiveProgram } from '../../hooks/useProgram';
+import { useActiveProgram, useProgram } from '../../hooks/useProgram';
 
 /**
- * Shared dialog for copying a week or session to another student's program.
+ * Shared dialog for copying a week or session to another student's program —
+ * or, when `currentProgramId` is supplied, to another week of the SAME
+ * athlete's program the coach is currently editing.
  *
  * Props:
  * - open / onClose: dialog visibility
  * - title: dialog heading
  * - description: optional helper text
- * - currentStudentId: the student to exclude from the dropdown
+ * - currentStudentId: the athlete being edited
+ * - currentProgramId: optional. When set, the current athlete stays in the
+ *   dropdown and picking them targets THIS program's weeks (not their active
+ *   one, which may be a different block). Without it the current athlete is
+ *   excluded, preserving the old copy-to-another-student-only behaviour.
  * - showWeekSelect: if true, shows a "destination week" dropdown (for session copy)
  * - onCopy({ studentId, programId, weekId? }): called when the user clicks Copy
  * - isPending: disables the copy button and shows "Copying…"
@@ -21,6 +27,7 @@ export default function CopyDialog({
   title,
   description,
   currentStudentId,
+  currentProgramId,
   showWeekSelect = false,
   onCopy,
   isPending = false,
@@ -28,8 +35,14 @@ export default function CopyDialog({
   const { data: students } = useStudents();
   const [copyStudentId, setCopyStudentId] = useState('');
   const [copyWeekId, setCopyWeekId] = useState('');
-  // Copy targets the destination student's currently-active program block.
-  const { data: destProgram } = useActiveProgram(copyStudentId || undefined);
+  const isSameStudent = !!currentProgramId && copyStudentId === currentStudentId;
+  // Cross-student copy targets the destination student's ACTIVE block; a
+  // same-athlete copy targets the exact program open in the editor.
+  const { data: activeProgram } = useActiveProgram(
+    copyStudentId && !isSameStudent ? copyStudentId : undefined,
+  );
+  const { data: sameProgram } = useProgram(isSameStudent ? currentProgramId : undefined);
+  const destProgram = isSameStudent ? sameProgram : activeProgram;
   const destWeeks = destProgram?.weeks || [];
 
   function handleClose() {
@@ -79,10 +92,11 @@ export default function CopyDialog({
           >
             <option value="">Select student…</option>
             {(students || [])
-              .filter((s) => s.id !== currentStudentId)
+              .filter((s) => currentProgramId || s.id !== currentStudentId)
               .map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.profile?.full_name || 'Unnamed student'}
+                  {s.id === currentStudentId ? ' (this athlete)' : ''}
                 </option>
               ))}
           </select>

@@ -51,6 +51,20 @@ export function startOfWeekMonday(date) {
 }
 
 /**
+ * First weekday (1..7) not already taken by one of `sessions`, for placing a
+ * newly-added session. Falls back to 7 once every day is occupied — day_number
+ * MUST stay inside 1..7 because the coach roster's week strip drops anything
+ * outside that range, which used to make an 8th session vanish from view.
+ */
+export function nextFreeDayNumber(sessions) {
+  const taken = new Set((sessions || []).map((s) => s.day_number));
+  for (let d = 1; d <= 7; d += 1) {
+    if (!taken.has(d)) return d;
+  }
+  return 7;
+}
+
+/**
  * Status of one day slot in a Mon..Sun week strip. Pure function of the day
  * shape ({ dayNumber, session, confirmed }) and today's day-number. Shared by
  * the coach `StudentWeekStrip` (colours) and the Athletes roster (attention

@@ -24,7 +24,7 @@ import {
   useResetSlotToUniform,
   useRemoveSet,
 } from '../../hooks/useSession';
-import { useUpdateSession } from '../../hooks/useWeek';
+import { useUpdateSession, useProgramIdForWeek } from '../../hooks/useWeek';
 import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
 import { useDuplicateSession } from '../../hooks/useDuplicate';
 import { groupSlotsBySuperset } from '../../lib/volume';
@@ -46,6 +46,8 @@ export default function SessionEditor() {
   const removeSet = useRemoveSet();
   const duplicateSession = useDuplicateSession();
   const updateSession = useUpdateSession();
+  // Lets CopyDialog offer THIS athlete's other weeks as a destination.
+  const { data: currentProgramId } = useProgramIdForWeek(weekId);
 
   const [showAdd, setShowAdd] = useState(false);
   const [selectedExercise, setSelectedExercise] = useState('');
@@ -329,8 +331,9 @@ export default function SessionEditor() {
       <CopyDialog
         open={showCopy}
         onClose={() => setShowCopy(false)}
-        title="Copy session to another student"
+        title="Copy session to another week"
         currentStudentId={studentId}
+        currentProgramId={currentProgramId}
         showWeekSelect
         onCopy={handleCopyToStudent}
         isPending={duplicateSession.isPending}

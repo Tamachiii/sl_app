@@ -28,6 +28,7 @@ vi.mock('../../hooks/useWeek', () => ({
   useUpdateWeek: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateSession: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteWeek: () => mockDeleteWeek,
+  useProgramIdForWeek: () => ({ data: 'prog-1' }),
 }));
 
 vi.mock('../../hooks/useDuplicate', () => ({
@@ -36,6 +37,7 @@ vi.mock('../../hooks/useDuplicate', () => ({
 
 vi.mock('../../hooks/useProgram', () => ({
   useActiveProgram: () => mockProgramData,
+  useProgram: () => mockProgramData,
 }));
 
 vi.mock('../../hooks/useStudents', () => ({
@@ -145,8 +147,11 @@ describe('WeekView', () => {
     expect(mockCreateSession.mutate).toHaveBeenCalled();
   });
 
-  it('clicking Duplicate calls duplicateWeek', async () => {
+  it('clicking Duplicate omits newWeekNumber so the hook resolves max+1', async () => {
     const user = userEvent.setup();
+    // Week 2 of a longer program: passing week_number + 1 (= 3) used to collide
+    // with the existing week 3 and fail UNIQUE(program_id, week_number). The
+    // hook computes max+1 itself when the argument is omitted.
     mockWeekData = {
       data: { week_number: 2, sessions: [] },
       isLoading: false,
@@ -154,10 +159,8 @@ describe('WeekView', () => {
     renderWeekView();
 
     await user.click(screen.getByText('duplicate'));
-    expect(mockDuplicateWeek.mutate).toHaveBeenCalledWith({
-      weekId: 'w-1',
-      newWeekNumber: 3,
-    });
+    expect(mockDuplicateWeek.mutate).toHaveBeenCalledWith({ weekId: 'w-1' });
+    expect(mockDuplicateWeek.mutate.mock.calls[0][0]).not.toHaveProperty('newWeekNumber');
   });
 
   it('confirming the delete-session dialog calls deleteSession', async () => {

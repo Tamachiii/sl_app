@@ -10,6 +10,7 @@ import {
   startOfWeekMonday,
   statusOf,
   deriveWeekStats,
+  nextFreeDayNumber,
 } from './day';
 
 describe('day.js', () => {
@@ -108,6 +109,26 @@ describe('day.js', () => {
       expect(statusOf({ dayNumber: 5, session: { id: 'a' }, confirmed: false }, todayDN)).toBe('today');
       expect(statusOf({ dayNumber: 2, session: { id: 'a' }, confirmed: false }, todayDN)).toBe('missed');
       expect(statusOf({ dayNumber: 7, session: { id: 'a' }, confirmed: false }, todayDN)).toBe('upcoming');
+    });
+  });
+
+  describe('nextFreeDayNumber', () => {
+    it('returns 1 for an empty week', () => {
+      expect(nextFreeDayNumber([])).toBe(1);
+      expect(nextFreeDayNumber(null)).toBe(1);
+    });
+
+    it('returns the first gap, not a running count', () => {
+      expect(nextFreeDayNumber([{ day_number: 1 }, { day_number: 3 }])).toBe(2);
+      expect(nextFreeDayNumber([{ day_number: 1 }, { day_number: 2 }])).toBe(3);
+    });
+
+    it('never exceeds 7 — the roster week strip drops anything outside 1..7', () => {
+      const fullWeek = [1, 2, 3, 4, 5, 6, 7].map((d) => ({ day_number: d }));
+      expect(nextFreeDayNumber(fullWeek)).toBe(7);
+      // The old `sessions.length + 1` would have returned 8 here and the
+      // session would have silently vanished from the coach roster.
+      expect(nextFreeDayNumber(fullWeek)).toBeLessThanOrEqual(7);
     });
   });
 

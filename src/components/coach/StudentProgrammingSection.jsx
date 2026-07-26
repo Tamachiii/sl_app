@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import {
   useProgramsForStudent,
@@ -6,6 +6,7 @@ import {
   useEnsureProgram,
 } from '../../hooks/useProgram';
 import Spinner from '../ui/Spinner';
+import EmptyState from '../ui/EmptyState';
 import WeekTimeline from './WeekTimeline';
 import ProgramSwitcher from './ProgramSwitcher';
 
@@ -16,25 +17,6 @@ export default function StudentProgrammingSection() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: programs, isSuccess } = useProgramsForStudent(studentId);
   const ensureProgram = useEnsureProgram();
-  const ensuredRef = useRef(false);
-
-  // First-visit auto-seed: no programs → create a default active one.
-  useEffect(() => {
-    if (
-      isSuccess
-      && Array.isArray(programs)
-      && programs.length === 0
-      && !ensuredRef.current
-      && !ensureProgram.isPending
-    ) {
-      ensuredRef.current = true;
-      ensureProgram.mutate({ studentId });
-    }
-  }, [isSuccess, programs, studentId, ensureProgram]);
-
-  useEffect(() => {
-    ensuredRef.current = false;
-  }, [studentId]);
 
   const activeProgram = useMemo(
     () => (programs || []).find((p) => p.is_active) ?? (programs || [])[0] ?? null,
@@ -77,6 +59,25 @@ export default function StudentProgrammingSection() {
 
   const hasPrograms = Array.isArray(programs) && programs.length > 0;
   const list = isSuccess ? (programs || []) : [];
+
+  // No auto-seed: merely opening an athlete must not INSERT a program row.
+  // The coach creates the first block explicitly.
+  if (isSuccess && !hasPrograms) {
+    return (
+      <div className="sl-card p-3 md:p-4 space-y-3">
+        <EmptyState message="No program yet for this athlete." />
+        <button
+          type="button"
+          onClick={() => ensureProgram.mutate({ studentId })}
+          disabled={ensureProgram.isPending}
+          className="w-full sl-btn-primary text-[13px] disabled:opacity-50"
+          style={{ padding: '10px 16px' }}
+        >
+          Create first program
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="sl-card p-3 md:p-4 space-y-3">

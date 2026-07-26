@@ -28,12 +28,13 @@ vi.mock('../../hooks/useStudents', () => ({
   }),
 }));
 
+const stubProgram = (id) => ({
+  data: id ? { id: 'prog-1', weeks: [{ id: 'w-10', week_number: 1, label: null }] } : null,
+});
+
 vi.mock('../../hooks/useProgram', () => ({
-  useActiveProgram: (sid) => ({
-    data: sid
-      ? { id: 'prog-1', weeks: [{ id: 'w-10', week_number: 1, label: null }] }
-      : null,
-  }),
+  useActiveProgram: (sid) => stubProgram(sid),
+  useProgram: (pid) => stubProgram(pid),
 }));
 
 vi.mock('../../hooks/useSession', () => ({
@@ -56,6 +57,7 @@ vi.mock('../../hooks/useDuplicate', () => ({
 
 vi.mock('../../hooks/useWeek', () => ({
   useUpdateSession: () => ({ mutate: vi.fn(), isPending: false }),
+  useProgramIdForWeek: () => ({ data: 'prog-1' }),
 }));
 
 import SessionEditor from './SessionEditor';

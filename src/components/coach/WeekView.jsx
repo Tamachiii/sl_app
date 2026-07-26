@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useWeek, useCreateSession, useDeleteSession, useUpdateWeek, useUpdateSession, useDeleteWeek } from '../../hooks/useWeek';
+import { nextFreeDayNumber } from '../../lib/day';
 import { useDuplicateWeek } from '../../hooks/useDuplicate';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
@@ -45,14 +46,17 @@ export default function WeekView() {
     createSession.mutate({
       weekId,
       title: `Session ${sessions.length + 1}`,
-      dayNumber: sessions.length + 1,
+      dayNumber: nextFreeDayNumber(sessions),
       sortOrder: nextSortOrder,
     });
   }
 
   function handleDuplicateWeek() {
-    const maxWeek = week?.week_number ?? 1;
-    duplicateWeek.mutate({ weekId, newWeekNumber: maxWeek + 1 });
+    // Omit newWeekNumber on purpose: the hook resolves max(week_number)+1 for
+    // the destination program. Passing THIS week's number + 1 collided with an
+    // existing week whenever the coach duplicated anything but the last week,
+    // which UNIQUE(program_id, week_number) rejected.
+    duplicateWeek.mutate({ weekId });
   }
 
   function handleCopyToStudent({ programId }) {
@@ -247,6 +251,7 @@ export default function WeekView() {
         title="Copy week to another student"
         description="The week and all its sessions will be appended to the end of the destination student's program."
         currentStudentId={studentId}
+        currentProgramId={week?.program_id}
         onCopy={handleCopyToStudent}
         isPending={duplicateWeek.isPending}
       />

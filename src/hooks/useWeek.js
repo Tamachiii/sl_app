@@ -41,6 +41,28 @@ export function useWeek(weekId) {
   });
 }
 
+/**
+ * Just the owning program id for a week. Deliberately separate from `useWeek`
+ * (which pulls the whole session + slot tree) so surfaces that only need to
+ * answer "which program is this week in?" — e.g. CopyDialog's same-athlete
+ * mode — don't pay for the heavy read.
+ */
+export function useProgramIdForWeek(weekId) {
+  return useQuery({
+    queryKey: ['week-program-id', weekId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('weeks')
+        .select('program_id')
+        .eq('id', weekId)
+        .single();
+      if (error) throw error;
+      return data.program_id;
+    },
+    enabled: !!weekId,
+  });
+}
+
 export function useCreateWeek() {
   const qc = useQueryClient();
 
@@ -108,6 +130,8 @@ export function useUpdateWeek() {
     onSuccess: ({ id }) => {
       qc.invalidateQueries({ queryKey: ['week', id] });
       qc.invalidateQueries({ queryKey: ['program'] });
+      // A week edit can move week_number, which the roster strip renders.
+      invalidateCoachDashboard(qc);
     },
   });
 }
@@ -185,6 +209,9 @@ export function useReorderWeeks() {
     },
     onSettled: (_d, _e, { programId }) => {
       qc.invalidateQueries({ queryKey: ['program'] });
+      // Reordering rewrites week_number, which the Athletes roster renders
+      // ("W3 · Program") — without this it keeps the pre-reorder numbers.
+      invalidateCoachDashboard(qc);
     },
   });
 }
