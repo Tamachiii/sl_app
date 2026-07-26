@@ -9,10 +9,12 @@ import EditableText from '../ui/EditableText';
 import CopyDialog from '../ui/CopyDialog';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import { useWeekConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
+import { useI18n } from '../../hooks/useI18n';
 
 export default function WeekView() {
   const { studentId, weekId } = useParams();
   const navigate = useNavigate();
+  const { t } = useI18n();
   const { data: week, isLoading } = useWeek(weekId);
   const createSession = useCreateSession();
   const deleteSession = useDeleteSession();
@@ -45,7 +47,7 @@ export default function WeekView() {
       : 0;
     createSession.mutate({
       weekId,
-      title: `Session ${sessions.length + 1}`,
+      title: t('coach.week.sessionN', { n: sessions.length + 1 }),
       dayNumber: nextFreeDayNumber(sessions),
       sortOrder: nextSortOrder,
     });
@@ -84,7 +86,7 @@ export default function WeekView() {
       <div className="flex items-start gap-3">
         <button
           onClick={() => navigate(studentPath)}
-          aria-label="Back"
+          aria-label={t('common.back')}
           className="w-9 h-9 rounded-lg bg-ink-100 flex items-center justify-center text-ink-700 hover:bg-ink-200 shrink-0"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -92,13 +94,15 @@ export default function WeekView() {
           </svg>
         </button>
         <div className="flex-1 min-w-0">
-          <div className="sl-label text-ink-400">Week {week?.week_number ?? ''}</div>
+          <div className="sl-label text-ink-400">
+            {t('coach.week.weekLabel', { n: week?.week_number ?? '' })}
+          </div>
           <div className="sl-display text-[22px] text-gray-900 leading-tight mt-0.5">
             <EditableText
               value={week?.label || ''}
               onSave={(label) => updateWeek.mutate({ id: weekId, label })}
-              placeholder="Label"
-              ariaLabel="Edit week label"
+              placeholder={t('coach.week.labelPlaceholder')}
+              ariaLabel={t('coach.week.editLabelAria')}
             />
           </div>
         </div>
@@ -108,21 +112,21 @@ export default function WeekView() {
             disabled={duplicateWeek.isPending}
             className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 disabled:opacity-50"
           >
-            duplicate
+            {t('coach.week.duplicate')}
           </button>
           <button
             onClick={() => setShowCopy(true)}
             className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200"
           >
-            copy to…
+            {t('coach.week.copyTo')}
           </button>
           <button
             onClick={() => setDeleteWeekConfirm(true)}
             disabled={deleteWeek.isPending}
-            aria-label="Delete week"
+            aria-label={t('coach.week.deleteWeekAria')}
             className="sl-pill bg-ink-100 text-danger hover:bg-red-50"
           >
-            delete
+            {t('coach.week.delete')}
           </button>
         </div>
       </div>
@@ -132,8 +136,8 @@ export default function WeekView() {
           <EmptyState
             message={
               archivedSessions.length > 0
-                ? `No active sessions — ${archivedSessions.length} archived. Use "Show ${archivedSessions.length} archived" below.`
-                : 'No sessions yet'
+                ? t('coach.week.noActiveSessions', { n: archivedSessions.length })
+                : t('coach.week.noSessions')
             }
           />
         )}
@@ -145,18 +149,18 @@ export default function WeekView() {
                 <EditableText
                   value={sess.title || ''}
                   onSave={(title) => updateSession.mutate({ id: sess.id, title })}
-                  placeholder={`Session ${sess.day_number}`}
-                  ariaLabel="Edit session title"
+                  placeholder={t('coach.week.sessionN', { n: sess.day_number })}
+                  ariaLabel={t('coach.week.editSessionTitleAria')}
                   className="sl-display text-[16px] text-gray-900"
                 />
                 <span className="sl-mono text-[11px] text-ink-400 shrink-0">
-                  {exCount} ex
+                  {t('coach.week.exCount', { n: exCount })}
                 </span>
               </div>
               {confirmedIds?.has(sess.id) && (
                 <span
-                  aria-label="Confirmed by student"
-                  title="Confirmed by student"
+                  aria-label={t('coach.week.confirmedByStudent')}
+                  title={t('coach.week.confirmedByStudent')}
                   className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
                   style={{
                     background: 'var(--color-success)',
@@ -172,7 +176,7 @@ export default function WeekView() {
                 onClick={() =>
                   navigate(`/coach/student/${studentId}/week/${weekId}/session/${sess.id}`)
                 }
-                aria-label="Open session"
+                aria-label={t('coach.week.openSession')}
                 className="text-ink-400 hover:text-[var(--color-accent)] p-1"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -181,7 +185,7 @@ export default function WeekView() {
               </button>
               <button
                 onClick={() => setDeleteSessionConfirm(sess.id)}
-                aria-label="Delete session"
+                aria-label={t('coach.week.deleteSessionAria')}
                 className="text-ink-400 hover:text-danger p-1"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -198,8 +202,8 @@ export default function WeekView() {
             className="w-full sl-mono text-[11px] text-ink-400 hover:text-ink-700 py-2 underline"
           >
             {showArchived
-              ? `Hide ${archivedSessions.length} archived`
-              : `Show ${archivedSessions.length} archived`}
+              ? t('coach.week.hideArchived', { n: archivedSessions.length })
+              : t('coach.week.showArchived', { n: archivedSessions.length })}
           </button>
         )}
 
@@ -208,7 +212,7 @@ export default function WeekView() {
             <div key={sess.id} className="sl-card p-4 space-y-1 opacity-75">
               <div className="flex items-center justify-between gap-2">
                 <span className="sl-display text-[15px] text-ink-600 flex-1 truncate">
-                  {sess.title || `Session ${sess.day_number}`}
+                  {sess.title || t('coach.week.sessionN', { n: sess.day_number })}
                 </span>
                 <span
                   className="sl-pill text-ink-900"
@@ -216,13 +220,13 @@ export default function WeekView() {
                     background: 'color-mix(in srgb, var(--color-warn) 18%, transparent)',
                   }}
                 >
-                  archived
+                  {t('common.archived')}
                 </span>
                 <button
                   onClick={() =>
                     navigate(`/coach/student/${studentId}/session/${sess.id}/review`)
                   }
-                  aria-label="Open archived session"
+                  aria-label={t('coach.week.openArchivedSession')}
                   className="text-ink-400 hover:text-[var(--color-accent)] p-1"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -231,7 +235,9 @@ export default function WeekView() {
                 </button>
               </div>
               <p className="sl-mono text-[11px] text-ink-400">
-                Archived {new Date(sess.archived_at).toLocaleDateString()}
+                {t('coach.week.archivedOn', {
+                  date: new Date(sess.archived_at).toLocaleDateString(),
+                })}
               </p>
             </div>
           ))}
@@ -241,15 +247,15 @@ export default function WeekView() {
           disabled={createSession.isPending}
           className="w-full border border-dashed border-ink-200 text-ink-400 rounded-xl py-3 sl-mono text-[12px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
         >
-          + ADD SESSION
+          {t('coach.week.addSession')}
         </button>
       </div>
 
       <CopyDialog
         open={showCopy}
         onClose={() => setShowCopy(false)}
-        title="Copy week to another student"
-        description="The week and all its sessions will be appended to the end of the destination student's program."
+        title={t('coach.week.copyTitle')}
+        description={t('coach.week.copyDescription')}
         currentStudentId={studentId}
         currentProgramId={week?.program_id}
         onCopy={handleCopyToStudent}
@@ -259,16 +265,16 @@ export default function WeekView() {
       <ConfirmDialog
         open={deleteWeekConfirm}
         onClose={() => setDeleteWeekConfirm(false)}
-        title="Delete Week"
-        message={`Delete Week ${week?.week_number}? This will remove all its sessions.`}
+        title={t('coach.week.deleteWeekTitle')}
+        message={t('coach.week.deleteWeekMessage', { n: week?.week_number })}
         onConfirm={handleDeleteWeek}
       />
 
       <ConfirmDialog
         open={!!deleteSessionConfirm}
         onClose={() => setDeleteSessionConfirm(null)}
-        title="Delete Session"
-        message="Are you sure you want to delete this session?"
+        title={t('coach.week.deleteSessionTitle')}
+        message={t('coach.week.deleteSessionMessage')}
         onConfirm={() => deleteSession.mutate(deleteSessionConfirm)}
       />
     </div>

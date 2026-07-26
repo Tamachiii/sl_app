@@ -32,10 +32,12 @@ import ExerciseSlotRow from './ExerciseSlotRow';
 import Spinner from '../ui/Spinner';
 import EditableText from '../ui/EditableText';
 import CopyDialog from '../ui/CopyDialog';
+import { useI18n } from '../../hooks/useI18n';
 
 export default function SessionEditor() {
   const { sessionId, studentId, weekId } = useParams();
   const navigate = useNavigate();
+  const { t } = useI18n();
   const { data: session, isLoading } = useSession(sessionId);
   const { data: library } = useExerciseLibrary();
   const addSlot = useAddSlot();
@@ -144,7 +146,7 @@ export default function SessionEditor() {
       <div className="flex items-start gap-3">
         <button
           onClick={() => navigate(`/coach/student/${studentId}/week/${weekId}`)}
-          aria-label="Back"
+          aria-label={t('common.back')}
           className="w-9 h-9 rounded-lg bg-ink-100 flex items-center justify-center text-ink-700 hover:bg-ink-200 shrink-0"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -152,13 +154,13 @@ export default function SessionEditor() {
           </svg>
         </button>
         <div className="flex-1 min-w-0">
-          <div className="sl-label text-ink-400">Session</div>
+          <div className="sl-label text-ink-400">{t('coach.editor.kicker')}</div>
           <div className="sl-display text-[22px] text-gray-900 leading-tight mt-0.5">
             <EditableText
               value={session?.title || ''}
               onSave={(title) => updateSession.mutate({ id: sessionId, title })}
-              placeholder="Session"
-              ariaLabel="Edit session title"
+              placeholder={t('coach.editor.titlePlaceholder')}
+              ariaLabel={t('coach.editor.editTitleAria')}
             />
           </div>
         </div>
@@ -167,21 +169,21 @@ export default function SessionEditor() {
             onClick={() => setShowCopy(true)}
             className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200"
           >
-            copy to…
+            {t('coach.editor.copyTo')}
           </button>
           <button
             onClick={() => duplicateSession.mutate({ sessionId })}
             disabled={duplicateSession.isPending}
             className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 disabled:opacity-50"
           >
-            duplicate
+            {t('coach.editor.duplicate')}
           </button>
         </div>
       </div>
 
       <div className="sl-card p-3 flex items-center gap-3">
         <label htmlFor="session-date" className="sl-label text-ink-400 shrink-0">
-          Scheduled
+          {t('coach.editor.scheduled')}
         </label>
         <input
           id="session-date"
@@ -237,13 +239,13 @@ export default function SessionEditor() {
                   >
                     <div className="flex items-center justify-between px-2 pt-1">
                       <span className="sl-label" style={{ color: 'var(--color-accent)' }}>
-                        Superset
+                        {t('coach.editor.superset')}
                       </span>
                       <button
                         onClick={() => handleUnlinkSuperset(group.key)}
                         className="sl-mono text-[11px] text-ink-400 hover:text-danger underline"
                       >
-                        unlink
+                        {t('coach.editor.unlink')}
                       </button>
                     </div>
                     {group.slots.map(renderRow)}
@@ -263,10 +265,14 @@ export default function SessionEditor() {
             onChange={(e) => setSelectedExercise(e.target.value)}
             className={inputCls}
           >
-            <option value="">Select exercise…</option>
+            <option value="">{t('coach.editor.selectExercise')}</option>
             {(library || []).map((ex) => (
               <option key={ex.id} value={ex.id}>
-                {ex.name} ({ex.type}, D{ex.difficulty})
+                {t('coach.editor.exerciseOption', {
+                  name: ex.name,
+                  type: ex.type,
+                  difficulty: ex.difficulty,
+                })}
               </option>
             ))}
           </select>
@@ -279,7 +285,7 @@ export default function SessionEditor() {
                 checked={addUnit === 'reps'}
                 onChange={(e) => setAddUnit(e.target.value)}
               />
-              Reps
+              {t('coach.editor.unitReps')}
             </label>
             <label className="flex items-center gap-1.5">
               <input
@@ -289,7 +295,7 @@ export default function SessionEditor() {
                 checked={addUnit === 'seconds'}
                 onChange={(e) => setAddUnit(e.target.value)}
               />
-              Seconds (TUT)
+              {t('coach.editor.unitSeconds')}
             </label>
           </fieldset>
           {slots.length > 0 && (
@@ -299,7 +305,7 @@ export default function SessionEditor() {
                 checked={pairAsSuperset}
                 onChange={(e) => setPairAsSuperset(e.target.checked)}
               />
-              Pair with previous as superset
+              {t('coach.editor.pairSuperset')}
             </label>
           )}
           <div className="flex gap-2">
@@ -309,13 +315,13 @@ export default function SessionEditor() {
               className="flex-1 sl-btn-primary text-[13px] disabled:opacity-50"
               style={{ padding: '10px 16px' }}
             >
-              Add
+              {t('coach.editor.add')}
             </button>
             <button
               onClick={() => setShowAdd(false)}
               className="flex-1 bg-ink-100 text-ink-700 rounded-lg py-2 sl-display text-[13px] hover:bg-ink-200"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
           </div>
         </div>
@@ -324,14 +330,14 @@ export default function SessionEditor() {
           onClick={() => setShowAdd(true)}
           className="w-full border border-dashed border-ink-200 text-ink-400 rounded-xl py-3 sl-mono text-[12px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
         >
-          + ADD EXERCISE
+          {t('coach.editor.addExercise')}
         </button>
       )}
 
       <CopyDialog
         open={showCopy}
         onClose={() => setShowCopy(false)}
-        title="Copy session to another week"
+        title={t('coach.editor.copyTitle')}
         currentStudentId={studentId}
         currentProgramId={currentProgramId}
         showWeekSelect

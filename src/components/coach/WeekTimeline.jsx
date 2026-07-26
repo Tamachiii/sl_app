@@ -18,9 +18,11 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useCreateWeek, useReorderWeeks } from '../../hooks/useWeek';
+import { useI18n } from '../../hooks/useI18n';
 
 function SortableWeek({ week, studentId }) {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const {
     attributes,
     listeners,
@@ -47,7 +49,7 @@ function SortableWeek({ week, studentId }) {
         className="pl-3 pr-2 py-2 text-left transition-colors hover:bg-ink-200"
       >
         <span className="sl-display text-[13px] text-gray-900 block leading-tight">
-          W{week.week_number}
+          {t('coach.week.weekShort', { n: week.week_number })}
         </span>
         {week.label && (
           <span className="sl-mono text-[10px] text-ink-400 block mt-0.5">{week.label}</span>
@@ -56,7 +58,7 @@ function SortableWeek({ week, studentId }) {
       <button
         {...attributes}
         {...listeners}
-        aria-label={`Reorder week ${week.week_number}`}
+        aria-label={t('coach.week.reorderWeek', { n: week.week_number })}
         className="px-2 text-ink-400 hover:text-gray-700 hover:bg-ink-200 cursor-grab active:cursor-grabbing touch-none"
       >
         <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true">
@@ -73,6 +75,7 @@ function SortableWeek({ week, studentId }) {
 }
 
 export default function WeekTimeline({ studentId, program }) {
+  const { t } = useI18n();
   const createWeek = useCreateWeek();
   const reorderWeeks = useReorderWeeks();
   const [localWeeks, setLocalWeeks] = useState(program.weeks || []);
@@ -135,7 +138,7 @@ export default function WeekTimeline({ studentId, program }) {
           disabled={createWeek.isPending}
           className={`${isEmpty ? 'flex-1 justify-center py-3' : 'shrink-0 py-2'} flex items-center border border-dashed border-ink-200 text-ink-400 rounded-lg px-3 sl-mono text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors`}
         >
-          + WEEK
+          {t('coach.week.addWeek')}
         </button>
       </div>
     </DndContext>

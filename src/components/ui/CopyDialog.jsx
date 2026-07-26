@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Dialog from './Dialog';
 import { useStudents } from '../../hooks/useStudents';
 import { useActiveProgram, useProgram } from '../../hooks/useProgram';
+import { useI18n } from '../../hooks/useI18n';
 
 /**
  * Shared dialog for copying a week or session to another student's program —
@@ -32,6 +33,7 @@ export default function CopyDialog({
   onCopy,
   isPending = false,
 }) {
+  const { t } = useI18n();
   const { data: students } = useStudents();
   const [copyStudentId, setCopyStudentId] = useState('');
   const [copyWeekId, setCopyWeekId] = useState('');
@@ -81,7 +83,7 @@ export default function CopyDialog({
           <p className="sl-mono text-[11px] text-ink-400">{description}</p>
         )}
         <label className="block">
-          <span className="sl-label text-ink-400 block mb-1.5">Student</span>
+          <span className="sl-label text-ink-400 block mb-1.5">{t('coach.copy.student')}</span>
           <select
             value={copyStudentId}
             onChange={(e) => {
@@ -90,13 +92,13 @@ export default function CopyDialog({
             }}
             className={selectCls}
           >
-            <option value="">Select student…</option>
+            <option value="">{t('coach.copy.selectStudent')}</option>
             {(students || [])
               .filter((s) => currentProgramId || s.id !== currentStudentId)
               .map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.profile?.full_name || 'Unnamed student'}
-                  {s.id === currentStudentId ? ' (this athlete)' : ''}
+                  {s.profile?.full_name || t('coach.copy.unnamedStudent')}
+                  {s.id === currentStudentId ? t('coach.copy.thisAthleteSuffix') : ''}
                 </option>
               ))}
           </select>
@@ -104,7 +106,7 @@ export default function CopyDialog({
 
         {showWeekSelect && (
           <label className="block">
-            <span className="sl-label text-ink-400 block mb-1.5">Destination week</span>
+            <span className="sl-label text-ink-400 block mb-1.5">{t('coach.copy.destinationWeek')}</span>
             <select
               value={copyWeekId}
               onChange={(e) => setCopyWeekId(e.target.value)}
@@ -113,15 +115,15 @@ export default function CopyDialog({
             >
               <option value="">
                 {!copyStudentId
-                  ? 'Select a student first'
+                  ? t('coach.copy.selectStudentFirst')
                   : destWeeks.length === 0
-                    ? 'No weeks in this student\u2019s program'
-                    : 'Select week…'}
+                    ? t('coach.copy.noWeeks')
+                    : t('coach.copy.selectWeek')}
               </option>
               {destWeeks.map((w) => (
                 <option key={w.id} value={w.id}>
-                  Week {w.week_number}
-                  {w.label ? ` — ${w.label}` : ''}
+                  {t('coach.copy.weekOption', { n: w.week_number })}
+                  {w.label ? t('coach.copy.weekLabelSuffix', { label: w.label }) : ''}
                 </option>
               ))}
             </select>
@@ -135,13 +137,13 @@ export default function CopyDialog({
             className="flex-1 sl-btn-primary text-[13px] disabled:opacity-50"
             style={{ padding: '10px 16px' }}
           >
-            {isPending ? 'Copying…' : 'Copy'}
+            {isPending ? t('coach.copy.copying') : t('coach.copy.copy')}
           </button>
           <button
             onClick={handleClose}
             className="flex-1 bg-ink-100 text-ink-700 rounded-lg py-2 sl-display text-[13px] hover:bg-ink-200"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
         </div>
       </div>
