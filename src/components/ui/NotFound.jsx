@@ -10,7 +10,7 @@ export default function NotFound() {
   const { t } = useI18n();
   const { role } = useAuth();
   const location = useLocation();
-  const home = role === 'coach' ? '/coach/dashboard' : '/student';
+  const home = role === 'coach' ? '/coach/students' : '/student';
 
   return (
     <div className="p-4 pb-6 md:p-8">

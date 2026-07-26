@@ -62,7 +62,7 @@ export function useAllConfirmations() {
         .order('confirmed_at', { ascending: false });
       if (error) throw error;
 
-      // Flatten to the shape SessionsFeed / CoachDashboard already consume.
+      // Flatten to the shape SessionsFeed / the Athletes roster already consume.
       return (data || []).map((c) => {
         const s = c.session;
         const w = s?.week;

@@ -1,14 +1,5 @@
-import { DAY_LABELS, DAY_FULL, todayDayNumber } from '../../lib/day';
+import { DAY_LABELS, DAY_FULL, todayDayNumber, statusOf } from '../../lib/day';
 import { useI18n } from '../../hooks/useI18n';
-
-function statusOf(day, todayDN) {
-  const s = day.session;
-  if (!s || s.archived_at) return 'rest';
-  if (day.confirmed) return 'completed';
-  if (day.dayNumber === todayDN) return 'today';
-  if (day.dayNumber < todayDN) return 'missed';
-  return 'upcoming';
-}
 
 const STATUS_CLASS = {
   completed: 'bg-accent text-ink-900 border border-transparent',

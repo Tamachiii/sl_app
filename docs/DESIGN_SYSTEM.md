@@ -155,7 +155,7 @@ There is **no `<Header/>` component** — every page builds its own header from 
 </div>
 ```
 
-Pages with a user menu instead (`StudentHome`, `CoachDashboard`) swap the back button for an avatar-initials popover containing `ThemeToggle` + Sign out — but the overall 3-zone rhythm is the same.
+Pages with a user menu instead (`StudentHome`, `CoachHome`) swap the back button for an avatar-initials popover containing `ThemeToggle` + Sign out — but the overall 3-zone rhythm is the same.
 
 Every top-level page (both coach & student: Dashboard, Students, Sessions, Library, Home, Stats, Goals) renders `ui/UserMenu` as the right-aligned action — wrap the header in `flex items-start justify-between gap-4`.
 
@@ -175,7 +175,7 @@ Per-screen roots use `p-4 pb-6 md:p-8`. Display headings scale:
 - Coach h1s: `text-[28px] md:text-[40px]`
 - Student h1s: `text-[32px] md:text-[44px]`
 
-List screens (CoachHome, CoachDashboard activity, SessionsFeed, ExerciseLibrary) switch to a 2-column grid at `md:` via `space-y-* md:grid md:grid-cols-2 md:gap-* md:space-y-0`.
+List screens (CoachHome roster, SessionsFeed, ExerciseLibrary) switch to a 2-column grid at `md:` via `space-y-* md:grid md:grid-cols-2 md:gap-* md:space-y-0`.
 
 ## Day-strip vertical titles
 

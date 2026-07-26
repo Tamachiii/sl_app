@@ -23,7 +23,6 @@ import AppShell from './components/layout/AppShell';
 import Spinner from './components/ui/Spinner';
 
 const LoginPage = lazy(() => import('./components/auth/LoginPage'));
-const CoachDashboard = lazy(() => import('./components/coach/CoachDashboard'));
 const CoachHome = lazy(() => import('./components/coach/CoachHome'));
 const StudentProfileSection = lazy(() => import('./components/coach/StudentProfileSection'));
 const StudentProgrammingSection = lazy(() => import('./components/coach/StudentProgrammingSection'));
@@ -72,8 +71,10 @@ export const routes = [
           {
             element: <RoleGate allowed="coach" />,
             children: [
-              { path: '/coach', element: <Navigate to="/coach/dashboard" replace /> },
-              { path: '/coach/dashboard', element: <Lazy><CoachDashboard /></Lazy> },
+              { path: '/coach', element: <Navigate to="/coach/students" replace /> },
+              // Dashboard merged into the Athletes roster (/coach/students);
+              // keep a redirect so old bookmarks / PWA shortcuts don't 404.
+              { path: '/coach/dashboard', element: <Navigate to="/coach/students" replace /> },
               { path: '/coach/students', element: <Lazy><CoachHome /></Lazy> },
               {
                 path: '/coach/students/:studentId',

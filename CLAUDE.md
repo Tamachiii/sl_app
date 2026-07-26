@@ -38,7 +38,7 @@ src/
   components/
     auth/        LoginPage  ProtectedRoute  RoleGate
     layout/      AppShell  BottomNav  SideNav  navItems
-    coach/       CoachDashboard  StudentWeekStrip  CoachHome (Students-tab layout) ProgramSwitcher
+    coach/       CoachHome (Athletes roster + single-student tabs)  StudentWeekStrip  ProgramSwitcher
                  WeekTimeline  WeekView  SessionEditor  SessionReview
                  ExerciseSlotRow  ExerciseLibrary  SessionsFeed  SlotProgress
                  StudentProfileSection  StudentProgrammingSection
@@ -67,7 +67,7 @@ Jump straight to the relevant files. For *behavior* details, open the file — t
 | Feature | Primary files |
 |---|---|
 | Auth / login | `auth/LoginPage`, `hooks/useAuth`, `routes.jsx` |
-| Coach dashboard | `coach/CoachDashboard`, `coach/StudentWeekStrip`, `hooks/useStudents`, `hooks/useSessionConfirmation`, `hooks/useProgram` |
+| Coach Athletes roster (attention-first list; merged Dashboard + Students into one tab) | `coach/CoachHome` (roster landing + single-student tab host), `coach/StudentWeekStrip`, `lib/coachRoster` (`buildRoster` — pure), `lib/day` (`statusOf`/`deriveWeekStats`), `hooks/useStudents`, `hooks/useSessionConfirmation` (`useAllConfirmations`), `hooks/useProgram` (`useCoachDashboardPrograms`), `hooks/useClientErrors`. Search + per-athlete attention chips (to-review / missed / no-program), all derived client-side from already-loaded coach-wide queries; ordered attention-first then A–Z; card → single-student tabs. `/coach/dashboard` now redirects here |
 | Coach single-student view (tabbed) | `coach/CoachHome`, `coach/StudentProfileSection`, `coach/StudentProgrammingSection`, `coach/StudentGoalsSection`, `coach/StudentStatsSection`, `routes.jsx` |
 | Coach programs CRUD | `coach/ProgramSwitcher`, `hooks/useProgram` |
 | Program duplicate (whole-block copy, same student) | `coach/ProgramSwitcher` (ManageProgramDialog "Duplicate program"), `hooks/useDuplicate` (`useDuplicateProgram` + shared `copyWeekTree` helper). Copy is inactive, week numbers/labels preserved, prescription-only (no student actuals) |
@@ -109,7 +109,7 @@ Jump straight to the relevant files. For *behavior* details, open the file — t
 | Offline support (student writes) | `lib/queryClient.js`, `lib/offlineMutations.js`, `hooks/useOnlineStatus.js`, `components/ui/OfflineBanner.jsx`, `vite.config.js`, `main.jsx`, `App.jsx` |
 | Program trash / archive-first delete | `hooks/useProgram` (`useDeleteProgram`/`useTrashedPrograms`/`useRestoreProgram`/`useHardDeleteProgram`), `coach/ProgramSwitcher` (TrashDialog), migration `2026_07_13_programs_soft_delete.sql` (`programs.deleted_at` + `block_*_delete_with_logged_sets` triggers) |
 | Mutation error toast | `lib/toast.js`, `lib/mutationErrors.js`, `ui/ToastHost` (in `AppShell`), `queryClient.js` (MutationCache onError) |
-| Error telemetry | `lib/errorReporter.js`, `ui/ErrorBoundary`, `hooks/useClientErrors`, `coach/CoachDashboard` (triage list), migration `2026_07_13_client_errors.sql` |
+| Error telemetry | `lib/errorReporter.js`, `ui/ErrorBoundary`, `hooks/useClientErrors`, `coach/CoachHome` (collapsible triage list at the bottom of the Athletes roster), migration `2026_07_13_client_errors.sql` |
 | CI & deploys | `.github/workflows/test.yml` (reusable suite: lint + tests + build on dev pushes/PRs), `.github/workflows/deploy.yml` (test-gated gh-pages publish), `eslint.config.js` |
 | Nightly DB backups | `.github/workflows/backup.yml` (encrypted dump artifact), `BACKUPS.md` (secrets setup + restore drill) |
 
