@@ -186,9 +186,6 @@ describe('CoachHome', () => {
     it('shows the athlete header, and keeps it while a session is open', () => {
       renderCoachHome('/coach/students/s-1');
       expect(screen.getByRole('heading', { level: 2, name: 'Alice' })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /view sessions/i })).toHaveAttribute(
-        'href', '/coach/sessions?student=s-1',
-      );
 
       // The editor is a child route, so identity must survive the drill-down.
       renderCoachHome('/coach/students/s-1/s/sess-1');
@@ -196,11 +193,10 @@ describe('CoachHome', () => {
       expect(screen.getByTestId('session-editor')).toHaveTextContent('session:s-1');
     });
 
-    it('links the header Message action to the thread by profile id', () => {
+    it('carries no action pills — the header is identity only', () => {
       renderCoachHome('/coach/students/s-1');
-      expect(screen.getByRole('link', { name: /message/i })).toHaveAttribute(
-        'href', '/coach/messages/p-1',
-      );
+      expect(screen.queryByRole('link', { name: /view sessions/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^message$/i })).not.toBeInTheDocument();
     });
 
     it('renders the overview on the bare athlete URL', () => {

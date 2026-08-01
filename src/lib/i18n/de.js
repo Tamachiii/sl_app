@@ -247,7 +247,6 @@ const de = {
       noGoals: 'Noch keine Ziele',
       weeksOne: '{n} Woche',
       weeksMany: '{n} Wochen',
-      viewSessions: 'Einheiten ansehen',
       addProgram: '+ PROGRAMM',
       selectProgram: 'Programm wählen',
       defaultProgramName: 'Programm {n}',
@@ -310,7 +309,6 @@ const de = {
     profile: {
       coachingSinceLabel: 'Coaching seit',
       roleStudent: 'Athlet',
-      message: 'Nachricht',
     },
     dashboard: {
       kicker: 'Coach',
