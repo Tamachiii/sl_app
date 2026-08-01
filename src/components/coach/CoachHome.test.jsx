@@ -183,23 +183,40 @@ describe('CoachHome', () => {
       expect(screen.queryAllByRole('tab')).toHaveLength(0);
     });
 
-    it('shows the athlete header, and keeps it while a session is open', () => {
+    it('makes the athlete the page title, and keeps it while a session is open', () => {
       renderCoachHome('/coach/students/s-1');
-      expect(screen.getByRole('heading', { level: 2, name: 'Alice' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: 'Alice.' })).toBeInTheDocument();
+      // The roster title is REPLACED, not stacked above the name.
+      expect(screen.queryByRole('heading', { name: 'Athletes.' })).not.toBeInTheDocument();
 
       // The editor is a child route, so identity must survive the drill-down.
       renderCoachHome('/coach/students/s-1/s/sess-1');
-      expect(screen.getAllByRole('heading', { level: 2, name: 'Alice' }).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole('heading', { level: 1, name: 'Alice.' }).length).toBeGreaterThan(0);
       expect(screen.getByTestId('session-editor')).toHaveTextContent('session:s-1');
     });
 
-    it('carries nothing but the name — no action pills, no coaching-since', () => {
+    it('carries nothing but the name — no second identity row under the title', () => {
       renderCoachHome('/coach/students/s-1');
       expect(screen.queryByRole('link', { name: /view sessions/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /^message$/i })).not.toBeInTheDocument();
       // The fixture carries a created_at, so a date on screen means the meta
       // line came back rather than the student simply having no join date.
       expect(screen.queryByText(/coaching since/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { level: 2, name: /alice/i })).not.toBeInTheDocument();
+    });
+
+    it("doesn't double the full stop on a name that already ends in one", () => {
+      mockStudentsData = {
+        data: [{
+          id: 's-1',
+          profile_id: 'p-1',
+          created_at: '2025-03-04T00:00:00Z',
+          profile: { full_name: 'Sammy Jr.' },
+        }],
+        isLoading: false,
+      };
+      renderCoachHome('/coach/students/s-1');
+      expect(screen.getByRole('heading', { level: 1, name: 'Sammy Jr.' })).toBeInTheDocument();
     });
 
     it('renders the overview on the bare athlete URL', () => {

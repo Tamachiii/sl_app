@@ -67,7 +67,7 @@ src/
     auth/              LoginPage, ProtectedRoute, RoleGate
     layout/            AppShell, BottomNav, SideNav, navItems
     coach/             CoachHome (Athletes roster + single-student tabs), StudentWeekStrip,
-                       StudentHeader, StudentOverview, PreviousSessionPanel,
+                       StudentOverview, PreviousSessionPanel,
                        StudentProgrammingSection, StudentGoalsSection, StudentStatsSection,
                        ProgramSwitcher, ProgramSheet, SessionEditor, SessionReview,
                        ExerciseSlotRow, ExerciseLibrary, SessionsFeed, SlotProgress,

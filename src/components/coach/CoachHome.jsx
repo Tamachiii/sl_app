@@ -12,7 +12,6 @@ import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
 import StudentWeekStrip from './StudentWeekStrip';
-import StudentHeader from './StudentHeader';
 
 function initialsOf(fullName) {
   return (fullName || '')
@@ -184,27 +183,12 @@ function RosterView({ students, t, lang }) {
   );
 }
 
-// No tab strip: the athlete is ONE page (StudentOverview) with collapsible
-// sections. Tabs made every area a separate destination that remounted and
-// scroll-reset, which is what "I lose the page" was describing.
-function SelectedStudentView({ student, t }) {
-  return (
-    <div className="space-y-4">
-      <Link
-        to="/coach/students"
-        className="inline-flex items-center gap-1.5 sl-mono text-[11px] text-ink-400 hover:text-ink-700 transition-colors"
-      >
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-        </svg>
-        {t('coach.roster.backToAll')}
-      </Link>
-      <StudentHeader student={student} />
-      <div>
-        <Outlet context={{ student }} />
-      </div>
-    </div>
-  );
+// The house title style is an editorial full stop ("Athletes.", "Dashboard.").
+// A name that already ends in one — "Khang N.", "Sammy Jr." — must not become
+// a double period.
+function titleCase(fullName) {
+  const name = (fullName || '').trim() || 'Student';
+  return name.endsWith('.') ? name : `${name}.`;
 }
 
 export default function CoachHome() {
@@ -215,13 +199,37 @@ export default function CoachHome() {
 
   const selected = (students || []).find((s) => s.id === studentId) || null;
 
+  // ONE header, not two. On an athlete the page header *is* the athlete: the
+  // back link takes the kicker slot where "COACH" sits and the name takes the
+  // h1 where "Athletes." sits. Stacking a roster title, a back link and a
+  // separate identity row put the biggest type on the page you just left and
+  // pushed the actual subject three rows down at half the size.
   return (
     <div className="p-4 pb-6 md:p-8 space-y-5">
       <div className="pt-3 pb-1 flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="sl-label text-ink-400">{t('coach.roster.kicker')}</div>
-          <h1 className="sl-display text-[28px] md:text-[40px] text-gray-900 leading-none mt-1">
-            {t('coach.roster.title')}
+          {selected ? (
+            <Link
+              to="/coach/students"
+              className="sl-label inline-flex items-center gap-1 hover:text-ink-700 transition-colors"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+              </svg>
+              {t('coach.roster.backToAll')}
+            </Link>
+          ) : (
+            <div className="sl-label text-ink-400">{t('coach.roster.kicker')}</div>
+          )}
+          {/* A name carries descenders the word "Athletes." doesn't, and
+              `truncate` clips at the padding edge — hence the padding and no
+              leading-none override of sl-display's 1.05. */}
+          <h1
+            className={`sl-display text-[28px] md:text-[40px] text-gray-900 mt-1 ${
+              selected ? 'truncate pb-0.5' : 'leading-none'
+            }`}
+          >
+            {selected ? titleCase(selected.profile?.full_name) : t('coach.roster.title')}
           </h1>
         </div>
         <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
@@ -238,7 +246,9 @@ export default function CoachHome() {
       {!isLoading && students && students.length > 0 && (
         studentId
           ? (selected
-              ? <SelectedStudentView student={selected} t={t} />
+              // No tab strip and no identity block: the athlete is ONE page
+              // (StudentOverview) under a header that already names them.
+              ? <Outlet context={{ student: selected }} />
               : <EmptyState message={t('coach.home.noStudentsExt')} />)
           : <RosterView students={students} t={t} lang={lang} />
       )}
