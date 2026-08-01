@@ -207,28 +207,28 @@ export default function CoachHome() {
   return (
     <div className="p-4 pb-6 md:p-8 space-y-5">
       <div className="pt-3 pb-1 flex items-start justify-between gap-4">
+        {/* The roster and the athlete share ONE header box — same block-level
+            kicker, same h1 classes — so moving between them changes the words
+            and nothing else. That's also why the back chevron is a mono glyph
+            rather than an SVG: an inline-flex icon made the kicker's line box
+            taller than the roster's and indented its label off the title's
+            left edge, so the header visibly jumped on navigation. */}
         <div className="min-w-0">
           {selected ? (
             <Link
               to="/coach/students"
-              className="sl-label inline-flex items-center gap-1 hover:text-ink-700 transition-colors"
+              className="sl-label text-ink-400 hover:text-ink-700 transition-colors block w-fit"
             >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
-              </svg>
+              <span aria-hidden="true">‹ </span>
               {t('coach.roster.backToAll')}
             </Link>
           ) : (
             <div className="sl-label text-ink-400">{t('coach.roster.kicker')}</div>
           )}
-          {/* A name carries descenders the word "Athletes." doesn't, and
-              `truncate` clips at the padding edge — hence the padding and no
-              leading-none override of sl-display's 1.05. */}
-          <h1
-            className={`sl-display text-[28px] md:text-[40px] text-gray-900 mt-1 ${
-              selected ? 'truncate pb-0.5' : 'leading-none'
-            }`}
-          >
+          {/* truncate because a name is unbounded, and no leading-none:
+              `truncate` clips at the padding edge and a name has descenders
+              the word "Athletes." never did. */}
+          <h1 className="sl-display text-[28px] md:text-[40px] text-gray-900 mt-1 truncate pb-0.5">
             {selected ? titleCase(selected.profile?.full_name) : t('coach.roster.title')}
           </h1>
         </div>

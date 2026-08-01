@@ -99,6 +99,34 @@ describe('CoachHome', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Athletes.' })).toBeInTheDocument();
   });
 
+  // jsdom has no layout, so this guards the two structural things that made the
+  // header jump on navigation: a differently-shaped kicker box, and a differently
+  // -styled h1. Same classes + same box shape = same pixels.
+  it('gives the roster and the athlete the same header box', () => {
+    mockStudentsData = {
+      data: [{ id: 's-1', profile_id: 'p-1', created_at: null, profile: { full_name: 'Alice' } }],
+      isLoading: false,
+    };
+
+    renderCoachHome('/coach/students');
+    const rosterH1 = screen.getByRole('heading', { level: 1, name: 'Athletes.' });
+    const rosterKicker = rosterH1.previousElementSibling;
+
+    renderCoachHome('/coach/students/s-1');
+    const athleteH1 = screen.getByRole('heading', { level: 1, name: 'Alice.' });
+    const athleteKicker = athleteH1.previousElementSibling;
+
+    expect(athleteH1.className).toBe(rosterH1.className);
+    // An inline-flex anchor wrapping an SVG chevron was the original culprit:
+    // taller line box than the roster's block kicker, and a label indented off
+    // the title's left edge. The chevron is a mono glyph in the text run now.
+    expect(athleteKicker.tagName).toBe('A');
+    expect(athleteKicker.querySelector('svg')).toBeNull();
+    expect(athleteKicker.className).toContain('block');
+    expect(athleteKicker.className).toContain('sl-label');
+    expect(rosterKicker.className).toContain('sl-label');
+  });
+
   describe('roster landing', () => {
     beforeEach(() => {
       mockStudentsData = {
