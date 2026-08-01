@@ -306,10 +306,6 @@ const fr = {
       perSet: 'par série',
       empty: 'Aucun exercice dans cette séance.',
     },
-    profile: {
-      coachingSinceLabel: 'Coaché depuis le',
-      roleStudent: 'Athlète',
-    },
     dashboard: {
       kicker: 'Coach',
       title: 'Tableau.',

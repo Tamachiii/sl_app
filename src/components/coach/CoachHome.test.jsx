@@ -193,10 +193,13 @@ describe('CoachHome', () => {
       expect(screen.getByTestId('session-editor')).toHaveTextContent('session:s-1');
     });
 
-    it('carries no action pills — the header is identity only', () => {
+    it('carries nothing but the name — no action pills, no coaching-since', () => {
       renderCoachHome('/coach/students/s-1');
       expect(screen.queryByRole('link', { name: /view sessions/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /^message$/i })).not.toBeInTheDocument();
+      // The fixture carries a created_at, so a date on screen means the meta
+      // line came back rather than the student simply having no join date.
+      expect(screen.queryByText(/coaching since/i)).not.toBeInTheDocument();
     });
 
     it('renders the overview on the bare athlete URL', () => {

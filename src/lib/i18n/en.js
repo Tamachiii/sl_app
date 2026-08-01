@@ -307,10 +307,6 @@ const en = {
       perSet: 'per-set',
       empty: 'No exercises in that session.',
     },
-    profile: {
-      coachingSinceLabel: 'Coaching since',
-      roleStudent: 'Student',
-    },
     dashboard: {
       kicker: 'Coach',
       title: 'Dashboard.',

@@ -306,10 +306,6 @@ const de = {
       perSet: 'pro Satz',
       empty: 'Keine Übungen in dieser Einheit.',
     },
-    profile: {
-      coachingSinceLabel: 'Coaching seit',
-      roleStudent: 'Athlet',
-    },
     dashboard: {
       kicker: 'Coach',
       title: 'Übersicht.',
