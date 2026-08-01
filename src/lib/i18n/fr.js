@@ -152,6 +152,8 @@ const fr = {
       records: {
         title: 'Records personnels',
         empty: 'Enregistre des séries pour voir tes records.',
+        countOne: '1 record',
+        countMany: '{n} records',
         newPr: 'NOUVEAU RECORD',
         est1rm: '1RM est.',
         best: 'meilleur {weight}kg × {reps}',

@@ -152,6 +152,8 @@ const en = {
       records: {
         title: 'Personal records',
         empty: 'Log some sets to see your records.',
+        countOne: '1 record',
+        countMany: '{n} records',
         newPr: 'NEW PR',
         est1rm: 'est. 1RM',
         best: 'best {weight}kg × {reps}',

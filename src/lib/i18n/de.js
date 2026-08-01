@@ -152,6 +152,8 @@ const de = {
       records: {
         title: 'Persönliche Rekorde',
         empty: 'Erfasse Sätze, um deine Rekorde zu sehen.',
+        countOne: '1 Rekord',
+        countMany: '{n} Rekorde',
         newPr: 'NEUER REKORD',
         est1rm: 'gesch. 1RM',
         best: 'bester {weight}kg × {reps}',
