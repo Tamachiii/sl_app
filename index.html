@@ -5,9 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="description" content="Street Lifting Coach — manage and track calisthenics training programs for coaches and athletes." />
     <!-- Status-bar / Dynamic Island strip matches the app surface per theme.
-         Light = Tailwind gray-50 (the AppShell background); dark = ink-900. -->
+         Light = Tailwind gray-50 (the AppShell background); dark = ink-900.
+
+         The media-less entry MUST stay last and MUST exist. A conforming UA
+         takes the first entry whose media matches, so it never reaches this
+         one; a UA that ignores `media` on theme-color — which is what iOS does
+         for an installed web app — has nothing to read without it and paints
+         the Dynamic Island strip its own default black.
+
+         These three are only the pre-JS default. `ThemeProvider` rewrites all
+         of them once it resolves the real theme, because the theme here is a
+         user toggle that can disagree with the OS preference these queries
+         read. -->
     <meta name="theme-color" content="#f9fafb" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#111110" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#111110" />
     <meta name="color-scheme" content="light dark" />
     <link rel="icon" href="/sl_app/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/sl_app/icon-192.png" type="image/png" sizes="192x192" />

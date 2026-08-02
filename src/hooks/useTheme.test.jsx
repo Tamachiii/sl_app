@@ -75,4 +75,49 @@ describe('ThemeProvider', () => {
     act(() => result.current.setTheme('dark'));
     expect(result.current.theme).toBe('dark');
   });
+
+  describe('status-bar colour', () => {
+    // index.html ships three of these; the media-less one is what an installed
+    // iOS web app reads, since it ignores the `media` attribute.
+    beforeEach(() => {
+      document.head.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.remove());
+      for (const media of ['(prefers-color-scheme: light)', '(prefers-color-scheme: dark)', null]) {
+        const m = document.createElement('meta');
+        m.setAttribute('name', 'theme-color');
+        if (media) m.setAttribute('media', media);
+        m.setAttribute('content', '#ffffff');
+        document.head.appendChild(m);
+      }
+    });
+
+    const colors = () => [...document.querySelectorAll('meta[name="theme-color"]')]
+      .map((m) => m.getAttribute('content'));
+
+    it('repaints EVERY theme-color entry, so no stale value can be picked', () => {
+      window.localStorage.setItem('sl_app_theme', 'dark');
+      renderHook(() => useTheme(), { wrapper });
+      expect(colors()).toEqual(['#111110', '#111110', '#111110']);
+    });
+
+    it('follows the toggle even when it disagrees with the OS preference', () => {
+      // OS says dark; the coach has forced the app to light. The strip must
+      // follow the app, which is what the media queries alone got wrong.
+      window.matchMedia = (query) => ({
+        matches: query.includes('dark'),
+        media: query,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+        onchange: null,
+      });
+      window.localStorage.setItem('sl_app_theme', 'light');
+      const { result } = renderHook(() => useTheme(), { wrapper });
+      expect(colors().every((c) => c === '#f9fafb')).toBe(true);
+
+      act(() => result.current.toggleTheme());
+      expect(colors().every((c) => c === '#111110')).toBe(true);
+    });
+  });
 });
