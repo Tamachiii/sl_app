@@ -29,8 +29,14 @@ export default defineConfig({
         start_url: '/sl_app/',
         scope: '/sl_app/',
         display: 'standalone',
-        theme_color: '#f9fafb',
-        background_color: '#f9fafb',
+        // An INSTALLED iOS web app colours its status-bar / Dynamic Island
+        // strip from the manifest, not from index.html's `theme-color` metas —
+        // the metas only govern in-browser tabs. A manifest is static, so this
+        // single value cannot follow the in-app theme toggle: it is ink-900
+        // because the app is dark-first. A coach running the light theme gets
+        // a dark strip and splash, which is the deliberate trade of the two.
+        theme_color: '#111110',
+        background_color: '#111110',
         icons: [
           { src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
           { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
