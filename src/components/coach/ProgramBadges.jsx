@@ -13,6 +13,25 @@ export function ActiveBadge({ t }) {
   );
 }
 
+/**
+ * The badge reduced to its dot, for the switcher trigger where the program name
+ * is the headline and every pixel the badge takes is a pixel the name loses.
+ * The label stays in the accessibility tree — active-ness must not be carried
+ * by colour alone.
+ */
+export function ActiveDot({ t }) {
+  return (
+    <span className="shrink-0 inline-flex items-center">
+      <span
+        className="w-1.5 h-1.5 rounded-full"
+        style={{ background: 'var(--color-success)' }}
+        aria-hidden="true"
+      />
+      <span className="sr-only">{t('coach.home.activeBadge')}</span>
+    </span>
+  );
+}
+
 export function DraftBadge({ submitted, t }) {
   // The un-submitted variant uses the `text-ink-500` utility class (not an inline
   // color) so the `.dark` remap flips it and it stays legible in dark mode; the

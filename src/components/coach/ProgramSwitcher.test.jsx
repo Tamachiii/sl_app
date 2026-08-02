@@ -85,14 +85,29 @@ describe('ProgramSwitcher', () => {
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 
-  it('clicking + PROGRAM calls useCreateProgram with the next default name', async () => {
+  it('keeps + PROGRAM inside the dropdown, not beside the name', async () => {
     const user = userEvent.setup();
     renderSwitcher();
+
+    // Creating a block is a once-a-cycle action; it must not hold width next
+    // to the name, which is the thing the coach actually reads.
+    expect(screen.queryByRole('button', { name: '+ PROGRAM' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /select program/i }));
     await user.click(screen.getByRole('button', { name: '+ PROGRAM' }));
+
     expect(mockCreate.mutate).toHaveBeenCalledWith(
       { studentId: 's-1', name: 'Program 3', setActive: false },
       expect.any(Object),
     );
+    // Creating switches to the new program, so the list has served its purpose.
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  it('the trigger drops the week count the sheet below already lists', () => {
+    renderSwitcher();
+    const trigger = screen.getByRole('button', { name: /select program/i });
+    expect(trigger).not.toHaveTextContent(/WEEK/i);
   });
 
   it('opens the manage dialog for the selected program', async () => {

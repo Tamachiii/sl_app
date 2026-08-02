@@ -22,7 +22,7 @@ import {
   useTrashedPrograms,
 } from '../../hooks/useProgram';
 import { useI18n } from '../../hooks/useI18n';
-import { ActiveBadge, DraftBadge } from './ProgramBadges';
+import { ActiveBadge, ActiveDot, DraftBadge } from './ProgramBadges';
 import ManageProgramDialog from './ProgramManageDialog';
 import TrashDialog from './ProgramTrashDialog';
 
@@ -140,7 +140,6 @@ export default function ProgramSwitcher({ studentId, programs, selectedId, onSel
     ?? localPrograms.find((p) => p.is_active)
     ?? localPrograms[0]
     ?? null;
-  const selectedWeekCount = (selected?.weeks || []).length;
 
   function handleAdd() {
     const nextNum = localPrograms.length + 1;
@@ -179,6 +178,12 @@ export default function ProgramSwitcher({ studentId, programs, selectedId, onSel
   return (
     <>
       <div ref={wrapperRef} className="relative">
+        {/* The program name is the headline of everything below it, so it gets
+            the row. What used to crowd it out: a filled pill that read as a
+            form control, a "4 WEEKS" line the W1..Wn list below already says,
+            a full ACTIVE badge (now a dot), and a permanent "+" for an action
+            a coach takes once a block — that one lives in the dropdown now,
+            next to Trash, where the other program-list actions already are. */}
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -186,46 +191,22 @@ export default function ProgramSwitcher({ studentId, programs, selectedId, onSel
             aria-haspopup="listbox"
             aria-expanded={isOpen}
             aria-label={t('coach.home.selectProgram')}
-            className="flex-1 min-w-0 flex items-center gap-2 pl-3 pr-2 py-2 rounded-lg bg-ink-100 hover:bg-ink-200 transition-colors"
+            className="min-w-0 flex-1 flex items-center gap-2 py-2 text-left group"
           >
-            <div className="min-w-0 flex-1 text-left">
-              <div className="flex items-center gap-2">
-                <span className="sl-display text-[14px] md:text-[15px] text-gray-900 truncate">
-                  {selected?.name ?? '—'}
-                </span>
-                {selected?.is_active && <ActiveBadge t={t} />}
-                {selected?.status === 'draft' && <DraftBadge submitted={!!selected.submitted_at} t={t} />}
-              </div>
-              {selected && (
-                <span className="sl-mono text-[10px] text-ink-400 block mt-0.5">
-                  {t(
-                    selectedWeekCount === 1 ? 'coach.home.weeksOne' : 'coach.home.weeksMany',
-                    { n: selectedWeekCount },
-                  ).toUpperCase()}
-                </span>
-              )}
-            </div>
+            <span className="sl-display text-[15px] md:text-[17px] text-gray-900 truncate">
+              {selected?.name ?? '—'}
+            </span>
+            {selected?.is_active && <ActiveDot t={t} />}
+            {selected?.status === 'draft' && <DraftBadge submitted={!!selected.submitted_at} t={t} />}
             <svg
               width="12"
               height="12"
               viewBox="0 0 12 12"
               fill="none"
               aria-hidden="true"
-              className={`shrink-0 text-ink-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+              className={`shrink-0 text-ink-400 group-hover:text-ink-700 transition-transform ${isOpen ? 'rotate-180' : ''}`}
             >
               <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleAdd}
-            disabled={createProgram.isPending}
-            aria-label={t('coach.home.addProgram')}
-            className="shrink-0 rounded-lg border border-dashed border-ink-200 text-ink-400 px-3 py-2 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors disabled:opacity-50"
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-              <path d="M7 1.5V12.5M1.5 7H12.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
           </button>
 
@@ -234,7 +215,7 @@ export default function ProgramSwitcher({ studentId, programs, selectedId, onSel
             onClick={() => setManageOpen(true)}
             disabled={!selected}
             aria-label={t('coach.home.programMenu')}
-            className="shrink-0 rounded-lg bg-ink-100 text-ink-700 px-3 py-2 hover:bg-ink-200 transition-colors disabled:opacity-40"
+            className="shrink-0 -mr-1 rounded-lg text-ink-400 hover:text-ink-700 hover:bg-ink-100 px-2 py-2.5 transition-colors disabled:opacity-40"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
               <circle cx="3" cy="7" r="1.4" />
@@ -267,6 +248,17 @@ export default function ProgramSwitcher({ studentId, programs, selectedId, onSel
                 </SortableContext>
               </div>
             </DndContext>
+            <button
+              type="button"
+              onClick={() => {
+                setIsOpen(false);
+                handleAdd();
+              }}
+              disabled={createProgram.isPending}
+              className="w-full text-left px-3 py-2 sl-mono text-[11px] text-ink-400 border-t border-ink-200 hover:bg-ink-100 hover:text-ink-700 transition-colors disabled:opacity-50"
+            >
+              {t('coach.home.addProgram')}
+            </button>
             {trashedPrograms.length > 0 && (
               <button
                 type="button"
