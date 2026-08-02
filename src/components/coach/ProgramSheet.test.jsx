@@ -109,6 +109,25 @@ describe('ProgramSheet', () => {
     expect(screen.getByRole('button', { name: /day: wed/i })).toBeInTheDocument();
   });
 
+  it('lists sessions by training day, not by the order they were created', () => {
+    // A Friday session written before the Wednesday one: the week must still
+    // read Mon → Wed → Fri. Creation order (sort_order) says the opposite.
+    renderSheet({
+      ...program,
+      weeks: [{
+        ...program.weeks[0],
+        sessions: [
+          { id: 's-mon', title: 'Upper 1', day_number: 1, sort_order: 0, archived_at: null, exercise_slots: [] },
+          { id: 's-fri', title: 'Upper 2', day_number: 5, sort_order: 1, archived_at: null, exercise_slots: [] },
+          { id: 's-wed', title: 'Leg', day_number: 3, sort_order: 2, archived_at: null, exercise_slots: [] },
+        ],
+      }],
+    });
+
+    const order = screen.getAllByText(/^(Upper 1|Upper 2|Leg)$/).map((n) => n.textContent);
+    expect(order).toEqual(['Upper 1', 'Leg', 'Upper 2']);
+  });
+
   it('excludes archived sessions from the active list', () => {
     renderSheet();
     expect(screen.queryByText('Old')).not.toBeInTheDocument();

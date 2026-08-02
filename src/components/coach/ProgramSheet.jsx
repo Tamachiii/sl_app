@@ -28,7 +28,7 @@ import {
 import { useDuplicateWeek } from '../../hooks/useDuplicate';
 import { useProgramConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 import { useI18n } from '../../hooks/useI18n';
-import { DAY_FULL, DAY_LABELS, nextFreeDayNumber } from '../../lib/day';
+import { DAY_FULL, DAY_LABELS, compareSessions, nextFreeDayNumber } from '../../lib/day';
 import EditableText from '../ui/EditableText';
 import CopyDialog from '../ui/CopyDialog';
 import ConfirmDialog from '../ui/ConfirmDialog';
@@ -52,7 +52,7 @@ function currentWeekId(weeks, confirmedIds) {
 }
 
 function activeSessions(week) {
-  return (week.sessions || []).filter((s) => !s.archived_at);
+  return (week.sessions || []).filter((s) => !s.archived_at).sort(compareSessions);
 }
 
 // Which week the coach had open, per program. Survives stepping into a session
@@ -242,7 +242,7 @@ function WeekCard({
   const [confirmDeleteWeek, setConfirmDeleteWeek] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const navigate = useNavigate();
-  const archived = (week.sessions || []).filter((s) => s.archived_at);
+  const archived = (week.sessions || []).filter((s) => s.archived_at).sort(compareSessions);
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: week.id, disabled: !reordering });

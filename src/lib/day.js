@@ -51,6 +51,29 @@ export function startOfWeekMonday(date) {
 }
 
 /**
+ * Reading order for the sessions of one week: the weekday the athlete actually
+ * trains, not the order the coach happened to create them in. A Friday session
+ * added before a Wednesday one used to list above it, which reads as the wrong
+ * week shape on both the coach sheet and the student's list.
+ *
+ * `sort_order` only breaks ties between two sessions on the same day, and a
+ * session with no usable weekday sorts last rather than silently landing on
+ * Monday. Uses `sessionDayNumber`, so a surface that fetches `scheduled_date`
+ * orders by the real calendar day and one that doesn't falls back to
+ * `day_number` — each stays consistent with the weekday it displays.
+ */
+export function compareSessions(a, b) {
+  const rank = (s) => {
+    const d = sessionDayNumber(s);
+    return d >= 1 && d <= 7 ? d : Infinity;
+  };
+  const da = rank(a);
+  const db = rank(b);
+  if (da !== db) return da - db;
+  return (a?.sort_order ?? 0) - (b?.sort_order ?? 0);
+}
+
+/**
  * First weekday (1..7) not already taken by one of `sessions`, for placing a
  * newly-added session. Falls back to 7 once every day is occupied — day_number
  * MUST stay inside 1..7 because the coach roster's week strip drops anything

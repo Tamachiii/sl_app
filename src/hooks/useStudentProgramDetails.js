@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { compareSessions } from '../lib/day';
 
 /**
  * Fetches the program tree for the student surface:
@@ -71,7 +72,9 @@ export function useStudentProgramDetails(userId, { allPrograms = false } = {}) {
                 }))
                 .sort((a, b) => a.sort_order - b.sort_order),
             }))
-            .sort((a, b) => a.sort_order - b.sort_order);
+            // By training day, not creation order: a Friday session written
+            // before a Wednesday one must still list after it.
+            .sort(compareSessions);
           weeks.push(w);
         }
       }

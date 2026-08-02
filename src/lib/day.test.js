@@ -11,6 +11,7 @@ import {
   statusOf,
   deriveWeekStats,
   nextFreeDayNumber,
+  compareSessions,
 } from './day';
 
 describe('day.js', () => {
@@ -129,6 +130,48 @@ describe('day.js', () => {
       // The old `sessions.length + 1` would have returned 8 here and the
       // session would have silently vanished from the coach roster.
       expect(nextFreeDayNumber(fullWeek)).toBeLessThanOrEqual(7);
+    });
+  });
+
+  describe('compareSessions', () => {
+    const sorted = (arr) => arr.slice().sort(compareSessions).map((s) => s.title);
+
+    it('orders by training day, not by creation order', () => {
+      // The reported bug: Upper 2 (Fri) was written before Leg (Wed), so it
+      // listed second and the week read Mon / Fri / Wed.
+      const week = [
+        { title: 'Upper 1', day_number: 1, sort_order: 0 },
+        { title: 'Upper 2', day_number: 5, sort_order: 1 },
+        { title: 'Leg', day_number: 3, sort_order: 2 },
+      ];
+      expect(sorted(week)).toEqual(['Upper 1', 'Leg', 'Upper 2']);
+    });
+
+    it('breaks a same-day tie on sort_order', () => {
+      const week = [
+        { title: 'PM', day_number: 3, sort_order: 1 },
+        { title: 'AM', day_number: 3, sort_order: 0 },
+      ];
+      expect(sorted(week)).toEqual(['AM', 'PM']);
+    });
+
+    it('sorts a session with no usable weekday last, not onto Monday', () => {
+      const week = [
+        { title: 'unset', day_number: null, sort_order: 0 },
+        { title: 'out of range', day_number: 9, sort_order: 1 },
+        { title: 'Tue', day_number: 2, sort_order: 2 },
+      ];
+      expect(sorted(week)).toEqual(['Tue', 'unset', 'out of range']);
+    });
+
+    it('prefers scheduled_date over day_number where the surface fetches it', () => {
+      // 2026-08-05 is a Wednesday, so it must beat a day_number of 5 (Fri)
+      // even though the stale day_number says otherwise.
+      const week = [
+        { title: 'Fri', day_number: 5, sort_order: 0 },
+        { title: 'rescheduled to Wed', day_number: 5, scheduled_date: '2026-08-05', sort_order: 1 },
+      ];
+      expect(sorted(week)).toEqual(['rescheduled to Wed', 'Fri']);
     });
   });
 
