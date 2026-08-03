@@ -39,13 +39,17 @@
   --color-push: #ff5a1f;
 }
 
+/* `inset: 0` alone sizes these to the viewport — deliberately NO `height` or
+   `width: 100%`. Setting both an inset pair and a definite size over-constrains
+   the box, and CSS resolves that by dropping `bottom`. Under iOS's translucent
+   standalone status bar that 100% resolves against a box excluding the status
+   bar, so the shell anchored at the top and left a dead strip at the bottom
+   exactly one status bar tall, pushing BottomNav up off the screen edge. */
 html, body, #root {
-  height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
   position: fixed;
   inset: 0;
-  width: 100%;
 }
 
 /* Paint the canvas itself, not only <body>. With `viewport-fit=cover` the
