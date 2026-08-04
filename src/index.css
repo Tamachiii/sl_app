@@ -39,24 +39,13 @@
   --color-push: #ff5a1f;
 }
 
-/* Height comes from `dvh`, NOT from `inset: 0` or `height: 100%`.
-   Under iOS's translucent standalone status bar the content starts at y=0
-   beneath the clock, but the initial containing block keeps its old
-   "screen minus status bar" height. `inset: 0` and `height: 100%` both derive
-   from that block, so the shell ended one status bar short of the screen and
-   left a dead strip along the bottom that lifted BottomNav off the edge.
-   `dvh` is the real screen height, so it doesn't inherit that mistake.
-   `bottom` is deliberately unset: pairing it with a definite height
-   over-constrains the box and CSS would drop it anyway. */
 html, body, #root {
-  height: 100vh; /* fallback for iOS < 15.4, which has no dvh */
-  height: 100dvh;
+  height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
+  inset: 0;
+  width: 100%;
 }
 
 /* Paint the canvas itself, not only <body>. With `viewport-fit=cover` the

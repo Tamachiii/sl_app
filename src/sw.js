@@ -22,7 +22,20 @@ import { CacheableResponsePlugin } from 'workbox-cacheable-response';
 cleanupOutdatedCaches();
 
 // vite-plugin-pwa injects the precache manifest here at build time.
-precacheAndRoute(self.__WB_MANIFEST || []);
+//
+// manifest.webmanifest is deliberately excluded. iOS reads it when the app is
+// added to the home screen, and an installed app takes its status-bar colour
+// from `theme_color` — but a precached copy meant Safari asked THIS worker for
+// the manifest and got the stale one back, so a theme_color change never
+// reached iOS even after removing and re-adding the app. It has to come off
+// the network. Nothing offline depends on it: the manifest matters at install
+// time, and iOS keeps its own copy afterwards.
+precacheAndRoute(
+  (self.__WB_MANIFEST || []).filter((entry) => {
+    const url = typeof entry === 'string' ? entry : entry?.url ?? '';
+    return !url.endsWith('manifest.webmanifest');
+  }),
+);
 
 // SPA navigateFallback — every page route resolves to the precached
 // index.html so deep links survive offline cold loads.

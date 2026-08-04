@@ -21,28 +21,16 @@
     <meta name="theme-color" content="#111110" media="(prefers-color-scheme: dark)" />
     <meta name="theme-color" content="#111110" />
     <meta name="color-scheme" content="light dark" />
-    <!-- iOS colours an installed web app's status bar from THIS, not from
-         theme-color and not from the manifest (both were tried; the bar stayed
-         the `default` style's opaque light grey). `black-translucent` makes it
-         transparent instead, so the strip is painted by the page itself —
-         `html`'s background, which follows the in-app theme toggle. That is the
-         only way the strip tracks the theme rather than a baked-in colour.
+    <!-- No `apple-mobile-web-app-status-bar-style` here on purpose.
+         `black-translucent` does make the strip follow the theme — it is the
+         only thing that does — but it also leaves the initial containing block
+         one status bar short of the screen, so the shell ends early and a dead
+         strip appears along the bottom, lifting BottomNav off the edge. That
+         was tried on-device and the strip could not be sized away.
 
-         Two things this depends on: `viewport-fit=cover` above, and AppShell's
-         `paddingTop: env(safe-area-inset-top)` — without the padding the
-         content would run underneath the clock.
+         An installed iOS app takes the strip colour from the manifest's
+         `theme_color` instead (see vite.config.js). -->
 
-         Known cost: iOS always draws the clock/battery LIGHT in this mode, so
-         the light theme has pale text on a pale strip. Accepted because the
-         app is dark-first.
-
-         Deliberately NOT paired with `apple-mobile-web-app-capable`. That
-         legacy meta predates `viewport-fit=cover` and switches iOS to the old
-         standalone viewport, which is the safe area rather than the screen —
-         the shell then came up short and left a dead strip along the bottom
-         that lifted BottomNav off the screen edge. Standalone comes from the
-         manifest's `display` instead, which keeps the modern viewport. -->
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="icon" href="/sl_app/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/sl_app/icon-192.png" type="image/png" sizes="192x192" />
     <link rel="apple-touch-icon" href="/sl_app/apple-touch-icon.png" />
