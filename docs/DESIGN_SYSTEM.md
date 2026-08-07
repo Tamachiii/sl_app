@@ -100,7 +100,9 @@ This compact pattern is used in `SessionCard`, `ExerciseLibrary`'s `ExerciseForm
 
 ## Dark mode — class-based remap only
 
-Dark mode is a `.dark` class on `<html>`, and the theme is implemented as **class selectors that remap common utilities** (see the bottom half of [src/index.css](../src/index.css)):
+**The app is dark-only — there is no toggle.** `class="dark"` ships on `<html>` in [index.html](../index.html) so the first paint is already dark, and `ThemeProvider` only re-asserts it. An installed iOS PWA colours its status bar from the manifest's single static `theme_color`, so a light theme could never match the strip once the app leaves Safari; the toggle was shipping a guaranteed mismatch for half its users.
+
+The light utilities still matter, because dark mode is implemented as **class selectors that remap them** (see the bottom half of [src/index.css](../src/index.css)) — keep writing components against `bg-white` / `text-gray-900` and let the remap do the work:
 
 ```css
 .dark .text-gray-900 { color: var(--color-ink-0) !important; }
@@ -155,7 +157,7 @@ There is **no `<Header/>` component** — every page builds its own header from 
 </div>
 ```
 
-Pages with a user menu instead (`StudentHome`, `CoachHome`) swap the back button for an avatar-initials popover containing `ThemeToggle` + Sign out — but the overall 3-zone rhythm is the same.
+Pages with a user menu instead (`StudentHome`, `CoachHome`) swap the back button for an avatar-initials popover containing the language selector + Sign out — but the overall 3-zone rhythm is the same.
 
 Every top-level page (both coach & student: Dashboard, Students, Sessions, Library, Home, Stats, Goals) renders `ui/UserMenu` as the right-aligned action — wrap the header in `flex items-start justify-between gap-4`.
 

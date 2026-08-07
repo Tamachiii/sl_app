@@ -18,7 +18,6 @@ const en = {
     save: 'Save',
     saving: 'Saving…',
     signOut: 'Sign out',
-    theme: 'Theme',
     language: 'Language',
     back: 'Back',
     done: 'done',

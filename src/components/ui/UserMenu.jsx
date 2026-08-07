@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
 import { usePushSubscription } from '../../hooks/usePushSubscription';
 import { preloadLogin } from '../../lib/preload';
-import ThemeToggle from './ThemeToggle';
 import LanguageSelect from './LanguageSelect';
 import NotificationBell from '../notifications/NotificationBell';
 
@@ -146,10 +145,6 @@ export default function UserMenu({ fullName, onSignOut, profileHref }) {
             aria-label={t('common.openUserMenu')}
             className="absolute right-0 top-12 z-20 min-w-[168px] rounded-xl bg-white shadow-lg border border-ink-100 overflow-hidden"
           >
-            <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-ink-100">
-              <span className="sl-label">{t('common.theme')}</span>
-              <ThemeToggle />
-            </div>
             <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-ink-100">
               <span className="sl-label">{t('common.language')}</span>
               <LanguageSelect />

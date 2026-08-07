@@ -18,7 +18,6 @@ const fr = {
     save: 'Enregistrer',
     saving: 'Enregistrement…',
     signOut: 'Se déconnecter',
-    theme: 'Thème',
     language: 'Langue',
     back: 'Retour',
     done: 'fait',

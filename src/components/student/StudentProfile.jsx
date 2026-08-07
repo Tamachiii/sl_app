@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Spinner from '../ui/Spinner';
 import Dialog from '../ui/Dialog';
-import ThemeToggle from '../ui/ThemeToggle';
 import LanguageSelect from '../ui/LanguageSelect';
 import EditableText from '../ui/EditableText';
 import { useAuth } from '../../hooks/useAuth';
@@ -356,10 +355,6 @@ export default function StudentProfile() {
       <section aria-labelledby="profile-prefs-heading" className="space-y-2">
         <h2 id="profile-prefs-heading" className="sl-label text-ink-400">{t('student.profile.prefs.title')}</h2>
         <div className="sl-card divide-y divide-ink-100">
-          <div className="flex items-center justify-between gap-2 px-3 py-2.5">
-            <span className="sl-label">{t('common.theme')}</span>
-            <ThemeToggle />
-          </div>
           <div className="flex items-center justify-between gap-2 px-3 py-2.5">
             <span className="sl-label">{t('common.language')}</span>
             <LanguageSelect />

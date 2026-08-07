@@ -7,10 +7,14 @@ const wrapper = ({ children }) => <ThemeProvider>{children}</ThemeProvider>;
 beforeEach(() => {
   window.localStorage.clear();
   document.documentElement.classList.remove('dark');
+  document.head.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.remove());
+  const m = document.createElement('meta');
+  m.setAttribute('name', 'theme-color');
+  m.setAttribute('content', '#ffffff');
+  document.head.appendChild(m);
 });
 
 afterEach(() => {
-  // Reset matchMedia between tests where overridden.
   window.matchMedia = (query) => ({
     matches: false,
     media: query,
@@ -24,26 +28,34 @@ afterEach(() => {
 });
 
 describe('useTheme (no provider)', () => {
-  it('returns a safe stub with theme=light', () => {
+  it('returns a safe dark stub', () => {
     const { result } = renderHook(() => useTheme());
-    expect(result.current.theme).toBe('light');
-    // Stubs do not throw.
+    expect(result.current.theme).toBe('dark');
     expect(() => result.current.toggleTheme()).not.toThrow();
-    expect(() => result.current.setTheme('dark')).not.toThrow();
+    expect(() => result.current.setTheme('light')).not.toThrow();
   });
 });
 
-describe('ThemeProvider', () => {
-  it('reads theme from localStorage when present', () => {
-    window.localStorage.setItem('sl_app_theme', 'dark');
+// The app is dark-only: an installed iOS PWA colours its status bar from the
+// manifest's single static theme_color, so a light theme could never match the
+// strip. See docs/INVARIANTS.md.
+describe('ThemeProvider (dark-only)', () => {
+  it('applies dark and reports dark', () => {
     const { result } = renderHook(() => useTheme(), { wrapper });
     expect(result.current.theme).toBe('dark');
     expect(document.documentElement.classList.contains('dark')).toBe(true);
   });
 
-  it('falls back to matchMedia(prefers-color-scheme: dark) when no storage', () => {
+  it('ignores a stored light preference left over from the toggle', () => {
+    window.localStorage.setItem('sl_app_theme', 'light');
+    const { result } = renderHook(() => useTheme(), { wrapper });
+    expect(result.current.theme).toBe('dark');
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
+  });
+
+  it('ignores an OS light preference', () => {
     window.matchMedia = (query) => ({
-      matches: query.includes('dark'),
+      matches: false, // prefers-color-scheme: dark → false
       media: query,
       addListener: () => {},
       removeListener: () => {},
@@ -54,70 +66,21 @@ describe('ThemeProvider', () => {
     });
     const { result } = renderHook(() => useTheme(), { wrapper });
     expect(result.current.theme).toBe('dark');
-  });
-
-  it('toggleTheme flips and persists', () => {
-    window.localStorage.setItem('sl_app_theme', 'light');
-    const { result } = renderHook(() => useTheme(), { wrapper });
-    expect(result.current.theme).toBe('light');
-    act(() => result.current.toggleTheme());
-    expect(result.current.theme).toBe('dark');
-    expect(window.localStorage.getItem('sl_app_theme')).toBe('dark');
     expect(document.documentElement.classList.contains('dark')).toBe(true);
-
-    act(() => result.current.toggleTheme());
-    expect(result.current.theme).toBe('light');
-    expect(document.documentElement.classList.contains('dark')).toBe(false);
   });
 
-  it('setTheme writes the supplied value', () => {
-    const { result } = renderHook(() => useTheme(), { wrapper });
-    act(() => result.current.setTheme('dark'));
-    expect(result.current.theme).toBe('dark');
-  });
-
-  describe('status-bar colour', () => {
-    // index.html ships three of these; the media-less one is what an installed
-    // iOS web app reads, since it ignores the `media` attribute.
-    beforeEach(() => {
-      document.head.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.remove());
-      for (const media of ['(prefers-color-scheme: light)', '(prefers-color-scheme: dark)', null]) {
-        const m = document.createElement('meta');
-        m.setAttribute('name', 'theme-color');
-        if (media) m.setAttribute('media', media);
-        m.setAttribute('content', '#ffffff');
-        document.head.appendChild(m);
-      }
-    });
-
-    const colors = () => [...document.querySelectorAll('meta[name="theme-color"]')]
+  it('paints every theme-color entry on the dark surface', () => {
+    renderHook(() => useTheme(), { wrapper });
+    const colors = [...document.querySelectorAll('meta[name="theme-color"]')]
       .map((m) => m.getAttribute('content'));
+    expect(colors.every((c) => c === '#111110')).toBe(true);
+  });
 
-    it('repaints EVERY theme-color entry, so no stale value can be picked', () => {
-      window.localStorage.setItem('sl_app_theme', 'dark');
-      renderHook(() => useTheme(), { wrapper });
-      expect(colors()).toEqual(['#111110', '#111110', '#111110']);
-    });
-
-    it('follows the toggle even when it disagrees with the OS preference', () => {
-      // OS says dark; the coach has forced the app to light. The strip must
-      // follow the app, which is what the media queries alone got wrong.
-      window.matchMedia = (query) => ({
-        matches: query.includes('dark'),
-        media: query,
-        addListener: () => {},
-        removeListener: () => {},
-        addEventListener: () => {},
-        removeEventListener: () => {},
-        dispatchEvent: () => false,
-        onchange: null,
-      });
-      window.localStorage.setItem('sl_app_theme', 'light');
-      const { result } = renderHook(() => useTheme(), { wrapper });
-      expect(colors().every((c) => c === '#f9fafb')).toBe(true);
-
-      act(() => result.current.toggleTheme());
-      expect(colors().every((c) => c === '#111110')).toBe(true);
-    });
+  it('keeps toggleTheme/setTheme as no-ops so stale callers cannot flip it', () => {
+    const { result } = renderHook(() => useTheme(), { wrapper });
+    act(() => result.current.toggleTheme());
+    act(() => result.current.setTheme('light'));
+    expect(result.current.theme).toBe('dark');
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
   });
 });

@@ -18,7 +18,6 @@ const de = {
     save: 'Speichern',
     saving: 'Speichere…',
     signOut: 'Abmelden',
-    theme: 'Theme',
     language: 'Sprache',
     back: 'Zurück',
     done: 'erl.',
