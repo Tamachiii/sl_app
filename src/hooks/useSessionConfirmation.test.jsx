@@ -246,6 +246,46 @@ describe('useConfirmSession / useUnconfirmSession', () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['week-confirmed-session-ids'] });
   });
 
+  // The date the student actually trained rides in the serialized variables,
+  // so a confirm queued offline and replayed days later still records the
+  // training day rather than the replay day.
+  it('useConfirmSession forwards performedOn as performed_on', async () => {
+    const chain = {
+      upsert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: { id: 'c-1' }, error: null }),
+    };
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useConfirmSession(), { wrapper: withClient(qc) });
+    result.current.mutate({ sessionId: 's-1', performedOn: '2026-08-18' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(chain.upsert.mock.calls[0][0].performed_on).toBe('2026-08-18');
+    // The optimistic cache entry carries it too, so the UI doesn't flash the
+    // wrong date between the tap and the server round-trip.
+    expect(qc.getQueryData(['session-confirmation', 's-1'])).toMatchObject({
+      performed_on: '2026-08-18',
+    });
+  });
+
+  it('useConfirmSession sends performed_on=null when the caller has no date', async () => {
+    const chain = {
+      upsert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: { id: 'c-1' }, error: null }),
+    };
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useConfirmSession(), { wrapper: withClient(qc) });
+    result.current.mutate({ sessionId: 's-1' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    // Server-side COALESCE then falls back to confirmed_at.
+    expect(chain.upsert.mock.calls[0][0].performed_on).toBeNull();
+  });
+
   it('useConfirmSession sends notes=null for empty/missing notes', async () => {
     const chain = {
       upsert: vi.fn().mockReturnThis(),

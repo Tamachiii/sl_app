@@ -74,6 +74,11 @@ CREATE TABLE public.sessions (
   scheduled_date date,
   archived_at    timestamptz,
   reviewed_at    timestamptz,
+  -- When the session was ACTUALLY trained. Denormalized mirror of the
+  -- confirmation's performed_on, maintained by trg_sync_session_performed_at
+  -- (2026_08_21). NULL = not performed. Same idiom as reviewed_at: surfaces
+  -- that already walk the program tree read the date without a second join.
+  performed_at   timestamptz,
   created_at     timestamptz NOT NULL DEFAULT now(),
   -- Tied sort_orders once made week duplication merge two sessions into one
   -- copy (2026_07_13). Sessions have no drag-reorder flow; if one is added
@@ -83,6 +88,9 @@ CREATE TABLE public.sessions (
 
 CREATE INDEX IF NOT EXISTS sessions_reviewed_idx
   ON public.sessions (reviewed_at) WHERE reviewed_at IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS sessions_performed_idx
+  ON public.sessions (performed_at) WHERE performed_at IS NOT NULL;
 
 -- Exercise library (shared per coach)
 CREATE TABLE public.exercise_library (
@@ -439,6 +447,11 @@ CREATE TABLE public.session_confirmations (
   session_id   uuid NOT NULL UNIQUE REFERENCES public.sessions(id) ON DELETE CASCADE,
   student_id   uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   confirmed_at timestamptz NOT NULL DEFAULT now(),
+  -- The local calendar date the student actually trained, computed client-side
+  -- from the session's set_logs.logged_at at confirm time (2026_08_21). NULL
+  -- falls back to confirmed_at. confirmed_at alone is the REPLAY time for an
+  -- offline confirm, which is why this exists.
+  performed_on date,
   notes        text
 );
 
@@ -1209,6 +1222,44 @@ DROP TRIGGER IF EXISTS trg_notify_coach_on_session_confirm ON public.session_con
 CREATE TRIGGER trg_notify_coach_on_session_confirm
   AFTER INSERT ON public.session_confirmations
   FOR EACH ROW EXECUTE FUNCTION public.notify_coach_on_session_confirm();
+
+-- Trigger: mirror the confirmation's performed date onto the session
+-- (2026_08_21). Deliberately SEPARATE from notify_coach_on_session_confirm —
+-- that one is the notification/Web-Push path (AFTER INSERT only, with an
+-- EXCEPTION-wrapped pg_net call), and this needs the UPDATE branch (an offline
+-- confirm replays as an upsert) and the DELETE branch (undo un-performs the
+-- session). SECURITY DEFINER because students have no UPDATE grant on
+-- `sessions`; the mirror is derived data, not a student write.
+CREATE OR REPLACE FUNCTION public.sync_session_performed_at()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_performed timestamptz;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    UPDATE public.sessions SET performed_at = NULL WHERE id = OLD.session_id;
+    RETURN OLD;
+  END IF;
+
+  v_performed := COALESCE(NEW.performed_on::timestamptz, NEW.confirmed_at);
+
+  -- performed_on is client-supplied, so guard the one direction that can't be
+  -- legitimate: a date in the future. A day of slack absorbs timezones ahead
+  -- of the server. Past dates are never clamped — confirming days after
+  -- training is normal and is the entire point of the column.
+  IF v_performed > NEW.confirmed_at + interval '1 day' THEN
+    v_performed := NEW.confirmed_at;
+  END IF;
+
+  UPDATE public.sessions SET performed_at = v_performed WHERE id = NEW.session_id;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_sync_session_performed_at ON public.session_confirmations;
+CREATE TRIGGER trg_sync_session_performed_at
+  AFTER INSERT OR DELETE OR UPDATE OF performed_on, confirmed_at
+  ON public.session_confirmations
+  FOR EACH ROW EXECUTE FUNCTION public.sync_session_performed_at();
 
 -- Trigger: notify the coach the first time a student takes a slot off-script
 -- (swap/skip an exercise). AFTER INSERT only — editing an existing deviation

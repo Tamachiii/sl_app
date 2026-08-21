@@ -164,11 +164,22 @@ async function saveSlotDeviationFn({ slotId, studentId, kind, substituteExercise
 // Upsert (not insert) so that a queued confirm replayed against an already-
 // confirmed session no-ops instead of tripping the UNIQUE(session_id) constraint
 // — keeps offline replay idempotent.
-async function confirmSessionFn({ sessionId, studentId, notes }) {
+//
+// `performedOn` is computed by the CALLER at confirm time (see
+// `performedOnFromLogs`) and rides in the serialized variables, which is the
+// whole point: a confirm queued offline and replayed two days later still
+// records the day the student trained, whereas the server's `confirmed_at`
+// default would record the replay.
+async function confirmSessionFn({ sessionId, studentId, notes, performedOn }) {
   const { data, error } = await supabase
     .from('session_confirmations')
     .upsert(
-      { session_id: sessionId, student_id: studentId, notes: notes || null },
+      {
+        session_id: sessionId,
+        student_id: studentId,
+        notes: notes || null,
+        performed_on: performedOn || null,
+      },
       { onConflict: 'session_id' }
     )
     .select()

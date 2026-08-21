@@ -168,7 +168,35 @@ describe('SessionView', () => {
     await user.click(screen.getByRole('button', { name: /^confirm$/i }));
 
     expect(mockConfirm.mutate).toHaveBeenCalledWith(
-      { sessionId: 'sess-1', notes: 'felt strong' },
+      {
+        sessionId: 'sess-1',
+        notes: 'felt strong',
+        // No set was ticked in this fixture, so the date falls back to today.
+        performedOn: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      },
+      expect.any(Object)
+    );
+  });
+
+  // The training date is pinned from the set logs at confirm time, not left to
+  // the server's confirmed_at default — an offline confirm can replay days later.
+  it('confirm sends the date of the earliest logged set, not today', async () => {
+    const user = userEvent.setup();
+    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
+    mockSetLogsData = {
+      data: [
+        { id: 'l-2', logged_at: new Date(2026, 7, 18, 19, 30).toISOString() },
+        { id: 'l-1', logged_at: new Date(2026, 7, 18, 18, 0).toISOString() },
+      ],
+      isLoading: false,
+    };
+    renderSessionView();
+
+    await user.click(screen.getByRole('button', { name: /^confirm session$/i }));
+    await user.click(screen.getByRole('button', { name: /^confirm$/i }));
+
+    expect(mockConfirm.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ performedOn: '2026-08-18' }),
       expect.any(Object)
     );
   });

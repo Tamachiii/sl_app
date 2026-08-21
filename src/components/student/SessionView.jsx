@@ -18,7 +18,7 @@ import Spinner from '../ui/Spinner';
 import Dialog from '../ui/Dialog';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import { groupSlotsBySuperset } from '../../lib/volume';
-import { DAY_FULL } from '../../lib/day';
+import { DAY_FULL, performedOnFromLogs } from '../../lib/day';
 import SlotGroupCard from './SlotGroupCard';
 import RestTimerBanner from './RestTimerBanner';
 import { useRestTimerEffects } from '../../hooks/useRestTimerEffects';
@@ -215,7 +215,11 @@ export default function SessionView() {
   const isReadOnly = isPastProgram || isArchived;
 
   function handleConfirm() {
-    confirmSession.mutate({ sessionId, notes: notes.trim() || null }, {
+    // Pin the training date HERE, from the set logs, rather than letting the
+    // server's confirmed_at default stand in for it: a confirm queued offline
+    // replays whenever connectivity returns, which can be days later.
+    const performedOn = performedOnFromLogs(logs);
+    confirmSession.mutate({ sessionId, notes: notes.trim() || null, performedOn }, {
       onSuccess: () => {
         setNotes('');
         setConfirmDialogOpen(false);

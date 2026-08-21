@@ -42,7 +42,7 @@ export function useAllConfirmations() {
       const { data, error } = await supabase
         .from('session_confirmations')
         .select(`
-          id, session_id, student_id, confirmed_at, notes,
+          id, session_id, student_id, confirmed_at, performed_on, notes,
           session:sessions!inner(
             title, day_number, archived_at, reviewed_at,
             week:weeks!inner(
@@ -72,6 +72,10 @@ export function useAllConfirmations() {
           id: c.id,
           session_id: c.session_id,
           confirmed_at: c.confirmed_at,
+          // The day the athlete actually trained. Falls back to the
+          // confirmation timestamp for rows written before 2026_08_21 (and for
+          // any client that doesn't send it).
+          performed_on: c.performed_on,
           notes: c.notes,
           session_title: s?.title,
           day_number: s?.day_number,
@@ -188,13 +192,14 @@ export function useConfirmSession() {
   const m = useMutation({
     mutationKey: MUTATION_KEYS.confirmSession,
     mutationFn: MUTATION_FNS.confirmSession,
-    onMutate: async ({ sessionId, studentId: sid, notes }) => {
+    onMutate: async ({ sessionId, studentId: sid, notes, performedOn }) => {
       await qc.cancelQueries({ queryKey: ['session-confirmation', sessionId] });
       const previous = qc.getQueryData(['session-confirmation', sessionId]);
       qc.setQueryData(['session-confirmation', sessionId], {
         session_id: sessionId,
         student_id: sid,
         notes: notes || null,
+        performed_on: performedOn || null,
         confirmed_at: new Date().toISOString(),
       });
       return { previous, sessionId };

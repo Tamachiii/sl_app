@@ -3,6 +3,7 @@ import { useSession } from '../../hooks/useSession';
 import { useProgram } from '../../hooks/useProgram';
 import { useI18n } from '../../hooks/useI18n';
 import { formatSlotPrescription, getSlotTargetWeight } from '../../lib/volume';
+import { performedDate } from '../../lib/day';
 import Spinner from '../ui/Spinner';
 
 /**
@@ -84,6 +85,16 @@ export default function PreviousSessionPanel({ programId, sessionId }) {
     || t('coach.week.sessionN', { n: previous.session.day_number });
   const slots = prevSession?.exercise_slots || [];
 
+  // Prefer the day the athlete actually trained it — that is the reference the
+  // coach is reasoning about ("what did they lift last time"), and it stays
+  // meaningful once sessions stop being pinned to a calendar week. Falls back
+  // to the ordinal week label when the session was never performed, since then
+  // there is no real date to show.
+  const performed = performedDate(previous.session);
+  const reference = performed
+    ? performed.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    : t('coach.week.weekShort', { n: previous.week.week_number });
+
   return (
     <div className="sl-card p-3">
       <button
@@ -94,7 +105,7 @@ export default function PreviousSessionPanel({ programId, sessionId }) {
       >
         <span className="sl-label text-ink-400">{t('coach.prev.label')}</span>
         <span className="sl-mono text-[11px] text-ink-400 truncate min-w-0">
-          {t('coach.week.weekShort', { n: previous.week.week_number })} · {title}
+          {reference} · {title}
         </span>
         <svg
           className={`w-3.5 h-3.5 text-ink-400 shrink-0 ml-auto transition-transform ${open ? 'rotate-90' : ''}`}

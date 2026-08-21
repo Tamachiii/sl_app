@@ -44,6 +44,49 @@ export function addDays(date, n) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + n);
 }
 
+/**
+ * The local calendar date a session was actually trained, derived from its set
+ * logs — the value written to `session_confirmations.performed_on`.
+ *
+ * Uses the EARLIEST `logged_at` (when the student started training), not the
+ * latest: a session that runs past midnight belongs to the day it began, and
+ * the SQL backfill in 2026_08_21_session_performed_on.sql picks `MIN` for the
+ * same reason. Falls back to `now` when nothing was ticked — a student can
+ * confirm a session without logging a single set.
+ *
+ * Two things make this the honest timestamp rather than `confirmed_at`:
+ * `logged_at` is minted client-side at the moment the set is ticked, so it
+ * survives an offline queue intact, and the date is resolved in LOCAL time via
+ * `isoDate` (never `toISOString`, which shifts across timezones).
+ */
+export function performedOnFromLogs(logs, now = new Date()) {
+  let earliest = null;
+  for (const log of logs || []) {
+    if (!log?.logged_at) continue;
+    const t = new Date(log.logged_at);
+    if (Number.isNaN(t.getTime())) continue;
+    if (earliest === null || t < earliest) earliest = t;
+  }
+  return isoDate(earliest || now);
+}
+
+/**
+ * The date to SHOW for a confirmed session: the day it was actually trained
+ * when known, else the moment the confirmation landed. Takes either a
+ * confirmation row (`performed_on` + `confirmed_at`) or a session row
+ * (`performed_at`). Returns a Date, or null when the session was never done.
+ */
+export function performedDate(row) {
+  if (row?.performed_on) {
+    const d = parseISODate(row.performed_on);
+    if (d) return d;
+  }
+  const stamp = row?.performed_at || row?.confirmed_at;
+  if (!stamp) return null;
+  const d = new Date(stamp);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 // Monday of the calendar week containing `date` (weeks run Mon → Sun).
 export function startOfWeekMonday(date) {
   const jsDay = date.getDay();

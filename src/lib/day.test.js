@@ -12,6 +12,8 @@ import {
   deriveWeekStats,
   nextFreeDayNumber,
   compareSessions,
+  performedOnFromLogs,
+  performedDate,
 } from './day';
 
 describe('day.js', () => {
@@ -207,6 +209,68 @@ describe('day.js', () => {
         adherence: null,
         firstMissedDay: null,
       });
+    });
+  });
+
+  // The training date must come from the set logs (minted when the student
+  // ticked the set), never from when the confirmation happened to reach the
+  // server — that is the whole reason performed_on exists.
+  describe('performedOnFromLogs', () => {
+    it('takes the EARLIEST logged set: a session that runs past midnight belongs to the day it began', () => {
+      const logs = [
+        { logged_at: '2026-08-19T23:40:00Z' },
+        { logged_at: '2026-08-19T22:10:00Z' },
+        { logged_at: '2026-08-20T00:20:00Z' },
+      ];
+      // Local-time date of the earliest stamp.
+      expect(performedOnFromLogs(logs)).toBe(isoDate(new Date('2026-08-19T22:10:00Z')));
+    });
+
+    it('ignores unticked and malformed logs', () => {
+      const logs = [
+        { logged_at: null },
+        { logged_at: 'not-a-date' },
+        { logged_at: '2026-08-18T09:00:00Z' },
+      ];
+      expect(performedOnFromLogs(logs)).toBe(isoDate(new Date('2026-08-18T09:00:00Z')));
+    });
+
+    it('falls back to now when nothing was ticked — a student can confirm without logging a set', () => {
+      vi.setSystemTime(new Date('2026-08-21T10:00:00Z'));
+      expect(performedOnFromLogs([])).toBe(isoDate(new Date()));
+      expect(performedOnFromLogs(null)).toBe(isoDate(new Date()));
+    });
+
+    it('resolves in LOCAL time, so it never lands a day off like toISOString would', () => {
+      // 23:30 local on the 19th — the UTC date may already be the 20th.
+      const localLate = new Date(2026, 7, 19, 23, 30);
+      expect(performedOnFromLogs([{ logged_at: localLate.toISOString() }])).toBe('2026-08-19');
+    });
+  });
+
+  describe('performedDate', () => {
+    it('prefers a confirmation performed_on over its confirmed_at', () => {
+      const d = performedDate({
+        performed_on: '2026-08-18',
+        confirmed_at: '2026-08-21T09:00:00Z',
+      });
+      expect(isoDate(d)).toBe('2026-08-18');
+    });
+
+    it('falls back to confirmed_at for rows written before performed_on existed', () => {
+      const d = performedDate({ confirmed_at: '2026-08-21T09:00:00Z' });
+      expect(d.getTime()).toBe(new Date('2026-08-21T09:00:00Z').getTime());
+    });
+
+    it('reads performed_at off a session row', () => {
+      const d = performedDate({ performed_at: '2026-08-20T18:00:00Z' });
+      expect(d.getTime()).toBe(new Date('2026-08-20T18:00:00Z').getTime());
+    });
+
+    it('returns null when the session was never performed', () => {
+      expect(performedDate(null)).toBeNull();
+      expect(performedDate({})).toBeNull();
+      expect(performedDate({ performed_at: null, confirmed_at: null })).toBeNull();
     });
   });
 });

@@ -6,6 +6,7 @@ import UserMenu from '../ui/UserMenu';
 import { useAllConfirmations } from '../../hooks/useSessionConfirmation';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
+import { performedDate } from '../../lib/day';
 
 const LAST_COACH_SESSION_KEY = 'sl_last_coach_session';
 const LAST_SESSIONS_STUDENT_KEY = 'sl_last_coach_sessions_student';
@@ -143,7 +144,7 @@ export default function SessionsFeed() {
               </span>
             )}
             <span className="sl-mono text-[11px] text-ink-400">
-              {new Date(c.confirmed_at).toLocaleDateString()}
+              {(performedDate(c) || new Date(c.confirmed_at)).toLocaleDateString()}
             </span>
           </div>
         </div>
