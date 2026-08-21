@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
 
 let mockConfirmations = { data: [], isLoading: false };
 
@@ -168,5 +168,53 @@ describe('SessionsFeed', () => {
     expect(reviewedCard).toContainElement(pills[0]);
     const unreviewedCard = screen.getByText('Pushed').closest('a');
     expect(unreviewedCard).not.toContainElement(pills[0]);
+  });
+
+  // The restore half of the Sessions-tab persistence. SessionReview saves the
+  // open review and its own tests cover that write; this feed is what bounces
+  // the coach back into it on return, and that redirect had no coverage — a
+  // break here would have looked exactly like "persistence stopped working".
+  describe('restoring the last-open review', () => {
+    const KEY = 'sl_last_coach_session';
+
+    function ReviewStub() {
+      const { studentId, sessionId } = useParams();
+      return <div data-testid="review">{studentId}/{sessionId}</div>;
+    }
+
+    function renderWithReviewRoute(entries = ['/coach/sessions']) {
+      return render(
+        <MemoryRouter initialEntries={entries}>
+          <Routes>
+            <Route path="/coach/sessions" element={<SessionsFeed />} />
+            <Route
+              path="/coach/student/:studentId/session/:sessionId/review"
+              element={<ReviewStub />}
+            />
+          </Routes>
+        </MemoryRouter>,
+      );
+    }
+
+    it('bounces into the saved review on mount', () => {
+      localStorage.setItem(KEY, JSON.stringify({ studentId: 's-1', sessionId: 'sess-1' }));
+      renderWithReviewRoute();
+      expect(screen.getByTestId('review')).toHaveTextContent('s-1/sess-1');
+    });
+
+    it('stays on the feed when nothing was saved', () => {
+      renderWithReviewRoute();
+      expect(screen.queryByTestId('review')).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['malformed JSON', '{ not json'],
+      ['a missing sessionId', JSON.stringify({ studentId: 's-1' })],
+      ['a missing studentId', JSON.stringify({ sessionId: 'sess-1' })],
+    ])('stays on the feed on %s', (_label, raw) => {
+      localStorage.setItem(KEY, raw);
+      renderWithReviewRoute();
+      expect(screen.queryByTestId('review')).not.toBeInTheDocument();
+    });
   });
 });
