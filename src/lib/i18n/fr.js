@@ -75,6 +75,7 @@ const fr = {
       kicker: 'Entraînement',
       recommendedDay: 'Conseillé {day}',
       doneHeading: 'Fait',
+      nextBadge: 'Suivante',
       sessionsOne: '{n} séance',
       sessionsMany: '{n} séances',
       lastTrained: 'Dernier entraînement {when}',

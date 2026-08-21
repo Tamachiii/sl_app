@@ -30,6 +30,7 @@ export default function SessionCard({
   onToggle,
   collapsible = true,
   locked = false,
+  badge,
 }) {
   const { t } = useI18n();
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
@@ -72,7 +73,12 @@ export default function SessionCard({
     // `locked` = a session from a past block: read-only in the UI and under
     // RLS. Without this it fell through to the "start" LABEL below, which put
     // a dead start affordance on work the student can no longer log.
-  } else if (collapsible && !isStartable && !locked) {
+    //
+    // `!open` makes the code finally match the comment above `isStartable`: an
+    // expanded card hands the job to the bottom CTA, so a second "start" in
+    // the header is pure duplication. It only became visible once the next-up
+    // card started life expanded AND collapsible.
+  } else if (collapsible && !isStartable && !locked && !open) {
     statusPill = (
       <span
         className="sl-pill"
@@ -116,8 +122,24 @@ export default function SessionCard({
     </span>
   ) : null;
 
+  // Marks WHICH session is next once the card can collapse and stops being the
+  // only expanded thing on screen — the accent rail alone is easy to lose when
+  // scrolling a list of otherwise identical rows.
+  const badgePill = badge ? (
+    <span
+      className="sl-pill"
+      style={{
+        background: 'color-mix(in srgb, var(--color-accent) 18%, transparent)',
+        color: 'var(--color-accent)',
+      }}
+    >
+      {badge}
+    </span>
+  ) : null;
+
   const trailingBlock = (
     <div className="flex items-center gap-2 shrink-0">
+      {badgePill}
       {feedbackPill}
       {statusPill}
       {collapsible && (

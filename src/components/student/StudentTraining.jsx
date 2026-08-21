@@ -176,7 +176,11 @@ export default function StudentTraining() {
   const { data: feedbackIds = new Set() } = useMyFeedbackSessionIds();
 
   const [showArchived, setShowArchived] = useState(false);
-  const [openSessionId, setOpenSessionId] = useState(null);
+  // `undefined` = the student hasn't chosen yet, so the next session opens by
+  // default; `null` = they deliberately collapsed it. The distinction matters
+  // because the next session's id isn't known until the query resolves, so a
+  // plain initial value can't express "whatever turns out to be next".
+  const [openSessionId, setOpenSessionId] = useState(undefined);
 
   const activeWeeks = useMemo(
     () => (weeks || []).filter((w) => w.program?.is_active),
@@ -263,6 +267,7 @@ export default function StudentTraining() {
 
   const next = upcoming[0] ?? null;
   const later = upcoming.slice(1);
+  const openId = openSessionId === undefined ? next?.id ?? null : openSessionId;
 
   // `readOnly` covers sessions from a past block: locked for logging both in
   // the UI and by RLS. It must NOT block navigation — opening a finished
@@ -275,8 +280,11 @@ export default function StudentTraining() {
     hasFeedback: feedbackIds.has(session.id),
     locked: readOnly,
     onStart: () => navigate(`/student/session/${session.id}`),
-    open: openSessionId === session.id,
-    onToggle: () => setOpenSessionId((id) => (id === session.id ? null : session.id)),
+    // Compared against the EFFECTIVE open id, not the raw state: while that is
+    // still `undefined` the next card is visually open, and toggling it has to
+    // close it rather than re-open what is already open.
+    open: openId === session.id,
+    onToggle: () => setOpenSessionId(openId === session.id ? null : session.id),
   });
 
   return (
@@ -307,9 +315,14 @@ export default function StudentTraining() {
                 className="absolute top-0 left-0 bottom-0 w-1 z-10"
                 style={{ background: 'var(--color-accent)' }}
               />
+              {/* Collapsible like every other card: once the student opens
+                  another one this shrinks out of the way instead of holding a
+                  screenful for a session that is no longer the subject. The
+                  NEXT badge carries the meaning the permanent expansion used
+                  to. */}
               <SessionCard
                 {...cardProps(next)}
-                collapsible={false}
+                badge={t('student.training.nextBadge')}
                 subtitle={upcomingSubtitle(next, lang, t)}
               />
             </div>

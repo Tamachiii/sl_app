@@ -26,14 +26,31 @@ describe('SessionCard', () => {
     expect(screen.getByText(/1\s+EX/)).toBeInTheDocument();
   });
 
-  it('shows the Start pill and fires onStart when not confirmed', async () => {
+  it('fires onStart from the bottom CTA when not confirmed', async () => {
     const onStart = vi.fn();
     render(<SessionCard session={baseSession} onStart={onStart} defaultOpen />);
-    // sl-pill uses raw "start" text; CSS uppercases visually.
-    expect(screen.getByText('start')).toBeInTheDocument();
     const startButton = screen.getByRole('button', { name: /Start session/i });
     await userEvent.click(startButton);
     expect(onStart).toHaveBeenCalledTimes(1);
+  });
+
+  // An expanded card hands the job to the bottom CTA, so repeating "start" in
+  // the header is duplication — which only became visible once the next-up
+  // card started life expanded AND collapsible.
+  it('shows the Start pill only while collapsed, never alongside the bottom CTA', async () => {
+    const onStart = vi.fn();
+    render(<SessionCard session={baseSession} onStart={onStart} />);
+    // sl-pill uses raw "start" text; CSS uppercases visually.
+    expect(screen.getByText('start')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText('Lower 1'));
+    expect(screen.queryByText('start')).toBeNull();
+    expect(screen.getByRole('button', { name: /Start session/i })).toBeInTheDocument();
+  });
+
+  it('renders a badge when one is given, so "which is next" survives collapsing', () => {
+    render(<SessionCard session={baseSession} onStart={vi.fn()} badge="Next" />);
+    expect(screen.getByText('Next')).toBeInTheDocument();
   });
 
   // A real caller always passes onStart — the CTA is a navigation, and a

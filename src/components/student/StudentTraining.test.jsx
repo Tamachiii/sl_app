@@ -213,6 +213,66 @@ describe('StudentTraining', () => {
     expect(screen.getByText('Old Pull')).toBeInTheDocument();
   });
 
+  // The next session opens by default because it is what the athlete came for,
+  // but it is a card like any other: opening another one collapses it instead
+  // of leaving a screenful for a session that is no longer the subject.
+  // The next session opens by default because it is what the athlete came for,
+  // but it is a card like any other: opening another one collapses it instead
+  // of leaving a screenful for a session that is no longer the subject.
+  //
+  // "Open" is asserted through the exercise list rather than the Start button:
+  // a collapsed card's Start pill carries the same accessible name as the
+  // expanded card's bottom CTA, so counting buttons proves nothing.
+  describe('the next session is a card, not a fixture', () => {
+    const slot = (id, name) => ({
+      id,
+      sets: 3,
+      reps: 8,
+      weight_kg: 40,
+      exercise: { id: `ex-${id}`, name, type: 'push' },
+    });
+    const twoUpcoming = {
+      data: [
+        week('w-1', 1, [
+          session('a', 'Upper 1', { day_number: 1, exercise_slots: [slot('s1', 'Bench Press')] }),
+          session('b', 'Upper 2', { day_number: 3, exercise_slots: [slot('s2', 'Overhead Press')] }),
+        ]),
+      ],
+      isLoading: false,
+    };
+
+    it('opens by default and marks itself with a Next badge', () => {
+      mockWeeks = twoUpcoming;
+      renderTraining();
+      expect(screen.getByText('Next')).toBeInTheDocument();
+      expect(screen.getByText('Bench Press')).toBeInTheDocument();
+      expect(screen.queryByText('Overhead Press')).toBeNull();
+    });
+
+    it('collapses when another session is opened', async () => {
+      const user = userEvent.setup();
+      mockWeeks = twoUpcoming;
+      renderTraining();
+
+      await user.click(screen.getByText('Upper 2'));
+      expect(screen.getByText('Overhead Press')).toBeInTheDocument();
+      expect(screen.queryByText('Bench Press')).toBeNull();
+      // The badge survives the collapse, so which one is next stays legible
+      // among otherwise identical rows.
+      expect(screen.getByText('Next')).toBeInTheDocument();
+    });
+
+    it('can be collapsed on its own and stays collapsed', async () => {
+      const user = userEvent.setup();
+      mockWeeks = twoUpcoming;
+      renderTraining();
+
+      await user.click(screen.getByText('Upper 1'));
+      expect(screen.queryByText('Bench Press')).toBeNull();
+      expect(screen.queryByText('Overhead Press')).toBeNull();
+    });
+  });
+
   it('celebrates a finished block instead of showing an empty next slot', () => {
     mockWeeks = {
       data: [week('w-1', 1, [session('a', 'Upper 1', { performed_at: '2026-08-18T18:00:00Z' })])],

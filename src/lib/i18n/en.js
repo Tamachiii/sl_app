@@ -75,6 +75,7 @@ const en = {
       kicker: 'Training',
       recommendedDay: 'Recommended {day}',
       doneHeading: 'Done',
+      nextBadge: 'Next',
       sessionsOne: '{n} session',
       sessionsMany: '{n} sessions',
       lastTrained: 'Last trained {when}',
