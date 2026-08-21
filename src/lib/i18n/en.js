@@ -381,8 +381,10 @@ const en = {
       reorderHint: 'Drag the handles to reorder.',
       weekMeta: '{s} sessions · {e} ex',
       noWeeks: 'No weeks yet — add the first one below.',
+      noSessionsYet: 'Empty block — add the first session below.',
       setDay: 'Day: {day}',
       clearDay: 'No recommended day',
+      duplicateSession: 'Duplicate session',
     },
     week: {
       weekShort: 'W{n}',

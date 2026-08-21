@@ -380,8 +380,10 @@ const de = {
       reorderHint: 'Ziehe die Griffe zum Neuanordnen.',
       weekMeta: '{s} Einheiten · {e} Üb.',
       noWeeks: 'Noch keine Wochen — füge unten die erste hinzu.',
+      noSessionsYet: 'Leerer Block — füge unten die erste Einheit hinzu.',
       setDay: 'Tag: {day}',
       clearDay: 'Kein empfohlener Tag',
+      duplicateSession: 'Einheit duplizieren',
     },
     week: {
       weekShort: 'W{n}',

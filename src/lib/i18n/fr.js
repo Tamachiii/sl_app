@@ -380,8 +380,10 @@ const fr = {
       reorderHint: 'Fais glisser les poignées pour réorganiser.',
       weekMeta: '{s} séances · {e} ex',
       noWeeks: 'Aucune semaine — ajoute la première ci-dessous.',
+      noSessionsYet: 'Bloc vide — ajoute la première séance ci-dessous.',
       setDay: 'Jour : {day}',
       clearDay: 'Aucun jour conseillé',
+      duplicateSession: 'Dupliquer la séance',
     },
     week: {
       weekShort: 'S{n}',

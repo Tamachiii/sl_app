@@ -25,7 +25,7 @@ import {
   useCreateSession,
   useUpdateSession,
 } from '../../hooks/useWeek';
-import { useDuplicateWeek } from '../../hooks/useDuplicate';
+import { useDuplicateWeek, useDuplicateSession } from '../../hooks/useDuplicate';
 import { useProgramConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 import { useI18n } from '../../hooks/useI18n';
 import { DAY_FULL, DAY_LABELS, compareSessions } from '../../lib/day';
@@ -158,7 +158,11 @@ function DayPill({ session, onPick, t }) {
 // main authoring surface is both visual noise and a mis-tap waiting to happen
 // on a phone. Deleting a session lives in the session editor, where the coach
 // has already committed to that one session.
-function SessionRow({ session, studentId, confirmed, position, onSetDay, t }) {
+//
+// Duplicate is a different matter and does belong here: building a block is a
+// run of near-identical sessions, and doing it from the editor costs two
+// navigations per copy. It is non-destructive, so a mis-tap is cheap.
+function SessionRow({ session, studentId, confirmed, position, onSetDay, onDuplicate, duplicating, t }) {
   const navigate = useNavigate();
   const exCount = (session.exercise_slots || []).length;
 
@@ -192,6 +196,19 @@ function SessionRow({ session, studentId, confirmed, position, onSetDay, t }) {
           </svg>
         </span>
       )}
+      <button
+        type="button"
+        onClick={onDuplicate}
+        disabled={duplicating}
+        aria-label={t('coach.sheet.duplicateSession')}
+        title={t('coach.sheet.duplicateSession')}
+        className="w-7 h-7 rounded-lg text-ink-400 hover:bg-ink-100 hover:text-ink-700 flex items-center justify-center transition-colors shrink-0 disabled:opacity-40"
+      >
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="9" y="9" width="11" height="11" rx="2" strokeWidth={2} />
+          <path strokeWidth={2} strokeLinecap="round" d="M5 15V5a2 2 0 0 1 2-2h10" />
+        </svg>
+      </button>
     </div>
   );
 }
@@ -251,14 +268,20 @@ function WeekMenu({ onDuplicate, onCopy, onDelete, onReorder, canReorder, t }) {
   );
 }
 
+// `flat` = this program has exactly one week, so the week is not a unit the
+// coach is thinking in — the block is simply an ordered list of sessions. The
+// card then drops its week chrome (number, label, collapse, week menu) and
+// renders the sessions directly. Adding a second week brings all of it back,
+// so a coach who programs in microcycles loses nothing.
 function WeekCard({
-  week, studentId, expanded, onToggle, confirmedIds, reordering, canReorder, onReorder, t,
+  week, studentId, expanded, onToggle, confirmedIds, reordering, canReorder, onReorder, flat, t,
 }) {
   const updateWeek = useUpdateWeek();
   const updateSession = useUpdateSession();
   const createSession = useCreateSession();
   const deleteWeek = useDeleteWeek();
   const duplicateWeek = useDuplicateWeek();
+  const duplicateSession = useDuplicateSession();
   const [showCopy, setShowCopy] = useState(false);
   const [confirmDeleteWeek, setConfirmDeleteWeek] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
@@ -295,6 +318,26 @@ function WeekCard({
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
       className="sl-card overflow-hidden"
     >
+      {/* Flat mode: one quiet header carrying the block's size and the only
+          week action that still means something for a single week — copying
+          the whole thing to another athlete. No number, no collapse, no
+          delete: trashing the block is the program's own affordance. */}
+      {flat && (
+        <div className="flex items-center gap-2 px-3 py-2.5">
+          <span className="sl-mono text-[10px] text-ink-400 flex-1">
+            {t('coach.sheet.weekMeta', { s: sessions.length, e: exTotal })}
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowCopy(true)}
+            className="sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)] transition-colors shrink-0"
+          >
+            {t('coach.week.copyTo')}
+          </button>
+        </div>
+      )}
+
+      {!flat && (
       <div
         className="flex items-center gap-2 px-3 py-2.5"
         style={expanded ? { borderLeft: '3px solid var(--color-accent)' } : undefined}
@@ -381,8 +424,9 @@ function WeekCard({
           />
         )}
       </div>
+      )}
 
-      {expanded && !reordering && (
+      {(flat || expanded) && !reordering && (
         <>
           {sessions.length === 0 && (
             <p className="sl-mono text-[11px] text-ink-400 px-3 py-3 border-t border-ink-100">
@@ -398,6 +442,8 @@ function WeekCard({
               confirmed={confirmedIds?.has(s.id)}
               position={i + 1}
               onSetDay={(day) => updateSession.mutate({ id: s.id, day_number: day })}
+              onDuplicate={() => duplicateSession.mutate({ sessionId: s.id })}
+              duplicating={duplicateSession.isPending}
               t={t}
             />
           ))}
@@ -482,10 +528,16 @@ function WeekCard({
 export default function ProgramSheet({ studentId, program }) {
   const { t } = useI18n();
   const createWeek = useCreateWeek();
+  const createSession = useCreateSession();
   const reorderWeeks = useReorderWeeks();
   const { data: confirmedIds } = useProgramConfirmedSessionIds(program.id);
 
   const weeks = useMemo(() => program.weeks || [], [program.weeks]);
+  // A block with one week isn't organised in weeks at all — it is a plain
+  // ordered list of sessions, which is how most athletes are actually coached.
+  // Render it that way and keep the week machinery for coaches who do program
+  // in microcycles; adding a second week restores it in full.
+  const flat = weeks.length === 1;
   // Seeded from the remembered choice so returning from a session editor lands
   // on the same week. `null` = never chosen → fall back to the active week.
   const [openWeekId, setOpenWeekId] = useState(() => readOpenWeek(program.id));
@@ -521,6 +573,25 @@ export default function ProgramSheet({ studentId, program }) {
     createWeek.mutate({ programId: program.id, weekNumber: nextNum });
   }
 
+  // An empty block asks for a SESSION, not a week: the week is a grouping the
+  // coach may never want, so it gets created implicitly and stays invisible
+  // until they add a second one. Chained rather than fired together because
+  // the session needs the new week's id.
+  function handleAddFirstSession() {
+    createWeek.mutate(
+      { programId: program.id, weekNumber: 1 },
+      {
+        onSuccess: (week) =>
+          createSession.mutate({
+            weekId: week.id,
+            title: t('coach.week.sessionN', { n: 1 }),
+            dayNumber: null,
+            sortOrder: 0,
+          }),
+      },
+    );
+  }
+
   function handleDragEnd({ active, over }) {
     if (!over || active.id === over.id) return;
     const oldIdx = weeks.findIndex((w) => w.id === active.id);
@@ -553,7 +624,19 @@ export default function ProgramSheet({ studentId, program }) {
         </div>
       )}
 
-      {weeks.length === 0 && <EmptyState message={t('coach.sheet.noWeeks')} />}
+      {weeks.length === 0 && (
+        <>
+          <EmptyState message={t('coach.sheet.noSessionsYet')} />
+          <button
+            type="button"
+            onClick={handleAddFirstSession}
+            disabled={createWeek.isPending || createSession.isPending}
+            className="w-full border border-dashed border-ink-200 text-ink-400 rounded-xl py-3 sl-mono text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
+          >
+            {t('coach.week.addSession')}
+          </button>
+        </>
+      )}
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={weeks.map((w) => w.id)} strategy={verticalListSortingStrategy}>
@@ -569,6 +652,7 @@ export default function ProgramSheet({ studentId, program }) {
                 onReorder={() => setReordering(true)}
                 confirmedIds={confirmedIds}
                 reordering={reordering}
+                flat={flat}
                 t={t}
               />
             ))}
@@ -576,14 +660,23 @@ export default function ProgramSheet({ studentId, program }) {
         </SortableContext>
       </DndContext>
 
+      {/* In flat mode this is how a coach opts INTO microcycles, so it stays
+          reachable but stops being a headline action next to "+ Session".
+          An empty block hides it entirely — its CTA already makes the week. */}
+      {weeks.length > 0 && (
       <button
         type="button"
         onClick={handleAddWeek}
         disabled={createWeek.isPending}
-        className="w-full border border-dashed border-ink-200 text-ink-400 rounded-xl py-3 sl-mono text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
+        className={
+          flat
+            ? 'w-full text-ink-400 py-2 sl-mono text-[11px] hover:text-[var(--color-accent)] transition-colors'
+            : 'w-full border border-dashed border-ink-200 text-ink-400 rounded-xl py-3 sl-mono text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors'
+        }
       >
         {t('coach.week.addWeek')}
       </button>
+      )}
     </div>
   );
 }

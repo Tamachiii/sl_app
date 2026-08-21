@@ -17,6 +17,7 @@ const mockDeleteWeek = { mutate: vi.fn(), isPending: false };
 const mockUpdateWeek = { mutate: vi.fn(), isPending: false };
 const mockReorderWeeks = { mutate: vi.fn(), isPending: false };
 const mockDuplicateWeek = { mutate: vi.fn(), isPending: false };
+const mockDuplicateSession = { mutate: vi.fn(), isPending: false };
 
 vi.mock('../../hooks/useWeek', () => ({
   useCreateWeek: () => mockCreateWeek,
@@ -30,6 +31,7 @@ vi.mock('../../hooks/useWeek', () => ({
 
 vi.mock('../../hooks/useDuplicate', () => ({
   useDuplicateWeek: () => mockDuplicateWeek,
+  useDuplicateSession: () => mockDuplicateSession,
 }));
 
 let mockConfirmed = { data: new Set() };
@@ -187,7 +189,8 @@ describe('ProgramSheet', () => {
     const user = userEvent.setup();
     renderSheet();
     await user.click(screen.getAllByRole('button', { name: /week options/i })[0]);
-    await user.click(screen.getByRole('button', { name: /duplicate/i }));
+    // Exact name: every session row now offers "Duplicate session" too.
+    await user.click(screen.getByRole('button', { name: 'duplicate' }));
     expect(mockDuplicateWeek.mutate).toHaveBeenCalledWith({ weekId: 'w-1' });
   });
 
@@ -225,11 +228,43 @@ describe('ProgramSheet', () => {
     expect(screen.getByText('Pull')).toBeInTheDocument();
   });
 
-  it('offers no reorder entry when there is only one week to order', async () => {
+  // A one-week block is not organised in weeks at all — it is a plain ordered
+  // list — so the sheet drops the week chrome entirely rather than showing a
+  // "W1" the coach never chose. A second week brings all of it back.
+  describe('single-week block renders flat', () => {
+    const oneWeek = { id: 'prog-1', weeks: [program.weeks[0]] };
+
+    it('hides the week number, collapse and week menu', () => {
+      renderSheet(oneWeek);
+      expect(screen.queryByRole('button', { name: /week options/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /week 1/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /reorder weeks/i })).toBeNull();
+    });
+
+    it('shows the sessions without needing to expand anything', () => {
+      renderSheet(oneWeek);
+      expect(screen.getByText('Pull')).toBeInTheDocument();
+      expect(screen.getByText('Push')).toBeInTheDocument();
+    });
+
+    it('keeps copy-to-athlete reachable — block templating still matters', () => {
+      renderSheet(oneWeek);
+      expect(screen.getByRole('button', { name: /copy to/i })).toBeInTheDocument();
+    });
+
+    it('still offers a way into microcycles', () => {
+      renderSheet(oneWeek);
+      expect(screen.getByRole('button', { name: /\+ week/i })).toBeInTheDocument();
+    });
+  });
+
+  // Building a block is a run of near-identical sessions; doing that from the
+  // editor costs two navigations per copy.
+  it('duplicates a session straight from its row', async () => {
     const user = userEvent.setup();
-    renderSheet({ id: 'prog-1', weeks: [program.weeks[0]] });
-    await user.click(screen.getByRole('button', { name: /week options/i }));
-    expect(screen.queryByRole('button', { name: /reorder weeks/i })).not.toBeInTheDocument();
+    renderSheet();
+    await user.click(screen.getAllByRole('button', { name: /duplicate session/i })[0]);
+    expect(mockDuplicateSession.mutate).toHaveBeenCalledWith({ sessionId: 'sess-1' });
   });
 
   it('keeps destructive session delete off the sheet rows', () => {
@@ -238,9 +273,19 @@ describe('ProgramSheet', () => {
     expect(screen.queryByRole('button', { name: /delete session/i })).not.toBeInTheDocument();
   });
 
-  it('renders an empty state when the program has no weeks', () => {
+  // An empty block asks for a SESSION: the week is a grouping the coach may
+  // never want, so it is created implicitly behind that one CTA.
+  it('offers to add a session, not a week, when the block is empty', async () => {
+    const user = userEvent.setup();
     renderSheet({ id: 'prog-1', weeks: [] });
-    expect(screen.getByText(/no weeks yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/empty block/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /\+ week/i })).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: /add session/i }));
+    expect(mockCreateWeek.mutate).toHaveBeenCalledWith(
+      { programId: 'prog-1', weekNumber: 1 },
+      expect.any(Object),
+    );
   });
 
   it('lets the coach collapse the open week', async () => {
