@@ -32,7 +32,7 @@ export function useStudentProgramDetails(userId, { allPrograms = false } = {}) {
           weeks(
             id, week_number, label,
             sessions(
-              id, title, day_number, sort_order, scheduled_date, archived_at,
+              id, title, day_number, sort_order, scheduled_date, archived_at, performed_at,
               exercise_slots(
                 id, sets, reps, duration_seconds, weight_kg, sort_order,
                 record_video_set_numbers,

@@ -106,12 +106,13 @@ describe('StudentHome', () => {
     expect(screen.getByText(/no program assigned yet/i)).toBeInTheDocument();
   });
 
-  it('shows the training week number in the week strip', () => {
+  // The training week is no longer a thing the student is "in": the block is
+  // an ordered queue and the strip is a record of real days, so naming an
+  // ordinal week beside real dates would only invite the old mental model back.
+  it('does not label the strip with a training week number', () => {
     mockWeeks = { data: sampleWeeks, isLoading: false };
     renderHome();
-    // The greeting no longer repeats the week/day — the strip is the single
-    // place that states which training week is on screen.
-    expect(screen.getByLabelText('Week overview')).toHaveTextContent('Week 1');
+    expect(screen.getByLabelText('Week overview')).not.toHaveTextContent(/Week\s*1/);
   });
 
   it('does not repeat the week, day or a rest-day line in the greeting', () => {
@@ -122,12 +123,52 @@ describe('StudentHome', () => {
     expect(screen.getByText(/Hey,/)).toBeInTheDocument();
   });
 
-  it('shows the weekly adherence line for the current week', () => {
-    mockWeeks = { data: sampleWeeks, isLoading: false };
-    // Two sessions this week (day 1 + day 3), one confirmed.
+  // Adherence measured the student against a calendar the plan no longer
+  // imposes. The greeting now states what they DID, from the real training
+  // dates, and says so honestly when there is nothing to state.
+  it('shows the activity line from real training dates', () => {
+    const twoDaysAgo = new Date();
+    twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+    mockWeeks = {
+      data: [
+        {
+          id: 'w-1',
+          week_number: 1,
+          label: null,
+          sessions: [
+            {
+              id: 'sess-1',
+              title: 'Push Day',
+              day_number: 1,
+              sort_order: 0,
+              archived_at: null,
+              performed_at: twoDaysAgo.toISOString(),
+            },
+            { id: 'sess-2', title: 'Pull Day', day_number: 3, sort_order: 1, archived_at: null },
+          ],
+        },
+      ],
+      isLoading: false,
+    };
     mockConfirmedIds = { data: new Set(['sess-1']) };
     renderHome();
-    expect(screen.getByText('This week: 1/2 sessions done.')).toBeInTheDocument();
+    expect(screen.getByText(/2 days ago/)).toBeInTheDocument();
+    expect(screen.getByText(/1 session in the last 7 days/)).toBeInTheDocument();
+  });
+
+  it('says so plainly when nothing has been trained yet', () => {
+    mockWeeks = { data: sampleWeeks, isLoading: false };
+    renderHome();
+    expect(screen.getByText('No sessions logged yet')).toBeInTheDocument();
+  });
+
+  // "Session 7 of 24" replaces the week number as the sense of place: it is
+  // position in the block, which is exactly what the queue model promises.
+  it('shows the position of the next session in the block', () => {
+    mockWeeks = { data: sampleWeeks, isLoading: false };
+    mockConfirmedIds = { data: new Set(['sess-1']) };
+    renderHome();
+    expect(screen.getByText('Session 2 of 2')).toBeInTheDocument();
   });
 
   it('renders a 7-day strip with 7 cells', () => {
@@ -359,11 +400,13 @@ describe('StudentHome', () => {
       };
       mockConfirmedIds = { data: new Set(['sess-done']) };
       renderHome();
-      // The pending session claims the Thursday cell and stays clickable…
-      const cell = screen.getByLabelText(/Thursday 9 — Todo Bench/);
-      expect(cell).toBeEnabled();
-      expect(screen.queryByLabelText(/Done Squat/)).toBeNull();
-      // …and it is the one offered as the next session.
+      // The strip is a RECORD of days, so Thursday shows the session actually
+      // trained on Thursday — a pending session's recommended weekday can't
+      // overwrite it.
+      expect(screen.getByLabelText(/Thursday 9 — Done Squat/)).toBeInTheDocument();
+      // The guarantee that used to live on the strip cell now lives in the
+      // queue, where it belongs: pending work is never hidden, it is the
+      // headline. (This is what stops a busy calendar from burying it.)
       const section = screen.getByRole('region', { name: /next session/i });
       expect(within(section).getByText('Todo Bench')).toBeInTheDocument();
     });
@@ -405,10 +448,14 @@ describe('StudentHome', () => {
         isLoading: false,
       };
       renderHome();
-      // The strip and the Next card must agree: today's dated session comes
-      // first even though it belongs to a non-active training week.
+      // PROGRAM ORDER decides what is next — a date never jumps the queue.
+      // This is the behaviour change the whole refactor turns on: a
+      // recommended date is advice, so a later-week session dated today does
+      // not push past work the student hasn't done yet. It stays reachable on
+      // the strip, where its real date still places it.
       const section = screen.getByRole('region', { name: /next session/i });
-      expect(within(section).getByText('Today Press')).toBeInTheDocument();
+      expect(within(section).getByText('Later Pull')).toBeInTheDocument();
+      expect(within(section).queryByText('Today Press')).toBeNull();
       expect(screen.getByLabelText(/Thursday 9 — Today Press/)).toBeInTheDocument();
     });
   });

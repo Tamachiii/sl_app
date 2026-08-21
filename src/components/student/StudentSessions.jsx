@@ -67,11 +67,10 @@ export default function StudentSessions() {
     );
   }
 
-  // Determine where the inline archived toggle belongs: on the very first
-  // week heading of the first program group, so it's reachable without
-  // scrolling regardless of expand state.
+  // The archived toggle hangs off the first PROGRAM header. It used to sit on
+  // the first week heading, which no longer exists for unlabelled weeks — and
+  // the program header is a steadier anchor anyway.
   const firstGroupId = programGroups[0]?.program?.id ?? null;
-  const firstWeekId = programGroups[0]?.weeks[0]?.id ?? null;
 
   return (
     <div className="p-4 pb-6 md:p-8 space-y-6">
@@ -108,38 +107,35 @@ export default function StudentSessions() {
                   </div>
                 )}
               </div>
+              {archivedCount > 0 && group.program?.id === firstGroupId && (
+                <ArchivedToggle
+                  count={archivedCount}
+                  expanded={showArchived}
+                  onToggle={() => setShowArchived((v) => !v)}
+                  t={t}
+                />
+              )}
             </header>
 
+            {/* A week is an optional PHASE, not a calendar slot: it earns a
+                heading only when the coach named it ("Deload", "Peak").
+                Unlabelled weeks are pure ordering and the sessions flow
+                straight on, which is what a block reads like once the student
+                works through it at their own pace. */}
             {group.weeks.map((week) => {
-              const showToggleInline =
-                archivedCount > 0 &&
-                group.program?.id === firstGroupId &&
-                week.id === firstWeekId;
+              const phase = (week.label || '').trim();
+              const headingId = `week-${week.id}-heading`;
               return (
                 <section
                   key={week.id}
-                  aria-labelledby={`week-${week.id}-heading`}
+                  aria-labelledby={phase ? headingId : undefined}
                   className="space-y-2.5"
                 >
-                  <div className={showToggleInline ? 'flex items-baseline justify-between gap-3' : undefined}>
-                    <h2
-                      id={`week-${week.id}-heading`}
-                      className="sl-label text-ink-400 flex items-baseline gap-2"
-                    >
-                      <span>{t('student.home.week')} {week.week_number}</span>
-                      {week.label && (
-                        <span className="sl-mono text-[11px] normal-case text-ink-400">· {week.label}</span>
-                      )}
+                  {phase && (
+                    <h2 id={headingId} className="sl-label text-ink-400">
+                      {phase}
                     </h2>
-                    {showToggleInline && (
-                      <ArchivedToggle
-                        count={archivedCount}
-                        expanded={showArchived}
-                        onToggle={() => setShowArchived((v) => !v)}
-                        t={t}
-                      />
-                    )}
-                  </div>
+                  )}
                   <div className="space-y-2">
                     {week.sessions.map((session) => (
                       <SessionCard

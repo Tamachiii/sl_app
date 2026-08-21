@@ -167,9 +167,11 @@ describe('StudentSessions', () => {
     };
     renderSessions();
 
+    // A week heading is now the coach's PHASE LABEL, not "Week N" — the
+    // ordinal is grouping, not a calendar slot the student is measured against.
     const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
-    expect(headings[0]).toMatch(/Week\s*2/i);
-    expect(headings[1]).toMatch(/Week\s*1/i);
+    expect(headings[0]).toBe('Bloc 2/2');
+    expect(headings[1]).toBe('Bloc 1/2');
 
     // Sessions inside each week stay in their original order, and week 2's
     // sessions precede week 1's in the DOM (because week 2 is newer).
