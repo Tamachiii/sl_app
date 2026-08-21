@@ -45,7 +45,14 @@ export default function SessionCard({
   // SessionView directly instead of just expanding the card. Only shown
   // while the card is collapsed; once expanded, the bottom CTA takes over.
   // Done / archived pills stay as labels (no action attached).
-  const isStartable = collapsible && !open && !confirmed && !archived && !!onStart;
+  // `locked` = a past block: the student can't log new work there, but they can
+  // still OPEN a finished session to review what they did (SessionView renders
+  // it read-only). So locked suppresses starting, never navigation.
+  const isStartable = collapsible && !open && !confirmed && !archived && !locked && !!onStart;
+  // Reviewing a finished session survives a lock; starting an unfinished one
+  // does not. Gated on `onStart` too — a primary button with no handler is the
+  // bug this is fixing.
+  const showBottomCta = !archived && !!onStart && (confirmed || !locked);
   let statusPill = null;
   if (confirmed) {
     statusPill = (
@@ -172,7 +179,7 @@ export default function SessionCard({
               ))}
             </div>
           )}
-          {!archived && (
+          {showBottomCta && (
             <div className="px-4 pb-3">
               <button
                 onClick={onStart}

@@ -36,8 +36,10 @@ describe('SessionCard', () => {
     expect(onStart).toHaveBeenCalledTimes(1);
   });
 
+  // A real caller always passes onStart — the CTA is a navigation, and a
+  // primary button without a handler is the inert-button bug this guards.
   it('shows the done pill and the Review CTA when confirmed', () => {
-    render(<SessionCard session={baseSession} confirmed defaultOpen />);
+    render(<SessionCard session={baseSession} confirmed defaultOpen onStart={vi.fn()} />);
     // sl-pill uses raw "done" text; CSS uppercases visually.
     expect(screen.getByText('done')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Review session/i })).toBeInTheDocument();
@@ -73,7 +75,7 @@ describe('SessionCard', () => {
   });
 
   it('open card hides the pill and exposes only the bottom Start CTA', () => {
-    render(<SessionCard session={baseSession} defaultOpen />);
+    render(<SessionCard session={baseSession} defaultOpen onStart={vi.fn()} />);
     const startButtons = screen.getAllByRole('button', { name: /Start session/i });
     expect(startButtons).toHaveLength(1);
   });

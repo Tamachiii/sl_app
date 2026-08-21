@@ -219,16 +219,17 @@ export default function StudentTraining() {
   const next = upcoming[0] ?? null;
   const later = upcoming.slice(1);
 
-  // `readOnly` covers sessions from a past block. Those are locked both in the
-  // UI and by RLS, so offering Start was an affordance that led nowhere — the
-  // card still expands, because browsing what you used to train is the point.
+  // `readOnly` covers sessions from a past block: locked for logging both in
+  // the UI and by RLS. It must NOT block navigation — opening a finished
+  // session to review what you did is the whole point of keeping history on
+  // the page, and SessionView already renders a past block read-only.
   const cardProps = (session, { readOnly = false } = {}) => ({
     session,
     confirmed: confirmedIds.has(session.id),
     archived: !!session.archived_at,
     hasFeedback: feedbackIds.has(session.id),
     locked: readOnly,
-    onStart: readOnly ? undefined : () => navigate(`/student/session/${session.id}`),
+    onStart: () => navigate(`/student/session/${session.id}`),
     open: openSessionId === session.id,
     onToggle: () => setOpenSessionId((id) => (id === session.id ? null : session.id)),
   });

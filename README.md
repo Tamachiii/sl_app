@@ -243,7 +243,7 @@ supabase db query --linked \
 - Tests live alongside components as `*.test.jsx` / `*.test.js`.
 - `src/test/utils.jsx` exports `createTestQueryClient()`. There is no render-with-providers wrapper: `useAuth` keeps its context module-private, so auth in tests is controlled by mocking the hook, not by wrapping in a provider.
 - Mocks: child hooks are stubbed with `vi.mock('../../hooks/useX', () => ({ ... }))` per file.
-- 809 tests across 81 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats, records, last-performance, push self-healing), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations — plus static guardrails (i18n key parity across EN/FR/DE, offline-safety of student mutations, error-key mapping). ESLint (correctness-only) + the suite run in CI on every dev push / PR and gate every deploy from main.
+- 811 tests across 81 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats, records, last-performance, push self-healing), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations — plus static guardrails (i18n key parity across EN/FR/DE, offline-safety of student mutations, error-key mapping). ESLint (correctness-only) + the suite run in CI on every dev push / PR and gate every deploy from main.
 
 Run:
 ```bash

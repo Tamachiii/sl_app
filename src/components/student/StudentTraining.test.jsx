@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
 const mockNavigate = vi.fn();
@@ -240,6 +241,30 @@ describe('StudentTraining', () => {
       expect(screen.getByText(/past program/i)).toBeInTheDocument();
     });
 
+    // A lock stops LOGGING, never LOOKING. Reviewing what you did in an old
+    // block is the reason the history is on the page at all — and the first
+    // cut of `locked` broke exactly this by dropping onStart wholesale, so
+    // "Review session" rendered as an inert button.
+    it('lets a finished past-block session be reviewed', async () => {
+      const user = userEvent.setup();
+      mockWeeks = {
+        data: [
+          week('w-1', 1, [session('now', 'Current Work', { day_number: 1 })]),
+          week('w-0', 1, [
+            session('old', 'Old Squat', { performed_at: '2026-06-01T18:00:00Z' }),
+          ], pastProgram),
+        ],
+        isLoading: false,
+      };
+      mockConfirmedIds = { data: new Set(['old']) };
+      renderTraining();
+
+      await user.click(screen.getByText('Old Squat'));
+      const review = screen.getByRole('button', { name: /review session/i });
+      await user.click(review);
+      expect(mockNavigate).toHaveBeenCalledWith('/student/session/old');
+    });
+
     // Past-block sessions are locked in the UI and by RLS, so a Start button
     // on one led nowhere.
     it('offers no Start affordance on a past block', () => {
@@ -254,6 +279,22 @@ describe('StudentTraining', () => {
       const past = screen.getByText('Bloc 1').closest('section');
       expect(within(past).getByText('Never Finished')).toBeInTheDocument();
       expect(within(past).queryByRole('button', { name: /start/i })).toBeNull();
+    });
+
+    it('offers no Start CTA inside an unfinished past-block session either', async () => {
+      const user = userEvent.setup();
+      mockWeeks = {
+        data: [
+          week('w-1', 1, [session('now', 'Current Work', { day_number: 1 })]),
+          week('w-0', 1, [session('stale', 'Never Finished')], pastProgram),
+        ],
+        isLoading: false,
+      };
+      renderTraining();
+      await user.click(screen.getByText('Never Finished'));
+      // Scoped: the ACTIVE block's next-up card legitimately shows a Start CTA.
+      const past = screen.getByText('Bloc 1').closest('section');
+      expect(within(past).queryByRole('button', { name: /start session/i })).toBeNull();
     });
 
     // A past block's unfinished sessions are history the athlete moved on
