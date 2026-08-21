@@ -108,22 +108,21 @@ function Greeting({ fullName, queue, onSignOut }) {
 }
 
 /**
- * A finished block, collapsed to one row.
+ * A closed drawer of finished work — the active block's completed sessions, or
+ * a whole past block.
  *
  * History is something the athlete goes looking for, never something the
- * landing page should spend its height on: a year of coaching is hundreds of
- * cards, and every one of them sits between the athlete and the only question
- * this page exists to answer. Collapsed blocks are NOT rendered (no CSS hide),
- * so the cost is a single row regardless of how long the history gets.
+ * landing page should spend its height on: a month-long block is ~20 cards and
+ * a year of coaching is hundreds, every one of them standing between the
+ * athlete and the only question this page exists to answer. `renderBody` is a
+ * function, not children, so a closed drawer builds NOTHING — the cost stays a
+ * single row however long the history gets.
  *
- * Open state is deliberately not persisted — you open a block to look one
+ * Open state is deliberately not persisted: you open a drawer to look one
  * thing up, and coming back to a clean page next visit is the right default.
  */
-function PastBlock({ group, renderCard, t }) {
+function Drawer({ headingId, title, meta, renderBody }) {
   const [open, setOpen] = useState(false);
-  const count = group.sessions.length;
-  const headingId = `program-${group.program?.id ?? 'none'}-heading`;
-
   return (
     <section aria-labelledby={headingId} className="space-y-2">
       <button
@@ -134,15 +133,9 @@ function PastBlock({ group, renderCard, t }) {
       >
         <div className="min-w-0 flex-1">
           <div id={headingId} className="sl-label text-gray-900 truncate">
-            {group.program?.name || ''}
+            {title}
           </div>
-          <div className="sl-mono text-[10px] text-ink-400 mt-0.5">
-            {t('student.sessions.pastProgram')}
-            {' · '}
-            {t(count === 1 ? 'student.training.sessionsOne' : 'student.training.sessionsMany', {
-              n: count,
-            })}
-          </div>
+          {meta && <div className="sl-mono text-[10px] text-ink-400 mt-0.5">{meta}</div>}
         </div>
         <svg
           className={`w-4 h-4 text-ink-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
@@ -154,7 +147,7 @@ function PastBlock({ group, renderCard, t }) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
-      {open && <div className="space-y-2">{group.sessions.map(renderCard)}</div>}
+      {open && <div className="space-y-2">{renderBody()}</div>}
     </section>
   );
 }
@@ -332,46 +325,56 @@ export default function StudentTraining() {
             </div>
           )}
 
-          {done.length > 0 && (
-            <>
-              <div className="flex items-baseline justify-between gap-3 pt-2">
-                <h2 className="sl-label text-ink-400">{t('student.training.doneHeading')}</h2>
-                {archivedCount > 0 && (
-                  <ArchivedToggle
-                    count={archivedCount}
-                    expanded={showArchived}
-                    onToggle={() => setShowArchived((v) => !v)}
-                    t={t}
-                  />
-                )}
-              </div>
-              <div className="space-y-2">
-                {done.map((s) => (
-                  <SessionCard key={s.id} {...cardProps(s)} subtitle={formatDoneDate(s, lang)} />
-                ))}
-              </div>
-            </>
-          )}
         </section>
       )}
 
-      {pastPrograms.map((group) => (
-        <PastBlock
-          key={group.program?.id ?? 'no-program'}
-          group={group}
-          t={t}
-          renderCard={(s) => (
-            <SessionCard
-              key={s.id}
-              {...cardProps(s, { readOnly: true })}
-              subtitle={formatDoneDate(s, lang)}
-            />
+      {/* Everything already trained lives in a drawer — the active block's own
+          finished sessions first, then each past block. A month-long block
+          reaches ~20 completed cards, so the active block needs the same
+          treatment as the history; the queue position in the header above
+          already states progress without listing it. */}
+      {done.length > 0 && (
+        <Drawer
+          headingId="done-heading"
+          title={t('student.training.doneHeading')}
+          meta={t(
+            done.length === 1 ? 'student.training.sessionsOne' : 'student.training.sessionsMany',
+            { n: done.length }
           )}
+          renderBody={() =>
+            done.map((s) => (
+              <SessionCard key={s.id} {...cardProps(s)} subtitle={formatDoneDate(s, lang)} />
+            ))
+          }
+        />
+      )}
+
+      {pastPrograms.map((group) => (
+        <Drawer
+          key={group.program?.id ?? 'no-program'}
+          headingId={`program-${group.program?.id ?? 'none'}-heading`}
+          title={group.program?.name || ''}
+          meta={`${t('student.sessions.pastProgram')} · ${t(
+            group.sessions.length === 1
+              ? 'student.training.sessionsOne'
+              : 'student.training.sessionsMany',
+            { n: group.sessions.length }
+          )}`}
+          renderBody={() =>
+            group.sessions.map((s) => (
+              <SessionCard
+                key={s.id}
+                {...cardProps(s, { readOnly: true })}
+                subtitle={formatDoneDate(s, lang)}
+              />
+            ))
+          }
         />
       ))}
 
-      {/* Nothing on screen can host the toggle when every session is archived. */}
-      {archivedCount > 0 && done.length === 0 && (
+      {/* One quiet footer link rather than a control tucked inside a drawer the
+          student would have to open first. Archived work is a rare lookup. */}
+      {archivedCount > 0 && (
         <div className="flex justify-end">
           <ArchivedToggle
             count={archivedCount}

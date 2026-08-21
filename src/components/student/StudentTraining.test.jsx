@@ -117,7 +117,8 @@ describe('StudentTraining', () => {
   // The defect that prompted the merge: finished sessions were ordered by
   // RECOMMENDED weekday, so one trained on the 18th sat above one trained on
   // the 21st. A log has exactly one honest order — when it happened.
-  it('orders finished sessions by the day they were really trained, newest first', () => {
+  it('orders finished sessions by the day they were really trained, newest first', async () => {
+    const user = userEvent.setup();
     mockWeeks = {
       data: [
         week('w-1', 1, [
@@ -131,12 +132,14 @@ describe('StudentTraining', () => {
     };
     mockConfirmedIds = { data: new Set(['upper1', 'wrist']) };
     renderTraining();
+    await user.click(screen.getByText('Done'));
 
     const titles = screen.getAllByText(/^(Upper 1|Wrist Routine)$/).map((n) => n.textContent);
     expect(titles).toEqual(['Wrist Routine', 'Upper 1']);
   });
 
-  it('shows each finished session on the date it was actually trained', () => {
+  it('shows each finished session on the date it was actually trained', async () => {
+    const user = userEvent.setup();
     mockWeeks = {
       data: [
         week('w-1', 1, [
@@ -150,6 +153,7 @@ describe('StudentTraining', () => {
     };
     mockConfirmedIds = { data: new Set(['wrist']) };
     renderTraining();
+    await user.click(screen.getByText('Done'));
     expect(screen.getByText(/Fri, Aug 21/)).toBeInTheDocument();
   });
 
@@ -176,6 +180,37 @@ describe('StudentTraining', () => {
     renderTraining();
     const titles = screen.getAllByText(/^(Upper 1|Leg|Upper 2)$/).map((n) => n.textContent);
     expect(titles).toEqual(['Upper 1', 'Leg', 'Upper 2']);
+  });
+
+  // A month-long block reaches ~20 completed cards, so the active block's own
+  // history needs the same drawer as the past ones. The queue position in the
+  // header already states progress without listing it.
+  it('collapses the active block finished sessions into a drawer', async () => {
+    const user = userEvent.setup();
+    mockWeeks = {
+      data: [
+        week('w-1', 1, [
+          session('d1', 'Old Push', { day_number: 1, performed_at: '2026-08-11T18:00:00Z' }),
+          session('d2', 'Old Pull', { day_number: 2, performed_at: '2026-08-13T18:00:00Z' }),
+          session('up', 'Next Up', { day_number: 3 }),
+        ]),
+      ],
+      isLoading: false,
+    };
+    mockConfirmedIds = { data: new Set(['d1', 'd2']) };
+    renderTraining();
+
+    // The drawer says how much is inside without rendering any of it…
+    expect(screen.getByText('Done')).toBeInTheDocument();
+    expect(screen.getByText('2 sessions')).toBeInTheDocument();
+    expect(screen.queryByText('Old Push')).toBeNull();
+    expect(screen.queryByText('Old Pull')).toBeNull();
+    // …while the work still to do stays in plain sight.
+    expect(screen.getByText('Next Up')).toBeInTheDocument();
+
+    await user.click(screen.getByText('Done'));
+    expect(screen.getByText('Old Push')).toBeInTheDocument();
+    expect(screen.getByText('Old Pull')).toBeInTheDocument();
   });
 
   it('celebrates a finished block instead of showing an empty next slot', () => {
