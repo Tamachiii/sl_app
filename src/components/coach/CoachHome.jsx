@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Link, Outlet, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, Outlet, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { useStudents } from '../../hooks/useStudents';
@@ -12,6 +12,12 @@ import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
 import StudentWeekStrip from './StudentWeekStrip';
+import {
+  useRememberCoachStudentsPath,
+  getLastCoachStudentsPath,
+  clearLastCoachStudentsPath,
+  studentIdFromPath,
+} from '../../hooks/useRememberCoachStudentsPath';
 
 function initialsOf(fullName) {
   return (fullName || '')
@@ -195,9 +201,28 @@ export default function CoachHome() {
   const { t, lang } = useI18n();
   const { profile, signOut } = useAuth();
   const { studentId } = useParams();
+  const navigate = useNavigate();
   const { data: students, isLoading } = useStudents();
 
   const selected = (students || []).find((s) => s.id === studentId) || null;
+
+  // Remember the athlete (and the session editor under them) so leaving for
+  // another nav tab and tapping Athletes again comes back here instead of
+  // dumping the coach on the roster. One call covers the editor too: it renders
+  // in this component's Outlet, so useLocation() already sees its URL.
+  useRememberCoachStudentsPath();
+
+  // …and restore it when we land on the bare roster route. Skipped when the
+  // remembered athlete is no longer on the roster, so we never navigate into a
+  // dead URL.
+  useEffect(() => {
+    if (studentId || isLoading) return;
+    const saved = getLastCoachStudentsPath();
+    const savedStudentId = studentIdFromPath(saved);
+    if (!savedStudentId) return;
+    if (!(students || []).some((s) => s.id === savedStudentId)) return;
+    navigate(saved, { replace: true });
+  }, [studentId, isLoading, students, navigate]);
 
   // ONE header, not two. On an athlete the page header *is* the athlete: the
   // back link takes the kicker slot where "COACH" sits and the name takes the
@@ -217,6 +242,10 @@ export default function CoachHome() {
           {selected ? (
             <Link
               to="/coach/students"
+              // The coach's explicit "I want the roster" signal — forget the
+              // remembered path, or the restore effect above would bounce them
+              // straight back into the athlete they just left.
+              onClick={clearLastCoachStudentsPath}
               className="sl-label text-ink-400 hover:text-ink-700 transition-colors block w-fit"
             >
               <span aria-hidden="true">‹ </span>

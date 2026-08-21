@@ -169,8 +169,9 @@ Vite `base` is `/sl_app/` and `vite.config.js` declares manual chunks for `route
 
 ### Coach-section persistence across tab switches
 
-Two flows drive "pick up where you left off" via two localStorage keys:
+Two flows drive "pick up where you left off" via three localStorage keys:
 
+- **`sl_last_coach_students_path`** — full pathname (+ search) of the coach's last Athletes-tab view: the athlete page, or the session editor beneath it. Written by `useRememberCoachStudentsPath()` ([src/hooks/useRememberCoachStudentsPath.jsx](../src/hooks/useRememberCoachStudentsPath.jsx)), called once in `CoachHome` — which is the route element for the athlete page *and* the parent of `s/:sessionId`, so one call covers the editor too. The bare roster path is on a skip-write list and can never become the restore target. Read by `CoachHome`'s restore effect when the route is `/coach/students` with no `:studentId`: it validates the saved athlete is still on the roster, then `navigate(saved, { replace: true })`. **Cleared by the "‹ All athletes" header link** — the coach's explicit "I want the roster" signal. Without that clear the restore effect would bounce them straight back into the athlete they just left, making the roster unreachable from an athlete page.
 - **`sl_last_coach_session`** — `JSON.stringify({ studentId, sessionId })` for the last-open `SessionReview`. Read by `SessionsFeed`'s mount effect (redirects into the saved review). Cleared by the review's back button.
 - **`sl_last_coach_sessions_student`** — the student-id the coach last picked in `SessionsFeed`'s filter dropdown. Written by `handleFilterChange` (removed when the coach picks "All students"). On mount, a dedicated effect copies the saved id back into the `?student=` search param when the URL has none. The filter lives in the URL — localStorage just repopulates it on return to `/coach/sessions`.
 

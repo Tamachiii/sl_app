@@ -264,4 +264,58 @@ describe('CoachHome', () => {
       expect(screen.getByTestId('overview')).toBeInTheDocument();
     });
   });
+
+  // Leaving for Sessions/Messages/Library and tapping Athletes again must come
+  // back to the athlete, not dump the coach on the roster.
+  describe('Athletes-tab persistence', () => {
+    const KEY = 'sl_last_coach_students_path';
+
+    beforeEach(() => {
+      mockStudentsData = {
+        data: [{ id: 's-1', profile_id: 'p-1', created_at: null, profile: { full_name: 'Alice' } }],
+        isLoading: false,
+      };
+    });
+
+    it('remembers the athlete', () => {
+      renderCoachHome('/coach/students/s-1');
+      expect(localStorage.getItem(KEY)).toBe('/coach/students/s-1');
+    });
+
+    it('remembers the session editor under the athlete', () => {
+      renderCoachHome('/coach/students/s-1/s/sess-1');
+      expect(localStorage.getItem(KEY)).toBe('/coach/students/s-1/s/sess-1');
+    });
+
+    it('never remembers the roster itself', () => {
+      renderCoachHome('/coach/students');
+      expect(localStorage.getItem(KEY)).toBeNull();
+    });
+
+    it('restores the athlete when returning to the roster route', () => {
+      localStorage.setItem(KEY, '/coach/students/s-1');
+      renderCoachHome('/coach/students');
+      expect(screen.getByTestId('overview')).toHaveTextContent('overview:s-1');
+    });
+
+    it('restores all the way back into the session editor', () => {
+      localStorage.setItem(KEY, '/coach/students/s-1/s/sess-1');
+      renderCoachHome('/coach/students');
+      expect(screen.getByTestId('session-editor')).toHaveTextContent('session:s-1');
+    });
+
+    it('ignores a remembered athlete who is no longer on the roster', () => {
+      localStorage.setItem(KEY, '/coach/students/gone');
+      renderCoachHome('/coach/students');
+      expect(screen.queryByTestId('overview')).not.toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /open alice/i })).toBeInTheDocument();
+    });
+
+    it('"All athletes" clears the memory so the roster stays put', () => {
+      renderCoachHome('/coach/students/s-1');
+      fireEvent.click(screen.getByRole('link', { name: /all athletes/i }));
+      expect(localStorage.getItem(KEY)).toBeNull();
+      expect(screen.getByRole('link', { name: /open alice/i })).toBeInTheDocument();
+    });
+  });
 });
