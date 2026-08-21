@@ -1,6 +1,11 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { useState } from 'react';
 import { render, screen, act } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  QueryClient,
+  QueryClientProvider,
+  useMutation,
+} from '@tanstack/react-query';
 import OfflineBanner from './OfflineBanner';
 
 const onlineDescriptor = Object.getOwnPropertyDescriptor(
@@ -82,6 +87,53 @@ describe('<OfflineBanner />', () => {
     expect(wrapper).toHaveAttribute('aria-hidden', 'false');
     expect(wrapper).not.toHaveStyle({ maxHeight: '0px' });
     expect(screen.getByTestId('offline-banner')).toHaveTextContent(/Offline/i);
+  });
+
+  it('does not update its own state while a sibling with useMutation renders', () => {
+    // Regression: the banner used to mirror the paused count into useState via
+    // a raw mutationCache.subscribe. React Query notifies that listener
+    // SYNCHRONOUSLY, and useMutation builds its observer during render (the
+    // MutationObserver constructor calls setOptions, which notifies the cache).
+    // Any page mounting a mutation hook under the already-committed banner
+    // therefore tripped React's "Cannot update a component (OfflineBanner)
+    // while rendering a different component (X)" warning. Dev-only today, but
+    // it is the exact pattern concurrent rendering breaks.
+    setOnline(true);
+    const qc = makeClient();
+
+    function Sibling() {
+      useMutation({ mutationKey: ['sibling'], mutationFn: () => Promise.resolve() });
+      return <div data-testid="sibling" />;
+    }
+
+    function Harness() {
+      const [mounted, setMounted] = useState(false);
+      return (
+        <>
+          <OfflineBanner />
+          <button onClick={() => setMounted(true)}>mount</button>
+          {mounted ? <Sibling /> : null}
+        </>
+      );
+    }
+
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const { getByText } = render(<Harness />, { wrapper: withClient(qc) });
+      // The banner is committed first; the sibling mounts afterwards, which is
+      // what makes the cache notification land mid-render.
+      act(() => {
+        getByText('mount').click();
+      });
+      expect(screen.getByTestId('sibling')).toBeInTheDocument();
+
+      const renderPhaseWarnings = spy.mock.calls
+        .map((args) => args.map(String).join(' '))
+        .filter((line) => /while rendering a different component/i.test(line));
+      expect(renderPhaseWarnings).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('reflects the count of paused mutations in the offline notice', async () => {

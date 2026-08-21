@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useIsMutating } from '@tanstack/react-query';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useI18n } from '../../hooks/useI18n';
 
@@ -13,22 +12,21 @@ import { useI18n } from '../../hooks/useI18n';
  * count, so the banner doesn't flash on every set/RPE tap. The container
  * stays mounted with `max-height: 0` while hidden, so its appearance/dismissal
  * animates rather than yanking the layout up and down.
+ *
+ * The paused count is DERIVED, never mirrored into state. `useIsMutating` is a
+ * `useSyncExternalStore` read over the mutation cache, so React owns the
+ * scheduling. The previous `useState` + `mutationCache.subscribe` mirror called
+ * `setState` straight from React Query's *synchronous* notify — and
+ * `useMutation` builds its MutationObserver during render (the constructor
+ * calls `setOptions`, which notifies the cache), so every page with a mutation
+ * hook tripped "Cannot update a component (OfflineBanner) while rendering a
+ * different component". Dev-only warning today, a real hazard under concurrent
+ * rendering. Keep this derived.
  */
 export default function OfflineBanner() {
   const isOnline = useOnlineStatus();
-  const qc = useQueryClient();
   const { t } = useI18n();
-  const [pausedCount, setPausedCount] = useState(0);
-
-  useEffect(() => {
-    const cache = qc.getMutationCache();
-    const recount = () => {
-      const next = cache.getAll().filter((m) => m.state.isPaused).length;
-      setPausedCount(next);
-    };
-    recount();
-    return cache.subscribe(recount);
-  }, [qc]);
+  const pausedCount = useIsMutating({ predicate: (m) => m.state.isPaused });
 
   const visible = !isOnline;
 
