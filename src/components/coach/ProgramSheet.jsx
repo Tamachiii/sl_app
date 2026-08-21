@@ -29,6 +29,7 @@ import { useDuplicateWeek, useDuplicateSession } from '../../hooks/useDuplicate'
 import { useProgramConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 import { useI18n } from '../../hooks/useI18n';
 import { DAY_FULL, DAY_LABELS, compareSessions } from '../../lib/day';
+import { compareQueued } from '../../lib/sessionQueue';
 import EditableText from '../ui/EditableText';
 import CopyDialog from '../ui/CopyDialog';
 import ConfirmDialog from '../ui/ConfirmDialog';
@@ -51,8 +52,13 @@ function currentWeekId(weeks, confirmedIds) {
   return list[list.length - 1]?.id ?? null;
 }
 
+// Sorted with `compareQueued` — the SAME comparator the athlete's queue uses,
+// so the sheet is a preview of the order it is authoring. `compareSessions`
+// alone ranks by weekday, which put a session dated the 13th above one dated
+// the 10th and let the coach's list disagree with what the athlete actually
+// gets next.
 function activeSessions(week) {
-  return (week.sessions || []).filter((s) => !s.archived_at).sort(compareSessions);
+  return (week.sessions || []).filter((s) => !s.archived_at).sort(compareQueued);
 }
 
 // Which week the coach had open, per program. Survives stepping into a session

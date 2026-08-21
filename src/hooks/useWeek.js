@@ -97,8 +97,12 @@ export function useCreateSession() {
         .insert({
           week_id: weekId,
           title: title || 'New Session',
-          day_number: dayNumber || 1,
-          sort_order: sortOrder || 0,
+          // `?? null`, NOT `|| 1`: the weekday is an optional RECOMMENDATION
+          // (nullable since 2026_08_21) and `null || 1` silently made every
+          // session born on Monday, defeating the caller that deliberately
+          // passes null and tying every new session at the same sort rank.
+          day_number: dayNumber ?? null,
+          sort_order: sortOrder ?? 0,
         })
         .select()
         .single();

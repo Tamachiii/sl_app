@@ -44,7 +44,7 @@ export function useProgram(programId) {
           *,
           weeks(
             *,
-            sessions(id, title, day_number, sort_order, archived_at, performed_at, exercise_slots(id))
+            sessions(id, title, day_number, sort_order, scheduled_date, archived_at, performed_at, exercise_slots(id))
           )
         `)
         .eq('id', programId)

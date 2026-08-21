@@ -32,7 +32,13 @@ export function findPreviousSession(program, currentSessionId) {
   if (!prevWeek) return null;
 
   const candidates = (prevWeek.sessions || []).filter((s) => !s.archived_at);
-  const byDay = candidates.find((s) => s.day_number === current.day_number);
+  // Only match on a weekday the current session actually HAS. Since day_number
+  // became nullable, `null === null` made every undated session "the same day"
+  // as every other, so this matched an arbitrary one and showed the coach the
+  // wrong reference.
+  const byDay = current.day_number == null
+    ? undefined
+    : candidates.find((s) => s.day_number === current.day_number);
   const byOrder = candidates.find((s) => (s.sort_order ?? 0) === (current.sort_order ?? 0));
   const match = byDay || byOrder;
   return match ? { week: prevWeek, session: match } : null;

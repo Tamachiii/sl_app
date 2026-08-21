@@ -273,7 +273,10 @@ describe('useCreateSession', () => {
     const payload = mockInsert.insert.mock.calls[0][0];
     expect(payload.week_id).toBe('w-1');
     expect(payload.title).toBe('New Session');
-    expect(payload.day_number).toBe(1);
+    // A weekday is an optional RECOMMENDATION: with no caller-supplied day the
+    // session must be born WITHOUT one. `|| 1` used to make every new session
+    // Monday, which silently tied them all at the same sort rank.
+    expect(payload.day_number).toBeNull();
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['week', 'w-1'] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['program'] });
   });

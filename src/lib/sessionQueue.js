@@ -30,7 +30,7 @@ const RANK_WEEKDAY = { suggested: 2, archived: 1 };
  * ahead of one dated the 10th (a Friday). When both dates are real, the dates
  * decide; everything else falls through to the weekday order.
  */
-function compareQueued(a, b) {
+export function compareQueued(a, b) {
   const da = a?.scheduled_date && parseISODate(a.scheduled_date) ? a.scheduled_date : null;
   const db = b?.scheduled_date && parseISODate(b.scheduled_date) ? b.scheduled_date : null;
   if (da && db && da !== db) return da < db ? -1 : 1;
