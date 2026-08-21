@@ -1,1 +1,0 @@
-import{j as e}from"./query-5O6KkGLg.js";function a({message:t,compact:s=!1}){return e.jsx("div",{className:`flex flex-col items-center justify-center text-gray-400 ${s?"py-6":"py-16"}`,children:e.jsx("p",{className:"text-sm",children:t})})}export{a as E};
