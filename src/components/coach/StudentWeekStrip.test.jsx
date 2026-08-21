@@ -6,10 +6,11 @@ vi.mock('../../hooks/useI18n', () => ({
     t: (k) => {
       const map = {
         'coach.dashboard.weekStripAria': 'Week at a glance',
-        'coach.dashboard.dayStatus.completed': 'Completed',
+        'coach.dashboard.dayStatus.performed': 'Trained',
         'coach.dashboard.dayStatus.today': 'Today',
-        'coach.dashboard.dayStatus.upcoming': 'Upcoming',
-        'coach.dashboard.dayStatus.missed': 'Missed',
+        'coach.dashboard.dayStatus.planned': 'Recommended date',
+        'coach.dashboard.dayStatus.suggested': 'Recommended day',
+        'coach.dashboard.dayStatus.archived': 'Removed',
         'coach.dashboard.dayStatus.rest': 'Rest',
       };
       return map[k] || k;
@@ -19,12 +20,13 @@ vi.mock('../../hooks/useI18n', () => ({
 
 import StudentWeekStrip from './StudentWeekStrip';
 
+// The strip receives states already resolved by buildDayStrip — the component
+// only paints them (plus the today highlight).
 function makeWeek(overrides = {}) {
-  // Default: every day is rest.
   return Array.from({ length: 7 }, (_, i) => ({
     dayNumber: i + 1,
     session: null,
-    confirmed: false,
+    state: 'rest',
     ...(overrides[i + 1] || {}),
   }));
 }
@@ -53,52 +55,53 @@ describe('StudentWeekStrip', () => {
     expect(cells.map((c) => c.textContent)).toEqual(['M', 'T', 'W', 'T', 'F', 'S', 'S']);
   });
 
-  it('marks confirmed sessions as completed', () => {
+  it('shows the day a session was trained on', () => {
     const week = makeWeek({
-      1: { session: { id: 'a', title: 'Push', archived_at: null }, confirmed: true },
+      1: { session: { id: 'a', title: 'Push' }, state: 'performed' },
     });
     render(<StudentWeekStrip weekDays={week} />);
     const cells = screen.getAllByRole('listitem');
-    expect(cells[0].getAttribute('aria-label')).toMatch(/Mon: Completed/);
+    expect(cells[0].getAttribute('aria-label')).toMatch(/Mon: Trained/);
   });
 
-  it('marks an unconfirmed session on today as today', () => {
-    // Today is Wed (3); a non-archived non-confirmed session there → today.
+  it('highlights today when open work sits on it', () => {
+    // Today is Wed (3).
     const week = makeWeek({
-      3: { session: { id: 'a', title: 'Pull', archived_at: null }, confirmed: false },
+      3: { session: { id: 'a', title: 'Pull' }, state: 'planned' },
     });
     render(<StudentWeekStrip weekDays={week} />);
     const cells = screen.getAllByRole('listitem');
     expect(cells[2].getAttribute('aria-label')).toMatch(/Wed: Today/);
   });
 
-  it('marks past unconfirmed sessions as missed', () => {
-    // Today is Wed; Mon (1) has an unconfirmed session → missed.
+  // The point of the refactor: a recommended day that has passed is not a
+  // failure. It stays a recommendation, and the session stays next in queue.
+  it('never marks a past day as missed', () => {
     const week = makeWeek({
-      1: { session: { id: 'a', title: 'Push', archived_at: null }, confirmed: false },
+      1: { session: { id: 'a', title: 'Push' }, state: 'suggested' },
     });
     render(<StudentWeekStrip weekDays={week} />);
     const cells = screen.getAllByRole('listitem');
-    expect(cells[0].getAttribute('aria-label')).toMatch(/Mon: Missed/);
+    expect(cells[0].getAttribute('aria-label')).toMatch(/Mon: Recommended day/);
+    expect(cells[0].getAttribute('aria-label')).not.toMatch(/Missed/);
   });
 
-  it('marks future sessions as upcoming', () => {
-    // Today is Wed; Fri (5) has an unconfirmed session → upcoming.
+  it('keeps today from overriding a day already trained', () => {
     const week = makeWeek({
-      5: { session: { id: 'a', title: 'Legs', archived_at: null }, confirmed: false },
+      3: { session: { id: 'a', title: 'Pull' }, state: 'performed' },
     });
     render(<StudentWeekStrip weekDays={week} />);
     const cells = screen.getAllByRole('listitem');
-    expect(cells[4].getAttribute('aria-label')).toMatch(/Fri: Upcoming/);
+    expect(cells[2].getAttribute('aria-label')).toMatch(/Wed: Trained/);
   });
 
-  it('treats archived sessions as rest', () => {
+  it('keeps a pulled session visible instead of blanking the day', () => {
     const week = makeWeek({
-      2: { session: { id: 'a', title: 'X', archived_at: '2026-04-01' }, confirmed: false },
+      2: { session: { id: 'a', title: 'X' }, state: 'archived' },
     });
     render(<StudentWeekStrip weekDays={week} />);
     const cells = screen.getAllByRole('listitem');
-    expect(cells[1].getAttribute('aria-label')).toMatch(/Tue: Rest/);
+    expect(cells[1].getAttribute('aria-label')).toMatch(/Tue: Removed/);
   });
 
   it('marks days with no session as rest', () => {

@@ -15,20 +15,14 @@ import {
   isoDate,
   addDays,
   startOfWeekMonday,
-  performedDate,
 } from '../../lib/day';
-import { buildQueue } from '../../lib/sessionQueue';
+import { buildQueue, buildDayStrip } from '../../lib/sessionQueue';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
 import SessionCard from './SessionCard';
 
 const LOCALE = { en: 'en-US', fr: 'fr-FR', de: 'de-DE' };
-
-// Which placement wins a contested strip cell. The record of what happened
-// outranks the plan; a pulled session outranks nothing but an empty day.
-const RANK = { performed: 3, planned: 2, archived: 1 };
-const RANK_DAY = { suggested: 2, archived: 1 };
 
 // "Jul 6 – 12" (en) / "6 – 12 juil." (fr) — compact label for the displayed week.
 function formatWeekRange(monday, lang) {
@@ -205,72 +199,6 @@ export default function StudentHome() {
     [weeks]
   );
 
-  // One pass, one map: date → { session, state }, resolved by priority.
-  //
-  //   performed — placed on the day it was ACTUALLY trained. The record wins
-  //               every contest; nothing may overwrite it.
-  //   planned   — a recommended date for work still open.
-  //   archived  — the coach pulled it. Kept visible (struck through) rather
-  //               than flipped to a rest day, so its removal is legible.
-  //
-  // A session confirmed before `performed_at` existed has no real date; it
-  // still counts as performed and falls back to the date it was planned for,
-  // which is the closest honest answer for those legacy rows.
-  const byDate = useMemo(() => {
-    const map = new Map();
-    const place = (key, session, state) => {
-      if (!key) return;
-      const existing = map.get(key);
-      // Earlier in program order wins an otherwise equal contest.
-      if (existing && RANK[existing.state] >= RANK[state]) return;
-      map.set(key, { session, state });
-    };
-    for (const { session } of allSessions) {
-      const done = performedDate(session);
-      const planned = session.scheduled_date && parseISODate(session.scheduled_date)
-        ? session.scheduled_date.slice(0, 10)
-        : null;
-      if (session.archived_at) {
-        place(planned, session, 'archived');
-        continue;
-      }
-      if (done) {
-        place(isoDate(done), session, 'performed');
-        continue;
-      }
-      if (confirmedIds.has(session.id)) {
-        place(planned, session, 'performed');
-        continue;
-      }
-      place(planned, session, 'planned');
-    }
-    return map;
-  }, [allSessions, confirmedIds]);
-
-  // Sessions with no date carry only a recommended WEEKDAY. Project them onto
-  // the current week so "recommended: Monday" stays visible — but never onto
-  // another week, where it would be pure invention. Queued sessions come
-  // first-in-queue-first; a pulled session still shows so its removal reads.
-  const byWeekday = useMemo(() => {
-    const out = {};
-    const place = (d, session, state) => {
-      if (!(d >= 1 && d <= 7)) return;
-      const existing = out[d];
-      if (existing && RANK_DAY[existing.state] >= RANK_DAY[state]) return;
-      out[d] = { session, state };
-    };
-    const undated = (s) => !(s.scheduled_date && parseISODate(s.scheduled_date));
-    for (const { session } of upcoming) {
-      if (undated(session)) place(session.day_number, session, 'suggested');
-    }
-    for (const { session } of allSessions) {
-      if (session.archived_at && undated(session)) {
-        place(session.day_number, session, 'archived');
-      }
-    }
-    return out;
-  }, [upcoming, allSessions]);
-
   const todayIso = isoDate(new Date());
   const currentMonday = useMemo(() => startOfWeekMonday(new Date()), [todayIso]);
   const displayedMonday = useMemo(
@@ -278,27 +206,24 @@ export default function StudentHome() {
     [currentMonday, weekOffset]
   );
 
-  const daySlots = useMemo(
-    () =>
-      Array.from({ length: 7 }, (_, i) => {
-        const date = addDays(displayedMonday, i);
-        const key = isoDate(date);
-        const base = {
-          dayNumber: i + 1,
-          label: DAY_LABELS[i],
-          name: DAY_FULL_LONG[i],
-          dateNumber: date.getDate(),
-        };
-        const dated = byDate.get(key);
-        if (dated) return { ...base, ...dated };
-        // Weekday recommendations only make sense on the week the student is
-        // in — projecting them anywhere else would invent a plan.
-        const weekday = weekOffset === 0 ? byWeekday[i + 1] : null;
-        if (weekday) return { ...base, ...weekday };
-        return { ...base, session: null, state: 'rest' };
-      }),
-    [displayedMonday, byDate, byWeekday, weekOffset]
-  );
+  // Placement lives in lib/sessionQueue so the coach roster's strip and this
+  // one can't drift apart. Decorate the shared slots with display labels here.
+  const daySlots = useMemo(() => {
+    const slots = buildDayStrip({
+      sessions: allSessions.map((e) => e.session),
+      upcoming: upcoming.map((e) => e.session),
+      confirmedIds,
+      monday: displayedMonday,
+      // Recommendations only make sense on the week the student is in.
+      weekdayFallback: weekOffset === 0,
+    });
+    return slots.map((slot, i) => ({
+      ...slot,
+      label: DAY_LABELS[i],
+      name: DAY_FULL_LONG[i],
+      dateNumber: addDays(displayedMonday, i).getDate(),
+    }));
+  }, [allSessions, upcoming, confirmedIds, displayedMonday, weekOffset]);
 
   if (isLoading) {
     return (

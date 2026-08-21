@@ -163,13 +163,16 @@ describe('ProgramSheet', () => {
     expect(mockUpdateSession.mutate).toHaveBeenCalledWith({ id: 'sess-1', day_number: 4 });
   });
 
-  it('adds a session on the first free weekday, never above 7', async () => {
+  // A weekday is a recommendation the coach makes deliberately, so a new
+  // session starts without one. Auto-filling the next free day made every
+  // session look due on a date nobody chose — and capped a week at 7, since
+  // day 8 fell outside the strips and the session vanished from them.
+  it('adds a session with no recommended weekday', async () => {
     const user = userEvent.setup();
     renderSheet();
     await user.click(screen.getByRole('button', { name: /add session/i }));
-    // Days 1 and 3 are taken by the active sessions → first free is 2.
     expect(mockCreateSession.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ weekId: 'w-1', dayNumber: 2 }),
+      expect.objectContaining({ weekId: 'w-1', dayNumber: null }),
     );
   });
 

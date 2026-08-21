@@ -8,8 +8,6 @@ import {
   isoDate,
   addDays,
   startOfWeekMonday,
-  statusOf,
-  deriveWeekStats,
   nextFreeDayNumber,
   compareSessions,
   performedOnFromLogs,
@@ -99,22 +97,6 @@ describe('day.js', () => {
     });
   });
 
-  describe('statusOf', () => {
-    const todayDN = 5; // Friday
-    it('returns rest for no session or an archived session', () => {
-      expect(statusOf({ dayNumber: 3, session: null, confirmed: false }, todayDN)).toBe('rest');
-      expect(statusOf({ dayNumber: 3, session: { archived_at: 'x' }, confirmed: false }, todayDN)).toBe('rest');
-    });
-    it('returns completed for a confirmed session (regardless of day)', () => {
-      expect(statusOf({ dayNumber: 1, session: { id: 'a' }, confirmed: true }, todayDN)).toBe('completed');
-    });
-    it('returns today / missed / upcoming by day-number vs today', () => {
-      expect(statusOf({ dayNumber: 5, session: { id: 'a' }, confirmed: false }, todayDN)).toBe('today');
-      expect(statusOf({ dayNumber: 2, session: { id: 'a' }, confirmed: false }, todayDN)).toBe('missed');
-      expect(statusOf({ dayNumber: 7, session: { id: 'a' }, confirmed: false }, todayDN)).toBe('upcoming');
-    });
-  });
-
   describe('nextFreeDayNumber', () => {
     it('returns 1 for an empty week', () => {
       expect(nextFreeDayNumber([])).toBe(1);
@@ -174,41 +156,6 @@ describe('day.js', () => {
         { title: 'rescheduled to Wed', day_number: 5, scheduled_date: '2026-08-05', sort_order: 1 },
       ];
       expect(sorted(week)).toEqual(['rescheduled to Wed', 'Fri']);
-    });
-  });
-
-  describe('deriveWeekStats', () => {
-    it('rolls a weekDays array up into done/missed/scheduled/adherence + firstMissedDay', () => {
-      const weekDays = [
-        { dayNumber: 1, session: { id: 'a' }, confirmed: true }, // completed
-        { dayNumber: 2, session: { id: 'b' }, confirmed: false }, // missed
-        { dayNumber: 3, session: null, confirmed: false }, // rest
-        { dayNumber: 4, session: { id: 'c', archived_at: 'x' }, confirmed: false }, // rest (archived)
-        { dayNumber: 5, session: { id: 'd' }, confirmed: false }, // today
-        { dayNumber: 6, session: { id: 'e' }, confirmed: false }, // upcoming
-        { dayNumber: 7, session: null, confirmed: false }, // rest
-      ];
-      expect(deriveWeekStats(weekDays, 5)).toEqual({
-        done: 1,
-        missed: 1,
-        scheduled: 4,
-        adherence: 0.25,
-        firstMissedDay: 2,
-      });
-    });
-
-    it('reports null adherence when nothing is scheduled', () => {
-      const allRest = [
-        { dayNumber: 1, session: null, confirmed: false },
-        { dayNumber: 2, session: { id: 'a', archived_at: 'x' }, confirmed: false },
-      ];
-      expect(deriveWeekStats(allRest, 3)).toEqual({
-        done: 0,
-        missed: 0,
-        scheduled: 0,
-        adherence: null,
-        firstMissedDay: null,
-      });
     });
   });
 

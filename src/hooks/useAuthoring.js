@@ -214,7 +214,12 @@ export function useDraftActions(programId) {
             ...w,
             sessions: [
               ...(w.sessions || []),
-              { id: newId(), title: `Day ${nextSort + 1}`, day_number: nextSort + 1, sort_order: nextSort, exercise_slots: [] },
+              // day_number is a WEEKDAY (1 = Mon … 7 = Sun), not a position:
+              // writing the ordinal here silently made a 5th session "Friday",
+              // and an 8th fell outside 1..7 and vanished from the day strips.
+              // A draft carries no weekday recommendation — sort_order is the
+              // order, and the column is nullable since 2026_08_21.
+              { id: newId(), title: `Day ${nextSort + 1}`, day_number: null, sort_order: nextSort, exercise_slots: [] },
             ],
           };
         }),

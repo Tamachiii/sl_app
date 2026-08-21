@@ -7,7 +7,6 @@ import { useCoachDashboardPrograms } from '../../hooks/useProgram';
 import { useAllConfirmations } from '../../hooks/useSessionConfirmation';
 import { useClientErrors } from '../../hooks/useClientErrors';
 import { buildRoster } from '../../lib/coachRoster';
-import { todayDayNumber, startOfWeekMonday, addDays } from '../../lib/day';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
@@ -28,15 +27,6 @@ function initialsOf(fullName) {
     .join('');
 }
 
-// Localised short weekday name for a 1..7 day-number in the CURRENT calendar
-// week (weekDays is always this Mon..Sun), so a "Missed Wed" chip reads in the
-// coach's language instead of a hardcoded English abbreviation.
-function weekdayLabel(dayNumber, lang) {
-  const locale = lang === 'fr' ? 'fr-FR' : lang === 'de' ? 'de-DE' : 'en-US';
-  const d = addDays(startOfWeekMonday(new Date()), dayNumber - 1);
-  return d.toLocaleDateString(locale, { weekday: 'short' });
-}
-
 // Attention chips lean on semantic colours (accent / warn / danger), which are
 // identical in both themes, so inline color-mix tints adapt without a dark rule.
 const CHIP_STYLE = {
@@ -44,7 +34,7 @@ const CHIP_STYLE = {
     background: 'color-mix(in srgb, var(--color-accent) 16%, transparent)',
     color: 'var(--color-accent)',
   },
-  missed: {
+  stale: {
     background: 'color-mix(in srgb, var(--color-warn) 20%, transparent)',
     color: 'var(--color-warn)',
   },
@@ -54,18 +44,20 @@ const CHIP_STYLE = {
   },
 };
 
-function chipLabel(chip, t, lang) {
+function chipLabel(chip, t) {
   if (chip.kind === 'toReview') return t('coach.roster.chipReview', { n: chip.n });
-  if (chip.kind === 'missed') return t('coach.roster.chipMissed', { day: weekdayLabel(chip.day, lang) });
+  if (chip.kind === 'stale') return t('coach.roster.chipStale', { n: chip.days });
   return t('coach.roster.chipNoProgram');
 }
 
-function RosterCard({ entry, t, lang }) {
-  const { student, fullName, programName, activeWeek, weekDays, chips } = entry;
+function RosterCard({ entry, t }) {
+  const { student, fullName, programName, position, totalSessions, weekDays, chips } = entry;
   const initials = initialsOf(fullName);
 
   const bits = [];
-  if (activeWeek?.week_number) bits.push(`W${activeWeek.week_number}`);
+  // Where the athlete is in the BLOCK. "W3" said nothing about how far along
+  // they were once the block stopped being one-week-per-week.
+  if (totalSessions > 0) bits.push(t('coach.roster.sessionOf', { n: position, total: totalSessions }));
   if (programName) bits.push(programName);
   const subtitle = bits.join(' · ').toUpperCase();
 
@@ -105,7 +97,7 @@ function RosterCard({ entry, t, lang }) {
               className="sl-pill"
               style={CHIP_STYLE[chip.kind]}
             >
-              {chipLabel(chip, t, lang)}
+              {chipLabel(chip, t)}
             </span>
           ))}
         </div>
@@ -142,14 +134,14 @@ function ErrorsTriage({ errors, t }) {
   );
 }
 
-function RosterView({ students, t, lang }) {
+function RosterView({ students, t }) {
   const { data: summary } = useCoachDashboardPrograms();
   const { data: confirmations } = useAllConfirmations();
   const { data: clientErrors } = useClientErrors();
   const [query, setQuery] = useState('');
 
   const roster = useMemo(
-    () => buildRoster({ students, summary, confirmations, todayDN: todayDayNumber() }),
+    () => buildRoster({ students, summary, confirmations }),
     [students, summary, confirmations],
   );
 
@@ -180,7 +172,7 @@ function RosterView({ students, t, lang }) {
 
       <div className="space-y-2 md:grid md:grid-cols-2 md:gap-2 md:space-y-0">
         {filtered.map((entry) => (
-          <RosterCard key={entry.student.id} entry={entry} t={t} lang={lang} />
+          <RosterCard key={entry.student.id} entry={entry} t={t} />
         ))}
       </div>
 
@@ -198,7 +190,7 @@ function titleCase(fullName) {
 }
 
 export default function CoachHome() {
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
   const { profile, signOut } = useAuth();
   const { studentId } = useParams();
   const navigate = useNavigate();
@@ -279,7 +271,7 @@ export default function CoachHome() {
               // (StudentOverview) under a header that already names them.
               ? <Outlet context={{ student: selected }} />
               : <EmptyState message={t('coach.home.noStudentsExt')} />)
-          : <RosterView students={students} t={t} lang={lang} />
+          : <RosterView students={students} t={t} />
       )}
     </div>
   );

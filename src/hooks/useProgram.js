@@ -1,13 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
-import {
-  parseISODate,
-  isoDate,
-  addDays,
-  startOfWeekMonday,
-  preferSession,
-} from '../lib/day';
+import { startOfWeekMonday } from '../lib/day';
+import { buildQueue, buildDayStrip } from '../lib/sessionQueue';
 
 /**
  * List all programs for a student (periodization blocks), ordered by sort_order.
@@ -433,20 +428,19 @@ export function useReorderPrograms() {
 
 /**
  * Coach dashboard summary: for each student the coach manages, resolve
- * { programName, activeWeek, weekDays } in a single pass. RLS scopes the
- * programs query to this coach's students.
+ * { programName, position, total, daysSinceLast, weekDays } in a single pass.
+ * RLS scopes the programs query to this coach's students.
  *
- * "Active week" mirrors the student-side `findActiveWeek`: first week with
- * an unconfirmed non-archived session, falling back to the last week.
+ * Progress is the athlete's place in the QUEUE ("session 7 of 24"), not an
+ * ordinal week number — the block is an ordered list the athlete works through
+ * at their own pace, so "W3" said nothing about how far along they were.
+ * `daysSinceLast` is how long since they last trained, which is the signal
+ * that replaces "missed a day": a recommended day passing is not a problem,
+ * a fortnight of silence is.
  *
- * `weekDays` is a 7-slot M..S array for the CURRENT CALENDAR week (Mon–Sun),
- * carrying the mapped session and its confirmation flag. Mirroring the
- * student home strip: sessions with a scheduled_date place on their true
- * calendar date — from any training week, and only when that date falls in
- * the current week — while undated sessions keep the legacy day_number
- * placement from the active training week. Same-day collisions resolve via
- * `preferSession`. Powers the `StudentWeekStrip` on each athlete card
- * without an N+1 fetch.
+ * `weekDays` is the current Mon–Sun strip from the SHARED `buildDayStrip`, so
+ * the coach's view of a week and the athlete's own can't drift. Powers the
+ * `StudentWeekStrip` on each athlete card without an N+1 fetch.
  */
 export function useCoachDashboardPrograms() {
   const { user } = useAuth();
@@ -465,7 +459,7 @@ export function useCoachDashboardPrograms() {
           .select(`
             student_id, name,
             weeks(id, week_number, label,
-              sessions(id, title, day_number, scheduled_date, archived_at))
+              sessions(id, title, day_number, sort_order, scheduled_date, archived_at, performed_at))
           `)
           .eq('is_active', true),
         supabase
@@ -486,55 +480,28 @@ export function useCoachDashboardPrograms() {
         const weeks = (p.weeks || [])
           .slice()
           .sort((a, b) => a.week_number - b.week_number);
-        let active = null;
-        for (const w of weeks) {
-          const hasOpen = (w.sessions || []).some(
-            (s) => !s.archived_at && !confirmedIds.has(s.id)
-          );
-          if (hasOpen) { active = w; break; }
-        }
-        if (!active && weeks.length > 0) active = weeks[weeks.length - 1];
 
-        // Dated sessions place by true calendar date — from ANY training week,
-        // so a "week 1" session dated next Monday never bleeds into this week.
-        const byDate = new Map();
-        for (const w of weeks) {
-          for (const s of w.sessions || []) {
-            if (!s.scheduled_date || !parseISODate(s.scheduled_date)) continue;
-            const key = s.scheduled_date.slice(0, 10);
-            byDate.set(key, preferSession(byDate.get(key), s, confirmedIds));
-          }
-        }
-
-        // Undated sessions have no calendar anchor: keep the legacy
-        // day_number placement, from the active training week only.
-        const undatedByDay = {};
-        for (const s of active?.sessions || []) {
-          if (s.scheduled_date && parseISODate(s.scheduled_date)) continue;
-          const d = s.day_number;
-          if (d < 1 || d > 7) continue;
-          undatedByDay[d] = preferSession(undatedByDay[d], s, confirmedIds);
-        }
-
-        const weekDays = Array.from({ length: 7 }, (_, i) => {
-          const dated = byDate.get(isoDate(addDays(monday, i))) ?? null;
-          // Dated placement wins ties, but preferSession keeps an archived
-          // or confirmed dated session from hiding a pending undated one.
-          const s = preferSession(dated, undatedByDay[i + 1] ?? null, confirmedIds);
-          return {
-            dayNumber: i + 1,
-            session: s
-              ? { id: s.id, title: s.title, archived_at: s.archived_at }
-              : null,
-            confirmed: s ? confirmedIds.has(s.id) : false,
-          };
-        });
+        const queue = buildQueue(weeks, confirmedIds);
+        const allSessions = weeks.flatMap((w) => w.sessions || []);
+        const weekDays = buildDayStrip({
+          sessions: allSessions,
+          upcoming: queue.upcoming.map((e) => e.session),
+          confirmedIds,
+          monday,
+        }).map((slot) => ({
+          dayNumber: slot.dayNumber,
+          state: slot.state,
+          session: slot.session
+            ? { id: slot.session.id, title: slot.session.title, archived_at: slot.session.archived_at }
+            : null,
+        }));
 
         summary[p.student_id] = {
           programName: p.name || null,
-          activeWeek: active
-            ? { week_number: active.week_number, label: active.label }
-            : null,
+          position: queue.position,
+          totalSessions: queue.total,
+          nextSessionTitle: queue.upcoming[0]?.session?.title || null,
+          daysSinceLast: queue.daysSinceLast,
           weekDays,
         };
       }

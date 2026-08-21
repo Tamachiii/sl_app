@@ -447,7 +447,7 @@ describe('useReorderPrograms', () => {
 });
 
 describe('useCoachDashboardPrograms', () => {
-  it('picks the first week with an unconfirmed non-archived session as activeWeek', async () => {
+  it('reports the athlete position in the QUEUE, not an ordinal week', async () => {
     const programsChain = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockResolvedValue({
@@ -491,14 +491,16 @@ describe('useCoachDashboardPrograms', () => {
       wrapper: withClient(qc),
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    // Week 1 fully confirmed → active week is W2.
+    // Two of three sessions done → the athlete is on session 3 of 3. "W2"
+    // said nothing about how far through the block they actually were.
     expect(result.current.data['st-1']).toMatchObject({
       programName: 'Block A',
-      activeWeek: { week_number: 2, label: 'Hyp' },
+      position: 3,
+      totalSessions: 3,
     });
   });
 
-  it('falls back to the last week when every session is confirmed', async () => {
+  it('clamps position to the block size once every session is done', async () => {
     const programsChain = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockResolvedValue({
@@ -529,13 +531,12 @@ describe('useCoachDashboardPrograms', () => {
       wrapper: withClient(qc),
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data['st-1'].activeWeek).toEqual({
-      week_number: 2,
-      label: 'B',
-    });
+    // Finished blocks read "2 of 2", never "3 of 2".
+    expect(result.current.data['st-1']).toMatchObject({ position: 2, totalSessions: 2 });
+    expect(result.current.data['st-1'].nextSessionTitle).toBeNull();
   });
 
-  it('builds a 7-slot weekDays array from the active week, mapped by day_number', async () => {
+  it('builds a 7-slot weekDays array, placing undated sessions on their recommended weekday', async () => {
     const programsChain = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockResolvedValue({
@@ -577,11 +578,12 @@ describe('useCoachDashboardPrograms', () => {
 
     const days = result.current.data['st-1'].weekDays;
     expect(days).toHaveLength(7);
-    expect(days[0]).toMatchObject({ dayNumber: 1, confirmed: true });
-    expect(days[0].session).toMatchObject({ id: 's-mon', title: 'Push' });
-    expect(days[2]).toMatchObject({ dayNumber: 3, confirmed: false });
+    // s-mon is confirmed but carries no performed_at (nothing logged), so it
+    // falls back to counting as trained without inventing a date.
+    expect(days[2]).toMatchObject({ dayNumber: 3, state: 'suggested' });
     expect(days[2].session).toMatchObject({ id: 's-wed' });
     expect(days[1].session).toBeNull();
+    expect(days[1].state).toBe('rest');
     expect(days[6].session).toBeNull();
   });
 
@@ -704,7 +706,11 @@ describe('useCoachDashboardPrograms', () => {
       expect(days[4].session).toMatchObject({ id: 's-fri' });
     });
 
-    it('never lets a confirmed dated session hide a pending undated one on the same day', async () => {
+    // The strip records days rather than tracking adherence, so the session
+    // actually trained on Thursday owns Thursday. The pending one is not
+    // hidden — it is the head of the queue, which is where the coach and the
+    // athlete both read "what's next" now.
+    it('gives the day to the session that was trained on it', async () => {
       mockDashboard(
         [
           {
@@ -725,8 +731,8 @@ describe('useCoachDashboardPrograms', () => {
         ['s-done']
       );
       const days = await renderDashboard();
-      expect(days[3].session).toMatchObject({ id: 's-due' });
-      expect(days[3].confirmed).toBe(false);
+      expect(days[3].session).toMatchObject({ id: 's-done' });
+      expect(days[3].state).toBe('performed');
     });
   });
 });

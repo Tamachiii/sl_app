@@ -130,64 +130,9 @@ export function nextFreeDayNumber(sessions) {
   return 7;
 }
 
-/**
- * Status of one day slot in a Mon..Sun week strip. Pure function of the day
- * shape ({ dayNumber, session, confirmed }) and today's day-number. Shared by
- * the coach `StudentWeekStrip` (colours) and the Athletes roster (attention
- * derivation) so "missed"/"completed" can never drift between the two.
- */
-export function statusOf(day, todayDN) {
-  const s = day.session;
-  if (!s || s.archived_at) return 'rest';
-  if (day.confirmed) return 'completed';
-  if (day.dayNumber === todayDN) return 'today';
-  if (day.dayNumber < todayDN) return 'missed';
-  return 'upcoming';
-}
-
-/**
- * Roll a 7-slot weekDays array up into this-week stats for roster triage.
- * `scheduled` counts real (non-rest) training days; `adherence` is
- * done / scheduled (null when nothing is scheduled). `firstMissedDay` is the
- * 1..7 day-number of the earliest missed day, for a "Missed Wed" chip label.
- */
-export function deriveWeekStats(weekDays, todayDN) {
-  let done = 0;
-  let missed = 0;
-  let scheduled = 0;
-  let firstMissedDay = null;
-  for (const day of weekDays || []) {
-    const status = statusOf(day, todayDN);
-    if (status === 'rest') continue;
-    scheduled += 1;
-    if (status === 'completed') done += 1;
-    if (status === 'missed') {
-      missed += 1;
-      if (firstMissedDay == null) firstMissedDay = day.dayNumber;
-    }
-  }
-  return {
-    done,
-    missed,
-    scheduled,
-    adherence: scheduled ? done / scheduled : null,
-    firstMissedDay,
-  };
-}
-
-/**
- * Resolve two sessions competing for the same day slot: an active session
- * beats an archived one, then a pending session beats a confirmed one, and
- * on a full tie the first in program order (`a`) keeps the slot. Keeping
- * confirmation in the rule matters: a confirmed session from another training
- * week must never hide a session the student still has to do that day.
- */
-export function preferSession(a, b, confirmedIds) {
-  if (!a) return b ?? null;
-  if (!b) return a;
-  if (!!a.archived_at !== !!b.archived_at) return a.archived_at ? b : a;
-  const aConf = confirmedIds.has(a.id);
-  const bConf = confirmedIds.has(b.id);
-  if (aConf !== bConf) return aConf ? b : a;
-  return a;
-}
+// `statusOf` / `deriveWeekStats` / `preferSession` lived here to give the
+// coach strip and the roster one shared notion of "completed / missed". They
+// are gone: the strip's placement now comes from `buildDayStrip`
+// (lib/sessionQueue), which has no missed state — a recommended day passing
+// leaves the session next in the queue rather than behind — and roster triage
+// asks "how long since they trained" via `buildQueue().daysSinceLast`.

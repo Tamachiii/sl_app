@@ -68,7 +68,10 @@ CREATE TABLE public.weeks (
 CREATE TABLE public.sessions (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   week_id        uuid NOT NULL REFERENCES public.weeks(id) ON DELETE CASCADE,
-  day_number     int  NOT NULL,
+  -- Recommended WEEKDAY (1 = Monday … 7 = Sunday), never an ordinal position.
+  -- NULL = no recommendation (2026_08_21). Advisory only: order comes from
+  -- sort_order, and nothing is "missed" for being trained on another day.
+  day_number     int,
   title          text,
   sort_order     int  NOT NULL DEFAULT 0,
   scheduled_date date,

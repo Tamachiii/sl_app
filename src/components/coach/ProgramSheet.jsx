@@ -28,7 +28,7 @@ import {
 import { useDuplicateWeek } from '../../hooks/useDuplicate';
 import { useProgramConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 import { useI18n } from '../../hooks/useI18n';
-import { DAY_FULL, DAY_LABELS, compareSessions, nextFreeDayNumber } from '../../lib/day';
+import { DAY_FULL, DAY_LABELS, compareSessions } from '../../lib/day';
 import EditableText from '../ui/EditableText';
 import CopyDialog from '../ui/CopyDialog';
 import ConfirmDialog from '../ui/ConfirmDialog';
@@ -128,6 +128,25 @@ function DayPill({ session, onPick, t }) {
                 {d}
               </button>
             ))}
+            {/* Clearing the day is a real choice now that a weekday is only a
+                recommendation: plenty of sessions shouldn't suggest one. */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onPick(null);
+                setOpen(false);
+              }}
+              aria-label={t('coach.sheet.clearDay')}
+              aria-current={!(dn >= 1 && dn <= 7)}
+              className={`w-6 h-6 rounded sl-mono text-[10px] font-semibold transition-colors ${
+                dn >= 1 && dn <= 7
+                  ? 'bg-ink-100 text-ink-700 hover:bg-ink-200'
+                  : 'bg-accent text-ink-900'
+              }`}
+            >
+              —
+            </button>
           </span>
         </>
       )}
@@ -139,7 +158,7 @@ function DayPill({ session, onPick, t }) {
 // main authoring surface is both visual noise and a mis-tap waiting to happen
 // on a phone. Deleting a session lives in the session editor, where the coach
 // has already committed to that one session.
-function SessionRow({ session, studentId, confirmed, onSetDay, t }) {
+function SessionRow({ session, studentId, confirmed, position, onSetDay, t }) {
   const navigate = useNavigate();
   const exCount = (session.exercise_slots || []).length;
 
@@ -153,7 +172,9 @@ function SessionRow({ session, studentId, confirmed, onSetDay, t }) {
         className="flex-1 min-w-0 text-left flex items-baseline gap-2 group"
       >
         <span className="sl-display text-[14px] text-gray-900 truncate group-hover:text-[var(--color-accent)] transition-colors">
-          {session.title || t('coach.week.sessionN', { n: session.day_number })}
+          {/* Position in the list, not the weekday: day_number is optional
+              advice now, so an untitled session must not be named after it. */}
+          {session.title || t('coach.week.sessionN', { n: position })}
         </span>
         <span className="sl-mono text-[10px] text-ink-400 shrink-0">
           {t('coach.week.exCount', { n: exCount })}
@@ -260,7 +281,10 @@ function WeekCard({
     createSession.mutate({
       weekId: week.id,
       title: t('coach.week.sessionN', { n: sessions.length + 1 }),
-      dayNumber: nextFreeDayNumber(sessions),
+      // No recommended weekday by default. Auto-assigning the next free day
+      // made every session look due on a date the coach never chose — and it
+      // capped a week at 7 sessions, since day 8 fell outside the strips.
+      dayNumber: null,
       sortOrder: nextSortOrder,
     });
   }
@@ -366,12 +390,13 @@ function WeekCard({
             </p>
           )}
 
-          {sessions.map((s) => (
+          {sessions.map((s, i) => (
             <SessionRow
               key={s.id}
               session={s}
               studentId={studentId}
               confirmed={confirmedIds?.has(s.id)}
+              position={i + 1}
               onSetDay={(day) => updateSession.mutate({ id: s.id, day_number: day })}
               t={t}
             />
@@ -388,7 +413,7 @@ function WeekCard({
                   ? t('coach.week.hideArchived', { n: archived.length })
                   : t('coach.week.showArchived', { n: archived.length })}
               </button>
-              {showArchived && archived.map((s) => (
+              {showArchived && archived.map((s, i) => (
                 <button
                   key={s.id}
                   type="button"
@@ -397,7 +422,7 @@ function WeekCard({
                   className="w-full flex items-center gap-2 px-3 py-2 border-t border-ink-100 opacity-75 hover:opacity-100 text-left"
                 >
                   <span className="sl-display text-[13px] text-ink-600 flex-1 truncate">
-                    {s.title || t('coach.week.sessionN', { n: s.day_number })}
+                    {s.title || t('coach.week.sessionN', { n: i + 1 })}
                   </span>
                   <span
                     className="sl-pill text-ink-900 shrink-0"

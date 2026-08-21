@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { flattenSessions, buildQueue } from './sessionQueue';
+import { flattenSessions, buildQueue, buildDayStrip } from './sessionQueue';
+import { parseISODate } from './day';
 
 const prog = { id: 'p-1', name: 'Block', sort_order: 0, is_active: true };
 
@@ -152,5 +153,78 @@ describe('buildQueue', () => {
       expect(q.doneLast7).toBe(0);
       expect(q.upcoming).toHaveLength(1);
     });
+  });
+});
+
+// Shared by the athlete's Home strip and the coach roster's per-athlete strip,
+// so the two can never tell different stories about the same week.
+describe('buildDayStrip', () => {
+  // Mon 6 Jul 2026 – Sun 12 Jul 2026.
+  const monday = parseISODate('2026-07-06');
+  const strip = (args) => buildDayStrip({ confirmedIds: new Set(), monday, ...args });
+  const stateOn = (slots, dayNumber) => slots[dayNumber - 1];
+
+  it('places a session on the day it was actually trained, not the day it was planned', () => {
+    const moved = session('moved', {
+      day_number: 1,
+      scheduled_date: '2026-07-06', // recommended Monday
+      performed_at: '2026-07-09T18:00:00Z', // trained Thursday
+    });
+    const slots = strip({ sessions: [moved], upcoming: [] });
+    expect(stateOn(slots, 4)).toMatchObject({ state: 'performed' });
+    expect(stateOn(slots, 4).session.id).toBe('moved');
+    // Monday is free again — the plan does not linger where nothing happened.
+    expect(stateOn(slots, 1)).toMatchObject({ session: null, state: 'rest' });
+  });
+
+  it('never produces a missed state for a recommended day that has passed', () => {
+    const skipped = session('skipped', { day_number: 1, scheduled_date: '2026-07-06' });
+    const slots = strip({ sessions: [skipped], upcoming: [skipped] });
+    expect(stateOn(slots, 1).state).toBe('planned');
+    expect(slots.map((s) => s.state)).not.toContain('missed');
+  });
+
+  it('projects an undated queue head onto its recommended weekday', () => {
+    const soon = session('soon', { day_number: 3 });
+    const slots = strip({ sessions: [soon], upcoming: [soon] });
+    expect(stateOn(slots, 3)).toMatchObject({ state: 'suggested' });
+  });
+
+  it('does not project recommendations onto a week the athlete is not in', () => {
+    const soon = session('soon', { day_number: 3 });
+    const slots = strip({ sessions: [soon], upcoming: [soon], weekdayFallback: false });
+    expect(stateOn(slots, 3)).toMatchObject({ session: null, state: 'rest' });
+  });
+
+  it('lets the record win a contested day', () => {
+    const done = session('done', { day_number: 4, performed_at: '2026-07-09T18:00:00Z' });
+    const due = session('due', { day_number: 4, scheduled_date: '2026-07-09' });
+    const slots = strip({ sessions: [done, due], upcoming: [due] });
+    expect(stateOn(slots, 4).session.id).toBe('done');
+    expect(stateOn(slots, 4).state).toBe('performed');
+  });
+
+  it('keeps a pulled session visible rather than blanking the day', () => {
+    const pulled = session('pulled', { day_number: 2, archived_at: '2026-07-01T00:00:00Z' });
+    const slots = strip({ sessions: [pulled], upcoming: [] });
+    expect(stateOn(slots, 2)).toMatchObject({ state: 'archived' });
+  });
+
+  // Rows confirmed before performed_at existed carry no real date; the day they
+  // were planned for is the closest honest answer rather than dropping them.
+  it('falls back to the planned day for a legacy confirmation', () => {
+    const legacy = session('legacy', { day_number: 2, scheduled_date: '2026-07-07' });
+    const slots = strip({
+      sessions: [legacy],
+      upcoming: [],
+      confirmedIds: new Set(['legacy']),
+    });
+    expect(stateOn(slots, 2)).toMatchObject({ state: 'performed' });
+  });
+
+  it('always returns seven slots numbered 1..7', () => {
+    const slots = strip({ sessions: [], upcoming: [] });
+    expect(slots.map((s) => s.dayNumber)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(slots.every((s) => s.state === 'rest')).toBe(true);
   });
 });
