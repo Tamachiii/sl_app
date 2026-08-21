@@ -241,6 +241,35 @@ describe('StudentTraining', () => {
       expect(screen.getByText(/past program/i)).toBeInTheDocument();
     });
 
+    // A year of coaching is hundreds of cards; the landing page must not spend
+    // its height on them. Collapsed blocks are not rendered at all.
+    it('collapses a finished block to a single summary row', async () => {
+      const user = userEvent.setup();
+      mockWeeks = {
+        data: [
+          week('w-1', 1, [session('now', 'Current Work', { day_number: 1 })]),
+          week('w-0', 1, [
+            session('old-a', 'Old Squat', { performed_at: '2026-06-01T18:00:00Z' }),
+            session('old-b', 'Old Pull', { performed_at: '2026-05-20T18:00:00Z' }),
+          ], pastProgram),
+        ],
+        isLoading: false,
+      };
+      mockConfirmedIds = { data: new Set(['old-a', 'old-b']) };
+      renderTraining();
+
+      // The row states what is inside without rendering any of it.
+      expect(screen.getByText(/past program · 2 sessions/i)).toBeInTheDocument();
+      expect(screen.queryByText('Old Squat')).toBeNull();
+      expect(screen.queryByText('Old Pull')).toBeNull();
+      // The ACTIVE block stays open — that is the page's actual subject.
+      expect(screen.getByText('Current Work')).toBeInTheDocument();
+
+      await user.click(screen.getByText('Bloc 1'));
+      expect(screen.getByText('Old Squat')).toBeInTheDocument();
+      expect(screen.getByText('Old Pull')).toBeInTheDocument();
+    });
+
     // A lock stops LOGGING, never LOOKING. Reviewing what you did in an old
     // block is the reason the history is on the page at all — and the first
     // cut of `locked` broke exactly this by dropping onStart wholesale, so
@@ -259,6 +288,7 @@ describe('StudentTraining', () => {
       mockConfirmedIds = { data: new Set(['old']) };
       renderTraining();
 
+      await user.click(screen.getByText('Bloc 1'));
       await user.click(screen.getByText('Old Squat'));
       const review = screen.getByRole('button', { name: /review session/i });
       await user.click(review);
@@ -267,7 +297,8 @@ describe('StudentTraining', () => {
 
     // Past-block sessions are locked in the UI and by RLS, so a Start button
     // on one led nowhere.
-    it('offers no Start affordance on a past block', () => {
+    it('offers no Start affordance on a past block', async () => {
+      const user = userEvent.setup();
       mockWeeks = {
         data: [
           week('w-1', 1, [session('now', 'Current Work', { day_number: 1 })]),
@@ -276,9 +307,10 @@ describe('StudentTraining', () => {
         isLoading: false,
       };
       renderTraining();
+      await user.click(screen.getByText('Bloc 1'));
       const past = screen.getByText('Bloc 1').closest('section');
       expect(within(past).getByText('Never Finished')).toBeInTheDocument();
-      expect(within(past).queryByRole('button', { name: /start/i })).toBeNull();
+      expect(within(past).queryByRole('button', { name: /^start$/i })).toBeNull();
     });
 
     it('offers no Start CTA inside an unfinished past-block session either', async () => {
@@ -291,6 +323,7 @@ describe('StudentTraining', () => {
         isLoading: false,
       };
       renderTraining();
+      await user.click(screen.getByText('Bloc 1'));
       await user.click(screen.getByText('Never Finished'));
       // Scoped: the ACTIVE block's next-up card legitimately shows a Start CTA.
       const past = screen.getByText('Bloc 1').closest('section');

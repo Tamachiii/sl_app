@@ -75,6 +75,8 @@ const en = {
       kicker: 'Training',
       recommendedDay: 'Recommended {day}',
       doneHeading: 'Done',
+      sessionsOne: '{n} session',
+      sessionsMany: '{n} sessions',
       lastTrained: 'Last trained {when}',
       neverTrained: 'No sessions logged yet',
       last7One: '{n} session in the last 7 days',

@@ -107,6 +107,58 @@ function Greeting({ fullName, queue, onSignOut }) {
   );
 }
 
+/**
+ * A finished block, collapsed to one row.
+ *
+ * History is something the athlete goes looking for, never something the
+ * landing page should spend its height on: a year of coaching is hundreds of
+ * cards, and every one of them sits between the athlete and the only question
+ * this page exists to answer. Collapsed blocks are NOT rendered (no CSS hide),
+ * so the cost is a single row regardless of how long the history gets.
+ *
+ * Open state is deliberately not persisted — you open a block to look one
+ * thing up, and coming back to a clean page next visit is the right default.
+ */
+function PastBlock({ group, renderCard, t }) {
+  const [open, setOpen] = useState(false);
+  const count = group.sessions.length;
+  const headingId = `program-${group.program?.id ?? 'none'}-heading`;
+
+  return (
+    <section aria-labelledby={headingId} className="space-y-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="w-full flex items-center gap-3 border-b border-ink-100 pb-1.5 text-left"
+      >
+        <div className="min-w-0 flex-1">
+          <div id={headingId} className="sl-label text-gray-900 truncate">
+            {group.program?.name || ''}
+          </div>
+          <div className="sl-mono text-[10px] text-ink-400 mt-0.5">
+            {t('student.sessions.pastProgram')}
+            {' · '}
+            {t(count === 1 ? 'student.training.sessionsOne' : 'student.training.sessionsMany', {
+              n: count,
+            })}
+          </div>
+        </div>
+        <svg
+          className={`w-4 h-4 text-ink-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && <div className="space-y-2">{group.sessions.map(renderCard)}</div>}
+    </section>
+  );
+}
+
 function ArchivedToggle({ count, expanded, onToggle, t }) {
   const label = expanded
     ? t(count === 1 ? 'student.sessions.hideArchivedOne' : 'student.sessions.hideArchivedMany', { n: count })
@@ -304,32 +356,18 @@ export default function StudentTraining() {
       )}
 
       {pastPrograms.map((group) => (
-        <section
+        <PastBlock
           key={group.program?.id ?? 'no-program'}
-          aria-labelledby={`program-${group.program?.id ?? 'none'}-heading`}
-          className="space-y-3"
-        >
-          <header className="border-b border-ink-100 pb-1.5">
-            <div
-              id={`program-${group.program?.id ?? 'none'}-heading`}
-              className="sl-label text-gray-900 truncate"
-            >
-              {group.program?.name || ''}
-            </div>
-            <div className="sl-mono text-[10px] text-ink-400 mt-0.5">
-              {t('student.sessions.pastProgram')}
-            </div>
-          </header>
-          <div className="space-y-2">
-            {group.sessions.map((s) => (
-              <SessionCard
-                key={s.id}
-                {...cardProps(s, { readOnly: true })}
-                subtitle={formatDoneDate(s, lang)}
-              />
-            ))}
-          </div>
-        </section>
+          group={group}
+          t={t}
+          renderCard={(s) => (
+            <SessionCard
+              key={s.id}
+              {...cardProps(s, { readOnly: true })}
+              subtitle={formatDoneDate(s, lang)}
+            />
+          )}
+        />
       ))}
 
       {/* Nothing on screen can host the toggle when every session is archived. */}

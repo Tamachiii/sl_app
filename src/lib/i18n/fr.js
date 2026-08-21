@@ -75,6 +75,8 @@ const fr = {
       kicker: 'Entraînement',
       recommendedDay: 'Conseillé {day}',
       doneHeading: 'Fait',
+      sessionsOne: '{n} séance',
+      sessionsMany: '{n} séances',
       lastTrained: 'Dernier entraînement {when}',
       neverTrained: 'Aucune séance enregistrée',
       last7One: '{n} séance sur les 7 derniers jours',
