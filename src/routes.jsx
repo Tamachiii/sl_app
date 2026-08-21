@@ -44,8 +44,7 @@ const SessionEditor = lazy(() => import('./components/coach/SessionEditor'));
 const ExerciseLibrary = lazy(() => import('./components/coach/ExerciseLibrary'));
 const SessionReview = lazy(() => import('./components/coach/SessionReview'));
 const CoachMessages = lazy(() => import('./components/coach/CoachMessages'));
-const StudentHome = lazy(() => import('./components/student/StudentHome'));
-const StudentSessions = lazy(() => import('./components/student/StudentSessions'));
+const StudentTraining = lazy(() => import('./components/student/StudentTraining'));
 const StudentStats = lazy(() => import('./components/student/StudentDashboard'));
 const SessionView = lazy(() => import('./components/student/SessionView'));
 const MyGoals = lazy(() => import('./components/student/MyGoals'));
@@ -121,8 +120,11 @@ export const routes = [
           {
             element: <RoleGate allowed="student" />,
             children: [
-              { path: '/student', element: <Lazy><StudentHome /></Lazy> },
-              { path: '/student/sessions', element: <Lazy><StudentSessions /></Lazy> },
+              // ONE training surface. Home and Sessions were two screens
+              // answering the same question ("what do I do now?"), each able to
+              // start the next session; the list is the page now.
+              { path: '/student', element: <Lazy><StudentTraining /></Lazy> },
+              { path: '/student/sessions', element: <Navigate to="/student" replace /> },
               { path: '/student/stats', element: <Lazy><StudentStats /></Lazy> },
               { path: '/student/dashboard', element: <Navigate to="/student/stats" replace /> },
               { path: '/student/session/:sessionId', element: <Lazy><SessionView /></Lazy> },

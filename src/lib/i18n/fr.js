@@ -1,6 +1,6 @@
 const fr = {
   nav: {
-    home: 'Accueil',
+    training: 'Entraînement',
     sessions: 'Séances',
     stats: 'Stats',
     athletes: 'Athlètes',
@@ -66,21 +66,19 @@ const fr = {
   },
   student: {
     home: {
-      nextSession: 'Prochaine séance',
-      then: 'Ensuite',
       noProgram: 'Aucun programme attribué',
       sessionPosition: 'Séance {n} sur {total}',
+      blockComplete: 'Bloc terminé — toutes les séances sont faites.',
+      hey: 'Salut',
+    },
+    training: {
+      kicker: 'Entraînement',
+      recommendedDay: 'Conseillé {day}',
+      doneHeading: 'Fait',
       lastTrained: 'Dernier entraînement {when}',
-      trainedToday: 'Entraînement fait aujourd’hui',
       neverTrained: 'Aucune séance enregistrée',
       last7One: '{n} séance sur les 7 derniers jours',
       last7Many: '{n} séances sur les 7 derniers jours',
-      blockComplete: 'Bloc terminé — toutes les séances sont faites.',
-      suggestedDay: 'conseillé',
-      hey: 'Salut',
-      prevWeek: 'Semaine précédente',
-      nextWeek: 'Semaine suivante',
-      backToToday: 'Aujourd’hui',
     },
     sessions: {
       kicker: 'Programme',

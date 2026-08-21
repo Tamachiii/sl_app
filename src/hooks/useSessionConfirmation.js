@@ -94,7 +94,7 @@ export function useAllConfirmations() {
 
 /**
  * Lightweight query: the set of session ids that the current student has
- * confirmed. Cheap to check from the StudentHome list.
+ * confirmed. Cheap to check from the StudentTraining list.
  */
 export function useMyConfirmedSessionIds() {
   const { user } = useAuth();

@@ -1,6 +1,6 @@
 const de = {
   nav: {
-    home: 'Start',
+    training: 'Training',
     sessions: 'Einheiten',
     stats: 'Stats',
     athletes: 'Athleten',
@@ -66,21 +66,19 @@ const de = {
   },
   student: {
     home: {
-      nextSession: 'Nächste Einheit',
-      then: 'Danach',
       noProgram: 'Noch kein Programm zugewiesen',
       sessionPosition: 'Einheit {n} von {total}',
+      blockComplete: 'Block abgeschlossen — alle Einheiten erledigt.',
+      hey: 'Hey',
+    },
+    training: {
+      kicker: 'Training',
+      recommendedDay: 'Empfohlen {day}',
+      doneHeading: 'Erledigt',
       lastTrained: 'Zuletzt trainiert {when}',
-      trainedToday: 'Heute trainiert',
       neverTrained: 'Noch keine Einheit protokolliert',
       last7One: '{n} Einheit in den letzten 7 Tagen',
       last7Many: '{n} Einheiten in den letzten 7 Tagen',
-      blockComplete: 'Block abgeschlossen — alle Einheiten erledigt.',
-      suggestedDay: 'empfohlen',
-      hey: 'Hey',
-      prevWeek: 'Vorherige Woche',
-      nextWeek: 'Nächste Woche',
-      backToToday: 'Heute',
     },
     sessions: {
       kicker: 'Programm',

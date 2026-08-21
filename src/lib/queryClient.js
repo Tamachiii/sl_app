@@ -16,7 +16,7 @@ const PERSISTED_QUERY_ROOTS = new Set([
   'slot-deviations',
   'session-confirmation',
   'set-videos',
-  // The StudentHome list source — without these two an offline cold start
+  // The StudentTraining list source — without these two an offline cold start
   // dead-ends on a spinner (program details) or renders WRONG data
   // (confirmations missing → Home regresses to week 1, adherence reads 0/N).
   // Both cache plain arrays/objects, so they survive JSON persistence;

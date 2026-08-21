@@ -6,10 +6,10 @@ import { compareSessions } from '../lib/day';
  * Fetches the program tree for the student surface:
  * weeks → sessions → exercise_slots (with exercise metadata).
  *
- * By default, only the active program is returned (used by StudentHome,
- * which always operates on the current periodization block). Pass
- * `{ allPrograms: true }` to also include past programs — used by the
- * Sessions page so students can browse archived/past-program work.
+ * By default, only the active program is returned. Pass
+ * `{ allPrograms: true }` to also include past blocks — `StudentTraining`
+ * does, so the queue can come from the active block while finished blocks
+ * still render below it as history.
  *
  * Each week carries a `program` field `{ id, name, sort_order, is_active }`
  * so consumers can group or filter without an extra round-trip.

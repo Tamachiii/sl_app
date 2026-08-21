@@ -29,6 +29,7 @@ export default function SessionCard({
   open: controlledOpen,
   onToggle,
   collapsible = true,
+  locked = false,
 }) {
   const { t } = useI18n();
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
@@ -61,7 +62,10 @@ export default function SessionCard({
         {t('common.archived')}
       </span>
     );
-  } else if (collapsible && !isStartable) {
+    // `locked` = a session from a past block: read-only in the UI and under
+    // RLS. Without this it fell through to the "start" LABEL below, which put
+    // a dead start affordance on work the student can no longer log.
+  } else if (collapsible && !isStartable && !locked) {
     statusPill = (
       <span
         className="sl-pill"

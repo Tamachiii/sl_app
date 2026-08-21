@@ -48,13 +48,16 @@ describe('BottomNav', () => {
     expect(screen.queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument();
   });
 
-  it('renders student nav with Home, Sessions, Stats and Messages links (Goals lives in Profile)', () => {
+  // Three tabs since Home and Sessions merged: both listed sessions and both
+  // started the next one, so they were two doors onto one question.
+  it('renders student nav with Training, Stats and Messages links (Goals lives in Profile)', () => {
     mockRole = 'student';
     renderBottomNav('/student');
-    expect(screen.getByText('Home')).toBeInTheDocument();
-    expect(screen.getByText('Sessions')).toBeInTheDocument();
+    expect(screen.getByText('Training')).toBeInTheDocument();
     expect(screen.getByText('Stats')).toBeInTheDocument();
     expect(screen.getByText('Messages')).toBeInTheDocument();
+    expect(screen.queryByText('Home')).not.toBeInTheDocument();
+    expect(screen.queryByText('Sessions')).not.toBeInTheDocument();
     // Goals was promoted out of the bottom nav — reachable via the Profile
     // page (avatar in header → Active goal card → View all).
     expect(screen.queryByText('Goals')).not.toBeInTheDocument();
@@ -80,10 +83,10 @@ describe('BottomNav', () => {
     expect(athletesLink).not.toHaveClass('text-[var(--color-accent)]');
   });
 
-  it('Home tab is not active when student is on a sub-route like /student/session/1', () => {
+  it('Training tab is not active when student is on a sub-route like /student/session/1', () => {
     mockRole = 'student';
     renderBottomNav('/student/session/1');
-    const homeLink = screen.getByRole('link', { name: /home/i });
-    expect(homeLink).not.toHaveClass('text-primary');
+    const trainingLink = screen.getByRole('link', { name: /training/i });
+    expect(trainingLink).not.toHaveClass('text-primary');
   });
 });

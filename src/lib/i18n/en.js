@@ -1,6 +1,6 @@
 const en = {
   nav: {
-    home: 'Home',
+    training: 'Training',
     sessions: 'Sessions',
     stats: 'Stats',
     athletes: 'Athletes',
@@ -66,21 +66,19 @@ const en = {
   },
   student: {
     home: {
-      nextSession: 'Next session',
-      then: 'Then',
       noProgram: 'No program assigned yet',
       sessionPosition: 'Session {n} of {total}',
+      blockComplete: 'Block complete — every session done.',
+      hey: 'Hey',
+    },
+    training: {
+      kicker: 'Training',
+      recommendedDay: 'Recommended {day}',
+      doneHeading: 'Done',
       lastTrained: 'Last trained {when}',
-      trainedToday: 'Trained today',
       neverTrained: 'No sessions logged yet',
       last7One: '{n} session in the last 7 days',
       last7Many: '{n} sessions in the last 7 days',
-      blockComplete: 'Block complete — every session done.',
-      suggestedDay: 'suggested',
-      hey: 'Hey',
-      prevWeek: 'Previous week',
-      nextWeek: 'Next week',
-      backToToday: 'Today',
     },
     sessions: {
       kicker: 'Program',
