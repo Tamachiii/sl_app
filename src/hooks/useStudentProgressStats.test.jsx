@@ -28,6 +28,11 @@ beforeEach(() => {
   useAuth.mockReturnValue({ user: { id: 'u-1' } });
 });
 
+// Every time-based aggregate keys off the day the session was TRAINED, so a
+// fixture that exercises volume/tonnage maths has to say when it happened —
+// an undated session is backlog, not a data point (see the dedicated test).
+const TRAINED_AT = '2026-07-08T18:00:00Z';
+
 /**
  * Build the four sequential supabase chains the hook walks through:
  *   1) students lookup   (only when no studentId is passed)
@@ -259,6 +264,7 @@ describe('useStudentProgressStats — completion + tonnage', () => {
                   sort_order: 0,
                   scheduled_date: null,
                   archived_at: null,
+                  performed_at: TRAINED_AT,
                   exercise_slots: [],
                 },
               ],
@@ -299,6 +305,7 @@ describe('useStudentProgressStats — completion + tonnage', () => {
                   sort_order: 0,
                   scheduled_date: null,
                   archived_at: null,
+                  performed_at: TRAINED_AT,
                   exercise_slots: [
                     {
                       id: 'sl-1',
@@ -357,7 +364,7 @@ describe('useStudentProgressStats — completion + tonnage', () => {
             id: 'w-1', week_number: 1, label: null,
             sessions: [{
               id: 's-1', title: 'Push', day_number: 1, sort_order: 0,
-              scheduled_date: null, archived_at: null,
+              scheduled_date: null, archived_at: null, performed_at: TRAINED_AT,
               exercise_slots: [{
                 id: 'sl-1', sets: 2, reps: 5, duration_seconds: null, weight_kg: 100,
                 exercise: { id: 'e-1', name: 'Bench', type: 'push', volume_weight: 1 },
@@ -401,7 +408,7 @@ describe('useStudentProgressStats — completion + tonnage', () => {
             id: 'w-1', week_number: 1, label: null,
             sessions: [{
               id: 's-1', title: 'Push', day_number: 1, sort_order: 0,
-              scheduled_date: null, archived_at: null,
+              scheduled_date: null, archived_at: null, performed_at: TRAINED_AT,
               exercise_slots: [{
                 id: 'sl-1', sets: 2, reps: 5, duration_seconds: null, weight_kg: 100,
                 exercise: { id: 'e-1', name: 'Bench', type: 'push', volume_weight: 1 },
@@ -444,7 +451,7 @@ describe('useStudentProgressStats — completion + tonnage', () => {
             id: 'w-1', week_number: 1, label: null,
             sessions: [{
               id: 's-1', title: 'Push', day_number: 1, sort_order: 0,
-              scheduled_date: null, archived_at: null,
+              scheduled_date: null, archived_at: null, performed_at: TRAINED_AT,
               exercise_slots: [{
                 id: 'sl-1', sets: 1, reps: 5, duration_seconds: null, weight_kg: 100,
                 // Coach prescribed a PUSH exercise…
@@ -503,7 +510,7 @@ describe('useStudentProgressStats — completion + tonnage', () => {
             id: 'w-1', week_number: 1, label: null,
             sessions: [{
               id: 's-1', title: 'Push', day_number: 1, sort_order: 0,
-              scheduled_date: null, archived_at: null,
+              scheduled_date: null, archived_at: null, performed_at: TRAINED_AT,
               exercise_slots: [{
                 id: 'sl-1', sets: 1, reps: 5, duration_seconds: null, weight_kg: 100,
                 exercise: { id: 'e-1', name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
@@ -551,6 +558,7 @@ describe('useStudentProgressStats — completion + tonnage', () => {
                   sort_order: 0,
                   scheduled_date: null,
                   archived_at: null,
+                  performed_at: TRAINED_AT,
                   exercise_slots: [
                     {
                       id: 'sl-1',
@@ -664,6 +672,102 @@ describe('useStudentProgressStats — completion + tonnage', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data.sessionCalendar).toEqual([
       { session_id: 's-1', title: 'A', date: '2026-04-20', completed: false },
+    ]);
+  });
+});
+
+// The whole point of Phase 3: time-based aggregates key off the day the
+// student TRAINED, not the ordinal week the coach authored the session under.
+describe('useStudentProgressStats — real-calendar bucketing', () => {
+  const sessionFixture = (id, over = {}) => ({
+    id,
+    title: id,
+    day_number: 1,
+    sort_order: 0,
+    scheduled_date: null,
+    archived_at: null,
+    performed_at: null,
+    exercise_slots: [],
+    ...over,
+  });
+
+  const programFixture = (sessions) => [
+    {
+      id: 'p-1',
+      name: 'A',
+      sort_order: 0,
+      is_active: true,
+      weeks: [{ id: 'w-1', week_number: 1, label: null, sessions }],
+    },
+  ];
+
+  async function run(programsData, confirmationsData = []) {
+    const setup = setupChains({ programsData, confirmationsData });
+    setup.register();
+    const qc = makeClient();
+    const { result } = renderHook(() => useStudentProgressStats(), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    return result.current.data;
+  }
+
+  it('buckets by the real Mon–Sun week the session was trained in', async () => {
+    const data = await run(
+      programFixture([
+        // Both authored in training week 1, but trained 9 days apart — they
+        // belong to two different real weeks and must not share a bucket.
+        sessionFixture('s-1', { performed_at: '2026-07-08T18:00:00Z' }), // Wed, week of Jul 6
+        sessionFixture('s-2', { performed_at: '2026-07-17T18:00:00Z' }), // Fri, week of Jul 13
+      ])
+    );
+    expect(data.weeklyVolume.map((b) => b.bucket_start)).toEqual(['2026-07-06', '2026-07-13']);
+    expect(data.weeklyVolume[0].bucket_end).toBe('2026-07-12');
+    expect(data.weeklyVolume.every((b) => b.sessions_confirmed === 1)).toBe(true);
+    // Two calendar weeks of training — the honest elapsed-time figure.
+    expect(data.weeksActive).toBe(2);
+  });
+
+  it('counts sessions with no training date as backlog, never as a time bucket', async () => {
+    const data = await run(
+      programFixture([
+        sessionFixture('done', { performed_at: '2026-07-08T18:00:00Z' }),
+        sessionFixture('todo'),
+        sessionFixture('also-todo'),
+      ])
+    );
+    expect(data.weeklyVolume).toHaveLength(1);
+    expect(data.backlogSessions).toBe(2);
+  });
+
+  it('falls back to the confirmation date for rows written before performed_at existed', async () => {
+    const data = await run(programFixture([sessionFixture('legacy')]), [
+      {
+        id: 'c-1',
+        session_id: 'legacy',
+        performed_on: '2026-07-09',
+        confirmed_at: '2026-07-20T09:00:00Z',
+      },
+    ]);
+    // performed_on beats confirmed_at — the latter is the moment an offline
+    // confirm reached the server, which can be days after the training.
+    expect(data.weeklyVolume[0].bucket_start).toBe('2026-07-06');
+    expect(data.backlogSessions).toBe(0);
+  });
+
+  it('puts a trained session on the calendar on its REAL date, not its planned one', async () => {
+    const data = await run(
+      programFixture([
+        sessionFixture('moved', {
+          scheduled_date: '2026-07-06',
+          performed_at: '2026-07-09T18:00:00Z',
+        }),
+        // Trained without any coach-set date: invisible on the old calendar,
+        // which only ever plotted scheduled_date.
+        sessionFixture('undated', { performed_at: '2026-07-10T18:00:00Z' }),
+      ])
+    );
+    expect(data.sessionCalendar).toEqual([
+      { session_id: 'moved', title: 'moved', date: '2026-07-09', completed: false },
+      { session_id: 'undated', title: 'undated', date: '2026-07-10', completed: false },
     ]);
   });
 });

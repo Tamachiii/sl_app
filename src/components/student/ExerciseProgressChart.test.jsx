@@ -123,16 +123,31 @@ describe('<ExerciseProgressChart />', () => {
     expect(screen.getByRole('combobox').value).toBe('e-1');
   });
 
+  // The x-axis is a real timeline now — one point per session on the day it
+  // was trained — so ticks are dates, not ordinal week numbers.
+  it('labels the x-axis with the training date', () => {
+    const exercises = [{ id: 'e-1', name: 'Squat' }];
+    const byExercise = {
+      'e-1': [
+        { session_id: 's-1', date: '2026-07-08', tonnage: 100, program_id: 'p-1', key: 's-1' },
+        { session_id: 's-2', date: '2026-07-11', tonnage: 200, program_id: 'p-1', key: 's-2' },
+      ],
+    };
+    render(<ExerciseProgressChart exercises={exercises} byExercise={byExercise} />);
+    expect(screen.getByText('7/8')).toBeInTheDocument();
+    expect(screen.getByText('7/11')).toBeInTheDocument();
+  });
+
   it('prefixes program name on x-labels when points span multiple programs', () => {
     const exercises = [{ id: 'e-1', name: 'Squat' }];
     const byExercise = {
       'e-1': [
-        { week_number: 1, tonnage: 100, program_id: 'p-1', program_name: 'Block A', key: 'p-1:1' },
-        { week_number: 1, tonnage: 200, program_id: 'p-2', program_name: 'Block B', key: 'p-2:1' },
+        { session_id: 's-1', date: '2026-07-08', tonnage: 100, program_id: 'p-1', program_name: 'Block A', key: 's-1' },
+        { session_id: 's-2', date: '2026-07-08', tonnage: 200, program_id: 'p-2', program_name: 'Block B', key: 's-2' },
       ],
     };
     render(<ExerciseProgressChart exercises={exercises} byExercise={byExercise} />);
-    // Both points produce "BLO·W1" because both program names start with "Block ".
-    expect(screen.getAllByText('BLO·W1').length).toBeGreaterThanOrEqual(1);
+    // Both points produce "BLO·7/8" because both program names start with "Block ".
+    expect(screen.getAllByText('BLO·7/8').length).toBeGreaterThanOrEqual(1);
   });
 });

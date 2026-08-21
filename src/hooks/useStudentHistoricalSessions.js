@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
+import { isoDate } from '../lib/day';
 
 /**
  * Scheduled sessions from the signed-in student's NON-active program blocks.
@@ -30,7 +31,7 @@ export function useStudentHistoricalSessions() {
         .select(`
           id,
           weeks(
-            sessions(id, title, scheduled_date, archived_at)
+            sessions(id, title, scheduled_date, archived_at, performed_at)
           )
         `)
         .eq('student_id', student.id)
@@ -38,12 +39,18 @@ export function useStudentHistoricalSessions() {
         .is('deleted_at', null);
       if (pErr) throw pErr;
 
+      // The day it was actually trained wins over the day it was planned for,
+      // and a session trained without any coach-set date now shows up at all —
+      // it used to be invisible on the calendar.
       const dated = [];
       for (const prog of programs || []) {
         for (const w of prog.weeks || []) {
           for (const s of w.sessions || []) {
-            if (!s.scheduled_date) continue;
-            dated.push(s);
+            const date = s.performed_at
+              ? isoDate(new Date(s.performed_at))
+              : s.scheduled_date?.slice(0, 10) || null;
+            if (!date) continue;
+            dated.push({ ...s, date });
           }
         }
       }
@@ -68,7 +75,7 @@ export function useStudentHistoricalSessions() {
       return dated.map((s) => ({
         session_id: s.id,
         title: s.title,
-        date: s.scheduled_date,
+        date: s.date,
         completed: confirmedIds.has(s.id) || !!s.archived_at,
         historical: true,
       }));

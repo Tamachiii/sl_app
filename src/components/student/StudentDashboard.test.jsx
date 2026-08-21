@@ -49,28 +49,30 @@ const sampleData = {
   totalSetsDone: 42,
   weeksActive: 2,
   avgRpe: 7.3,
+  // A volume row is a REAL Mon–Sun week the student trained in, identified by
+  // its date range — not an ordinal "W1".
   weeklyVolume: [
     {
-      week_id: 'w-1',
-      week_number: 1,
-      label: 'Intro',
-      program_id: 'p-1',
-      program_name: 'Block A',
+      bucket_start: '2026-07-06',
+      bucket_end: '2026-07-12',
       pull: 50,
       push: 30,
+      pull_planned: 60,
+      push_planned: 40,
+      sets_done: 9,
+      sets_prescribed: 12,
       sessions_confirmed: 3,
-      sessions_total: 3,
     },
     {
-      week_id: 'w-2',
-      week_number: 2,
-      label: null,
-      program_id: 'p-1',
-      program_name: 'Block A',
+      bucket_start: '2026-07-13',
+      bucket_end: '2026-07-19',
       pull: 60,
       push: 40,
+      pull_planned: 60,
+      push_planned: 40,
+      sets_done: 12,
+      sets_prescribed: 12,
       sessions_confirmed: 2,
-      sessions_total: 3,
     },
   ],
   recentConfirmations: [],
@@ -127,6 +129,16 @@ describe('StudentDashboard', () => {
     expect(screen.getByText('42')).toBeInTheDocument();
     expect(screen.getByText(/of 100 prescribed/i)).toBeInTheDocument();
     expect(screen.getByText('7.3')).toBeInTheDocument();
+  });
+
+  // Volume rows are labelled by the real days they cover, so a block spread
+  // over more time reads as more weeks instead of collapsing into "W1".
+  it('labels each volume row with its calendar date range', () => {
+    mockStats = { data: sampleData, isLoading: false };
+    renderDashboard();
+    expect(screen.getByText('Jul 6 – 12')).toBeInTheDocument();
+    expect(screen.getByText('Jul 13 – 19')).toBeInTheDocument();
+    expect(screen.queryByText(/^W1$/)).not.toBeInTheDocument();
   });
 
   it('does not render full-weeks stat or recent-activity section', () => {

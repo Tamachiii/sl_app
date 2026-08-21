@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 import { computeSessionVolume } from '../lib/volume';
+import { addDays, isoDate, parseISODate, startOfWeekMonday } from '../lib/day';
 
 /**
  * Aggregates everything the Student Stats page needs in a single fetch:
@@ -14,14 +15,22 @@ import { computeSessionVolume } from '../lib/volume';
  *   - 'active'   → only the currently-active program (legacy block-local view)
  *   - <programId> → a single specific program (active or past)
  *
+ * Everything time-based is bucketed by the REAL CALENDAR WEEK the student
+ * trained in (Mon–Sun of `sessions.performed_at`), not by the ordinal training
+ * week the session was authored under. A block stretched over ten days used to
+ * land in a bucket that corresponded to no actual seven-day span; now the
+ * chart shows the weeks the student lived. Work that hasn't been done yet has
+ * no date, so it never enters a time bucket — it is counted as backlog.
+ *
  * Returns derived stats:
  *   - totalSessionsConfirmed, totalSessions
  *   - totalSetsDone, totalSets
- *   - weeksActive       (weeks that have >= 1 confirmation)
+ *   - weeksActive       (calendar weeks in which at least one session was trained)
+ *   - backlogSessions   (open sessions with no training date yet)
  *   - avgRpe            (across sets with rpe logged)
  *   - recentConfirmations[] (last 5, newest first)
- *   - weeklyVolume[]    [{ week_id, week_number, label, program_id, program_name, pull, push, sessions_confirmed, sessions_total }]
- *   - sessionCalendar[] [{ session_id, title, date, completed }] — sessions w/ scheduled_date
+ *   - weeklyVolume[]    [{ bucket_start, bucket_end, pull, push, *_planned, sets_done, sets_prescribed, sessions_confirmed }]
+ *   - sessionCalendar[] [{ session_id, title, date, completed }] — performed sessions on their REAL date, open ones on their recommended date
  *
  * Pass a `studentId` (students.id row id) to stat any student — used by the
  * coach Students view. Omit it to stat the signed-in user (student flow).
@@ -57,7 +66,7 @@ export function useStudentProgressStats(studentId, scope = 'all') {
           weeks(
             id, week_number, label,
             sessions(
-              id, title, day_number, sort_order, scheduled_date, archived_at,
+              id, title, day_number, sort_order, scheduled_date, archived_at, performed_at,
               exercise_slots(
                 id, sets, reps, duration_seconds, weight_kg,
                 exercise:exercise_library(id, name, type, difficulty, volume_weight),
@@ -149,7 +158,7 @@ export function useStudentProgressStats(studentId, scope = 'all') {
             supabase
               .from('session_confirmations')
               .select(
-                'id, session_id, confirmed_at, notes, sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at)))'
+                'id, session_id, confirmed_at, performed_on, notes, sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at)))'
               ),
             'sessions.weeks.programs'
           ).order('confirmed_at', { ascending: false })
@@ -237,6 +246,46 @@ export function useStudentProgressStats(studentId, scope = 'all') {
       // may have been archived without ever getting a confirmation row).
       const isCompleted = (s) => confirmedIds.has(s.id) || !!s.archived_at;
 
+      // ─── When each session was actually trained ──────────────────────────
+      // The one date every time-based aggregate below keys off. Preference
+      // order runs from most to least truthful:
+      //   1. sessions.performed_at — the day the student trained, derived from
+      //      the set logs at confirm time (survives an offline queue intact).
+      //   2. the confirmation's performed_on / confirmed_at — for rows written
+      //      before performed_at existed. confirmed_at is the REPLAY moment for
+      //      an offline confirm, so it is a fallback, never the primary.
+      //   3. scheduled_date, only for a session archived without ever being
+      //      confirmed — legacy shape, and the plan date is all it has.
+      // A session with none of these has no place on a timeline and is counted
+      // as backlog rather than being parked on an invented date.
+      const confBySession = new Map();
+      for (const c of confirmations) confBySession.set(c.session_id, c);
+
+      const localDay = (stamp) => {
+        if (!stamp) return null;
+        const d = new Date(stamp);
+        return Number.isNaN(d.getTime()) ? null : isoDate(d);
+      };
+
+      const performedOnBySession = new Map();
+      for (const s of allSessions) {
+        const conf = confBySession.get(s.id);
+        const on =
+          localDay(s.performed_at) ||
+          (conf?.performed_on ? conf.performed_on.slice(0, 10) : null) ||
+          localDay(conf?.confirmed_at) ||
+          (s.archived_at && s.scheduled_date ? s.scheduled_date.slice(0, 10) : null);
+        if (on) performedOnBySession.set(s.id, on);
+      }
+
+      // Monday of the real calendar week a session was trained in.
+      const bucketOf = (sessionId) => {
+        const on = performedOnBySession.get(sessionId);
+        if (!on) return null;
+        const d = parseISODate(on);
+        return d ? isoDate(startOfWeekMonday(d)) : null;
+      };
+
       const totalSessions = allSessions.length;
       const totalSessionsConfirmed = allSessions.filter(isCompleted).length;
       const totalSetsDone = setLogs.filter((l) => l.done).length;
@@ -253,76 +302,88 @@ export function useStudentProgressStats(studentId, scope = 'all') {
         ? rpeSamples.reduce((a, b) => a + b, 0) / rpeSamples.length
         : null;
 
-      // Weekly volume + confirmation counts.
-      // Volume uses volumeSessions (all sessions incl. archived) so archiving a
-      // session doesn't make its prescribed load vanish from the chart.
-      // Progress counts use sessions (non-archived only).
-      const weeklyVolume = weeks.map((w) => {
-        // Prescribed volume (planned) — reference line.
-        let pull = 0;
-        let push = 0;
-        // Performed volume (what was actually done) — the primary bar.
-        let pullDone = 0;
-        let pushDone = 0;
-        // Adherence: done vs prescribed sets across the week.
-        let setsPrescribed = 0;
-        let setsDone = 0;
-        for (const s of w.volumeSessions || []) {
-          const v = computeSessionVolume(s.exercise_slots || []);
-          pull += v.pull;
-          push += v.push;
-          for (const slot of s.exercise_slots || []) {
-            const perf = perfBySlot.get(slot.id) || [];
-            setsPrescribed += slot.sets || 0;
-            // Adherence measures the PRESCRIBED work done, so student-added
-            // extra sets don't push it over 100% (they're bonus, and
-            // sets_prescribed never counts them). They still count toward
-            // performed volume/tonnage below — that's real work.
-            setsDone += perf.filter((l) => l.done && !l.is_student_added).length;
-            // Performed volume follows an exercise SWAP: credit the
-            // substitute's type/difficulty/volume_weight, since that's the work
-            // the student did. Planned (computeSessionVolume above) stays on
-            // the coach's original exercise.
-            const perfEx = swapBySlot.get(slot.id) || slot.exercise;
-            if (!perfEx || !perfEx.type) continue;
-            // Performed training volume mirrors computeSessionVolume's
-            // difficulty × reps × volume_weight, but sums ACTUAL reps of
-            // done sets instead of prescribed reps.
-            let doneReps = 0;
-            for (const l of perf) doneReps += performedReps(l);
-            if (doneReps <= 0) continue;
-            const vol = perfEx.difficulty * doneReps * Number(perfEx.volume_weight);
-            if (perfEx.type === 'pull') pullDone += vol;
-            else if (perfEx.type === 'push') pushDone += vol;
-          }
+      // ─── Volume per REAL calendar week ───────────────────────────────────
+      // One bucket per Mon–Sun span the student actually trained in. A
+      // session's PLANNED volume travels with it into the bucket where it was
+      // performed, so planned and performed are always compared over the same
+      // days; work still to do has no date and lands in `backlogSessions`
+      // instead of dragging down a week it was never attempted in.
+      const bucketMap = new Map();
+      const bucketFor = (key) => {
+        let acc = bucketMap.get(key);
+        if (!acc) {
+          acc = {
+            bucket_start: key,
+            bucket_end: isoDate(addDays(parseISODate(key), 6)),
+            pull: 0,
+            push: 0,
+            pull_planned: 0,
+            push_planned: 0,
+            sets_done: 0,
+            sets_prescribed: 0,
+            sessions_confirmed: 0,
+          };
+          bucketMap.set(key, acc);
         }
-        let sessionsConfirmed = 0;
-        for (const s of w.sessions || []) {
-          if (isCompleted(s)) sessionsConfirmed += 1;
+        return acc;
+      };
+
+      let backlogSessions = 0;
+      for (const s of allSessions) {
+        const key = bucketOf(s.id);
+        if (!key) {
+          if (!s.archived_at) backlogSessions += 1;
+          continue;
         }
-        return {
-          week_id: w.id,
-          week_number: w.week_number,
-          label: w.label,
-          program_id: w.program_id,
-          program_name: w.program_name,
-          program_is_active: w.program_is_active,
-          // Performed (primary); prescribed kept as *_planned for the ghost.
-          pull: pullDone,
-          push: pushDone,
-          pull_planned: pull,
-          push_planned: push,
-          sets_done: setsDone,
-          sets_prescribed: setsPrescribed,
-          sessions_confirmed: sessionsConfirmed,
-          sessions_total: (w.sessions || []).length,
-        };
-      });
+        const acc = bucketFor(key);
+        acc.sessions_confirmed += 1;
 
-      const weeksActive = weeklyVolume.filter((w) => w.sessions_confirmed > 0).length;
+        const v = computeSessionVolume(s.exercise_slots || []);
+        acc.pull_planned += v.pull;
+        acc.push_planned += v.push;
 
-      // ─── Per-exercise weekly tonnage ─────────────────────────────────────
-      // One point per week per exercise. `tonnage` is PERFORMED — Σ(effective
+        for (const slot of s.exercise_slots || []) {
+          const perf = perfBySlot.get(slot.id) || [];
+          acc.sets_prescribed += slot.sets || 0;
+          // Adherence measures the PRESCRIBED work done, so student-added
+          // extra sets don't push it over 100% (they're bonus, and
+          // sets_prescribed never counts them). They still count toward
+          // performed volume/tonnage below — that's real work.
+          acc.sets_done += perf.filter((l) => l.done && !l.is_student_added).length;
+          // Performed volume follows an exercise SWAP: credit the
+          // substitute's type/difficulty/volume_weight, since that's the work
+          // the student did. Planned (computeSessionVolume above) stays on
+          // the coach's original exercise.
+          const perfEx = swapBySlot.get(slot.id) || slot.exercise;
+          if (!perfEx || !perfEx.type) continue;
+          // Performed training volume mirrors computeSessionVolume's
+          // difficulty × reps × volume_weight, but sums ACTUAL reps of
+          // done sets instead of prescribed reps.
+          let doneReps = 0;
+          for (const l of perf) doneReps += performedReps(l);
+          if (doneReps <= 0) continue;
+          const vol = perfEx.difficulty * doneReps * Number(perfEx.volume_weight);
+          if (perfEx.type === 'pull') acc.pull += vol;
+          else if (perfEx.type === 'push') acc.push += vol;
+        }
+      }
+
+      const weeklyVolume = Array.from(bucketMap.values()).sort((a, b) =>
+        a.bucket_start < b.bucket_start ? -1 : a.bucket_start > b.bucket_start ? 1 : 0
+      );
+
+      // Calendar weeks the student actually trained in — a real elapsed-time
+      // figure now, where the old count was "ordinal weeks holding a
+      // confirmation" and could exceed the time that had actually passed.
+      const weeksActive = weeklyVolume.length;
+
+      // ─── Per-exercise tonnage over time ──────────────────────────────────
+      // One point per SESSION per exercise, placed on the day it was trained —
+      // finer than the old per-ordinal-week point, and it no longer needs the
+      // `program_id:week_id` composite key that existed only to stop week 1 of
+      // two different blocks from colliding. A session with no training date
+      // has no place on a time axis and is left out.
+      // `tonnage` is PERFORMED — Σ(effective
       // reps × effective weight) over DONE sets (actuals override targets),
       // so a student who deviated sees their real numbers, not the plan.
       // An exercise SWAP splits the slot: PLANNED tonnage stays on the coach's
@@ -331,13 +392,15 @@ export function useStudentProgressStats(studentId, scope = 'all') {
       // did (via swapBySlot). Skips are handled (done=false → 0).
       // `plannedTonnage` keeps the prescribed Σ(target_reps × target_weight)
       // as a reference. Bodyweight (null/0) counts as 1kg. Each point carries
-      // program_id/program_name + a stable `key` so the chart can render
-      // multiple programs side-by-side without colliding on week_number.
+      // program_id/program_name so a chart spanning two blocks can label which
+      // is which.
       const exerciseMeta = {};   // id → { id, name, type }
-      const byExercise = {};     // id → [{ week_id, week_number, …, tonnage, plannedTonnage, key }]
+      const byExercise = {};     // id → [{ session_id, date, …, tonnage, plannedTonnage, key }]
       for (const w of weeks) {
-        const perExercise = {};  // exId → { tonnage, plannedTonnage }
         for (const s of w.sessions || []) {
+          const performedOn = performedOnBySession.get(s.id);
+          if (!performedOn) continue;
+          const perExercise = {};  // exId → { tonnage, plannedTonnage }
           for (const slot of s.exercise_slots || []) {
             const ex = slot.exercise;
             if (!ex) continue;
@@ -381,7 +444,7 @@ export function useStudentProgressStats(studentId, scope = 'all') {
               exerciseMeta[ex.id] = { id: ex.id, name: ex.name, type: ex.type };
               const a = perExercise[ex.id] || { tonnage: 0, plannedTonnage: 0 };
               a.plannedTonnage += planned;
-              // Prescribed, but swapped out this week — label so a 0 performed
+              // Prescribed, but swapped out that day — label so a 0 performed
               // reads as a swap, not a miss.
               if (isSwapped && performed > 0) a.swappedTo = perfEx.name;
               perExercise[ex.id] = a;
@@ -394,26 +457,31 @@ export function useStudentProgressStats(studentId, scope = 'all') {
               perExercise[perfEx.id] = b;
             }
           }
+          for (const exId of Object.keys(perExercise)) {
+            if (!byExercise[exId]) byExercise[exId] = [];
+            const acc = perExercise[exId];
+            byExercise[exId].push({
+              session_id: s.id,
+              date: performedOn,
+              title: s.title,
+              program_id: w.program_id,
+              program_name: w.program_name,
+              tonnage: acc.tonnage,
+              // Only a genuinely prescribed exercise carries a planned reference;
+              // a swap-in substitute (planned 0) leaves it undefined so the chart
+              // doesn't draw a misleading flat-zero "planned" line.
+              plannedTonnage: acc.plannedTonnage > 0 ? acc.plannedTonnage : undefined,
+              swappedTo: acc.swappedTo,
+              swappedFrom: acc.swappedFrom,
+              key: s.id,
+            });
+          }
         }
-        for (const exId of Object.keys(perExercise)) {
-          if (!byExercise[exId]) byExercise[exId] = [];
-          const acc = perExercise[exId];
-          byExercise[exId].push({
-            week_id: w.id,
-            week_number: w.week_number,
-            label: w.label,
-            program_id: w.program_id,
-            program_name: w.program_name,
-            tonnage: acc.tonnage,
-            // Only a genuinely prescribed exercise carries a planned reference;
-            // a swap-in substitute (planned 0) leaves it undefined so the chart
-            // doesn't draw a misleading flat-zero "planned" line.
-            plannedTonnage: acc.plannedTonnage > 0 ? acc.plannedTonnage : undefined,
-            swappedTo: acc.swappedTo,
-            swappedFrom: acc.swappedFrom,
-            key: `${w.program_id}:${w.id}`,
-          });
-        }
+      }
+      // Chronological, because the x-axis is now time: program order no longer
+      // implies date order once the student works at their own pace.
+      for (const exId of Object.keys(byExercise)) {
+        byExercise[exId].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
       }
       const exerciseProgress = {
         exercises: Object.values(exerciseMeta).sort((a, b) => a.name.localeCompare(b.name)),
@@ -438,16 +506,21 @@ export function useStudentProgressStats(studentId, scope = 'all') {
         .map((c) => ({ ...c, ...sessionMeta[c.session_id] }));
 
       // ─── Session calendar ────────────────────────────────────────────────
-      // Flatten scheduled sessions for the month calendar. Each entry is
-      // keyed by its scheduled_date (YYYY-MM-DD) and flagged completed or
-      // upcoming. Sessions without scheduled_date are omitted.
+      // Trained sessions land on the day they were REALLY trained; open ones
+      // on the day they're recommended for. That's the inversion the whole
+      // refactor is about — the calendar reports what happened rather than
+      // what was supposed to happen. It also means a session trained without
+      // any coach-set date finally appears at all, where before an undated
+      // session was simply missing from the month view.
       const sessionCalendar = [];
       for (const s of allSessions) {
-        if (!s.scheduled_date) continue;
+        const performedOn = performedOnBySession.get(s.id);
+        const date = performedOn || (s.scheduled_date ? s.scheduled_date.slice(0, 10) : null);
+        if (!date) continue;
         sessionCalendar.push({
           session_id: s.id,
           title: s.title,
-          date: s.scheduled_date,
+          date,
           completed: isCompleted(s),
         });
       }
@@ -458,6 +531,7 @@ export function useStudentProgressStats(studentId, scope = 'all') {
         totalSets,
         totalSetsDone,
         weeksActive,
+        backlogSessions,
         avgRpe,
         weeklyVolume,
         recentConfirmations,

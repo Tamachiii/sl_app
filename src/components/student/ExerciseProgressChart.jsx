@@ -1,5 +1,37 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useI18n } from '../../hooks/useI18n';
+import { parseISODate } from '../../lib/day';
+
+const LOCALE = { en: 'en-US', fr: 'fr-FR', de: 'de-DE' };
+
+// Compact axis tick — "17/8" (fr) / "8/17" (en). One point per session on a
+// real date, so the ticks have to stay short enough to sit side by side.
+function formatTick(iso, lang) {
+  const d = parseISODate(iso);
+  if (!d) return '';
+  try {
+    return new Intl.DateTimeFormat(LOCALE[lang] || LOCALE.en, {
+      day: 'numeric',
+      month: 'numeric',
+    }).format(d);
+  } catch {
+    return iso.slice(5);
+  }
+}
+
+function formatPointDate(iso, lang) {
+  const d = parseISODate(iso);
+  if (!d) return '';
+  try {
+    return new Intl.DateTimeFormat(LOCALE[lang] || LOCALE.en, {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    }).format(d);
+  } catch {
+    return iso;
+  }
+}
 
 // ink-100 is a near-white cream: a faint rule on the light card, but bright
 // lines across the dark one. A tint of the mid-tone ink reads correctly in
@@ -13,7 +45,7 @@ function readStoredExerciseId(storageKey) {
 }
 
 export default function ExerciseProgressChart({ exercises, byExercise, storageKey }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const [selectedId, setSelectedId] = useState(() => {
     const stored = readStoredExerciseId(storageKey);
     if (stored && exercises.some((e) => e.id === stored)) return stored;
@@ -45,14 +77,12 @@ export default function ExerciseProgressChart({ exercises, byExercise, storageKe
   }
 
   const points = useMemo(() => {
-    // Hook returns points already in (program order, week order). Don't
-    // re-sort by week_number alone — that would shuffle weeks across
-    // programs (W1 of block A and W1 of block B end up adjacent).
+    // Hook returns points already sorted by training date — one per session.
     return byExercise[selectedId] || [];
   }, [byExercise, selectedId]);
 
   // When points span multiple programs, surface the program in the x-axis
-  // label so W1 of block A vs W1 of block B aren't visually identical.
+  // label so two blocks' sessions aren't visually identical.
   const showProgramLabel = useMemo(() => {
     const names = new Set(points.map((p) => p.program_name).filter(Boolean));
     return names.size > 1;
@@ -165,7 +195,7 @@ export default function ExerciseProgressChart({ exercises, byExercise, storageKe
               const barW = Math.min(18, (plotW / Math.max(points.length, 1)) * 0.45);
               return (
                 <rect
-                  key={p.key ?? `${p.program_id}:${p.week_number}`}
+                  key={p.key ?? p.session_id}
                   x={cx - barW / 2}
                   y={top}
                   width={barW}
@@ -204,15 +234,16 @@ export default function ExerciseProgressChart({ exercises, byExercise, storageKe
 
             {points.map((p, i) => (
               <circle
-                key={p.key ?? `${p.program_id}:${p.week_number}`}
+                key={p.key ?? p.session_id}
                 cx={xFor(i)}
                 cy={yFor(p.tonnage)}
                 r="3"
                 fill="var(--color-accent)"
               >
                 <title>
-                  {p.program_name ? `${p.program_name} · ` : ''}Week {p.week_number}
-                  {p.label ? ` — ${p.label}` : ''}: {Math.round(p.tonnage)} kg
+                  {p.program_name ? `${p.program_name} · ` : ''}
+                  {formatPointDate(p.date, lang)}
+                  {p.title ? ` — ${p.title}` : ''}: {Math.round(p.tonnage)} kg
                   {p.swappedTo ? ` · swapped to ${p.swappedTo}` : ''}
                   {p.swappedFrom ? ` · substituted for ${p.swappedFrom}` : ''}
                 </title>
@@ -221,7 +252,7 @@ export default function ExerciseProgressChart({ exercises, byExercise, storageKe
 
             {points.map((p, i) => (
               <text
-                key={p.key ?? `${p.program_id}:${p.week_number}`}
+                key={p.key ?? p.session_id}
                 x={xFor(i)}
                 y={H - 8}
                 textAnchor="middle"
@@ -230,8 +261,8 @@ export default function ExerciseProgressChart({ exercises, byExercise, storageKe
                 fontSize="10"
               >
                 {showProgramLabel && p.program_name
-                  ? `${p.program_name.slice(0, 3).toUpperCase()}·W${p.week_number}`
-                  : `W${p.week_number}`}
+                  ? `${p.program_name.slice(0, 3).toUpperCase()}·${formatTick(p.date, lang)}`
+                  : formatTick(p.date, lang)}
               </text>
             ))}
           </svg>

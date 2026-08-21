@@ -2,6 +2,16 @@
 // per-student Stats tab, so the performance-aware rendering (performed bars
 // over a faint planned ghost track + per-week adherence) can't drift between
 // the two surfaces again.
+//
+// A row is a REAL calendar week the student trained in (Mon–Sun), labelled by
+// its date range. It used to be an ordinal training week labelled "W3", which
+// said nothing about when the work happened — a block spread over ten days
+// still read as one week.
+
+import { useI18n } from '../../hooks/useI18n';
+import { addDays, parseISODate } from '../../lib/day';
+
+const LOCALE = { en: 'en-US', fr: 'fr-FR', de: 'de-DE' };
 
 /** Scale bars to the larger of performed / planned so the ghost track fits. */
 export function computeMaxWeeklyTotal(weeks) {
@@ -13,8 +23,19 @@ export function computeMaxWeeklyTotal(weeks) {
   );
 }
 
-function VolumeWeekRow({ week, maxTotal, t }) {
-  const { week_number, label, pull, push, sets_done, sets_prescribed } = week;
+/** "6 – 12 Jul" for the bucket's Mon–Sun span. */
+export function formatBucketRange(bucketStart, lang) {
+  const monday = parseISODate(bucketStart);
+  if (!monday) return '';
+  const locale = LOCALE[lang] || LOCALE.en;
+  return new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }).formatRange(
+    monday,
+    addDays(monday, 6)
+  );
+}
+
+function VolumeWeekRow({ week, maxTotal, t, lang }) {
+  const { bucket_start, pull, push, sets_done, sets_prescribed } = week;
   // `pull`/`push` are PERFORMED; `*_planned` is the prescribed reference.
   const total = pull + push;
   const planned = (week.pull_planned || 0) + (week.push_planned || 0);
@@ -29,8 +50,7 @@ function VolumeWeekRow({ week, maxTotal, t }) {
     <div className="space-y-1.5">
       <div className="flex items-baseline justify-between">
         <span className="sl-mono text-[11px] text-gray-800">
-          W{week_number}
-          {label && <span className="text-ink-400 ml-1.5">{label}</span>}
+          {formatBucketRange(bucket_start, lang)}
         </span>
         <span className="sl-mono text-[11px] text-ink-400 tabular-nums">
           {adherence != null && (
@@ -68,12 +88,15 @@ function VolumeWeekRow({ week, maxTotal, t }) {
 }
 
 export default function WeeklyVolumePanel({ weeks, maxTotal, t }) {
+  const { lang } = useI18n();
   return (
     <div className="sl-card p-4 space-y-3">
       {maxTotal === 0 ? (
         <p className="sl-mono text-[11px] text-ink-400">{t('student.stats.noVolume')}</p>
       ) : (
-        weeks.map((w) => <VolumeWeekRow key={w.week_id} week={w} maxTotal={maxTotal} t={t} />)
+        weeks.map((w) => (
+          <VolumeWeekRow key={w.bucket_start} week={w} maxTotal={maxTotal} t={t} lang={lang} />
+        ))
       )}
       {maxTotal > 0 && (
         <div className="space-y-1.5 pt-2 border-t border-ink-100">
