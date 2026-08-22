@@ -310,6 +310,7 @@ const fr = {
     },
     prev: {
       label: 'La dernière fois',
+      never: 'jamais fait',
       perSet: 'par série',
       empty: 'Aucun exercice dans cette séance.',
     },

@@ -1,83 +1,86 @@
-import { describe, it, expect } from 'vitest';
-import { findPreviousSession } from './PreviousSessionPanel';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
 
-const program = {
-  id: 'p-1',
-  weeks: [
-    {
-      id: 'w-1',
-      week_number: 1,
-      sessions: [
-        { id: 'a1', day_number: 1, sort_order: 0, archived_at: null },
-        { id: 'a3', day_number: 3, sort_order: 1, archived_at: null },
-      ],
-    },
-    {
-      id: 'w-2',
-      week_number: 2,
-      sessions: [
-        { id: 'b1', day_number: 1, sort_order: 0, archived_at: null },
-        { id: 'b3', day_number: 3, sort_order: 1, archived_at: null },
-      ],
-    },
-  ],
-};
+let mockPerf = { data: {}, isLoading: false };
+vi.mock('../../hooks/useLastPerformance', () => ({
+  useLastPerformance: (...args) => {
+    mockPerf.calledWith = args;
+    return mockPerf;
+  },
+}));
 
-describe('findPreviousSession', () => {
-  it('matches the same weekday in the previous week', () => {
-    const prev = findPreviousSession(program, 'b3');
-    expect(prev.session.id).toBe('a3');
-    expect(prev.week.week_number).toBe(1);
-  });
+import PreviousSessionPanel from './PreviousSessionPanel';
 
-  it('returns null in week 1 — there is no previous week', () => {
-    expect(findPreviousSession(program, 'a1')).toBeNull();
-  });
+const slot = (id, exId, name) => ({
+  id,
+  exercise: { id: exId, name },
+});
 
-  it('returns null for a session that is not in the program', () => {
-    expect(findPreviousSession(program, 'nope')).toBeNull();
-  });
+function renderPanel(slots, perf = {}) {
+  mockPerf = { data: perf, isLoading: false };
+  return render(
+    <PreviousSessionPanel studentRowId="st-1" sessionId="sess-1" slots={slots} />,
+  );
+}
 
-  it('falls back to the same position when the weekday does not exist', () => {
-    const shifted = {
-      weeks: [
-        { id: 'w-1', week_number: 1, sessions: [{ id: 'a', day_number: 2, sort_order: 0, archived_at: null }] },
-        { id: 'w-2', week_number: 2, sessions: [{ id: 'b', day_number: 5, sort_order: 0, archived_at: null }] },
-      ],
-    };
-    expect(findPreviousSession(shifted, 'b').session.id).toBe('a');
-  });
-
-  it('ignores archived sessions — they are not what the athlete follows', () => {
-    const withArchived = {
-      weeks: [
-        {
-          id: 'w-1',
-          week_number: 1,
-          sessions: [{ id: 'old', day_number: 1, sort_order: 0, archived_at: '2026-01-01' }],
+describe('PreviousSessionPanel', () => {
+  // The whole point of the rewrite: it used to list the coach's own past
+  // PRESCRIPTION from "the same weekday last week". Progressive overload is
+  // written against what the athlete actually lifted.
+  it('shows the sets the athlete really performed, per exercise', () => {
+    renderPanel(
+      [slot('sl-1', 'ex-1', 'Bench Press')],
+      {
+        'ex-1': {
+          performedAt: new Date().toISOString(),
+          sets: [
+            { weight: 100, reps: 8 },
+            { weight: 100, reps: 8 },
+            { weight: 100, reps: 8 },
+          ],
         },
-        {
-          id: 'w-2',
-          week_number: 2,
-          sessions: [{ id: 'new', day_number: 1, sort_order: 0, archived_at: null }],
-        },
-      ],
-    };
-    expect(findPreviousSession(withArchived, 'new')).toBeNull();
+      },
+    );
+    expect(screen.getByText('Bench Press')).toBeInTheDocument();
+    expect(screen.getByText('3 × 8 @ 100kg')).toBeInTheDocument();
   });
 
-  it('is null-safe when the program has not loaded', () => {
-    expect(findPreviousSession(undefined, 'b3')).toBeNull();
-    expect(findPreviousSession({}, 'b3')).toBeNull();
+  it('scopes the read to THIS athlete — a coach must not see another one’s history', () => {
+    renderPanel([slot('sl-1', 'ex-1', 'Bench Press')]);
+    // (sessionId, slots, scheduledDate, deviations, ready, studentRowId)
+    expect(mockPerf.calledWith[0]).toBe('sess-1');
+    expect(mockPerf.calledWith[5]).toBe('st-1');
   });
 
-  it('handles a gap in week numbers (no week N-1) by returning null', () => {
-    const gapped = {
-      weeks: [
-        { id: 'w-1', week_number: 1, sessions: [{ id: 'a', day_number: 1, sort_order: 0, archived_at: null }] },
-        { id: 'w-3', week_number: 3, sessions: [{ id: 'c', day_number: 1, sort_order: 0, archived_at: null }] },
-      ],
-    };
-    expect(findPreviousSession(gapped, 'c')).toBeNull();
+  it('says so plainly when an exercise has no history to beat', () => {
+    renderPanel([slot('sl-1', 'ex-1', 'Snatch')]);
+    expect(screen.getByText('Snatch')).toBeInTheDocument();
+    expect(screen.getByText('no history')).toBeInTheDocument();
+  });
+
+  it('lists every exercise of the session, history or not', () => {
+    renderPanel(
+      [slot('sl-1', 'ex-1', 'Bench Press'), slot('sl-2', 'ex-2', 'Row')],
+      { 'ex-1': { performedAt: new Date().toISOString(), sets: [{ weight: 60, reps: 5 }] } },
+    );
+    expect(screen.getByText('Bench Press')).toBeInTheDocument();
+    expect(screen.getByText('Row')).toBeInTheDocument();
+    expect(screen.getByText('5 @ 60kg')).toBeInTheDocument();
+    expect(screen.getByText('no history')).toBeInTheDocument();
+  });
+
+  // It used to require `week_number === current - 1`, so a one-week block —
+  // the normal shape since the queue refactor — got no reference at all.
+  it('renders in a block with no previous week, because there is no week maths left', () => {
+    renderPanel(
+      [slot('sl-1', 'ex-1', 'Bench Press')],
+      { 'ex-1': { performedAt: new Date().toISOString(), sets: [{ weight: 80, reps: 6 }] } },
+    );
+    expect(screen.getByText('6 @ 80kg')).toBeInTheDocument();
+  });
+
+  it('renders nothing for a session with no exercises yet', () => {
+    const { container } = renderPanel([]);
+    expect(container).toBeEmptyDOMElement();
   });
 });

@@ -310,6 +310,7 @@ const de = {
     },
     prev: {
       label: 'Letztes Mal',
+      never: 'keine Historie',
       perSet: 'pro Satz',
       empty: 'Keine Übungen in dieser Einheit.',
     },

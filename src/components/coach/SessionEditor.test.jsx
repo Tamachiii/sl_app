@@ -42,6 +42,11 @@ vi.mock('../../hooks/useProgram', () => ({
   }),
 }));
 
+// The "last time" panel runs a real query; this file is about the editor.
+vi.mock('../../hooks/useLastPerformance', () => ({
+  useLastPerformance: () => ({ data: {}, isLoading: false }),
+}));
+
 vi.mock('../../hooks/useSession', () => ({
   useSession: () => mockSessionData,
   useAddSlot: () => mockAddSlot,
@@ -224,7 +229,10 @@ describe('SessionEditor', () => {
       isLoading: false,
     };
     renderEditor();
-    expect(screen.getByText('Pull Up')).toBeInTheDocument();
+    // Twice on purpose: once as the slot being edited, once in the "last time"
+    // panel, which lists every exercise of the session with what the athlete
+    // actually lifted for it.
+    expect(screen.getAllByText('Pull Up')).toHaveLength(2);
   });
 
   // Regression: adding an exercise used to assign sortOrder = slots.length, which

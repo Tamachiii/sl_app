@@ -216,9 +216,15 @@ export default function SessionEditor() {
         />
       </div>
 
-      {/* What this session looked like a week ago, in place — writing week N
-          against week N-1 was previously a round trip that lost the editor. */}
-      <PreviousSessionPanel programId={currentProgramId} sessionId={sessionId} />
+      {/* What the athlete last ACTUALLY lifted for each of these exercises —
+          the numbers progressive overload is written against, in place, without
+          a round trip that loses the editor. `studentId` is the students-table
+          id from the route, which is what scopes the read to this athlete. */}
+      <PreviousSessionPanel
+        studentRowId={studentId}
+        sessionId={sessionId}
+        slots={slots}
+      />
 
       <DndContext
         sensors={sensors}

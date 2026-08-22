@@ -311,6 +311,7 @@ const en = {
     },
     prev: {
       label: 'Last time',
+      never: 'no history',
       perSet: 'per-set',
       empty: 'No exercises in that session.',
     },

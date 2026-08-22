@@ -35,10 +35,13 @@ import { buildLastPerformance } from '../lib/lastPerformance';
  * "last time" — the prescription isn't a performance to beat. Same rationale in
  * useStudentRecords.
  *
- * Student-only surface: the "Students read own set logs" / own-deviations RLS
- * policies already scope both reads to the signed-in student, so — unlike the
- * coach-capable useStudentRecords — no students.id resolution or student_id
- * filter is needed. Soft-deleted programs are excluded through the program join.
+ * Works for BOTH roles. Omit `studentRowId` (student flow) and the "Students
+ * read own set logs" / own-deviations RLS policies already scope the reads to
+ * the signed-in student. Pass a STUDENTS-table id (coach flow, same convention
+ * as useStudentRecords / useStudentProgressStats) and both reads filter THROUGH
+ * the program join — without it a coach's RLS would hand back every athlete's
+ * logs at once and the hint would mix athletes. Soft-deleted programs are
+ * excluded through the same join.
  *
  * Returns a plain object keyed by exercise_library id (see buildLastPerformance)
  * so the result survives the React Query IndexedDB persister.
@@ -49,6 +52,7 @@ export function useLastPerformance(
   currentScheduledDate,
   currentDeviations,
   deviationsReady = true,
+  studentRowId = null,
 ) {
   const { user } = useAuth();
 
@@ -69,24 +73,31 @@ export function useLastPerformance(
   ].sort();
 
   return useQuery({
-    queryKey: ['last-performance', sessionId, exerciseIds],
+    // studentRowId is part of the key: a coach moving between athletes must not
+    // read one athlete's hint out of another's cache entry.
+    queryKey: ['last-performance', studentRowId ?? 'self', sessionId, exerciseIds],
     queryFn: async () => {
       if (exerciseIds.length === 0) return {};
+      const scopeToStudent = (q, prefix) =>
+        studentRowId ? q.eq(`${prefix}.student_id`, studentRowId) : q;
 
       // Recent DONE set_logs across ALL exercises — no exercise_id filter,
       // because a prior slot swapped to one of our targets sits under a
       // different exercise_id and would otherwise be missed.
-      const { data, error } = await supabase
-        .from('set_logs')
-        .select(`
-          set_number, logged_at, target_reps, target_weight_kg, actual_reps, actual_weight_kg,
-          exercise_slots!inner(
-            id, exercise_id, session_id,
-            sessions!inner(scheduled_date, weeks!inner(programs!inner(deleted_at)))
-          )
-        `)
-        .eq('done', true)
-        .is('exercise_slots.sessions.weeks.programs.deleted_at', null)
+      const { data, error } = await scopeToStudent(
+        supabase
+          .from('set_logs')
+          .select(`
+            set_number, logged_at, target_reps, target_weight_kg, actual_reps, actual_weight_kg,
+            exercise_slots!inner(
+              id, exercise_id, session_id,
+              sessions!inner(scheduled_date, weeks!inner(programs!inner(student_id, deleted_at)))
+            )
+          `)
+          .eq('done', true)
+          .is('exercise_slots.sessions.weeks.programs.deleted_at', null),
+        'exercise_slots.sessions.weeks.programs',
+      )
         // Most recent first so the row cap keeps the relevant tail. Matches the
         // sibling useStudentRecords cap so a heavy-volume athlete's rarely-
         // programmed lift still keeps its "last time".
@@ -97,10 +108,16 @@ export function useLastPerformance(
       // The student's prior swaps: slotId → substitute exercise id. RLS scopes
       // slot_deviations to the signed-in student, so no student_id filter is
       // needed; a swap on a trashed program's slot simply won't match any row.
-      const { data: devs, error: devErr } = await supabase
-        .from('slot_deviations')
-        .select('exercise_slot_id, substitute_exercise_id')
-        .eq('kind', 'swap')
+      const { data: devs, error: devErr } = await scopeToStudent(
+        supabase
+          .from('slot_deviations')
+          .select(`
+            exercise_slot_id, substitute_exercise_id,
+            exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(student_id))))
+          `)
+          .eq('kind', 'swap'),
+        'exercise_slots.sessions.weeks.programs',
+      )
         // Explicit high cap so a heavy-deviation student can't have swaps
         // silently truncated at PostgREST's default 1000-row limit.
         .limit(20000);
@@ -147,6 +164,8 @@ export function useLastPerformance(
     // full (20k-row) fetch that is immediately superseded. Gate on SETTLED, not
     // success: a failed deviations fetch degrades to the un-swapped hint rather
     // than to no hint at all.
+    // A coach has no need of their own auth id here beyond being signed in;
+    // the athlete is named by studentRowId.
     enabled: !!user?.id && !!sessionId && exerciseIds.length > 0 && !!deviationsReady,
     staleTime: 1000 * 60,
   });
