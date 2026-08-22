@@ -159,6 +159,10 @@ export default function SessionEditor() {
             onSave={(title) => updateSession.mutate({ id: sessionId, title })}
             placeholder={t('coach.editor.titlePlaceholder')}
             ariaLabel={t('coach.editor.editTitleAria')}
+            // Hold the heading's own size while editing. Left alone the field
+            // falls back to the 16px iOS-zoom floor, so tapping the title
+            // shrank it — the same twitch the box's width used to cause.
+            inputClassName="sl-display text-[20px]"
           />
         </div>
         <input

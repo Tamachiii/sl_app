@@ -258,7 +258,7 @@ export default function StudentProfile() {
             placeholder={t('student.profile.header.namePlaceholder')}
             ariaLabel={t('student.profile.header.editName')}
             className="sl-display text-[24px] text-gray-900 block mt-1"
-            inputClassName="sl-display text-[20px] w-full"
+            inputClassName="sl-display text-[20px]"
           />
           {renameError && (
             <p className="text-[12px] mt-1" style={{ color: 'var(--color-danger, #c00)' }}>{renameError}</p>

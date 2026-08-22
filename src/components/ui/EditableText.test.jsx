@@ -77,4 +77,37 @@ describe('<EditableText />', () => {
     render(<EditableText value="Week 1" onSave={() => {}} ariaLabel="Edit week label" />);
     expect(screen.getByRole('button', { name: 'Edit week label' })).toBeInTheDocument();
   });
+
+  // The two assertions below are on class names, which is normally a poor test.
+  // They earn it here because jsdom has no layout engine, so the thing they
+  // guard cannot be measured: the field swaps in for the button in place, and
+  // both of these were real, visible defects in the browser.
+  describe('the field stands in for the button without moving anything', () => {
+    // A bare <input> is ~20 characters wide and ignores its container, which
+    // pushed the box 45px past its slot on the coach phase divider and 61px in
+    // the session editor — straight under the sibling meta and the ⋯ menu.
+    it('sizes itself to the slot it replaced, not to its content', async () => {
+      const user = userEvent.setup();
+      render(<EditableText value="Hello" onSave={() => {}} />);
+      await user.click(screen.getByRole('button'));
+      expect(screen.getByRole('textbox').className).toContain('w-[calc(100%+0.5rem)]');
+    });
+
+    // iOS Safari zooms the whole page on a focused input under 16px, and this
+    // is a PWA people use one-handed mid-set. See docs/DESIGN_SYSTEM.md.
+    it('holds the 16px iOS floor by default', async () => {
+      const user = userEvent.setup();
+      render(<EditableText value="Hello" onSave={() => {}} />);
+      await user.click(screen.getByRole('button'));
+      expect(screen.getByRole('textbox').className).toContain('text-[16px]');
+    });
+
+    // How a heading keeps its own size instead of dropping to that floor.
+    it('lets a caller override the field styling', async () => {
+      const user = userEvent.setup();
+      render(<EditableText value="Hello" onSave={() => {}} inputClassName="text-[20px]" />);
+      await user.click(screen.getByRole('button'));
+      expect(screen.getByRole('textbox').className).toContain('text-[20px]');
+    });
+  });
 });

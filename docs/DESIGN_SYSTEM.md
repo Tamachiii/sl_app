@@ -191,6 +191,17 @@ Related quirk: `disabled:bg-*` Tailwind variants generate `.disabled\:bg-gray-50
 
 iOS Safari auto-zooms focused `<input>` / `<textarea>` / `<select>` whose font-size is `< 16px`. **Every text-entry form element in the app is 16px** for that reason. Don't drop any of them below 16px. File pickers, radios, checkboxes, and sliders aren't affected.
 
+## Inline edit — the field must occupy the button's footprint
+
+[`EditableText`](../src/components/ui/EditableText.jsx) swaps a `<button>` for an `<input>` in place, so the swap has to be invisible in every dimension but colour. An `<input>` defaults to roughly **20 characters wide and ignores its container** — left alone it overflowed every caller (measured: 45px past its slot on a coach phase divider, 61px in the session editor), sliding the orange box under the sibling meta and the ⋯ menu.
+
+The base input therefore carries `w-[calc(100%+0.5rem)] -mx-1 px-1`, which reproduces the resting button's own `px-1 -mx-1` bleed **exactly**: same footprint, and the text start moves by the 1px border rather than ~9px. `leading-tight` keeps the 16px floor from growing the row it sits in.
+
+Two rules when adding a call site:
+
+- **A heading taller than 16px must pass its own size** via `inputClassName` (e.g. `sl-display text-[20px]`), or the field falls back to the 16px floor and the title visibly shrinks on tap. `SessionEditor` and `StudentProfile` both do this.
+- **Don't pass `w-full`** — it collides with the base width utility, and which one wins is decided by stylesheet order, not by the order of the strings.
+
 ## Tinted surfaces — the `color-mix` recipe
 
 For callouts, banners, and "about-this" panels, use a **transparent tint of a semantic color over the current surface** rather than picking a new hex.

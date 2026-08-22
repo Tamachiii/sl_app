@@ -62,7 +62,19 @@ export default function EditableText({
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         aria-label={ariaLabel || 'Edit title'}
-        className={`rounded border border-primary bg-white px-2 py-0.5 text-[16px] focus:outline-none focus:ring-2 focus:ring-primary ${inputClassName}`}
+        // The box has to occupy the SAME footprint as the button it replaces,
+        // or clicking a title makes the page twitch. An <input> defaults to
+        // roughly 20 characters wide and ignores its container, which overflowed
+        // every caller: 45px past its slot on a phase divider, 61px in the
+        // session editor, sliding the orange box under the meta and the ⋯ menu.
+        // The calc + `-mx-1` reproduce the button's own `px-1 -mx-1` bleed
+        // exactly, so the text stays put instead of jumping ~9px right.
+        //
+        // `text-[16px]` is NOT a style choice — iOS Safari zooms the whole page
+        // when a focused input is under 16px, and the app is a PWA people use
+        // one-handed mid-set. `leading-tight` keeps that 16px from growing the
+        // row it sits in.
+        className={`w-[calc(100%+0.5rem)] -mx-1 min-w-0 rounded border border-primary bg-ink-850 px-1 py-0.5 text-[16px] leading-tight text-ink-0 focus:outline-none ${inputClassName}`}
       />
     );
   }
@@ -75,7 +87,13 @@ export default function EditableText({
         setEditing(true);
       }}
       aria-label={ariaLabel || `Edit ${value || placeholder}`}
-      className={`text-left hover:bg-gray-100 rounded px-1 -mx-1 transition-colors ${className}`}
+      // `hover:bg-ink-100`, NOT `hover:bg-gray-100`: index.css remaps the bare
+      // `.bg-gray-100` for dark mode but has no rule for the hover VARIANT, so
+      // that class kept Tailwind's raw #f3f4f6 and painted a near-white plate
+      // under the pointer — the title's contrast fell to 2.32:1 (from 7.01:1)
+      // and a bright heading vanished outright. The ink hover variants are
+      // remapped, so this one darkens the way every other hover in the app does.
+      className={`text-left hover:bg-ink-100 rounded px-1 -mx-1 transition-colors ${className}`}
     >
       {value || <span className="text-gray-400 italic">{placeholder}</span>}
     </button>
