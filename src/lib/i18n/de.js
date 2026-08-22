@@ -442,6 +442,7 @@ const de = {
       unitSeconds: 'Sekunden (TUT)',
       pairSuperset: 'Mit vorheriger Übung als Superset koppeln',
       add: 'Hinzufügen',
+      deleteSession: 'Diese Einheit löschen',
       addExercise: '+ ÜBUNG HINZUFÜGEN',
       copyTitle: 'Einheit in andere Woche kopieren',
     },

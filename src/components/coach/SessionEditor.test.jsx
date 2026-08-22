@@ -160,19 +160,21 @@ describe('SessionEditor', () => {
     );
   });
 
-  it('clicking Duplicate calls duplicateSession', async () => {
-    const user = userEvent.setup();
-    mockSessionData = {
-      data: { title: 'Day 1', exercise_slots: [] },
-      isLoading: false,
-    };
-    renderEditor();
 
-    await user.click(screen.getByText('duplicate'));
-    expect(mockDuplicateSession.mutate).toHaveBeenCalledWith({ sessionId: 'sess-1' });
+  // Duplicate and "copy to…" left this header: the sheet carries both now — a
+  // duplicate button on every row, copy behind its selection bar — so keeping
+  // them was a second door onto the same actions, above the actual work.
+  it('leaves duplicate and copy to the sheet', () => {
+    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
+    renderEditor();
+    expect(screen.queryByText('duplicate')).toBeNull();
+    expect(screen.queryByText('copy to…')).toBeNull();
   });
 
-  it('deletes the session from here — the sheet rows no longer carry a trash icon', async () => {
+  // Delete stays — it is the ONLY delete path in the app, and archiving from
+  // the sheet does not replace it for a session created by mistake. It moved
+  // to the bottom, away from the title.
+  it('deletes the session from here — this is the only delete path there is', async () => {
     const user = userEvent.setup();
     mockSessionData = {
       data: { title: 'Day 1', exercise_slots: [] },
@@ -180,36 +182,13 @@ describe('SessionEditor', () => {
     };
     renderEditor();
 
-    await user.click(screen.getByText('delete'));
+    await user.click(screen.getByText('Delete this session'));
     // Destructive, so it must go through the confirm step.
     expect(mockDeleteSession.mutate).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Delete' }));
     expect(mockDeleteSession.mutate).toHaveBeenCalledWith('sess-1', expect.any(Object));
   });
 
-  it('copies the session to another student via the dialog', async () => {
-    const user = userEvent.setup();
-    mockSessionData = {
-      data: { title: 'Day 1', exercise_slots: [] },
-      isLoading: false,
-    };
-    renderEditor();
-
-    await user.click(screen.getByText('copy to…'));
-    // Athlete → BLOCK → week. The block step is new: the dialog used to jump
-    // straight to the destination's ACTIVE program, which dead-ended for an
-    // athlete who had none and made preparing a future block impossible.
-    const selects = screen.getAllByRole('combobox');
-    await user.selectOptions(selects[0], 'stu-2');
-    await user.selectOptions(selects[1], 'prog-1');
-    await user.selectOptions(selects[2], 'w-10');
-    await user.click(screen.getByText('Copy'));
-
-    expect(mockDuplicateSession.mutate).toHaveBeenCalledWith(
-      { sessionId: 'sess-1', weekId: 'w-10' },
-      expect.any(Object)
-    );
-  });
 
   it('renders exercise slots', () => {
     mockSessionData = {

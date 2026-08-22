@@ -24,15 +24,13 @@ import {
   useResetSlotToUniform,
   useRemoveSet,
 } from '../../hooks/useSession';
-import { useUpdateSession, useDeleteSession, useProgramIdForWeek } from '../../hooks/useWeek';
+import { useUpdateSession, useDeleteSession } from '../../hooks/useWeek';
 import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
-import { useDuplicateSession } from '../../hooks/useDuplicate';
 import { groupSlotsBySuperset } from '../../lib/volume';
 import ExerciseSlotRow from './ExerciseSlotRow';
 import PreviousSessionPanel from './PreviousSessionPanel';
 import Spinner from '../ui/Spinner';
 import EditableText from '../ui/EditableText';
-import CopyDialog from '../ui/CopyDialog';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import { useI18n } from '../../hooks/useI18n';
 
@@ -41,9 +39,6 @@ export default function SessionEditor() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const { data: session, isLoading } = useSession(sessionId);
-  // The route no longer carries weekId — the session row owns it. Keeps the
-  // editor addressable by session id alone from inside the athlete shell.
-  const weekId = session?.week_id;
   const { data: library } = useExerciseLibrary();
   const addSlot = useAddSlot();
   const updateSlot = useUpdateSlot();
@@ -51,17 +46,13 @@ export default function SessionEditor() {
   const updateSetTarget = useUpdateSetTarget();
   const resetSlotToUniform = useResetSlotToUniform();
   const removeSet = useRemoveSet();
-  const duplicateSession = useDuplicateSession();
   const updateSession = useUpdateSession();
   const deleteSession = useDeleteSession();
-  // Lets CopyDialog offer THIS athlete's other weeks as a destination.
-  const { data: currentProgramId } = useProgramIdForWeek(weekId);
 
   const [showAdd, setShowAdd] = useState(false);
   const [selectedExercise, setSelectedExercise] = useState('');
   const [addUnit, setAddUnit] = useState('reps');
   const [pairAsSuperset, setPairAsSuperset] = useState(false);
-  const [showCopy, setShowCopy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const slots = session?.exercise_slots || [];
@@ -116,14 +107,6 @@ export default function SessionEditor() {
     }
   }
 
-  function handleCopyToStudent({ weekId }) {
-    if (!weekId) return;
-    duplicateSession.mutate(
-      { sessionId, weekId },
-      { onSuccess: () => setShowCopy(false) }
-    );
-  }
-
   async function handleDragEnd(event) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -153,6 +136,11 @@ export default function SessionEditor() {
   // header below is a breadcrumb back to the sheet, not a page header.
   return (
     <div className="space-y-4">
+      {/* One row: back, identity, and the recommended date. "Copy to…" and
+          "Duplicate" used to sit here too, but the sheet carries both now — a
+          duplicate button on every row and copy behind its selection bar — so
+          keeping them was a second door onto the same two actions, costing a
+          band of vertical space above the work itself. */}
       <div className="flex items-start gap-3">
         <button
           onClick={() => navigate(`/coach/students/${studentId}`)}
@@ -174,45 +162,16 @@ export default function SessionEditor() {
             />
           </div>
         </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            onClick={() => setShowCopy(true)}
-            className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200"
-          >
-            {t('coach.editor.copyTo')}
-          </button>
-          <button
-            onClick={() => duplicateSession.mutate({ sessionId })}
-            disabled={duplicateSession.isPending}
-            className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 disabled:opacity-50"
-          >
-            {t('coach.editor.duplicate')}
-          </button>
-          {/* Deleting lives here, not on every row of the sheet: by this point
-              the coach has opened this one session, so the destructive action
-              can't be a stray thumb on a list. */}
-          <button
-            onClick={() => setConfirmDelete(true)}
-            disabled={deleteSession.isPending}
-            className="sl-pill bg-ink-100 text-danger hover:bg-red-50 disabled:opacity-50"
-          >
-            {t('coach.week.delete')}
-          </button>
-        </div>
-      </div>
-
-      <div className="sl-card p-3 flex items-center gap-3">
-        <label htmlFor="session-date" className="sl-label text-ink-400 shrink-0">
-          {t('coach.editor.scheduled')}
-        </label>
         <input
           id="session-date"
           type="date"
+          aria-label={t('coach.editor.scheduled')}
+          title={t('coach.editor.scheduled')}
           value={session?.scheduled_date || ''}
           onChange={(e) =>
             updateSession.mutate({ id: sessionId, scheduled_date: e.target.value || null })
           }
-          className="flex-1 rounded-lg border border-ink-200 bg-white px-3 py-1.5 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+          className="shrink-0 rounded-lg border border-ink-200 bg-white px-2 py-1.5 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
         />
       </div>
 
@@ -364,16 +323,22 @@ export default function SessionEditor() {
         </button>
       )}
 
-      <CopyDialog
-        open={showCopy}
-        onClose={() => setShowCopy(false)}
-        title={t('coach.editor.copyTitle')}
-        currentStudentId={studentId}
-        currentProgramId={currentProgramId}
-        showWeekSelect
-        onCopy={handleCopyToStudent}
-        isPending={duplicateSession.isPending}
-      />
+      {/* Deleting still lives in the editor, not on the sheet: by this point
+          the coach has opened this one session, so it can't be a stray thumb
+          on a list. But it sits at the BOTTOM now — a red button pinned beside
+          the title was the most prominent thing on a screen whose job is
+          writing exercises, and it is the rarest action here. Archiving from
+          the sheet is the everyday way to clear a session; this is the escape
+          hatch for one created by mistake. */}
+      <div className="pt-2 flex justify-end">
+        <button
+          onClick={() => setConfirmDelete(true)}
+          disabled={deleteSession.isPending}
+          className="sl-mono text-[11px] text-ink-400 hover:text-danger disabled:opacity-50 py-2 px-1 transition-colors"
+        >
+          {t('coach.editor.deleteSession')}
+        </button>
+      </div>
 
       <ConfirmDialog
         open={confirmDelete}

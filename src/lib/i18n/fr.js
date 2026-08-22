@@ -442,6 +442,7 @@ const fr = {
       unitSeconds: 'Secondes (TUT)',
       pairSuperset: 'Associer au précédent en superset',
       add: 'Ajouter',
+      deleteSession: 'Supprimer cette séance',
       addExercise: '+ AJOUTER UN EXERCICE',
       copyTitle: 'Copier la séance vers une autre semaine',
     },

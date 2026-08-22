@@ -443,6 +443,7 @@ const en = {
       unitSeconds: 'Seconds (TUT)',
       pairSuperset: 'Pair with previous as superset',
       add: 'Add',
+      deleteSession: 'Delete this session',
       addExercise: '+ ADD EXERCISE',
       copyTitle: 'Copy session to another week',
     },
