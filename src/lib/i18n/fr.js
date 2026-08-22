@@ -428,7 +428,6 @@ const fr = {
       deleteSessionMessage: 'Es-tu sûr de vouloir supprimer cette séance ?',
     },
     editor: {
-      kicker: 'Séance',
       titlePlaceholder: 'Séance',
       editTitleAria: 'Modifier le titre de la séance',
       copyTo: 'copier vers…',

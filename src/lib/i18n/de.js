@@ -428,7 +428,6 @@ const de = {
       deleteSessionMessage: 'Möchtest du diese Einheit wirklich löschen?',
     },
     editor: {
-      kicker: 'Einheit',
       titlePlaceholder: 'Einheit',
       editTitleAria: 'Einheitstitel bearbeiten',
       copyTo: 'kopieren nach…',

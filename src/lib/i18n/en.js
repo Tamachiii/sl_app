@@ -429,7 +429,6 @@ const en = {
       deleteSessionMessage: 'Are you sure you want to delete this session?',
     },
     editor: {
-      kicker: 'Session',
       titlePlaceholder: 'Session',
       editTitleAria: 'Edit session title',
       copyTo: 'copy to…',

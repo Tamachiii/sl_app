@@ -136,12 +136,14 @@ export default function SessionEditor() {
   // header below is a breadcrumb back to the sheet, not a page header.
   return (
     <div className="space-y-4">
-      {/* One row: back, identity, and the recommended date. "Copy to…" and
-          "Duplicate" used to sit here too, but the sheet carries both now — a
-          duplicate button on every row and copy behind its selection bar — so
-          keeping them was a second door onto the same two actions, costing a
-          band of vertical space above the work itself. */}
-      <div className="flex items-start gap-3">
+      {/* One row, everything on the same baseline: back, the session name, the
+          recommended date. "Copy to…" and "Duplicate" used to sit here too, but
+          the sheet carries both now — a duplicate button on every row and copy
+          behind its selection bar — so they were a second door onto the same
+          actions. The "SESSION" kicker went with them: the athlete header
+          directly above already says where you are, and a label naming the kind
+          of thing you are looking at costs a line to state the obvious. */}
+      <div className="flex items-center gap-3">
         <button
           onClick={() => navigate(`/coach/students/${studentId}`)}
           aria-label={t('common.back')}
@@ -151,16 +153,13 @@ export default function SessionEditor() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <div className="flex-1 min-w-0">
-          <div className="sl-label text-ink-400">{t('coach.editor.kicker')}</div>
-          <div className="sl-display text-[20px] text-gray-900 leading-tight mt-0.5">
-            <EditableText
-              value={session?.title || ''}
-              onSave={(title) => updateSession.mutate({ id: sessionId, title })}
-              placeholder={t('coach.editor.titlePlaceholder')}
-              ariaLabel={t('coach.editor.editTitleAria')}
-            />
-          </div>
+        <div className="flex-1 min-w-0 sl-display text-[20px] text-gray-900 leading-tight">
+          <EditableText
+            value={session?.title || ''}
+            onSave={(title) => updateSession.mutate({ id: sessionId, title })}
+            placeholder={t('coach.editor.titlePlaceholder')}
+            ariaLabel={t('coach.editor.editTitleAria')}
+          />
         </div>
         <input
           id="session-date"
