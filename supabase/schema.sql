@@ -2146,7 +2146,8 @@ BEGIN
   INSERT INTO public.sessions (id, week_id, title, day_number, sort_order)
   SELECT (s->>'id')::uuid, (s->>'week_id')::uuid,
          COALESCE(NULLIF(s->>'title',''),'Session'),
-         COALESCE((s->>'day_number')::int,1),
+         -- No weekday chosen stays NULL (2026_08_22): sort_order is the order.
+         (s->>'day_number')::int,
          COALESCE((s->>'sort_order')::int,0)
     FROM jsonb_array_elements(COALESCE(p_tree->'sessions','[]'::jsonb)) s;
   GET DIAGNOSTICS v_sessions = ROW_COUNT;
