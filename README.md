@@ -47,7 +47,7 @@ npm run dev       # dev server
 npm run build     # production build → dist/
 npm run preview   # serve dist/
 npm run lint      # eslint (correctness-only; also runs in CI)
-npm test          # run vitest (~649 tests)
+npm test          # run vitest (~851 tests)
 npm run deploy    # emergency-only manual publish (CI deploy is the normal path)
 ```
 
@@ -69,7 +69,8 @@ src/
     coach/             CoachHome (Athletes roster + single-student tabs), StudentWeekStrip,
                        StudentOverview, PreviousSessionPanel,
                        StudentProgrammingSection, StudentGoalsSection, StudentStatsSection,
-                       ProgramSwitcher, ProgramSheet, SessionEditor, SessionReview,
+                       ProgramSwitcher, ProgramSheet, PhaseDivider, SessionRow,
+                       SessionEditor, SessionReview,
                        ExerciseSlotRow, ExerciseLibrary, SessionsFeed, SlotProgress,
                        CoachMessages
     messaging/         MessageThread, MessageComposer, ConversationList,
@@ -243,7 +244,7 @@ supabase db query --linked \
 - Tests live alongside components as `*.test.jsx` / `*.test.js`.
 - `src/test/utils.jsx` exports `createTestQueryClient()`. There is no render-with-providers wrapper: `useAuth` keeps its context module-private, so auth in tests is controlled by mocking the hook, not by wrapping in a provider.
 - Mocks: child hooks are stubbed with `vi.mock('../../hooks/useX', () => ({ ... }))` per file.
-- 830 tests across 81 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats, records, last-performance, push self-healing), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations — plus static guardrails (i18n key parity across EN/FR/DE, offline-safety of student mutations, error-key mapping). ESLint (correctness-only) + the suite run in CI on every dev push / PR and gate every deploy from main.
+- 851 tests across 82 files cover every interactive button, the volume helper, every hook (auth, programs, weeks, sessions, set logs, confirmations, duplication, goals, videos, comments, stats, records, last-performance, push self-healing), every layer of the route guard chain, inline editing, the error boundary, and the calendar/chart visualisations — plus static guardrails (i18n key parity across EN/FR/DE, offline-safety of student mutations, error-key mapping). ESLint (correctness-only) + the suite run in CI on every dev push / PR and gate every deploy from main.
 
 Run:
 ```bash

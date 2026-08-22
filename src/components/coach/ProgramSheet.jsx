@@ -12,11 +12,9 @@ import {
 import {
   SortableContext,
   verticalListSortingStrategy,
-  useSortable,
   sortableKeyboardCoordinates,
   arrayMove,
 } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import {
   useCreateWeek,
   useReorderWeeks,
@@ -25,361 +23,100 @@ import {
   useCreateSession,
   useUpdateSession,
   useReorderSessions,
+  useMoveSession,
   useArchiveSession,
   useArchiveSessions,
 } from '../../hooks/useWeek';
 import { useDuplicateWeek, useDuplicateSession, useCopySessions } from '../../hooks/useDuplicate';
 import { useProgramConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 import { useI18n } from '../../hooks/useI18n';
-import { DAY_FULL, DAY_LABELS, compareSessions } from '../../lib/day';
-import EditableText from '../ui/EditableText';
+import { compareSessions } from '../../lib/day';
+import { planSessionDrag } from '../../lib/sessionMove';
+import SessionRow, { SortableSessionRow } from './SessionRow';
+import PhaseDivider, { SortablePhaseDivider } from './PhaseDivider';
 import CopyDialog from '../ui/CopyDialog';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import EmptyState from '../ui/EmptyState';
 
-/**
- * The week the coach most likely wants open: the first with an unconfirmed,
- * non-archived session, falling back to the last week. Mirrors the definition
- * `useCoachDashboardPrograms` uses for the roster's "active week" so the two
- * surfaces agree on where the athlete currently is.
- */
-function currentWeekId(weeks, confirmedIds) {
-  const list = weeks || [];
-  for (const w of list) {
-    const pending = (w.sessions || []).some(
-      (s) => !s.archived_at && !confirmedIds?.has(s.id),
-    );
-    if (pending) return w.id;
-  }
-  return list[list.length - 1]?.id ?? null;
-}
-
-// `compareSessions` is now position (`sort_order`), the same comparator the
-// athlete's queue uses — so this list IS a preview of the order being authored.
 function activeSessions(week) {
   return (week.sessions || []).filter((s) => !s.archived_at).sort(compareSessions);
 }
 
-// Which week the coach had open, per program. Survives stepping into a session
-// editor and back, which is the whole point — the sheet is where the coach
-// works, and re-collapsing it every time loses their place.
-const OPEN_WEEK_KEY = 'sl_coach_open_week';
-
-function readOpenWeek(programId) {
-  try {
-    return JSON.parse(localStorage.getItem(OPEN_WEEK_KEY) || '{}')[programId] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function writeOpenWeek(programId, weekId) {
-  try {
-    const all = JSON.parse(localStorage.getItem(OPEN_WEEK_KEY) || '{}');
-    localStorage.setItem(OPEN_WEEK_KEY, JSON.stringify({ ...all, [programId]: weekId }));
-  } catch {
-    /* private mode / quota — the sheet still works, it just won't remember */
-  }
-}
-
-function DayPill({ session, onPick, t }) {
-  const [open, setOpen] = useState(false);
-  const dn = session.day_number;
-  const label = dn >= 1 && dn <= 7 ? DAY_LABELS[dn - 1] : '—';
-  const full = dn >= 1 && dn <= 7 ? DAY_FULL[dn - 1] : '—';
-
-  return (
-    <span className="relative shrink-0">
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((v) => !v);
-        }}
-        aria-label={t('coach.sheet.setDay', { day: full })}
-        aria-expanded={open}
-        className="sl-mono text-[10px] font-semibold px-1.5 py-1 rounded bg-ink-100 text-ink-700 hover:bg-ink-200 transition-colors w-10 text-center"
-      >
-        {full.toUpperCase()}
-      </button>
-      {open && (
-        <>
-          {/* Click-away layer; sits under the menu but over the rows. */}
-          <button
-            type="button"
-            aria-hidden="true"
-            tabIndex={-1}
-            onClick={(e) => { e.stopPropagation(); setOpen(false); }}
-            className="fixed inset-0 z-10 cursor-default"
-          />
-          <span className="absolute left-0 top-full mt-1 z-20 flex gap-0.5 p-1 rounded-lg sl-card">
-            {DAY_LABELS.map((d, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onPick(i + 1);
-                  setOpen(false);
-                }}
-                aria-label={DAY_FULL[i]}
-                aria-current={dn === i + 1}
-                className={`w-6 h-6 rounded sl-mono text-[10px] font-semibold transition-colors ${
-                  dn === i + 1
-                    ? 'bg-accent text-ink-900'
-                    : 'bg-ink-100 text-ink-700 hover:bg-ink-200'
-                }`}
-              >
-                {d}
-              </button>
-            ))}
-            {/* Clearing the day is a real choice now that a weekday is only a
-                recommendation: plenty of sessions shouldn't suggest one. */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onPick(null);
-                setOpen(false);
-              }}
-              aria-label={t('coach.sheet.clearDay')}
-              aria-current={!(dn >= 1 && dn <= 7)}
-              className={`w-6 h-6 rounded sl-mono text-[10px] font-semibold transition-colors ${
-                dn >= 1 && dn <= 7
-                  ? 'bg-ink-100 text-ink-700 hover:bg-ink-200'
-                  : 'bg-accent text-ink-900'
-              }`}
-            >
-              —
-            </button>
-          </span>
-        </>
-      )}
-    </span>
-  );
-}
-
-// A session row while the week is in reorder mode. Keeps its TITLE — the
-// week-reorder mode blanks its sessions, which makes you drag anonymous bars —
-// and drops every other control so a drag can't be a mis-tap on the day pill.
-function SortableSessionRow({ session, position, t }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: session.id });
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
-      className="flex items-center gap-2 px-3 py-2 border-t border-ink-100 bg-ink-50"
-    >
-      <button
-        {...attributes}
-        {...listeners}
-        aria-label={t('coach.sheet.reorderSession', { name: session.title || String(position) })}
-        className="text-ink-400 hover:text-ink-700 cursor-grab active:cursor-grabbing touch-none shrink-0 p-1"
-      >
-        <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true">
-          <circle cx="2.5" cy="3" r="1.25" /><circle cx="7.5" cy="3" r="1.25" />
-          <circle cx="2.5" cy="8" r="1.25" /><circle cx="7.5" cy="8" r="1.25" />
-          <circle cx="2.5" cy="13" r="1.25" /><circle cx="7.5" cy="13" r="1.25" />
-        </svg>
-      </button>
-      <span className="sl-display text-[14px] text-gray-900 truncate flex-1">
-        {session.title || t('coach.week.sessionN', { n: position })}
-      </span>
-      <span className="sl-mono text-[10px] text-ink-400 shrink-0">
-        {t('coach.week.exCount', { n: (session.exercise_slots || []).length })}
-      </span>
-    </div>
-  );
-}
-
-// No delete control here on purpose: a destructive icon on every row of the
-// main authoring surface is both visual noise and a mis-tap waiting to happen
-// on a phone. Deleting a session lives in the session editor, where the coach
-// has already committed to that one session.
-//
-// Duplicate is a different matter and does belong here: building a block is a
-// run of near-identical sessions, and doing it from the editor costs two
-// navigations per copy. It is non-destructive, so a mis-tap is cheap.
-function SessionRow({
-  session, studentId, confirmed, position, onSetDay, onDuplicate, duplicating,
-  selecting, selected, onToggleSelect, t,
-}) {
+/**
+ * The Programming tab's body: the whole training block as ONE continuous,
+ * reorderable list.
+ *
+ * It used to be a stack of week cards with one expanded at a time, plus a
+ * separate flat layout when a block had a single week — so the surface changed
+ * shape underneath the coach as they added a second week, and the block's most
+ * important property (the order the athlete will train in) was only visible one
+ * week at a time. Weeks are now PHASES: a named divider inside the list, no
+ * number, optional. Flat and multi-phase are the same layout.
+ *
+ * The accordion is gone rather than ported. Measured against production, the
+ * largest block is 19 sessions and the average is 8 — a list that fits in one
+ * screen's worth of scrolling, where collapsing costs a tap and hides the very
+ * thing the page exists to show.
+ */
+export default function ProgramSheet({ studentId, program }) {
+  const { t } = useI18n();
   const navigate = useNavigate();
-  const exCount = (session.exercise_slots || []).length;
-
-  // In select mode the whole row is the checkbox target: a 44px-wide tick box
-  // beside a 44px-wide day pill on a phone is two things to miss.
-  if (selecting) {
-    return (
-      <button
-        type="button"
-        onClick={onToggleSelect}
-        aria-pressed={selected}
-        className={`w-full flex items-center gap-3 px-3 py-2.5 border-t border-ink-100 text-left transition-colors ${
-          selected ? 'bg-ink-100' : 'hover:bg-ink-50'
-        }`}
-      >
-        <span
-          aria-hidden="true"
-          className="w-4 h-4 rounded shrink-0 flex items-center justify-center border"
-          style={
-            selected
-              ? { background: 'var(--color-accent)', borderColor: 'var(--color-accent)' }
-              : { borderColor: 'var(--color-ink-200)' }
-          }
-        >
-          {selected && (
-            <svg className="w-2.5 h-2.5 text-ink-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-            </svg>
-          )}
-        </span>
-        <span className="sl-display text-[14px] text-gray-900 truncate flex-1">
-          {session.title || t('coach.week.sessionN', { n: position })}
-        </span>
-        <span className="sl-mono text-[10px] text-ink-400 shrink-0">
-          {t('coach.week.exCount', { n: exCount })}
-        </span>
-      </button>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-2 px-3 py-2 border-t border-ink-100">
-      <DayPill session={session} onPick={onSetDay} t={t} />
-      <button
-        type="button"
-        onClick={() => navigate(`/coach/students/${studentId}/s/${session.id}`)}
-        aria-label={t('coach.week.openSession')}
-        className="flex-1 min-w-0 text-left flex items-baseline gap-2 group"
-      >
-        <span className="sl-display text-[14px] text-gray-900 truncate group-hover:text-[var(--color-accent)] transition-colors">
-          {/* Position in the list, not the weekday: day_number is optional
-              advice now, so an untitled session must not be named after it. */}
-          {session.title || t('coach.week.sessionN', { n: position })}
-        </span>
-        <span className="sl-mono text-[10px] text-ink-400 shrink-0">
-          {t('coach.week.exCount', { n: exCount })}
-        </span>
-      </button>
-      {confirmed && (
-        <span
-          aria-label={t('coach.week.confirmedByStudent')}
-          title={t('coach.week.confirmedByStudent')}
-          className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
-          style={{ background: 'var(--color-success)', color: 'var(--color-ink-900)' }}
-        >
-          <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-          </svg>
-        </span>
-      )}
-      <button
-        type="button"
-        onClick={onDuplicate}
-        disabled={duplicating}
-        aria-label={t('coach.sheet.duplicateSession')}
-        title={t('coach.sheet.duplicateSession')}
-        className="w-7 h-7 rounded-lg text-ink-400 hover:bg-ink-100 hover:text-ink-700 flex items-center justify-center transition-colors shrink-0 disabled:opacity-40"
-      >
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="9" y="9" width="11" height="11" rx="2" strokeWidth={2} />
-          <path strokeWidth={2} strokeLinecap="round" d="M5 15V5a2 2 0 0 1 2-2h10" />
-        </svg>
-      </button>
-    </div>
-  );
-}
-
-// Reorder lives here rather than as a standing top-level button: it is a rare,
-// mode-entering action, and the ⋯ already exists so it costs no extra chrome.
-// It has to stay a mode (not always-on drag handles) because on touch a drag
-// handle competes with vertical scroll.
-function WeekMenu({ onDuplicate, onCopy, onDelete, onReorder, canReorder, t }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <span className="relative shrink-0">
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        aria-label={t('coach.sheet.weekMenu')}
-        aria-expanded={open}
-        className="w-7 h-7 rounded-lg text-ink-400 hover:bg-ink-100 hover:text-ink-700 flex items-center justify-center transition-colors"
-      >
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
-          <circle cx="3" cy="7" r="1.4" /><circle cx="7" cy="7" r="1.4" /><circle cx="11" cy="7" r="1.4" />
-        </svg>
-      </button>
-      {open && (
-        <>
-          <button
-            type="button"
-            aria-hidden="true"
-            tabIndex={-1}
-            onClick={(e) => { e.stopPropagation(); setOpen(false); }}
-            className="fixed inset-0 z-10 cursor-default"
-          />
-          <span className="absolute right-0 top-full mt-1 z-20 sl-card p-1 flex flex-col min-w-[150px]">
-            {[
-              { label: t('coach.week.duplicate'), fn: onDuplicate, danger: false },
-              { label: t('coach.week.copyTo'), fn: onCopy, danger: false },
-              ...(canReorder
-                ? [{ label: t('coach.sheet.reorderWeeks'), fn: onReorder, danger: false }]
-                : []),
-              { label: t('coach.week.delete'), fn: onDelete, danger: true },
-            ].map(({ label, fn, danger }) => (
-              <button
-                key={label}
-                type="button"
-                onClick={(e) => { e.stopPropagation(); setOpen(false); fn(); }}
-                className={`text-left px-2.5 py-1.5 rounded sl-mono text-[11px] hover:bg-ink-100 transition-colors ${
-                  danger ? 'text-danger' : 'text-ink-700'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </span>
-        </>
-      )}
-    </span>
-  );
-}
-
-// `flat` = this program has exactly one week, so the week is not a unit the
-// coach is thinking in — the block is simply an ordered list of sessions. The
-// card then drops its week chrome (number, label, collapse, week menu) and
-// renders the sessions directly. Adding a second week brings all of it back,
-// so a coach who programs in microcycles loses nothing.
-function WeekCard({
-  week, studentId, expanded, onToggle, confirmedIds, reordering, canReorder, onReorder,
-  flat, sessionsReordering, onReorderSessions, t,
-}) {
+  const createWeek = useCreateWeek();
   const updateWeek = useUpdateWeek();
-  const updateSession = useUpdateSession();
-  const createSession = useCreateSession();
   const deleteWeek = useDeleteWeek();
   const duplicateWeek = useDuplicateWeek();
+  const createSession = useCreateSession();
+  const updateSession = useUpdateSession();
   const duplicateSession = useDuplicateSession();
+  const reorderWeeks = useReorderWeeks();
+  const reorderSessions = useReorderSessions();
+  const moveSession = useMoveSession();
   const archiveSession = useArchiveSession();
   const archiveSessions = useArchiveSessions();
   const copySessions = useCopySessions();
-  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const { data: confirmedIds } = useProgramConfirmedSessionIds(program.id);
+
+  const weeks = useMemo(() => program.weeks || [], [program.weeks]);
+
+  const [reorderingPhases, setReorderingPhases] = useState(false);
+  const [reorderingSessions, setReorderingSessions] = useState(false);
   const [selecting, setSelecting] = useState(false);
-  const [showCopySelection, setShowCopySelection] = useState(false);
-  const [showCopy, setShowCopy] = useState(false);
-  const [confirmDeleteWeek, setConfirmDeleteWeek] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [showArchived, setShowArchived] = useState(false);
-  const navigate = useNavigate();
-  const archived = (week.sessions || []).filter((s) => s.archived_at).sort(compareSessions);
+  const [showCopySelection, setShowCopySelection] = useState(false);
+  const [copyPhaseId, setCopyPhaseId] = useState(null);
+  const [deletePhaseId, setDeletePhaseId] = useState(null);
 
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: week.id, disabled: !reordering });
+  // One pass builds everything the list renders, including a position that runs
+  // ACROSS phases: with a single list that is the number the coach reads, and
+  // it is what an untitled session is named after.
+  const model = useMemo(() => {
+    let n = 0;
+    const phases = weeks.map((week) => {
+      const sessions = activeSessions(week);
+      return {
+        week,
+        sessions,
+        positions: sessions.map(() => ++n),
+        exCount: sessions.reduce((sum, s) => sum + (s.exercise_slots || []).length, 0),
+      };
+    });
+    const archived = weeks
+      .flatMap((w) => (w.sessions || []).filter((s) => s.archived_at))
+      .sort(compareSessions);
+    return { phases, archived, total: n };
+  }, [weeks]);
 
-  const sessions = activeSessions(week);
-  const exTotal = sessions.reduce((n, s) => n + (s.exercise_slots || []).length, 0);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  function exitSelect() {
+    setSelecting(false);
+    setSelectedIds(new Set());
+  }
 
   function toggleSelected(id) {
     setSelectedIds((prev) => {
@@ -390,12 +127,8 @@ function WeekCard({
     });
   }
 
-  function exitSelect() {
-    setSelecting(false);
-    setSelectedIds(new Set());
-  }
-
-  function handleAddSession() {
+  function addSessionTo(week) {
+    if (!week) return;
     const all = week.sessions || [];
     // max(sort_order)+1 across ALL sessions, archived included —
     // UNIQUE(week_id, sort_order) rejects a value an archived row still holds.
@@ -404,295 +137,315 @@ function WeekCard({
       : 0;
     createSession.mutate({
       weekId: week.id,
-      title: t('coach.week.sessionN', { n: sessions.length + 1 }),
-      // No recommended weekday by default. Auto-assigning the next free day
-      // made every session look due on a date the coach never chose — and it
-      // capped a week at 7 sessions, since day 8 fell outside the strips.
+      title: t('coach.week.sessionN', { n: model.total + 1 }),
+      // No recommended weekday by default: a weekday is advice now, and
+      // auto-assigning one made every session look due on a date nobody chose.
       dayNumber: null,
       sortOrder: nextSortOrder,
     });
   }
 
+  function handleAddPhase() {
+    const nextNum = weeks.length > 0 ? Math.max(...weeks.map((w) => w.week_number)) + 1 : 1;
+    createWeek.mutate({ programId: program.id, weekNumber: nextNum });
+  }
+
+  // An empty block asks for a SESSION, not a phase: grouping is optional, so
+  // the first phase is created implicitly and stays unnamed until the coach
+  // decides otherwise. Chained because the session needs the new phase's id.
+  function handleAddFirstSession() {
+    createWeek.mutate(
+      { programId: program.id, weekNumber: 1 },
+      {
+        onSuccess: (week) =>
+          createSession.mutate({
+            weekId: week.id,
+            title: t('coach.week.sessionN', { n: 1 }),
+            dayNumber: null,
+            sortOrder: 0,
+          }),
+      },
+    );
+  }
+
+  // One DndContext serves both sortable levels, so dispatch on the active mode:
+  // phase dividers while reordering phases, session rows otherwise.
+  function handleDragEnd({ active, over }) {
+    if (!over || active.id === over.id) return;
+
+    if (reorderingPhases) {
+      const oldIdx = weeks.findIndex((w) => w.id === active.id);
+      const newIdx = weeks.findIndex((w) => w.id === over.id);
+      if (oldIdx === -1 || newIdx === -1) return;
+      reorderWeeks.mutate({
+        programId: program.id,
+        orderedIds: arrayMove(weeks, oldIdx, newIdx).map((w) => w.id),
+      });
+      return;
+    }
+
+    const plan = planSessionDrag(weeks, active.id, over.id);
+    if (!plan) return;
+    if (plan.type === 'reorder') {
+      reorderSessions.mutate({ weekId: plan.weekId, orderedIds: plan.orderedIds });
+    } else {
+      // Crossing a divider re-homes the session AND renumbers both phases —
+      // one RPC, because a half-applied move leaves a session in a phase whose
+      // positions no longer make room for it.
+      moveSession.mutate(plan);
+    }
+  }
+
+  const phaseCount = weeks.length;
+  const deletingPhase = weeks.find((w) => w.id === deletePhaseId) || null;
+  const copyingPhase = weeks.find((w) => w.id === copyPhaseId) || null;
+  const idle = !reorderingPhases && !reorderingSessions && !selecting;
+
   return (
-    <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
-      className="sl-card overflow-hidden"
-    >
-      {/* Flat mode: one quiet header carrying the block's size and the only
-          week action that still means something for a single week — copying
-          the whole thing to another athlete. No number, no collapse, no
-          delete: trashing the block is the program's own affordance. */}
-      {flat && (
-        <div className="flex items-center gap-2 px-3 py-2.5">
-          <span className="sl-mono text-[10px] text-ink-400 flex-1">
-            {t('coach.sheet.weekMeta', { s: sessions.length, e: exTotal })}
+    <div className="space-y-2">
+      {(reorderingPhases || reorderingSessions) && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="sl-mono text-[11px] text-ink-400">
+            {reorderingSessions && phaseCount > 1
+              ? t('coach.sheet.reorderSessionsHint')
+              : t('coach.sheet.reorderHint')}
           </span>
           <button
             type="button"
-            onClick={() => setShowCopy(true)}
-            className="sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)] transition-colors shrink-0"
+            onClick={() => { setReorderingPhases(false); setReorderingSessions(false); }}
+            className="sl-pill shrink-0"
+            style={{ background: 'var(--color-accent)', color: 'var(--color-ink-900)' }}
           >
-            {t('coach.week.copyTo')}
+            {t('common.done')}
           </button>
         </div>
       )}
 
-      {!flat && (
-      <div
-        className="flex items-center gap-2 px-3 py-2.5"
-        style={expanded ? { borderLeft: '3px solid var(--color-accent)' } : undefined}
-      >
-        {reordering && (
-          <button
-            {...attributes}
-            {...listeners}
-            aria-label={t('coach.week.reorderWeek', { n: week.week_number })}
-            className="text-ink-400 hover:text-ink-700 cursor-grab active:cursor-grabbing touch-none shrink-0 p-1"
-          >
-            <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true">
-              <circle cx="2.5" cy="3" r="1.25" /><circle cx="7.5" cy="3" r="1.25" />
-              <circle cx="2.5" cy="8" r="1.25" /><circle cx="7.5" cy="8" r="1.25" />
-              <circle cx="2.5" cy="13" r="1.25" /><circle cx="7.5" cy="13" r="1.25" />
-            </svg>
-          </button>
-        )}
-
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={expanded}
-          aria-label={t('coach.week.weekLabel', { n: week.week_number })}
-          className="sl-mono text-[11px] font-semibold text-gray-900 shrink-0"
-        >
-          {t('coach.week.weekShort', { n: week.week_number })}
-        </button>
-
-        {/* Sibling of the toggle, not nested inside it — an editable field
-            inside a button is not operable. Tap the number/meta to expand,
-            tap the label to rename.
-
-            Only the OPEN week offers the editable field: an unlabelled week
-            renders EditableText's "Label" placeholder, and a stack of those
-            down a 12-week block reads as noise rather than affordance. */}
-        <div className="flex-1 min-w-0">
-          {expanded ? (
-            <EditableText
-              value={week.label || ''}
-              onSave={(label) => updateWeek.mutate({ id: week.id, label })}
-              placeholder={t('coach.week.labelPlaceholder')}
-              ariaLabel={t('coach.week.editLabelAria')}
-              className="sl-display text-[13px] text-ink-700"
-            />
-          ) : (
-            <button
-              type="button"
-              onClick={onToggle}
-              aria-label={t('coach.week.weekLabel', { n: week.week_number })}
-              className="w-full text-left sl-display text-[13px] text-ink-700 truncate"
-            >
-              {week.label || ''}
-            </button>
-          )}
-        </div>
-
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={expanded}
-          aria-label={t('coach.week.weekLabel', { n: week.week_number })}
-          className="flex items-center gap-1.5 shrink-0"
-        >
-          <span className="sl-mono text-[10px] text-ink-400">
-            {t('coach.sheet.weekMeta', { s: sessions.length, e: exTotal })}
-          </span>
-          <svg
-            className={`w-3.5 h-3.5 text-ink-400 transition-transform ${expanded ? 'rotate-90' : ''}`}
-            fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-
-        {!reordering && (
-          <WeekMenu
-            t={t}
-            canReorder={canReorder}
-            onReorder={onReorder}
-            onDuplicate={() => duplicateWeek.mutate({ weekId: week.id })}
-            onCopy={() => setShowCopy(true)}
-            onDelete={() => setConfirmDeleteWeek(true)}
-          />
-        )}
-      </div>
-      )}
-
-      {(flat || expanded) && !reordering && (
+      {phaseCount === 0 ? (
         <>
-          {sessions.length === 0 && (
-            <p className="sl-mono text-[11px] text-ink-400 px-3 py-3 border-t border-ink-100">
-              {t('coach.week.noSessions')}
-            </p>
-          )}
+          <EmptyState message={t('coach.sheet.noSessionsYet')} />
+          <button
+            type="button"
+            onClick={handleAddFirstSession}
+            disabled={createWeek.isPending || createSession.isPending}
+            className="w-full border border-dashed border-ink-200 text-ink-400 rounded-xl py-3 sl-mono text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
+          >
+            {t('coach.week.addSession')}
+          </button>
+        </>
+      ) : (
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <div className="sl-card overflow-hidden">
+            {reorderingPhases ? (
+              <SortableContext items={weeks.map((w) => w.id)} strategy={verticalListSortingStrategy}>
+                {model.phases.map(({ week, sessions }) => (
+                  <SortablePhaseDivider
+                    key={week.id}
+                    week={week}
+                    sessionCount={sessions.length}
+                    t={t}
+                  />
+                ))}
+              </SortableContext>
+            ) : (
+              <SortableContext
+                items={model.phases.flatMap((p) => p.sessions.map((s) => s.id))}
+                strategy={verticalListSortingStrategy}
+              >
+                {model.phases.map(({ week, sessions, positions, exCount }) => (
+                  <div key={week.id}>
+                    {/* Rendered even for a lone unnamed phase: it is where the
+                        name is set, and keeping it makes a one-phase block the
+                        same shape as a six-phase one. */}
+                    <PhaseDivider
+                      week={week}
+                      sessionCount={sessions.length}
+                      exCount={exCount}
+                      quiet={phaseCount === 1}
+                      canReorder={phaseCount > 1}
+                      onRename={(label) => updateWeek.mutate({ id: week.id, label })}
+                      onAddSession={() => addSessionTo(week)}
+                      onDuplicate={() => duplicateWeek.mutate({ weekId: week.id })}
+                      onCopy={() => setCopyPhaseId(week.id)}
+                      onDelete={() => setDeletePhaseId(week.id)}
+                      onReorder={() => {
+                        exitSelect();
+                        setReorderingSessions(false);
+                        setReorderingPhases(true);
+                      }}
+                      t={t}
+                    />
 
-          {sessionsReordering ? (
-            // A nested SortableContext, NOT a nested DndContext: dnd-kit
-            // supports many sortable lists inside one context, and the sheet's
-            // single DndContext dispatches by what was picked up.
-            <SortableContext
-              items={sessions.map((s) => s.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              {sessions.map((s, i) => (
-                <SortableSessionRow key={s.id} session={s} position={i + 1} t={t} />
-              ))}
-            </SortableContext>
-          ) : (
-            sessions.map((s, i) => (
-              <SessionRow
-                key={s.id}
-                session={s}
-                studentId={studentId}
-                confirmed={confirmedIds?.has(s.id)}
-                position={i + 1}
-                onSetDay={(day) => updateSession.mutate({ id: s.id, day_number: day })}
-                onDuplicate={() => duplicateSession.mutate({ sessionId: s.id })}
-                duplicating={duplicateSession.isPending}
-                selecting={selecting}
-                selected={selectedIds.has(s.id)}
-                onToggleSelect={() => toggleSelected(s.id)}
-                t={t}
-              />
-            ))
-          )}
+                    {sessions.length === 0 && (
+                      <p className="sl-mono text-[11px] text-ink-400 px-3 py-3 border-t border-ink-100">
+                        {t('coach.week.noSessions')}
+                      </p>
+                    )}
 
-          {archived.length > 0 && !sessionsReordering && (
-            <div className="border-t border-ink-100">
-              <button
-                type="button"
-                onClick={() => setShowArchived((v) => !v)}
-                className="w-full text-ink-400 py-2 sl-mono text-[10px] hover:text-ink-700 underline"
-              >
-                {showArchived
-                  ? t('coach.week.hideArchived', { n: archived.length })
-                  : t('coach.week.showArchived', { n: archived.length })}
-              </button>
-              {showArchived && archived.map((s, i) => (
-                <div key={s.id} className="flex items-center gap-2 border-t border-ink-100 opacity-75 hover:opacity-100">
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/coach/student/${studentId}/session/${s.id}/review`)}
-                    aria-label={t('coach.week.openArchivedSession')}
-                    className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 text-left"
-                  >
-                    <span className="sl-display text-[13px] text-ink-600 flex-1 truncate">
-                      {s.title || t('coach.week.sessionN', { n: i + 1 })}
-                    </span>
-                    <span
-                      className="sl-pill text-ink-900 shrink-0"
-                      style={{ background: 'color-mix(in srgb, var(--color-warn) 18%, transparent)' }}
-                    >
-                      {t('common.archived')}
-                    </span>
-                  </button>
-                  {/* Restoring used to mean opening the session's review page —
-                      a full-page route whose back button lands on an unrelated
-                      feed, so it was a one-way trip out of Programming. */}
-                  <button
-                    type="button"
-                    onClick={() => archiveSession.mutate({ sessionId: s.id, archived: false })}
-                    disabled={archiveSession.isPending}
-                    aria-label={t('coach.sheet.unarchiveSession')}
-                    title={t('coach.sheet.unarchiveSession')}
-                    className="shrink-0 px-3 py-2 sl-mono text-[10px] text-ink-400 hover:text-[var(--color-accent)] transition-colors"
-                  >
-                    {t('coach.sheet.unarchive')}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+                    {sessions.map((s, i) =>
+                      reorderingSessions ? (
+                        <SortableSessionRow key={s.id} session={s} position={positions[i]} t={t} />
+                      ) : (
+                        <SessionRow
+                          key={s.id}
+                          session={s}
+                          studentId={studentId}
+                          confirmed={confirmedIds?.has(s.id)}
+                          position={positions[i]}
+                          onSetDay={(day) => updateSession.mutate({ id: s.id, day_number: day })}
+                          onDuplicate={() => duplicateSession.mutate({ sessionId: s.id })}
+                          duplicating={duplicateSession.isPending}
+                          selecting={selecting}
+                          selected={selectedIds.has(s.id)}
+                          onToggleSelect={() => toggleSelected(s.id)}
+                          t={t}
+                        />
+                      ),
+                    )}
+                  </div>
+                ))}
+              </SortableContext>
+            )}
 
-          {/* Reorder sits beside "+ Session" rather than in the week ⋯ menu:
-              it has to be reachable in FLAT mode too, where there is no menu,
-              and position is now the coach's only ordering control. It stays a
-              MODE because on touch a drag handle competes with vertical
-              scroll — the same reason week reordering is one. */}
-          {selecting ? (
-            /* Inline rather than pinned to the viewport: the selection belongs
-               to THIS week's card, and a floating bar would fight BottomNav for
-               the bottom edge of a phone. */
-            <div className="flex items-center gap-2 px-3 py-2 border-t border-ink-100 bg-ink-50">
-              <span className="sl-mono text-[11px] text-ink-400 flex-1">
-                {t('coach.sheet.nSelected', { n: selectedIds.size })}
-              </span>
-              <button
-                type="button"
-                disabled={selectedIds.size === 0 || archiveSessions.isPending}
-                onClick={() =>
-                  archiveSessions.mutate(
-                    { sessionIds: [...selectedIds], archived: true },
-                    { onSuccess: exitSelect },
-                  )
-                }
-                className="sl-mono text-[11px] text-ink-700 hover:text-[var(--color-accent)] disabled:opacity-40 transition-colors"
-              >
-                {t('coach.sheet.archiveSelected')}
-              </button>
-              <button
-                type="button"
-                disabled={selectedIds.size === 0}
-                onClick={() => setShowCopySelection(true)}
-                className="sl-mono text-[11px] text-ink-700 hover:text-[var(--color-accent)] disabled:opacity-40 transition-colors"
-              >
-                {t('coach.week.copyTo')}
-              </button>
-              <button
-                type="button"
-                onClick={exitSelect}
-                aria-label={t('common.cancel')}
-                className="sl-mono text-[13px] text-ink-400 hover:text-gray-900 px-1 transition-colors"
-              >
-                &times;
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-stretch border-t border-ink-100">
-              {!sessionsReordering && (
+            {/* One drawer for the whole block rather than one per phase: an
+                archived session is out of the plan, and which phase it used to
+                sit in is not what the coach is looking for when restoring it. */}
+            {model.archived.length > 0 && idle && (
+              <div className="border-t border-ink-100">
                 <button
                   type="button"
-                  onClick={handleAddSession}
+                  onClick={() => setShowArchived((v) => !v)}
+                  className="w-full text-ink-400 py-2 sl-mono text-[10px] hover:text-ink-700 underline"
+                >
+                  {showArchived
+                    ? t('coach.week.hideArchived', { n: model.archived.length })
+                    : t('coach.week.showArchived', { n: model.archived.length })}
+                </button>
+                {showArchived && model.archived.map((s, i) => (
+                  <div
+                    key={s.id}
+                    className="flex items-center gap-2 border-t border-ink-100 opacity-75 hover:opacity-100"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/coach/student/${studentId}/session/${s.id}/review`)}
+                      aria-label={t('coach.week.openArchivedSession')}
+                      className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 text-left"
+                    >
+                      <span className="sl-display text-[13px] text-ink-600 flex-1 truncate">
+                        {s.title || t('coach.week.sessionN', { n: i + 1 })}
+                      </span>
+                      <span
+                        className="sl-pill text-ink-900 shrink-0"
+                        style={{ background: 'color-mix(in srgb, var(--color-warn) 18%, transparent)' }}
+                      >
+                        {t('common.archived')}
+                      </span>
+                    </button>
+                    {/* Restoring used to mean opening the session's review page —
+                        a full-page route whose back button lands on an unrelated
+                        feed, so it was a one-way trip out of Programming. */}
+                    <button
+                      type="button"
+                      onClick={() => archiveSession.mutate({ sessionId: s.id, archived: false })}
+                      disabled={archiveSession.isPending}
+                      aria-label={t('coach.sheet.unarchiveSession')}
+                      title={t('coach.sheet.unarchiveSession')}
+                      className="shrink-0 px-3 py-2 sl-mono text-[10px] text-ink-400 hover:text-[var(--color-accent)] transition-colors"
+                    >
+                      {t('coach.sheet.unarchive')}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* One footer for the block. Selection and reorder now span every
+                phase, so archiving or resequencing a whole mesocycle is one
+                gesture instead of one per week card. */}
+            {selecting ? (
+              <div className="flex items-center gap-2 px-3 py-2 border-t border-ink-100 bg-ink-50">
+                <span className="sl-mono text-[11px] text-ink-400 flex-1">
+                  {t('coach.sheet.nSelected', { n: selectedIds.size })}
+                </span>
+                <button
+                  type="button"
+                  disabled={selectedIds.size === 0 || archiveSessions.isPending}
+                  onClick={() =>
+                    archiveSessions.mutate(
+                      { sessionIds: [...selectedIds], archived: true },
+                      { onSuccess: exitSelect },
+                    )
+                  }
+                  className="sl-mono text-[11px] text-ink-700 hover:text-[var(--color-accent)] disabled:opacity-40 transition-colors"
+                >
+                  {t('coach.sheet.archiveSelected')}
+                </button>
+                <button
+                  type="button"
+                  disabled={selectedIds.size === 0}
+                  onClick={() => setShowCopySelection(true)}
+                  className="sl-mono text-[11px] text-ink-700 hover:text-[var(--color-accent)] disabled:opacity-40 transition-colors"
+                >
+                  {t('coach.week.copyTo')}
+                </button>
+                <button
+                  type="button"
+                  onClick={exitSelect}
+                  aria-label={t('common.cancel')}
+                  className="sl-mono text-[13px] text-ink-400 hover:text-gray-900 px-1 transition-colors"
+                >
+                  &times;
+                </button>
+              </div>
+            ) : idle && (
+              /* Both reorder modes hide this bar: the banner above already
+                 carries the only way out, and two buttons reading "Done" on one
+                 screen is one too many to aim at. */
+              <div className="flex items-stretch border-t border-ink-100">
+                <button
+                  type="button"
+                  onClick={() => addSessionTo(weeks[weeks.length - 1])}
                   disabled={createSession.isPending}
                   className="flex-1 text-ink-400 py-2.5 sl-mono text-[11px] hover:text-[var(--color-accent)] transition-colors"
                 >
                   {t('coach.week.addSession')}
                 </button>
-              )}
-              {sessions.length > 0 && !sessionsReordering && (
-                <button
-                  type="button"
-                  onClick={() => setSelecting(true)}
-                  className="px-4 py-2.5 sl-mono text-[11px] text-ink-400 border-l border-ink-100 hover:text-[var(--color-accent)] transition-colors"
-                >
-                  {t('coach.sheet.select')}
-                </button>
-              )}
-              {sessions.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => onReorderSessions(sessionsReordering ? null : week.id)}
-                  className={`sl-mono text-[11px] py-2.5 transition-colors ${
-                    sessionsReordering
-                      ? 'flex-1 text-[var(--color-accent)]'
-                      : 'px-4 text-ink-400 border-l border-ink-100 hover:text-[var(--color-accent)]'
-                  }`}
-                >
-                  {sessionsReordering ? t('common.done') : t('coach.sheet.reorderSessions')}
-                </button>
-              )}
-            </div>
-          )}
-        </>
+                {model.total > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelecting(true)}
+                    className="px-4 py-2.5 sl-mono text-[11px] text-ink-400 border-l border-ink-100 hover:text-[var(--color-accent)] transition-colors"
+                  >
+                    {t('coach.sheet.select')}
+                  </button>
+                )}
+                {model.total > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setReorderingSessions(true)}
+                    className="px-4 py-2.5 sl-mono text-[11px] text-ink-400 border-l border-ink-100 hover:text-[var(--color-accent)] transition-colors"
+                  >
+                    {t('coach.sheet.reorderSessions')}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </DndContext>
+      )}
+
+      {/* Opting into phases stays available but never headline: most blocks are
+          a single run of sessions and never need a divider at all. */}
+      {phaseCount > 0 && idle && (
+        <button
+          type="button"
+          onClick={handleAddPhase}
+          disabled={createWeek.isPending}
+          className="w-full text-ink-400 py-2 sl-mono text-[11px] hover:text-[var(--color-accent)] transition-colors"
+        >
+          {t('coach.sheet.addPhase')}
+        </button>
       )}
 
       <CopyDialog
@@ -701,7 +454,7 @@ function WeekCard({
         title={t('coach.sheet.copySessionsTitle')}
         description={t('coach.sheet.copySessionsDescription', { n: selectedIds.size })}
         currentStudentId={studentId}
-        currentProgramId={week.program_id}
+        currentProgramId={program.id}
         showWeekSelect
         onCopy={({ weekId }) => {
           if (!weekId) return;
@@ -719,221 +472,36 @@ function WeekCard({
       />
 
       <CopyDialog
-        open={showCopy}
-        onClose={() => setShowCopy(false)}
-        title={t('coach.week.copyTitle')}
+        open={!!copyingPhase}
+        onClose={() => setCopyPhaseId(null)}
+        title={t('coach.sheet.copyPhaseTitle')}
         description={t('coach.week.copyDescription')}
         currentStudentId={studentId}
-        currentProgramId={week.program_id}
+        currentProgramId={program.id}
         onCopy={({ programId }) => {
-          if (!programId) return;
-          duplicateWeek.mutate({ weekId: week.id, programId }, { onSuccess: () => setShowCopy(false) });
+          if (!programId || !copyingPhase) return;
+          duplicateWeek.mutate(
+            { weekId: copyingPhase.id, programId },
+            { onSuccess: () => setCopyPhaseId(null) },
+          );
         }}
         isPending={duplicateWeek.isPending}
       />
 
       <ConfirmDialog
-        open={confirmDeleteWeek}
-        onClose={() => setConfirmDeleteWeek(false)}
-        title={t('coach.week.deleteWeekTitle')}
-        message={t('coach.week.deleteWeekMessage', { n: week.week_number })}
-        onConfirm={() => deleteWeek.mutate(week.id)}
-      />
-    </div>
-  );
-}
-
-/**
- * The Programming tab's body: the whole training block on one page. Each week
- * lists its own sessions inline, so the coach reads the shape of the block
- * without navigating and is one tap from any session's exercises.
- *
- * Replaces the old WeekTimeline chip strip + WeekView page pair, which showed
- * nothing at this level and cost two navigations to reach an exercise.
- */
-export default function ProgramSheet({ studentId, program }) {
-  const { t } = useI18n();
-  const createWeek = useCreateWeek();
-  const createSession = useCreateSession();
-  const reorderWeeks = useReorderWeeks();
-  const reorderSessions = useReorderSessions();
-  const { data: confirmedIds } = useProgramConfirmedSessionIds(program.id);
-
-  const weeks = useMemo(() => program.weeks || [], [program.weeks]);
-  // A block with one week isn't organised in weeks at all — it is a plain
-  // ordered list of sessions, which is how most athletes are actually coached.
-  // Render it that way and keep the week machinery for coaches who do program
-  // in microcycles; adding a second week restores it in full.
-  const flat = weeks.length === 1;
-  // Seeded from the remembered choice so returning from a session editor lands
-  // on the same week. `null` = never chosen → fall back to the active week.
-  const [openWeekId, setOpenWeekId] = useState(() => readOpenWeek(program.id));
-  const [reordering, setReordering] = useState(false);
-  // Which week has its sessions in reorder mode (null = none). One at a time:
-  // two open drag surfaces on one screen is a mis-drop waiting to happen.
-  const [sessionsReorderWeekId, setSessionsReorderWeekId] = useState(null);
-
-  // Uncontrolled until the coach picks a week: default to where the athlete
-  // currently is, recomputed as confirmations land.
-  const defaultOpen = useMemo(
-    () => currentWeekId(weeks, confirmedIds),
-    [weeks, confirmedIds],
-  );
-  // A remembered week that no longer exists (deleted, or a different program
-  // selected) must not leave every week collapsed.
-  const remembered = openWeekId && weeks.some((w) => w.id === openWeekId) ? openWeekId : null;
-  const expandedId = remembered ?? (openWeekId === '' ? '' : defaultOpen);
-
-  function handleToggleWeek(weekId) {
-    const next = weekId === expandedId ? '' : weekId;
-    setOpenWeekId(next);
-    writeOpenWeek(program.id, next);
-  }
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-
-  function handleAddWeek() {
-    const nextNum = weeks.length > 0
-      ? Math.max(...weeks.map((w) => w.week_number)) + 1
-      : 1;
-    createWeek.mutate({ programId: program.id, weekNumber: nextNum });
-  }
-
-  // An empty block asks for a SESSION, not a week: the week is a grouping the
-  // coach may never want, so it gets created implicitly and stays invisible
-  // until they add a second one. Chained rather than fired together because
-  // the session needs the new week's id.
-  function handleAddFirstSession() {
-    createWeek.mutate(
-      { programId: program.id, weekNumber: 1 },
-      {
-        onSuccess: (week) =>
-          createSession.mutate({
-            weekId: week.id,
-            title: t('coach.week.sessionN', { n: 1 }),
-            dayNumber: null,
-            sortOrder: 0,
-          }),
-      },
-    );
-  }
-
-  // One DndContext serves both sortable levels, so dispatch on what was picked
-  // up: a week id while reordering weeks, a session id while reordering one
-  // week's sessions.
-  function handleDragEnd({ active, over }) {
-    if (!over || active.id === over.id) return;
-
-    if (sessionsReorderWeekId) {
-      const week = weeks.find((w) => w.id === sessionsReorderWeekId);
-      if (!week) return;
-      const visible = activeSessions(week);
-      const oldIdx = visible.findIndex((s) => s.id === active.id);
-      const newIdx = visible.findIndex((s) => s.id === over.id);
-      if (oldIdx === -1 || newIdx === -1) return;
-      // Archived rows keep their positions AFTER the active ones: the UNIQUE
-      // spans the whole week, so they have to be in the payload or the second
-      // pass would collide with them.
-      const archivedIds = (week.sessions || [])
-        .filter((s) => s.archived_at)
-        .sort(compareSessions)
-        .map((s) => s.id);
-      reorderSessions.mutate({
-        weekId: week.id,
-        orderedIds: [...arrayMove(visible, oldIdx, newIdx).map((s) => s.id), ...archivedIds],
-      });
-      return;
-    }
-
-    const oldIdx = weeks.findIndex((w) => w.id === active.id);
-    const newIdx = weeks.findIndex((w) => w.id === over.id);
-    if (oldIdx === -1 || newIdx === -1) return;
-    reorderWeeks.mutate({
-      programId: program.id,
-      orderedIds: arrayMove(weeks, oldIdx, newIdx).map((w) => w.id),
-    });
-  }
-
-  return (
-    <div className="space-y-2">
-      {/* Only visible WHILE reordering — entering the mode is a rare action and
-          lives in each week's ⋯ menu, so it no longer occupies a standing
-          top-level button above every block. */}
-      {reordering && (
-        <div className="flex items-center justify-between gap-2">
-          <span className="sl-mono text-[11px] text-ink-400">
-            {t('coach.sheet.reorderHint')}
-          </span>
-          <button
-            type="button"
-            onClick={() => setReordering(false)}
-            className="sl-pill shrink-0"
-            style={{ background: 'var(--color-accent)', color: 'var(--color-ink-900)' }}
-          >
-            {t('common.done')}
-          </button>
-        </div>
-      )}
-
-      {weeks.length === 0 && (
-        <>
-          <EmptyState message={t('coach.sheet.noSessionsYet')} />
-          <button
-            type="button"
-            onClick={handleAddFirstSession}
-            disabled={createWeek.isPending || createSession.isPending}
-            className="w-full border border-dashed border-ink-200 text-ink-400 rounded-xl py-3 sl-mono text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
-          >
-            {t('coach.week.addSession')}
-          </button>
-        </>
-      )}
-
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={weeks.map((w) => w.id)} strategy={verticalListSortingStrategy}>
-          <div className="space-y-2">
-            {weeks.map((w) => (
-              <WeekCard
-                key={w.id}
-                week={w}
-                studentId={studentId}
-                expanded={!reordering && w.id === expandedId}
-                onToggle={() => handleToggleWeek(w.id)}
-                canReorder={weeks.length > 1}
-                onReorder={() => setReordering(true)}
-                confirmedIds={confirmedIds}
-                reordering={reordering}
-                flat={flat}
-                sessionsReordering={sessionsReorderWeekId === w.id}
-                onReorderSessions={setSessionsReorderWeekId}
-                t={t}
-              />
-            ))}
-          </div>
-        </SortableContext>
-      </DndContext>
-
-      {/* In flat mode this is how a coach opts INTO microcycles, so it stays
-          reachable but stops being a headline action next to "+ Session".
-          An empty block hides it entirely — its CTA already makes the week. */}
-      {weeks.length > 0 && (
-      <button
-        type="button"
-        onClick={handleAddWeek}
-        disabled={createWeek.isPending}
-        className={
-          flat
-            ? 'w-full text-ink-400 py-2 sl-mono text-[11px] hover:text-[var(--color-accent)] transition-colors'
-            : 'w-full border border-dashed border-ink-200 text-ink-400 rounded-xl py-3 sl-mono text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors'
+        open={!!deletingPhase}
+        onClose={() => setDeletePhaseId(null)}
+        title={t('coach.sheet.deletePhaseTitle')}
+        message={
+          deletingPhase?.label
+            ? t('coach.sheet.deletePhaseNamed', { name: deletingPhase.label })
+            : t('coach.sheet.deletePhaseMessage')
         }
-      >
-        {t('coach.week.addWeek')}
-      </button>
-      )}
+        onConfirm={() => {
+          if (deletingPhase) deleteWeek.mutate(deletingPhase.id);
+          setDeletePhaseId(null);
+        }}
+      />
     </div>
   );
 }

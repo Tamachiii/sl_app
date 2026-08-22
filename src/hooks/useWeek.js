@@ -156,6 +156,44 @@ export function useReorderSessions() {
   });
 }
 
+/**
+ * Move a session into ANOTHER phase (week) of the same block — the gesture of
+ * dragging it across a divider on the sheet.
+ *
+ * Re-homing the row and renumbering both weeks must not be separable: split
+ * across two round trips, a failure between them leaves the session holding a
+ * position that collides in its new week, or renumbered out of a week it no
+ * longer belongs to. `move_session` (2026_08_22) does both in one statement.
+ * SECURITY INVOKER, so it rides the coach's own RLS.
+ *
+ * Takes the FULL ordered id list of each affected week AFTER the move, same
+ * contract as `useReorderSessions` — the client is holding the list, so the
+ * ordering logic stays in one place.
+ */
+export function useMoveSession() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ sessionId, destWeekId, sourceIds, destIds }) => {
+      const { error } = await supabase.rpc('move_session', {
+        p_session_id: sessionId,
+        p_dest_week_id: destWeekId,
+        p_source_ids: sourceIds,
+        p_dest_ids: destIds,
+      });
+      if (error) throw error;
+      return { sessionId, destWeekId };
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['program'] });
+      qc.invalidateQueries({ queryKey: ['week'] });
+      // The athlete's queue reads this order and this grouping.
+      qc.invalidateQueries({ queryKey: ['student-program-details'] });
+      invalidateCoachDashboard(qc);
+    },
+  });
+}
+
 export function useCreateSession() {
   const qc = useQueryClient();
 

@@ -17,6 +17,7 @@ const mockDeleteWeek = { mutate: vi.fn(), isPending: false };
 const mockUpdateWeek = { mutate: vi.fn(), isPending: false };
 const mockReorderWeeks = { mutate: vi.fn(), isPending: false };
 const mockReorderSessions = { mutate: vi.fn(), isPending: false };
+const mockMoveSession = { mutate: vi.fn(), isPending: false };
 const mockArchiveSession = { mutate: vi.fn(), isPending: false };
 const mockArchiveSessions = { mutate: vi.fn(), isPending: false };
 const mockCopySessions = { mutate: vi.fn(), isPending: false };
@@ -27,6 +28,7 @@ vi.mock('../../hooks/useWeek', () => ({
   useCreateWeek: () => mockCreateWeek,
   useReorderWeeks: () => mockReorderWeeks,
   useReorderSessions: () => mockReorderSessions,
+  useMoveSession: () => mockMoveSession,
   useArchiveSession: () => mockArchiveSession,
   useArchiveSessions: () => mockArchiveSessions,
   useUpdateWeek: () => mockUpdateWeek,
@@ -86,6 +88,8 @@ const program = {
   ],
 };
 
+const oneWeek = { id: 'prog-1', weeks: [program.weeks[0]] };
+
 function renderSheet(p = program) {
   return render(
     <MemoryRouter>
@@ -98,26 +102,99 @@ describe('ProgramSheet', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockConfirmed = { data: new Set() };
-    // The sheet remembers the open week per program in localStorage so it
-    // survives a trip into the session editor — clear it so cases don't
-    // inherit whichever week a previous case expanded.
     localStorage.clear();
   });
 
-  it('lists every week with its session count and exercise total', () => {
-    renderSheet();
-    // W1 has 2 active sessions (the archived one is excluded) and 3 slots.
-    expect(screen.getByText('2 sessions · 3 ex')).toBeInTheDocument();
-    expect(screen.getByText('1 sessions · 0 ex')).toBeInTheDocument();
-  });
-
-  it('shows the sessions of the current week inline — the old chip strip showed none', () => {
+  // The block is ONE list. It used to be an accordion of week cards with a
+  // single one expanded, so the order the athlete would actually train in was
+  // only ever visible a week at a time.
+  it('shows every session of the block at once, across phases', () => {
     renderSheet();
     expect(screen.getByText('Pull')).toBeInTheDocument();
     expect(screen.getByText('Push')).toBeInTheDocument();
+    expect(screen.getByText('Legs')).toBeInTheDocument();
     // Day pills render the weekday, not a bare number.
     expect(screen.getByRole('button', { name: /day: mon/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /day: wed/i })).toBeInTheDocument();
+  });
+
+  it('has no collapse control — nothing to expand', () => {
+    renderSheet();
+    expect(screen.queryByRole('button', { name: /week 1/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /week 2/i })).toBeNull();
+  });
+
+  // A phase carries a free name and no number: the number was what made a week
+  // feel like a fixed-length container, which is the idea the queue refactor
+  // removed.
+  describe('phase dividers', () => {
+    it('shows the name, never a week number', () => {
+      renderSheet();
+      expect(screen.getByText('Intro')).toBeInTheDocument();
+      expect(screen.queryByText(/^W\d/)).toBeNull();
+      expect(screen.queryByText(/week \d/i)).toBeNull();
+    });
+
+    // Half the phases in production are unnamed; hiding their divider would
+    // silently merge them into the phase above.
+    it('still draws an unnamed phase, offering the name', () => {
+      renderSheet();
+      const namers = screen.getAllByRole('button', { name: /edit week label/i });
+      expect(namers).toHaveLength(2);
+      expect(screen.getByText('Name this phase')).toBeInTheDocument();
+    });
+
+    it('renames in place', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(screen.getByText('Intro'));
+      const input = screen.getByRole('textbox');
+      await user.clear(input);
+      await user.type(input, 'Accumulation{Enter}');
+      expect(mockUpdateWeek.mutate).toHaveBeenCalledWith({ id: 'w-1', label: 'Accumulation' });
+    });
+
+    it('reports each phase size once there is more than one', () => {
+      renderSheet();
+      expect(screen.getByText('2 sessions · 3 ex')).toBeInTheDocument();
+      expect(screen.getByText('1 sessions · 0 ex')).toBeInTheDocument();
+    });
+
+    it('adds a session to the phase whose menu was used', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(screen.getAllByRole('button', { name: /phase options/i })[0]);
+      // The footer offers the same label; the menu's copy comes first in the
+      // DOM because the divider it hangs off sits above the list.
+      await user.click(screen.getAllByRole('button', { name: /add session/i })[0]);
+      expect(mockCreateSession.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ weekId: 'w-1' }),
+      );
+    });
+
+    it('duplicates a phase without pinning a number (the hook resolves max+1)', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(screen.getAllByRole('button', { name: /phase options/i })[0]);
+      // Exact name: every session row also offers "Duplicate session".
+      await user.click(screen.getByRole('button', { name: 'duplicate' }));
+      expect(mockDuplicateWeek.mutate).toHaveBeenCalledWith({ weekId: 'w-1' });
+    });
+
+    it('adds a phase at max(week_number) + 1', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(screen.getByRole('button', { name: /\+ phase/i }));
+      expect(mockCreateWeek.mutate).toHaveBeenCalledWith({ programId: 'prog-1', weekNumber: 3 });
+    });
+
+    it('names the phase in the delete confirmation instead of numbering it', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(screen.getAllByRole('button', { name: /phase options/i })[0]);
+      await user.click(screen.getByRole('button', { name: /delete phase/i }));
+      expect(screen.getByText(/Delete “Intro”/)).toBeInTheDocument();
+    });
   });
 
   // The sheet lists sessions in the POSITION the coach put them in, and that is
@@ -140,11 +217,23 @@ describe('ProgramSheet', () => {
     expect(order).toEqual(['Upper 2', 'Upper 1', 'Leg']);
   });
 
-  // Position is the coach's ONLY ordering control now that the weekday is a
-  // pure hint, so it has to exist on the sheet — and it has to be reachable in
-  // flat mode too, where there is no week ⋯ menu.
+  // Positions run across the whole block, because that is the number the coach
+  // is looking at in a single list.
+  it('numbers untitled sessions across phases, not within one', () => {
+    renderSheet({
+      ...program,
+      weeks: [
+        program.weeks[0],
+        { ...program.weeks[1], sessions: [
+          { id: 'blank', title: '', day_number: null, sort_order: 0, archived_at: null, exercise_slots: [] },
+        ] },
+      ],
+    });
+    expect(screen.getByText('Session 3')).toBeInTheDocument();
+  });
+
   describe('session reorder mode', () => {
-    it('offers Reorder beside + Session once a week holds more than one', () => {
+    it('offers Reorder once the block holds more than one session', () => {
       renderSheet();
       expect(screen.getByRole('button', { name: /^reorder$/i })).toBeInTheDocument();
     });
@@ -167,15 +256,29 @@ describe('ProgramSheet', () => {
       renderSheet();
       await user.click(screen.getByRole('button', { name: /^reorder$/i }));
 
-      // The week-reorder mode blanks its sessions; this one must not — you
-      // cannot order bars you can't read.
       expect(screen.getByText('Pull')).toBeInTheDocument();
-      expect(screen.getByText('Push')).toBeInTheDocument();
+      expect(screen.getByText('Legs')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /reorder pull/i })).toBeInTheDocument();
       // Every other control steps out of the way so a drag can't mis-tap.
       expect(screen.queryByRole('button', { name: /day: mon/i })).toBeNull();
       expect(screen.queryByRole('button', { name: /duplicate session/i })).toBeNull();
       expect(screen.queryByRole('button', { name: /add session/i })).toBeNull();
+    });
+
+    // Dragging across a divider is the gesture that used to be impossible —
+    // the editor's "copy to" duplicated the session and left the original.
+    it('says so when there is a divider to drag across', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(screen.getByRole('button', { name: /^reorder$/i }));
+      expect(screen.getByText(/drag a session onto a phase name/i)).toBeInTheDocument();
+    });
+
+    it('keeps that hint out of a single-phase block', async () => {
+      const user = userEvent.setup();
+      renderSheet(oneWeek);
+      await user.click(screen.getByRole('button', { name: /^reorder$/i }));
+      expect(screen.queryByText(/drag a session onto a phase name/i)).toBeNull();
     });
 
     it('leaves the mode on Done', async () => {
@@ -184,6 +287,37 @@ describe('ProgramSheet', () => {
       await user.click(screen.getByRole('button', { name: /^reorder$/i }));
       await user.click(screen.getByRole('button', { name: /^done$/i }));
       expect(screen.getByRole('button', { name: /day: mon/i })).toBeInTheDocument();
+    });
+  });
+
+  describe('phase reorder mode', () => {
+    it('is offered only from a divider menu, and only with several phases', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      expect(screen.queryByRole('button', { name: /reorder phases/i })).toBeNull();
+      await user.click(screen.getAllByRole('button', { name: /phase options/i })[0]);
+      expect(screen.getByRole('button', { name: /reorder phases/i })).toBeInTheDocument();
+    });
+
+    it('is absent for a lone phase', async () => {
+      const user = userEvent.setup();
+      renderSheet(oneWeek);
+      await user.click(screen.getByRole('button', { name: /phase options/i }));
+      expect(screen.queryByRole('button', { name: /reorder phases/i })).toBeNull();
+    });
+
+    it('hides the sessions so a phase is dragged as a whole', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(screen.getAllByRole('button', { name: /phase options/i })[0]);
+      await user.click(screen.getByRole('button', { name: /reorder phases/i }));
+
+      expect(screen.queryByText('Pull')).toBeNull();
+      expect(screen.getByRole('button', { name: /reorder intro/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /reorder unnamed phase/i })).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: /^done$/i }));
+      expect(screen.getByText('Pull')).toBeInTheDocument();
     });
   });
 
@@ -210,16 +344,18 @@ describe('ProgramSheet', () => {
       expect(screen.getByText('1 selected')).toBeInTheDocument();
     });
 
-    it('archives the selection in one call', async () => {
+    // One selection for the whole block: archiving a finished mesocycle used to
+    // be one pass per week card.
+    it('spans phases', async () => {
       const user = userEvent.setup();
       renderSheet();
       await enterSelect(user);
       await user.click(screen.getByRole('button', { name: /Pull/ }));
-      await user.click(screen.getByRole('button', { name: /Push/ }));
+      await user.click(screen.getByRole('button', { name: /Legs/ }));
       await user.click(screen.getByRole('button', { name: /^archive$/i }));
 
       expect(mockArchiveSessions.mutate).toHaveBeenCalledWith(
-        { sessionIds: ['sess-1', 'sess-2'], archived: true },
+        { sessionIds: ['sess-1', 'sess-3'], archived: true },
         expect.any(Object),
       );
     });
@@ -251,8 +387,7 @@ describe('ProgramSheet', () => {
       await user.click(screen.getByRole('button', { name: /Pull/ }));
       await user.click(screen.getByRole('button', { name: /copy to/i }));
       // Scoped to the OPEN dialog: `Dialog` mounts its children whatever its
-      // state, and the sheet renders one CopyDialog per week card, so an
-      // unscoped query matches the closed ones too.
+      // state, and the sheet renders a second CopyDialog for phase copying.
       const dialog = screen.getByRole('dialog');
       // It asks for the destination BLOCK before the week — the step that
       // lifts the old active-program-only restriction.
@@ -284,25 +419,30 @@ describe('ProgramSheet', () => {
     expect(screen.getByText(/show 1 archived/i)).toBeInTheDocument();
   });
 
+  // One drawer for the block, not one per phase: which phase an archived
+  // session used to sit in is not what the coach is looking for.
+  it('gathers archived sessions from every phase into one drawer', async () => {
+    const user = userEvent.setup();
+    renderSheet({
+      ...program,
+      weeks: [
+        program.weeks[0],
+        { ...program.weeks[1], sessions: [
+          ...program.weeks[1].sessions,
+          { id: 'sess-old-2', title: 'Older', day_number: null, sort_order: 9, archived_at: '2026-01-02', exercise_slots: [] },
+        ] },
+      ],
+    });
+    await user.click(screen.getByText(/show 2 archived/i));
+    expect(screen.getByText('Old')).toBeInTheDocument();
+    expect(screen.getByText('Older')).toBeInTheDocument();
+  });
+
   it('opens a session inside the athlete shell (no /coach/student/ prefix)', async () => {
     const user = userEvent.setup();
     renderSheet();
     await user.click(screen.getAllByRole('button', { name: /open session/i })[0]);
     expect(mockNavigate).toHaveBeenCalledWith('/coach/students/s-1/s/sess-1');
-  });
-
-  it('remembers the open week so returning from a session keeps your place', async () => {
-    const user = userEvent.setup();
-    const { unmount } = renderSheet();
-    // Collapse the default week and open W2 instead.
-    await user.click(screen.getAllByRole('button', { name: /week 2/i })[0]);
-    expect(screen.getByText('Legs')).toBeInTheDocument();
-
-    // Simulate stepping into the session editor and coming back.
-    unmount();
-    renderSheet();
-    expect(screen.getByText('Legs')).toBeInTheDocument();
-    expect(screen.queryByText('Pull')).not.toBeInTheDocument();
   });
 
   it('writes day_number when a weekday is picked', async () => {
@@ -317,93 +457,19 @@ describe('ProgramSheet', () => {
   // session starts without one. Auto-filling the next free day made every
   // session look due on a date nobody chose — and capped a week at 7, since
   // day 8 fell outside the strips and the session vanished from them.
-  it('adds a session with no recommended weekday', async () => {
+  it('adds a session with no recommended weekday, at the end of the block', async () => {
     const user = userEvent.setup();
     renderSheet();
     await user.click(screen.getByRole('button', { name: /add session/i }));
     expect(mockCreateSession.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ weekId: 'w-1', dayNumber: null }),
+      expect.objectContaining({ weekId: 'w-2', dayNumber: null }),
     );
   });
 
-  it('adds a week at max(week_number) + 1', async () => {
-    const user = userEvent.setup();
-    renderSheet();
-    await user.click(screen.getByRole('button', { name: /\+ week/i }));
-    expect(mockCreateWeek.mutate).toHaveBeenCalledWith({ programId: 'prog-1', weekNumber: 3 });
-  });
-
-  it('duplicates a week without pinning a week number (the hook resolves max+1)', async () => {
-    const user = userEvent.setup();
-    renderSheet();
-    await user.click(screen.getAllByRole('button', { name: /week options/i })[0]);
-    // Exact name: every session row now offers "Duplicate session" too.
-    await user.click(screen.getByRole('button', { name: 'duplicate' }));
-    expect(mockDuplicateWeek.mutate).toHaveBeenCalledWith({ weekId: 'w-1' });
-  });
-
-  it('expands the first week with unconfirmed work, not simply the first week', () => {
-    // Week 1 fully confirmed → week 2 becomes the one that needs attention.
-    mockConfirmed = { data: new Set(['sess-1', 'sess-2']) };
-    renderSheet();
-    expect(screen.getByText('Legs')).toBeInTheDocument();
-    expect(screen.queryByText('Pull')).not.toBeInTheDocument();
-  });
-
   it('marks confirmed sessions', () => {
-    mockConfirmed = { data: new Set(['sess-1', 'sess-2']) };
+    mockConfirmed = { data: new Set(['sess-1']) };
     renderSheet();
-    // Week 2 is the expanded one; its session is unconfirmed.
-    expect(screen.queryByLabelText(/confirmed by student/i)).not.toBeInTheDocument();
-  });
-
-  it('enters reorder mode from the week menu, not a standing top-level button', async () => {
-    const user = userEvent.setup();
-    renderSheet();
-    // No reorder control until you ask for one.
-    expect(screen.queryByRole('button', { name: /reorder weeks/i })).not.toBeInTheDocument();
-    expect(screen.getByText('Pull')).toBeInTheDocument();
-
-    await user.click(screen.getAllByRole('button', { name: /week options/i })[0]);
-    await user.click(screen.getByRole('button', { name: /reorder weeks/i }));
-
-    // Session rows collapse out of the way and drag handles appear.
-    expect(screen.queryByText('Pull')).not.toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /reorder week 1/i })[0]).toBeInTheDocument();
-
-    // Done exits the mode and the sheet comes back.
-    await user.click(screen.getByRole('button', { name: /done/i }));
-    expect(screen.getByText('Pull')).toBeInTheDocument();
-  });
-
-  // A one-week block is not organised in weeks at all — it is a plain ordered
-  // list — so the sheet drops the week chrome entirely rather than showing a
-  // "W1" the coach never chose. A second week brings all of it back.
-  describe('single-week block renders flat', () => {
-    const oneWeek = { id: 'prog-1', weeks: [program.weeks[0]] };
-
-    it('hides the week number, collapse and week menu', () => {
-      renderSheet(oneWeek);
-      expect(screen.queryByRole('button', { name: /week options/i })).toBeNull();
-      expect(screen.queryByRole('button', { name: /week 1/i })).toBeNull();
-      expect(screen.queryByRole('button', { name: /reorder weeks/i })).toBeNull();
-    });
-
-    it('shows the sessions without needing to expand anything', () => {
-      renderSheet(oneWeek);
-      expect(screen.getByText('Pull')).toBeInTheDocument();
-      expect(screen.getByText('Push')).toBeInTheDocument();
-    });
-
-    it('keeps copy-to-athlete reachable — block templating still matters', () => {
-      renderSheet(oneWeek);
-      expect(screen.getByRole('button', { name: /copy to/i })).toBeInTheDocument();
-    });
-
-    it('still offers a way into microcycles', () => {
-      renderSheet(oneWeek);
-      expect(screen.getByRole('button', { name: /\+ week/i })).toBeInTheDocument();
-    });
+    expect(screen.getAllByLabelText(/confirmed by student/i)).toHaveLength(1);
   });
 
   // Building a block is a run of near-identical sessions; doing that from the
@@ -421,27 +487,19 @@ describe('ProgramSheet', () => {
     expect(screen.queryByRole('button', { name: /delete session/i })).not.toBeInTheDocument();
   });
 
-  // An empty block asks for a SESSION: the week is a grouping the coach may
+  // An empty block asks for a SESSION: the phase is a grouping the coach may
   // never want, so it is created implicitly behind that one CTA.
-  it('offers to add a session, not a week, when the block is empty', async () => {
+  it('offers to add a session, not a phase, when the block is empty', async () => {
     const user = userEvent.setup();
     renderSheet({ id: 'prog-1', weeks: [] });
     expect(screen.getByText(/empty block/i)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /\+ week/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /\+ phase/i })).toBeNull();
 
     await user.click(screen.getByRole('button', { name: /add session/i }));
     expect(mockCreateWeek.mutate).toHaveBeenCalledWith(
       { programId: 'prog-1', weekNumber: 1 },
       expect.any(Object),
     );
-  });
-
-  it('lets the coach collapse the open week', async () => {
-    const user = userEvent.setup();
-    renderSheet();
-    const w1 = screen.getAllByRole('button', { name: /week 1/i })[0];
-    await user.click(w1);
-    expect(screen.queryByText('Pull')).not.toBeInTheDocument();
   });
 
   it('keeps the archived drawer linked to the review page', async () => {
@@ -452,5 +510,40 @@ describe('ProgramSheet', () => {
     expect(within(archived).getByText('Old')).toBeInTheDocument();
     await user.click(archived);
     expect(mockNavigate).toHaveBeenCalledWith('/coach/student/s-1/session/sess-old/review');
+  });
+
+  // A one-phase block and a six-phase one are now the SAME layout. The old
+  // sheet had two: adding a second week changed the shape of the page under
+  // the coach's hands.
+  describe('a single-phase block is the same shape', () => {
+    it('still draws its divider, so the phase can be named', () => {
+      renderSheet(oneWeek);
+      expect(screen.getByText('Intro')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /edit week label/i })).toBeInTheDocument();
+    });
+
+    it('drops the size meta — the list below is the size', () => {
+      renderSheet(oneWeek);
+      expect(screen.queryByText(/sessions ·/)).toBeNull();
+    });
+
+    it('shows the sessions without needing to expand anything', () => {
+      renderSheet(oneWeek);
+      expect(screen.getByText('Pull')).toBeInTheDocument();
+      expect(screen.getByText('Push')).toBeInTheDocument();
+    });
+
+    it('keeps copy-to-athlete reachable — block templating still matters', async () => {
+      const user = userEvent.setup();
+      renderSheet(oneWeek);
+      await user.click(screen.getByRole('button', { name: /phase options/i }));
+      await user.click(screen.getByRole('button', { name: /copy to/i }));
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
+
+    it('still offers a way into phases', () => {
+      renderSheet(oneWeek);
+      expect(screen.getByRole('button', { name: /\+ phase/i })).toBeInTheDocument();
+    });
   });
 });
