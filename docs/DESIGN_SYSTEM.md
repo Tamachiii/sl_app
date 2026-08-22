@@ -134,6 +134,47 @@ This means:
 <div style={{ background: 'color-mix(in srgb, var(--color-success) 10%, transparent)' }}>…</div>
 ```
 
+### Variants need their own remap line
+
+The remap matches a **class name**, and Tailwind compiles every variant to a
+*different* class name. `hover:bg-gray-50` is not `.bg-gray-50` — it is
+`.hover\:bg-gray-50:hover`, which `.dark .bg-gray-50` cannot match. So a variant
+of an otherwise-remapped utility silently keeps Tailwind's raw **light** value
+and paints a near-white plate on a dark surface:
+
+```jsx
+// ❌ Wrong — the bare class is remapped, the hover variant is not.
+//    Measured 1.02:1 under the pointer (UserMenu's sign-out row).
+<button className="bg-white text-gray-900 hover:bg-gray-50">Sign out</button>
+
+// ✅ Right — `hover:bg-ink-100` has a `.dark .hover\:bg-ink-100:hover` line. 16.04:1.
+<button className="bg-white text-gray-900 hover:bg-ink-100">Sign out</button>
+```
+
+This bites `hover:`, `group-hover:` and `disabled:` alike — `disabled:bg-gray-50`
+rendered a white dropdown on dark in `CopyDialog`. The **text** variants are the
+nastier half: `hover:text-ink-700` *darkens* text on an already-dark surface, so
+the label drops to 1.16:1 and disappears exactly when you point at it.
+
+**The rule: a variant remaps to exactly what its bare class remaps to**, and the
+line lives beside the bare rules at the bottom of [src/index.css](../src/index.css):
+
+```css
+.dark .bg-gray-50 { background-color: var(--color-ink-900) !important; }              /* bare */
+.dark .hover\:bg-gray-50:hover { background-color: var(--color-ink-900) !important; } /* variant */
+```
+
+Two things are **not** covered, by design:
+
+- **Opacity modifiers mint another class again** — `hover:bg-ink-50/50` compiles
+  to `.hover\:bg-ink-50\/50:hover`. `CoachMessages` and `ConversationList` pair
+  those with an explicit `dark:hover:bg-ink-800` companion instead.
+- **Accent/semantic variants** (`hover:text-danger`, `focus:ring-primary`) are
+  identical in both themes and need nothing.
+
+When you add a `.dark .<utility>` line, grep `src` for that utility behind a
+variant prefix and add the matching line in the same commit.
+
 ## Editorial page header
 
 There is **no `<Header/>` component** — every page builds its own header from primitives. The canonical shape:

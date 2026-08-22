@@ -229,6 +229,31 @@ body {
 .dark .text-ink-800 { color: var(--color-ink-50) !important; }
 .dark .text-ink-900 { color: var(--color-ink-0) !important; }
 
+/* ---- Variant selectors need their OWN remap ----
+ * Every rule above targets a BARE utility, e.g. `.dark .bg-gray-50`. Tailwind
+ * compiles a variant to a DIFFERENT class — `hover:bg-gray-50` becomes
+ * `.hover\:bg-gray-50:hover` — which the bare rule cannot match. So a variant
+ * of an otherwise-remapped utility silently keeps Tailwind's raw light value
+ * and paints a near-white plate on a dark surface (`UserMenu`'s sign-out row
+ * measured 1.02:1 that way; `EditableText`'s title 2.32:1).
+ *
+ * The rule: a variant remaps to exactly what its bare class remaps to. If you
+ * add a `.dark .<utility>` line above and any call site uses it behind
+ * `hover:` / `group-hover:` / `disabled:`, add the matching line here too.
+ *
+ * Opacity modifiers mint yet another class (`hover:bg-ink-50/50` is
+ * `.hover\:bg-ink-50\/50:hover`) and are NOT covered — those call sites carry
+ * an explicit `dark:hover:*` companion instead.
+ */
+.dark .hover\:bg-gray-50:hover  { background-color: var(--color-ink-900) !important; }
+.dark .hover\:bg-gray-100:hover { background-color: var(--color-ink-800) !important; }
+.dark .hover\:text-gray-700:hover { color: var(--color-ink-100) !important; }
+.dark .hover\:text-gray-900:hover { color: var(--color-ink-0) !important; }
+.dark .hover\:text-ink-700:hover  { color: var(--color-ink-100) !important; }
+.dark .hover\:text-ink-800:hover  { color: var(--color-ink-50) !important; }
+.dark .group-hover\:text-ink-700:is(:where(.group):hover *) { color: var(--color-ink-100) !important; }
+.dark .disabled\:bg-ink-100:disabled { background-color: var(--color-ink-800) !important; }
+
 /* Shadows look bad in dark mode — tone them down */
 .dark .shadow-sm,
 .dark .shadow,

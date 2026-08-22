@@ -154,7 +154,14 @@ export default function UserMenu({ fullName, onSignOut, profileHref }) {
               <button
                 role="menuitem"
                 onClick={() => { setOpen(false); onSignOut(); }}
-                className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-900 hover:bg-gray-50 text-left"
+                // `hover:bg-ink-100`, NOT `hover:bg-gray-50`: index.css remaps the
+                // bare `.bg-gray-50` for dark mode but had no rule for the hover
+                // VARIANT, so that class kept Tailwind's raw #f9fafb and painted a
+                // near-white plate under the pointer — the row fell from 16.9:1 to
+                // 1.02:1. Not `hover:bg-ink-50` either: that remaps to ink-850,
+                // which IS this popover's `bg-white` surface, so the row would have
+                // no hover at all. ink-100 → ink-800 lifts off the surface.
+                className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-900 hover:bg-ink-100 text-left"
               >
                 <svg className="w-4 h-4 text-ink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

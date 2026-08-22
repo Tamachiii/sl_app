@@ -75,7 +75,11 @@ export default function CopyDialog({
   // Inputs use bg-white + border-ink-200 (both have dark-mode remaps in index.css)
   // so the select adapts to either theme. `disabled:bg-gray-50` — which we used
   // before — has no dark-mode variant generated, so the disabled dropdown
-  // rendered white on dark. Use `disabled:bg-ink-100` instead (full dark remap).
+  // rendered white on dark. `disabled:bg-ink-100` did NOT actually fix that on
+  // its own: a variant needs its own `.dark` rule, and only the BARE
+  // `.dark .bg-ink-100` existed, so the disabled select still painted raw
+  // #e4dfd4 cream. index.css now carries `.dark .disabled\:bg-ink-100:disabled`,
+  // which is what makes this line work.
   const selectCls =
     'w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] disabled:bg-ink-100 disabled:text-ink-400 disabled:cursor-not-allowed';
 
