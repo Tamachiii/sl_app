@@ -4,6 +4,7 @@ import {
   useWeek,
   useDeleteWeek,
   useReorderWeeks,
+  useReorderSessions,
   useUpdateWeek,
   useUpdateSession,
   useArchiveSession,
@@ -279,6 +280,92 @@ describe('useCreateSession', () => {
     expect(payload.day_number).toBeNull();
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['week', 'w-1'] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['program'] });
+  });
+});
+
+// Position became the block's order in 2026_08_22, so this is the coach's only
+// ordering control. It renumbers exactly like useReorderWeeks and for the same
+// reason: sessions_week_sort_order_unique is UNIQUE and NOT deferrable.
+describe('useReorderSessions', () => {
+  function recordUpdates() {
+    const calls = [];
+    const chain = {
+      update: vi.fn(function (payload) {
+        this._payload = payload;
+        return this;
+      }),
+      eq: vi.fn(function (col, val) {
+        calls.push({ id: val, sort_order: this._payload.sort_order });
+        return Promise.resolve({ error: null });
+      }),
+    };
+    supabase.from.mockReturnValue(chain);
+    return calls;
+  }
+
+  it('parks every row before placing it, so the UNIQUE never collides', async () => {
+    const calls = recordUpdates();
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useReorderSessions(), { wrapper });
+
+    result.current.mutate({ weekId: 'w-1', orderedIds: ['c', 'a', 'b'] });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(calls.length).toBe(6);
+    // Pass 1 parks all three far out of the target range…
+    expect(calls.slice(0, 3)).toEqual([
+      { id: 'c', sort_order: 100000 },
+      { id: 'a', sort_order: 100001 },
+      { id: 'b', sort_order: 100002 },
+    ]);
+    // …then pass 2 places them at 0..n-1 in the requested order.
+    expect(calls.slice(3)).toEqual([
+      { id: 'c', sort_order: 0 },
+      { id: 'a', sort_order: 1 },
+      { id: 'b', sort_order: 2 },
+    ]);
+  });
+
+  it('refreshes the athlete queue too — it reads this exact order', async () => {
+    recordUpdates();
+    const { qc, wrapper } = createWrapper();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useReorderSessions(), { wrapper });
+
+    result.current.mutate({ weekId: 'w-1', orderedIds: ['a', 'b'] });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['program'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['student-program-details'] });
+  });
+
+  it('rolls the optimistic order back when a write fails', async () => {
+    const chain = {
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ error: { message: 'boom' } }),
+    };
+    supabase.from.mockReturnValue(chain);
+
+    // gcTime: Infinity — the shared test client drops data once nothing
+    // observes it, which would garbage-collect the entry before we can assert
+    // the rollback restored it.
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
+    });
+    const wrapper = withClient(qc);
+    qc.setQueryData(['program', 'p-1'], {
+      id: 'p-1',
+      weeks: [{ id: 'w-1', sessions: [{ id: 'a', sort_order: 0 }, { id: 'b', sort_order: 1 }] }],
+    });
+
+    const { result } = renderHook(() => useReorderSessions(), { wrapper });
+    act(() => {
+      result.current.mutate({ weekId: 'w-1', orderedIds: ['b', 'a'] });
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    const restored = qc.getQueryData(['program', 'p-1']);
+    expect(restored.weeks[0].sessions.map((x) => x.id)).toEqual(['a', 'b']);
   });
 });
 

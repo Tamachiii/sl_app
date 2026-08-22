@@ -117,45 +117,55 @@ describe('day.js', () => {
     });
   });
 
+  // Position IS the order since 2026_08_22. Weekday used to rank first, which
+  // made the recommended day the only real reorder control — you could not say
+  // "this one comes first" without also claiming when to train it.
   describe('compareSessions', () => {
     const sorted = (arr) => arr.slice().sort(compareSessions).map((s) => s.title);
 
-    it('orders by training day, not by creation order', () => {
-      // The reported bug: Upper 2 (Fri) was written before Leg (Wed), so it
-      // listed second and the week read Mon / Fri / Wed.
+    it('orders by position, ignoring the recommended weekday', () => {
       const week = [
-        { title: 'Upper 1', day_number: 1, sort_order: 0 },
-        { title: 'Upper 2', day_number: 5, sort_order: 1 },
-        { title: 'Leg', day_number: 3, sort_order: 2 },
+        { id: 'c', title: 'Leg', day_number: 3, sort_order: 2 },
+        { id: 'a', title: 'Upper 1', day_number: 1, sort_order: 0 },
+        { id: 'b', title: 'Upper 2', day_number: 5, sort_order: 1 },
       ];
-      expect(sorted(week)).toEqual(['Upper 1', 'Leg', 'Upper 2']);
+      expect(sorted(week)).toEqual(['Upper 1', 'Upper 2', 'Leg']);
     });
 
-    it('breaks a same-day tie on sort_order', () => {
+    it('leaves the order alone when a weekday is set out of sequence', () => {
+      // Friday first, Monday second: the coach dragged them that way on
+      // purpose, and a recommendation must not override the plan.
       const week = [
-        { title: 'PM', day_number: 3, sort_order: 1 },
-        { title: 'AM', day_number: 3, sort_order: 0 },
+        { id: 'a', title: 'Fri first', day_number: 5, sort_order: 0 },
+        { id: 'b', title: 'Mon second', day_number: 1, sort_order: 1 },
       ];
-      expect(sorted(week)).toEqual(['AM', 'PM']);
+      expect(sorted(week)).toEqual(['Fri first', 'Mon second']);
     });
 
-    it('sorts a session with no usable weekday last, not onto Monday', () => {
+    it('ignores a real date too — it is a hint like the weekday', () => {
       const week = [
-        { title: 'unset', day_number: null, sort_order: 0 },
-        { title: 'out of range', day_number: 9, sort_order: 1 },
-        { title: 'Tue', day_number: 2, sort_order: 2 },
+        { id: 'a', title: 'earlier position', day_number: 5, scheduled_date: '2026-08-20', sort_order: 0 },
+        { id: 'b', title: 'later position', day_number: 1, scheduled_date: '2026-08-05', sort_order: 1 },
       ];
-      expect(sorted(week)).toEqual(['Tue', 'unset', 'out of range']);
+      expect(sorted(week)).toEqual(['earlier position', 'later position']);
     });
 
-    it('prefers scheduled_date over day_number where the surface fetches it', () => {
-      // 2026-08-05 is a Wednesday, so it must beat a day_number of 5 (Fri)
-      // even though the stale day_number says otherwise.
+    it('treats a missing position as 0 rather than dropping the row', () => {
       const week = [
-        { title: 'Fri', day_number: 5, sort_order: 0 },
-        { title: 'rescheduled to Wed', day_number: 5, scheduled_date: '2026-08-05', sort_order: 1 },
+        { id: 'b', title: 'first', sort_order: 1 },
+        { id: 'a', title: 'no position' },
       ];
-      expect(sorted(week)).toEqual(['rescheduled to Wed', 'Fri']);
+      expect(sorted(week)).toEqual(['no position', 'first']);
+    });
+
+    // A comparator that returns 0 for two distinct rows leaves their rendered
+    // order to Array.sort's implementation.
+    it('is stable on a tie, falling back to id', () => {
+      const week = [
+        { id: 'zz', title: 'z', sort_order: 3 },
+        { id: 'aa', title: 'a', sort_order: 3 },
+      ];
+      expect(sorted(week)).toEqual(['a', 'z']);
     });
   });
 

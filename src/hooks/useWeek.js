@@ -87,6 +87,75 @@ export function useCreateWeek() {
   });
 }
 
+/**
+ * Reorder the sessions of ONE week. `orderedIds` is the week's full list of
+ * session ids in their new order — archived rows included, because
+ * `sessions_week_sort_order_unique` spans them too.
+ *
+ * Same park-then-place as `useReorderWeeks`, and for the same reason: that
+ * UNIQUE is NOT deferrable, so writing final positions directly collides
+ * mid-statement. Position is the block's order since 2026_08_22, so this is
+ * the coach's only ordering control — the recommended weekday no longer sorts.
+ */
+export function useReorderSessions() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ weekId, orderedIds }) => {
+      const TMP_BASE = 100000;
+
+      // Ordered relative to each other (that is what dodges the UNIQUE), but
+      // the writes within a pass are independent so they go out together.
+      async function writeAll(numberFor) {
+        const results = await Promise.all(
+          orderedIds.map((id, i) =>
+            supabase.from('sessions').update({ sort_order: numberFor(i) }).eq('id', id),
+          ),
+        );
+        for (const { error } of results) if (error) throw error;
+      }
+
+      await writeAll((i) => TMP_BASE + i);
+      await writeAll((i) => i);
+
+      return { weekId };
+    },
+    onMutate: async ({ weekId, orderedIds }) => {
+      await qc.cancelQueries({ queryKey: ['program'] });
+      const snapshots = qc.getQueriesData({ queryKey: ['program'] });
+      for (const [key, prog] of snapshots) {
+        if (!prog?.weeks?.some((w) => w.id === weekId)) continue;
+        qc.setQueryData(key, {
+          ...prog,
+          weeks: prog.weeks.map((w) => {
+            if (w.id !== weekId) return w;
+            const byId = new Map((w.sessions || []).map((sess) => [sess.id, sess]));
+            const reordered = orderedIds
+              .map((id, idx) => {
+                const sess = byId.get(id);
+                return sess ? { ...sess, sort_order: idx } : null;
+              })
+              .filter(Boolean);
+            return { ...w, sessions: reordered };
+          }),
+        });
+      }
+      return { snapshots };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (!ctx) return;
+      for (const [key, data] of ctx.snapshots) qc.setQueryData(key, data);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['program'] });
+      // The athlete's queue reads this order, and the roster's strip places
+      // sessions from the same tree.
+      qc.invalidateQueries({ queryKey: ['student-program-details'] });
+      invalidateCoachDashboard(qc);
+    },
+  });
+}
+
 export function useCreateSession() {
   const qc = useQueryClient();
 

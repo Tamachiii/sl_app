@@ -24,12 +24,12 @@ import {
   useDeleteWeek,
   useCreateSession,
   useUpdateSession,
+  useReorderSessions,
 } from '../../hooks/useWeek';
 import { useDuplicateWeek, useDuplicateSession } from '../../hooks/useDuplicate';
 import { useProgramConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 import { useI18n } from '../../hooks/useI18n';
 import { DAY_FULL, DAY_LABELS, compareSessions } from '../../lib/day';
-import { compareQueued } from '../../lib/sessionQueue';
 import EditableText from '../ui/EditableText';
 import CopyDialog from '../ui/CopyDialog';
 import ConfirmDialog from '../ui/ConfirmDialog';
@@ -52,13 +52,10 @@ function currentWeekId(weeks, confirmedIds) {
   return list[list.length - 1]?.id ?? null;
 }
 
-// Sorted with `compareQueued` — the SAME comparator the athlete's queue uses,
-// so the sheet is a preview of the order it is authoring. `compareSessions`
-// alone ranks by weekday, which put a session dated the 13th above one dated
-// the 10th and let the coach's list disagree with what the athlete actually
-// gets next.
+// `compareSessions` is now position (`sort_order`), the same comparator the
+// athlete's queue uses — so this list IS a preview of the order being authored.
 function activeSessions(week) {
-  return (week.sessions || []).filter((s) => !s.archived_at).sort(compareQueued);
+  return (week.sessions || []).filter((s) => !s.archived_at).sort(compareSessions);
 }
 
 // Which week the coach had open, per program. Survives stepping into a session
@@ -157,6 +154,41 @@ function DayPill({ session, onPick, t }) {
         </>
       )}
     </span>
+  );
+}
+
+// A session row while the week is in reorder mode. Keeps its TITLE — the
+// week-reorder mode blanks its sessions, which makes you drag anonymous bars —
+// and drops every other control so a drag can't be a mis-tap on the day pill.
+function SortableSessionRow({ session, position, t }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: session.id });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
+      className="flex items-center gap-2 px-3 py-2 border-t border-ink-100 bg-ink-50"
+    >
+      <button
+        {...attributes}
+        {...listeners}
+        aria-label={t('coach.sheet.reorderSession', { name: session.title || String(position) })}
+        className="text-ink-400 hover:text-ink-700 cursor-grab active:cursor-grabbing touch-none shrink-0 p-1"
+      >
+        <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true">
+          <circle cx="2.5" cy="3" r="1.25" /><circle cx="7.5" cy="3" r="1.25" />
+          <circle cx="2.5" cy="8" r="1.25" /><circle cx="7.5" cy="8" r="1.25" />
+          <circle cx="2.5" cy="13" r="1.25" /><circle cx="7.5" cy="13" r="1.25" />
+        </svg>
+      </button>
+      <span className="sl-display text-[14px] text-gray-900 truncate flex-1">
+        {session.title || t('coach.week.sessionN', { n: position })}
+      </span>
+      <span className="sl-mono text-[10px] text-ink-400 shrink-0">
+        {t('coach.week.exCount', { n: (session.exercise_slots || []).length })}
+      </span>
+    </div>
   );
 }
 
@@ -280,7 +312,8 @@ function WeekMenu({ onDuplicate, onCopy, onDelete, onReorder, canReorder, t }) {
 // renders the sessions directly. Adding a second week brings all of it back,
 // so a coach who programs in microcycles loses nothing.
 function WeekCard({
-  week, studentId, expanded, onToggle, confirmedIds, reordering, canReorder, onReorder, flat, t,
+  week, studentId, expanded, onToggle, confirmedIds, reordering, canReorder, onReorder,
+  flat, sessionsReordering, onReorderSessions, t,
 }) {
   const updateWeek = useUpdateWeek();
   const updateSession = useUpdateSession();
@@ -440,21 +473,35 @@ function WeekCard({
             </p>
           )}
 
-          {sessions.map((s, i) => (
-            <SessionRow
-              key={s.id}
-              session={s}
-              studentId={studentId}
-              confirmed={confirmedIds?.has(s.id)}
-              position={i + 1}
-              onSetDay={(day) => updateSession.mutate({ id: s.id, day_number: day })}
-              onDuplicate={() => duplicateSession.mutate({ sessionId: s.id })}
-              duplicating={duplicateSession.isPending}
-              t={t}
-            />
-          ))}
+          {sessionsReordering ? (
+            // A nested SortableContext, NOT a nested DndContext: dnd-kit
+            // supports many sortable lists inside one context, and the sheet's
+            // single DndContext dispatches by what was picked up.
+            <SortableContext
+              items={sessions.map((s) => s.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {sessions.map((s, i) => (
+                <SortableSessionRow key={s.id} session={s} position={i + 1} t={t} />
+              ))}
+            </SortableContext>
+          ) : (
+            sessions.map((s, i) => (
+              <SessionRow
+                key={s.id}
+                session={s}
+                studentId={studentId}
+                confirmed={confirmedIds?.has(s.id)}
+                position={i + 1}
+                onSetDay={(day) => updateSession.mutate({ id: s.id, day_number: day })}
+                onDuplicate={() => duplicateSession.mutate({ sessionId: s.id })}
+                duplicating={duplicateSession.isPending}
+                t={t}
+              />
+            ))
+          )}
 
-          {archived.length > 0 && (
+          {archived.length > 0 && !sessionsReordering && (
             <div className="border-t border-ink-100">
               <button
                 type="button"
@@ -487,14 +534,36 @@ function WeekCard({
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={handleAddSession}
-            disabled={createSession.isPending}
-            className="w-full border-t border-ink-100 text-ink-400 py-2.5 sl-mono text-[11px] hover:text-[var(--color-accent)] transition-colors"
-          >
-            {t('coach.week.addSession')}
-          </button>
+          {/* Reorder sits beside "+ Session" rather than in the week ⋯ menu:
+              it has to be reachable in FLAT mode too, where there is no menu,
+              and position is now the coach's only ordering control. It stays a
+              MODE because on touch a drag handle competes with vertical
+              scroll — the same reason week reordering is one. */}
+          <div className="flex items-stretch border-t border-ink-100">
+            {!sessionsReordering && (
+              <button
+                type="button"
+                onClick={handleAddSession}
+                disabled={createSession.isPending}
+                className="flex-1 text-ink-400 py-2.5 sl-mono text-[11px] hover:text-[var(--color-accent)] transition-colors"
+              >
+                {t('coach.week.addSession')}
+              </button>
+            )}
+            {sessions.length > 1 && (
+              <button
+                type="button"
+                onClick={() => onReorderSessions(sessionsReordering ? null : week.id)}
+                className={`sl-mono text-[11px] py-2.5 transition-colors ${
+                  sessionsReordering
+                    ? 'flex-1 text-[var(--color-accent)]'
+                    : 'px-4 text-ink-400 border-l border-ink-100 hover:text-[var(--color-accent)]'
+                }`}
+              >
+                {sessionsReordering ? t('common.done') : t('coach.sheet.reorderSessions')}
+              </button>
+            )}
+          </div>
         </>
       )}
 
@@ -536,6 +605,7 @@ export default function ProgramSheet({ studentId, program }) {
   const createWeek = useCreateWeek();
   const createSession = useCreateSession();
   const reorderWeeks = useReorderWeeks();
+  const reorderSessions = useReorderSessions();
   const { data: confirmedIds } = useProgramConfirmedSessionIds(program.id);
 
   const weeks = useMemo(() => program.weeks || [], [program.weeks]);
@@ -548,6 +618,9 @@ export default function ProgramSheet({ studentId, program }) {
   // on the same week. `null` = never chosen → fall back to the active week.
   const [openWeekId, setOpenWeekId] = useState(() => readOpenWeek(program.id));
   const [reordering, setReordering] = useState(false);
+  // Which week has its sessions in reorder mode (null = none). One at a time:
+  // two open drag surfaces on one screen is a mis-drop waiting to happen.
+  const [sessionsReorderWeekId, setSessionsReorderWeekId] = useState(null);
 
   // Uncontrolled until the coach picks a week: default to where the athlete
   // currently is, recomputed as confirmations land.
@@ -598,8 +671,33 @@ export default function ProgramSheet({ studentId, program }) {
     );
   }
 
+  // One DndContext serves both sortable levels, so dispatch on what was picked
+  // up: a week id while reordering weeks, a session id while reordering one
+  // week's sessions.
   function handleDragEnd({ active, over }) {
     if (!over || active.id === over.id) return;
+
+    if (sessionsReorderWeekId) {
+      const week = weeks.find((w) => w.id === sessionsReorderWeekId);
+      if (!week) return;
+      const visible = activeSessions(week);
+      const oldIdx = visible.findIndex((s) => s.id === active.id);
+      const newIdx = visible.findIndex((s) => s.id === over.id);
+      if (oldIdx === -1 || newIdx === -1) return;
+      // Archived rows keep their positions AFTER the active ones: the UNIQUE
+      // spans the whole week, so they have to be in the payload or the second
+      // pass would collide with them.
+      const archivedIds = (week.sessions || [])
+        .filter((s) => s.archived_at)
+        .sort(compareSessions)
+        .map((s) => s.id);
+      reorderSessions.mutate({
+        weekId: week.id,
+        orderedIds: [...arrayMove(visible, oldIdx, newIdx).map((s) => s.id), ...archivedIds],
+      });
+      return;
+    }
+
     const oldIdx = weeks.findIndex((w) => w.id === active.id);
     const newIdx = weeks.findIndex((w) => w.id === over.id);
     if (oldIdx === -1 || newIdx === -1) return;
@@ -659,6 +757,8 @@ export default function ProgramSheet({ studentId, program }) {
                 confirmedIds={confirmedIds}
                 reordering={reordering}
                 flat={flat}
+                sessionsReordering={sessionsReorderWeekId === w.id}
+                onReorderSessions={setSessionsReorderWeekId}
                 t={t}
               />
             ))}

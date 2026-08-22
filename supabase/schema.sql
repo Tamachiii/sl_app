@@ -92,6 +92,13 @@ CREATE TABLE public.sessions (
 CREATE INDEX IF NOT EXISTS sessions_reviewed_idx
   ON public.sessions (reviewed_at) WHERE reviewed_at IS NOT NULL;
 
+COMMENT ON COLUMN public.sessions.sort_order IS
+  'Position of the session within its week, 0-based and contiguous. THE source '
+  'of order for both the coach sheet and the athlete queue since 2026_08_22 — '
+  'day_number and scheduled_date are advisory hints that no longer sort. '
+  'Renumbering must be a two-pass park-then-place: '
+  'sessions_week_sort_order_unique is UNIQUE and not deferrable.';
+
 CREATE INDEX IF NOT EXISTS sessions_performed_idx
   ON public.sessions (performed_at) WHERE performed_at IS NOT NULL;
 

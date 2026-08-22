@@ -94,26 +94,24 @@ export function startOfWeekMonday(date) {
 }
 
 /**
- * Reading order for the sessions of one week: the weekday the athlete actually
- * trains, not the order the coach happened to create them in. A Friday session
- * added before a Wednesday one used to list above it, which reads as the wrong
- * week shape on both the coach sheet and the student's list.
+ * Reading order for the sessions of one week: the position the coach put them
+ * in, full stop.
  *
- * `sort_order` only breaks ties between two sessions on the same day, and a
- * session with no usable weekday sorts last rather than silently landing on
- * Monday. Uses `sessionDayNumber`, so a surface that fetches `scheduled_date`
- * orders by the real calendar day and one that doesn't falls back to
- * `day_number` — each stays consistent with the weekday it displays.
+ * This used to rank by WEEKDAY, with `sort_order` as a mere tiebreak. That made
+ * the recommended day the only lever that actually reordered the athlete's
+ * queue — setting a day silently reprioritised training, and there was no way
+ * to say "this one comes first" without lying about when to train. Since
+ * 2026_08_22 `sort_order` is renumbered 0..n-1 per week and IS the order;
+ * `day_number` and `scheduled_date` are advisory hints that no longer sort.
+ *
+ * `id` breaks the last tie so the result is stable even if two rows ever share
+ * a position (the UNIQUE constraint says they can't, but a comparator that can
+ * return 0 for distinct rows makes list rendering order arbitrary).
  */
 export function compareSessions(a, b) {
-  const rank = (s) => {
-    const d = sessionDayNumber(s);
-    return d >= 1 && d <= 7 ? d : Infinity;
-  };
-  const da = rank(a);
-  const db = rank(b);
-  if (da !== db) return da - db;
-  return (a?.sort_order ?? 0) - (b?.sort_order ?? 0);
+  const d = (a?.sort_order ?? 0) - (b?.sort_order ?? 0);
+  if (d !== 0) return d;
+  return String(a?.id ?? '').localeCompare(String(b?.id ?? ''));
 }
 
 /**

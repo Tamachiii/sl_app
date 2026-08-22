@@ -16,12 +16,14 @@ const mockDeleteSession = { mutate: vi.fn(), isPending: false };
 const mockDeleteWeek = { mutate: vi.fn(), isPending: false };
 const mockUpdateWeek = { mutate: vi.fn(), isPending: false };
 const mockReorderWeeks = { mutate: vi.fn(), isPending: false };
+const mockReorderSessions = { mutate: vi.fn(), isPending: false };
 const mockDuplicateWeek = { mutate: vi.fn(), isPending: false };
 const mockDuplicateSession = { mutate: vi.fn(), isPending: false };
 
 vi.mock('../../hooks/useWeek', () => ({
   useCreateWeek: () => mockCreateWeek,
   useReorderWeeks: () => mockReorderWeeks,
+  useReorderSessions: () => mockReorderSessions,
   useUpdateWeek: () => mockUpdateWeek,
   useDeleteWeek: () => mockDeleteWeek,
   useCreateSession: () => mockCreateSession,
@@ -111,23 +113,71 @@ describe('ProgramSheet', () => {
     expect(screen.getByRole('button', { name: /day: wed/i })).toBeInTheDocument();
   });
 
-  it('lists sessions by training day, not by the order they were created', () => {
-    // A Friday session written before the Wednesday one: the week must still
-    // read Mon → Wed → Fri. Creation order (sort_order) says the opposite.
+  // The sheet lists sessions in the POSITION the coach put them in, and that is
+  // the same order the athlete's queue reads. Weekdays used to rank first,
+  // which made the day pill the only real reorder control.
+  it('lists sessions by position, not by recommended weekday', () => {
     renderSheet({
       ...program,
       weeks: [{
         ...program.weeks[0],
         sessions: [
-          { id: 's-mon', title: 'Upper 1', day_number: 1, sort_order: 0, archived_at: null, exercise_slots: [] },
-          { id: 's-fri', title: 'Upper 2', day_number: 5, sort_order: 1, archived_at: null, exercise_slots: [] },
+          { id: 's-fri', title: 'Upper 2', day_number: 5, sort_order: 0, archived_at: null, exercise_slots: [] },
+          { id: 's-mon', title: 'Upper 1', day_number: 1, sort_order: 1, archived_at: null, exercise_slots: [] },
           { id: 's-wed', title: 'Leg', day_number: 3, sort_order: 2, archived_at: null, exercise_slots: [] },
         ],
       }],
     });
 
     const order = screen.getAllByText(/^(Upper 1|Upper 2|Leg)$/).map((n) => n.textContent);
-    expect(order).toEqual(['Upper 1', 'Leg', 'Upper 2']);
+    expect(order).toEqual(['Upper 2', 'Upper 1', 'Leg']);
+  });
+
+  // Position is the coach's ONLY ordering control now that the weekday is a
+  // pure hint, so it has to exist on the sheet — and it has to be reachable in
+  // flat mode too, where there is no week ⋯ menu.
+  describe('session reorder mode', () => {
+    it('offers Reorder beside + Session once a week holds more than one', () => {
+      renderSheet();
+      expect(screen.getByRole('button', { name: /^reorder$/i })).toBeInTheDocument();
+    });
+
+    it('offers no Reorder for a single session — nothing to order', () => {
+      renderSheet({
+        ...program,
+        weeks: [{
+          ...program.weeks[0],
+          sessions: [
+            { id: 'only', title: 'Solo', day_number: 1, sort_order: 0, archived_at: null, exercise_slots: [] },
+          ],
+        }],
+      });
+      expect(screen.queryByRole('button', { name: /^reorder$/i })).toBeNull();
+    });
+
+    it('swaps the rows for drag handles that KEEP their titles', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(screen.getByRole('button', { name: /^reorder$/i }));
+
+      // The week-reorder mode blanks its sessions; this one must not — you
+      // cannot order bars you can't read.
+      expect(screen.getByText('Pull')).toBeInTheDocument();
+      expect(screen.getByText('Push')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /reorder pull/i })).toBeInTheDocument();
+      // Every other control steps out of the way so a drag can't mis-tap.
+      expect(screen.queryByRole('button', { name: /day: mon/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /duplicate session/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /add session/i })).toBeNull();
+    });
+
+    it('leaves the mode on Done', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(screen.getByRole('button', { name: /^reorder$/i }));
+      await user.click(screen.getByRole('button', { name: /^done$/i }));
+      expect(screen.getByRole('button', { name: /day: mon/i })).toBeInTheDocument();
+    });
   });
 
   it('excludes archived sessions from the active list', () => {

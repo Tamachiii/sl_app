@@ -384,6 +384,8 @@ const fr = {
       noSessionsYet: 'Bloc vide — ajoute la première séance ci-dessous.',
       setDay: 'Jour : {day}',
       clearDay: 'Aucun jour conseillé',
+      reorderSessions: 'Réordonner',
+      reorderSession: 'Réordonner {name}',
       duplicateSession: 'Dupliquer la séance',
     },
     week: {

@@ -7,7 +7,9 @@
 // does not need to be moved; it is simply still next.
 //
 // Order is program order: weeks in (program.sort_order, week_number), sessions
-// within a week by `compareSessions` (recommended weekday, then sort_order).
+// within a week by `compareSessions` — which since 2026_08_22 is `sort_order`,
+// the position the coach dragged them into. Recommended weekdays and dates are
+// hints and no longer sort anything.
 // Weeks survive as an optional ordinal grouping — a "phase" the coach may label
 // "Deload" or "Peak" — never as a calendar week, which is why nothing here
 // derives a date from a week number.
@@ -19,23 +21,6 @@ import { daysSince } from './lastPerformance';
 // happened outranks the plan; a pulled session outranks only an empty day.
 const RANK_DATE = { performed: 3, planned: 2, archived: 1 };
 const RANK_WEEKDAY = { suggested: 2, archived: 1 };
-
-/**
- * Order two sessions inside the same week.
- *
- * `compareSessions` ranks by WEEKDAY, which is the coach's reading order and
- * the right answer for the recommended-day hints that are now the norm. But
- * two sessions carrying real `scheduled_date`s in different calendar weeks
- * would sort by weekday alone — putting a session dated the 13th (a Monday)
- * ahead of one dated the 10th (a Friday). When both dates are real, the dates
- * decide; everything else falls through to the weekday order.
- */
-export function compareQueued(a, b) {
-  const da = a?.scheduled_date && parseISODate(a.scheduled_date) ? a.scheduled_date : null;
-  const db = b?.scheduled_date && parseISODate(b.scheduled_date) ? b.scheduled_date : null;
-  if (da && db && da !== db) return da < db ? -1 : 1;
-  return compareSessions(a, b);
-}
 
 /**
  * Every session of a program tree in program order, each tagged with its week.
@@ -53,7 +38,7 @@ export function flattenSessions(weeks) {
   });
   const out = [];
   for (const week of ordered) {
-    const sessions = (week?.sessions || []).slice().sort(compareQueued);
+    const sessions = (week?.sessions || []).slice().sort(compareSessions);
     for (const session of sessions) out.push({ session, week });
   }
   return out;

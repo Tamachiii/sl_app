@@ -385,6 +385,8 @@ const en = {
       noSessionsYet: 'Empty block — add the first session below.',
       setDay: 'Day: {day}',
       clearDay: 'No recommended day',
+      reorderSessions: 'Reorder',
+      reorderSession: 'Reorder {name}',
       duplicateSession: 'Duplicate session',
     },
     week: {

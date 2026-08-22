@@ -384,6 +384,8 @@ const de = {
       noSessionsYet: 'Leerer Block — füge unten die erste Einheit hinzu.',
       setDay: 'Tag: {day}',
       clearDay: 'Kein empfohlener Tag',
+      reorderSessions: 'Neu anordnen',
+      reorderSession: '{name} neu anordnen',
       duplicateSession: 'Einheit duplizieren',
     },
     week: {

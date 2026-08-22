@@ -24,12 +24,20 @@ const week = (id, week_number, sessions) => ({
 });
 
 describe('flattenSessions', () => {
-  it('walks weeks in program order and sessions by recommended weekday', () => {
+  it('walks weeks in program order and sessions by POSITION', () => {
+    // Weekdays are deliberately out of sequence: they are hints and must not
+    // reorder anything.
     const weeks = [
-      week('w-2', 2, [session('b1', { day_number: 5 }), session('b2', { day_number: 2 })]),
-      week('w-1', 1, [session('a1', { day_number: 3 }), session('a2', { day_number: 1 })]),
+      week('w-2', 2, [
+        session('b1', { day_number: 5, sort_order: 0 }),
+        session('b2', { day_number: 2, sort_order: 1 }),
+      ]),
+      week('w-1', 1, [
+        session('a1', { day_number: 3, sort_order: 0 }),
+        session('a2', { day_number: 1, sort_order: 1 }),
+      ]),
     ];
-    expect(flattenSessions(weeks).map((e) => e.session.id)).toEqual(['a2', 'a1', 'b2', 'b1']);
+    expect(flattenSessions(weeks).map((e) => e.session.id)).toEqual(['a1', 'a2', 'b1', 'b2']);
   });
 
   it('orders earlier programs first', () => {
@@ -41,16 +49,18 @@ describe('flattenSessions', () => {
     expect(flattenSessions(weeks).map((e) => e.session.id)).toEqual(['then', 'now']);
   });
 
-  // compareSessions ranks by WEEKDAY, so two real dates in different calendar
-  // weeks would otherwise invert — Monday the 13th ahead of Friday the 10th.
-  it('orders two dated sessions chronologically, not by weekday', () => {
+  // Dates stopped ordering along with weekdays: both are advice. The coach's
+  // position wins, which also removed the non-transitive comparator that mixing
+  // dated and undated sessions used to produce.
+  it('does not let a real date jump the position the coach set', () => {
     const weeks = [
       week('w-1', 1, [
-        session('mon-13', { day_number: 1, scheduled_date: '2026-07-13' }),
-        session('fri-10', { day_number: 1, scheduled_date: '2026-07-10' }),
+        session('later-date-first', { scheduled_date: '2026-07-13', sort_order: 0 }),
+        session('earlier-date-second', { scheduled_date: '2026-07-10', sort_order: 1 }),
       ]),
     ];
-    expect(flattenSessions(weeks).map((e) => e.session.id)).toEqual(['fri-10', 'mon-13']);
+    expect(flattenSessions(weeks).map((e) => e.session.id))
+      .toEqual(['later-date-first', 'earlier-date-second']);
   });
 
   it('tolerates missing weeks and sessions', () => {
@@ -82,8 +92,8 @@ describe('buildQueue', () => {
   it('keeps a skipped recommended day at the head of the queue', () => {
     const weeks = [
       week('w-1', 1, [
-        session('sunday-one', { day_number: 7, scheduled_date: '2026-08-16' }),
-        session('after', { day_number: 1, scheduled_date: '2026-08-17' }),
+        session('sunday-one', { day_number: 7, scheduled_date: '2026-08-16', sort_order: 0 }),
+        session('after', { day_number: 1, scheduled_date: '2026-08-17', sort_order: 1 }),
       ]),
     ];
     const q = buildQueue(weeks, new Set(), { now: new Date('2026-08-20T10:00:00Z') });
