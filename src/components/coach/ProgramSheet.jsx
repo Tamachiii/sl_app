@@ -25,8 +25,10 @@ import {
   useCreateSession,
   useUpdateSession,
   useReorderSessions,
+  useArchiveSession,
+  useArchiveSessions,
 } from '../../hooks/useWeek';
-import { useDuplicateWeek, useDuplicateSession } from '../../hooks/useDuplicate';
+import { useDuplicateWeek, useDuplicateSession, useCopySessions } from '../../hooks/useDuplicate';
 import { useProgramConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 import { useI18n } from '../../hooks/useI18n';
 import { DAY_FULL, DAY_LABELS, compareSessions } from '../../lib/day';
@@ -200,9 +202,49 @@ function SortableSessionRow({ session, position, t }) {
 // Duplicate is a different matter and does belong here: building a block is a
 // run of near-identical sessions, and doing it from the editor costs two
 // navigations per copy. It is non-destructive, so a mis-tap is cheap.
-function SessionRow({ session, studentId, confirmed, position, onSetDay, onDuplicate, duplicating, t }) {
+function SessionRow({
+  session, studentId, confirmed, position, onSetDay, onDuplicate, duplicating,
+  selecting, selected, onToggleSelect, t,
+}) {
   const navigate = useNavigate();
   const exCount = (session.exercise_slots || []).length;
+
+  // In select mode the whole row is the checkbox target: a 44px-wide tick box
+  // beside a 44px-wide day pill on a phone is two things to miss.
+  if (selecting) {
+    return (
+      <button
+        type="button"
+        onClick={onToggleSelect}
+        aria-pressed={selected}
+        className={`w-full flex items-center gap-3 px-3 py-2.5 border-t border-ink-100 text-left transition-colors ${
+          selected ? 'bg-ink-100' : 'hover:bg-ink-50'
+        }`}
+      >
+        <span
+          aria-hidden="true"
+          className="w-4 h-4 rounded shrink-0 flex items-center justify-center border"
+          style={
+            selected
+              ? { background: 'var(--color-accent)', borderColor: 'var(--color-accent)' }
+              : { borderColor: 'var(--color-ink-200)' }
+          }
+        >
+          {selected && (
+            <svg className="w-2.5 h-2.5 text-ink-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+        </span>
+        <span className="sl-display text-[14px] text-gray-900 truncate flex-1">
+          {session.title || t('coach.week.sessionN', { n: position })}
+        </span>
+        <span className="sl-mono text-[10px] text-ink-400 shrink-0">
+          {t('coach.week.exCount', { n: exCount })}
+        </span>
+      </button>
+    );
+  }
 
   return (
     <div className="flex items-center gap-2 px-3 py-2 border-t border-ink-100">
@@ -321,6 +363,12 @@ function WeekCard({
   const deleteWeek = useDeleteWeek();
   const duplicateWeek = useDuplicateWeek();
   const duplicateSession = useDuplicateSession();
+  const archiveSession = useArchiveSession();
+  const archiveSessions = useArchiveSessions();
+  const copySessions = useCopySessions();
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [selecting, setSelecting] = useState(false);
+  const [showCopySelection, setShowCopySelection] = useState(false);
   const [showCopy, setShowCopy] = useState(false);
   const [confirmDeleteWeek, setConfirmDeleteWeek] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
@@ -332,6 +380,20 @@ function WeekCard({
 
   const sessions = activeSessions(week);
   const exTotal = sessions.reduce((n, s) => n + (s.exercise_slots || []).length, 0);
+
+  function toggleSelected(id) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function exitSelect() {
+    setSelecting(false);
+    setSelectedIds(new Set());
+  }
 
   function handleAddSession() {
     const all = week.sessions || [];
@@ -496,6 +558,9 @@ function WeekCard({
                 onSetDay={(day) => updateSession.mutate({ id: s.id, day_number: day })}
                 onDuplicate={() => duplicateSession.mutate({ sessionId: s.id })}
                 duplicating={duplicateSession.isPending}
+                selecting={selecting}
+                selected={selectedIds.has(s.id)}
+                onToggleSelect={() => toggleSelected(s.id)}
                 t={t}
               />
             ))
@@ -513,23 +578,37 @@ function WeekCard({
                   : t('coach.week.showArchived', { n: archived.length })}
               </button>
               {showArchived && archived.map((s, i) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => navigate(`/coach/student/${studentId}/session/${s.id}/review`)}
-                  aria-label={t('coach.week.openArchivedSession')}
-                  className="w-full flex items-center gap-2 px-3 py-2 border-t border-ink-100 opacity-75 hover:opacity-100 text-left"
-                >
-                  <span className="sl-display text-[13px] text-ink-600 flex-1 truncate">
-                    {s.title || t('coach.week.sessionN', { n: i + 1 })}
-                  </span>
-                  <span
-                    className="sl-pill text-ink-900 shrink-0"
-                    style={{ background: 'color-mix(in srgb, var(--color-warn) 18%, transparent)' }}
+                <div key={s.id} className="flex items-center gap-2 border-t border-ink-100 opacity-75 hover:opacity-100">
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/coach/student/${studentId}/session/${s.id}/review`)}
+                    aria-label={t('coach.week.openArchivedSession')}
+                    className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 text-left"
                   >
-                    {t('common.archived')}
-                  </span>
-                </button>
+                    <span className="sl-display text-[13px] text-ink-600 flex-1 truncate">
+                      {s.title || t('coach.week.sessionN', { n: i + 1 })}
+                    </span>
+                    <span
+                      className="sl-pill text-ink-900 shrink-0"
+                      style={{ background: 'color-mix(in srgb, var(--color-warn) 18%, transparent)' }}
+                    >
+                      {t('common.archived')}
+                    </span>
+                  </button>
+                  {/* Restoring used to mean opening the session's review page —
+                      a full-page route whose back button lands on an unrelated
+                      feed, so it was a one-way trip out of Programming. */}
+                  <button
+                    type="button"
+                    onClick={() => archiveSession.mutate({ sessionId: s.id, archived: false })}
+                    disabled={archiveSession.isPending}
+                    aria-label={t('coach.sheet.unarchiveSession')}
+                    title={t('coach.sheet.unarchiveSession')}
+                    className="shrink-0 px-3 py-2 sl-mono text-[10px] text-ink-400 hover:text-[var(--color-accent)] transition-colors"
+                  >
+                    {t('coach.sheet.unarchive')}
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -539,33 +618,105 @@ function WeekCard({
               and position is now the coach's only ordering control. It stays a
               MODE because on touch a drag handle competes with vertical
               scroll — the same reason week reordering is one. */}
-          <div className="flex items-stretch border-t border-ink-100">
-            {!sessionsReordering && (
+          {selecting ? (
+            /* Inline rather than pinned to the viewport: the selection belongs
+               to THIS week's card, and a floating bar would fight BottomNav for
+               the bottom edge of a phone. */
+            <div className="flex items-center gap-2 px-3 py-2 border-t border-ink-100 bg-ink-50">
+              <span className="sl-mono text-[11px] text-ink-400 flex-1">
+                {t('coach.sheet.nSelected', { n: selectedIds.size })}
+              </span>
               <button
                 type="button"
-                onClick={handleAddSession}
-                disabled={createSession.isPending}
-                className="flex-1 text-ink-400 py-2.5 sl-mono text-[11px] hover:text-[var(--color-accent)] transition-colors"
+                disabled={selectedIds.size === 0 || archiveSessions.isPending}
+                onClick={() =>
+                  archiveSessions.mutate(
+                    { sessionIds: [...selectedIds], archived: true },
+                    { onSuccess: exitSelect },
+                  )
+                }
+                className="sl-mono text-[11px] text-ink-700 hover:text-[var(--color-accent)] disabled:opacity-40 transition-colors"
               >
-                {t('coach.week.addSession')}
+                {t('coach.sheet.archiveSelected')}
               </button>
-            )}
-            {sessions.length > 1 && (
               <button
                 type="button"
-                onClick={() => onReorderSessions(sessionsReordering ? null : week.id)}
-                className={`sl-mono text-[11px] py-2.5 transition-colors ${
-                  sessionsReordering
-                    ? 'flex-1 text-[var(--color-accent)]'
-                    : 'px-4 text-ink-400 border-l border-ink-100 hover:text-[var(--color-accent)]'
-                }`}
+                disabled={selectedIds.size === 0}
+                onClick={() => setShowCopySelection(true)}
+                className="sl-mono text-[11px] text-ink-700 hover:text-[var(--color-accent)] disabled:opacity-40 transition-colors"
               >
-                {sessionsReordering ? t('common.done') : t('coach.sheet.reorderSessions')}
+                {t('coach.week.copyTo')}
               </button>
-            )}
-          </div>
+              <button
+                type="button"
+                onClick={exitSelect}
+                aria-label={t('common.cancel')}
+                className="sl-mono text-[13px] text-ink-400 hover:text-gray-900 px-1 transition-colors"
+              >
+                &times;
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-stretch border-t border-ink-100">
+              {!sessionsReordering && (
+                <button
+                  type="button"
+                  onClick={handleAddSession}
+                  disabled={createSession.isPending}
+                  className="flex-1 text-ink-400 py-2.5 sl-mono text-[11px] hover:text-[var(--color-accent)] transition-colors"
+                >
+                  {t('coach.week.addSession')}
+                </button>
+              )}
+              {sessions.length > 0 && !sessionsReordering && (
+                <button
+                  type="button"
+                  onClick={() => setSelecting(true)}
+                  className="px-4 py-2.5 sl-mono text-[11px] text-ink-400 border-l border-ink-100 hover:text-[var(--color-accent)] transition-colors"
+                >
+                  {t('coach.sheet.select')}
+                </button>
+              )}
+              {sessions.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => onReorderSessions(sessionsReordering ? null : week.id)}
+                  className={`sl-mono text-[11px] py-2.5 transition-colors ${
+                    sessionsReordering
+                      ? 'flex-1 text-[var(--color-accent)]'
+                      : 'px-4 text-ink-400 border-l border-ink-100 hover:text-[var(--color-accent)]'
+                  }`}
+                >
+                  {sessionsReordering ? t('common.done') : t('coach.sheet.reorderSessions')}
+                </button>
+              )}
+            </div>
+          )}
         </>
       )}
+
+      <CopyDialog
+        open={showCopySelection}
+        onClose={() => setShowCopySelection(false)}
+        title={t('coach.sheet.copySessionsTitle')}
+        description={t('coach.sheet.copySessionsDescription', { n: selectedIds.size })}
+        currentStudentId={studentId}
+        currentProgramId={week.program_id}
+        showWeekSelect
+        onCopy={({ weekId }) => {
+          if (!weekId) return;
+          copySessions.mutate(
+            { sessionIds: [...selectedIds], weekId },
+            {
+              onSuccess: () => {
+                setShowCopySelection(false);
+                exitSelect();
+              },
+            },
+          );
+        }}
+        isPending={copySessions.isPending}
+      />
 
       <CopyDialog
         open={showCopy}

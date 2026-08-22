@@ -17,6 +17,9 @@ const mockDeleteWeek = { mutate: vi.fn(), isPending: false };
 const mockUpdateWeek = { mutate: vi.fn(), isPending: false };
 const mockReorderWeeks = { mutate: vi.fn(), isPending: false };
 const mockReorderSessions = { mutate: vi.fn(), isPending: false };
+const mockArchiveSession = { mutate: vi.fn(), isPending: false };
+const mockArchiveSessions = { mutate: vi.fn(), isPending: false };
+const mockCopySessions = { mutate: vi.fn(), isPending: false };
 const mockDuplicateWeek = { mutate: vi.fn(), isPending: false };
 const mockDuplicateSession = { mutate: vi.fn(), isPending: false };
 
@@ -24,6 +27,8 @@ vi.mock('../../hooks/useWeek', () => ({
   useCreateWeek: () => mockCreateWeek,
   useReorderWeeks: () => mockReorderWeeks,
   useReorderSessions: () => mockReorderSessions,
+  useArchiveSession: () => mockArchiveSession,
+  useArchiveSessions: () => mockArchiveSessions,
   useUpdateWeek: () => mockUpdateWeek,
   useDeleteWeek: () => mockDeleteWeek,
   useCreateSession: () => mockCreateSession,
@@ -34,6 +39,7 @@ vi.mock('../../hooks/useWeek', () => ({
 vi.mock('../../hooks/useDuplicate', () => ({
   useDuplicateWeek: () => mockDuplicateWeek,
   useDuplicateSession: () => mockDuplicateSession,
+  useCopySessions: () => mockCopySessions,
 }));
 
 let mockConfirmed = { data: new Set() };
@@ -48,6 +54,7 @@ vi.mock('../../hooks/useStudents', () => ({
 }));
 vi.mock('../../hooks/useProgram', () => ({
   useActiveProgram: () => ({ data: null }),
+  useProgramsForStudent: () => ({ data: [] }),
   useProgram: () => ({ data: null }),
 }));
 
@@ -178,6 +185,97 @@ describe('ProgramSheet', () => {
       await user.click(screen.getByRole('button', { name: /^done$/i }));
       expect(screen.getByRole('button', { name: /day: mon/i })).toBeInTheDocument();
     });
+  });
+
+  // The coach's two named jobs. Archiving was previously unreachable from this
+  // surface at all: useArchiveSession's only caller was SessionReview, which a
+  // never-performed session can't reach — so the only tool for one was delete.
+  describe('selection mode', () => {
+    async function enterSelect(user) {
+      await user.click(screen.getByRole('button', { name: /^select$/i }));
+    }
+
+    it('turns rows into pressable targets and reports the count', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await enterSelect(user);
+
+      expect(screen.getByText('0 selected')).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: /Pull/ }));
+      expect(screen.getByText('1 selected')).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: /Push/ }));
+      expect(screen.getByText('2 selected')).toBeInTheDocument();
+      // Tapping again deselects.
+      await user.click(screen.getByRole('button', { name: /Push/ }));
+      expect(screen.getByText('1 selected')).toBeInTheDocument();
+    });
+
+    it('archives the selection in one call', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await enterSelect(user);
+      await user.click(screen.getByRole('button', { name: /Pull/ }));
+      await user.click(screen.getByRole('button', { name: /Push/ }));
+      await user.click(screen.getByRole('button', { name: /^archive$/i }));
+
+      expect(mockArchiveSessions.mutate).toHaveBeenCalledWith(
+        { sessionIds: ['sess-1', 'sess-2'], archived: true },
+        expect.any(Object),
+      );
+    });
+
+    it('keeps both actions inert until something is picked', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await enterSelect(user);
+      expect(screen.getByRole('button', { name: /^archive$/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /copy to/i })).toBeDisabled();
+    });
+
+    it('leaves the mode and clears the selection on dismiss', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await enterSelect(user);
+      await user.click(screen.getByRole('button', { name: /Pull/ }));
+      await user.click(screen.getByRole('button', { name: /cancel/i }));
+
+      expect(screen.queryByText(/selected/)).toBeNull();
+      // Back to the normal row, day pill and all.
+      expect(screen.getByRole('button', { name: /day: mon/i })).toBeInTheDocument();
+    });
+
+    it('copies the selection into the week chosen in the dialog', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await enterSelect(user);
+      await user.click(screen.getByRole('button', { name: /Pull/ }));
+      await user.click(screen.getByRole('button', { name: /copy to/i }));
+      // Scoped to the OPEN dialog: `Dialog` mounts its children whatever its
+      // state, and the sheet renders one CopyDialog per week card, so an
+      // unscoped query matches the closed ones too.
+      const dialog = screen.getByRole('dialog');
+      // It asks for the destination BLOCK before the week — the step that
+      // lifts the old active-program-only restriction.
+      // Exact strings, not regexes: a substring regex also matches the <label>
+      // wrapping each <span>, which reads as two hits for one field.
+      expect(within(dialog).getByText('Destination block')).toBeInTheDocument();
+      expect(within(dialog).getByText('Destination week')).toBeInTheDocument();
+    });
+  });
+
+  // Restoring meant opening the session's review page, a full-page route whose
+  // back button lands on an unrelated feed — a one-way trip out of Programming.
+  it('restores an archived session in place, without leaving the sheet', async () => {
+    const user = userEvent.setup();
+    renderSheet();
+    await user.click(screen.getByText(/show 1 archived/i));
+    await user.click(screen.getByRole('button', { name: /restore this session/i }));
+
+    expect(mockArchiveSession.mutate).toHaveBeenCalledWith({
+      sessionId: 'sess-old',
+      archived: false,
+    });
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('excludes archived sessions from the active list', () => {

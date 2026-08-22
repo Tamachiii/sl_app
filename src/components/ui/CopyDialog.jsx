@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import Dialog from './Dialog';
 import { useStudents } from '../../hooks/useStudents';
-import { useActiveProgram, useProgram } from '../../hooks/useProgram';
+import { useProgramsForStudent, useProgram } from '../../hooks/useProgram';
 import { useI18n } from '../../hooks/useI18n';
 
 /**
@@ -15,9 +15,13 @@ import { useI18n } from '../../hooks/useI18n';
  * - description: optional helper text
  * - currentStudentId: the athlete being edited
  * - currentProgramId: optional. When set, the current athlete stays in the
- *   dropdown and picking them targets THIS program's weeks (not their active
- *   one, which may be a different block). Without it the current athlete is
- *   excluded, preserving the old copy-to-another-student-only behaviour.
+ *   dropdown so a coach can copy within the same athlete. Without it the
+ *   current athlete is excluded.
+ *
+ * The destination is picked in full — athlete, then BLOCK, then week. It used
+ * to jump straight to the destination athlete's ACTIVE program, which dead-
+ * ended with "No weeks" for an athlete who had none and made it impossible to
+ * prepare a block in advance.
  * - showWeekSelect: if true, shows a "destination week" dropdown (for session copy)
  * - onCopy({ studentId, programId, weekId? }): called when the user clicks Copy
  * - isPending: disables the copy button and shows "Copying…"
@@ -36,38 +40,37 @@ export default function CopyDialog({
   const { t } = useI18n();
   const { data: students } = useStudents();
   const [copyStudentId, setCopyStudentId] = useState('');
+  const [copyProgramId, setCopyProgramId] = useState('');
   const [copyWeekId, setCopyWeekId] = useState('');
-  const isSameStudent = !!currentProgramId && copyStudentId === currentStudentId;
-  // Cross-student copy targets the destination student's ACTIVE block; a
-  // same-athlete copy targets the exact program open in the editor.
-  const { data: activeProgram } = useActiveProgram(
-    copyStudentId && !isSameStudent ? copyStudentId : undefined,
-  );
-  const { data: sameProgram } = useProgram(isSameStudent ? currentProgramId : undefined);
-  const destProgram = isSameStudent ? sameProgram : activeProgram;
+
+  // Every block the destination athlete has, not just the active one.
+  const { data: destPrograms } = useProgramsForStudent(copyStudentId || undefined);
+  const { data: destProgram } = useProgram(copyProgramId || undefined);
   const destWeeks = destProgram?.weeks || [];
 
   function handleClose() {
     setCopyStudentId('');
+    setCopyProgramId('');
     setCopyWeekId('');
     onClose();
   }
 
   function handleCopy() {
     if (showWeekSelect && !copyWeekId) return;
-    if (!showWeekSelect && !destProgram?.id) return;
+    if (!copyProgramId) return;
     onCopy({
       studentId: copyStudentId,
-      programId: destProgram?.id,
+      programId: copyProgramId,
       weekId: copyWeekId || undefined,
     });
     setCopyStudentId('');
+    setCopyProgramId('');
     setCopyWeekId('');
   }
 
   const copyDisabled = showWeekSelect
     ? !copyWeekId || isPending
-    : !destProgram?.id || isPending;
+    : !copyProgramId || isPending;
 
   // Inputs use bg-white + border-ink-200 (both have dark-mode remaps in index.css)
   // so the select adapts to either theme. `disabled:bg-gray-50` — which we used
@@ -88,6 +91,7 @@ export default function CopyDialog({
             value={copyStudentId}
             onChange={(e) => {
               setCopyStudentId(e.target.value);
+              setCopyProgramId('');
               setCopyWeekId('');
             }}
             className={selectCls}
@@ -104,18 +108,45 @@ export default function CopyDialog({
           </select>
         </label>
 
+        <label className="block">
+          <span className="sl-label text-ink-400 block mb-1.5">{t('coach.copy.destinationBlock')}</span>
+          <select
+            value={copyProgramId}
+            onChange={(e) => {
+              setCopyProgramId(e.target.value);
+              setCopyWeekId('');
+            }}
+            disabled={!copyStudentId || (destPrograms || []).length === 0}
+            className={selectCls}
+          >
+            <option value="">
+              {!copyStudentId
+                ? t('coach.copy.selectStudentFirst')
+                : (destPrograms || []).length === 0
+                  ? t('coach.copy.noBlocks')
+                  : t('coach.copy.selectBlock')}
+            </option>
+            {(destPrograms || []).map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+                {p.is_active ? t('coach.copy.activeSuffix') : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+
         {showWeekSelect && (
           <label className="block">
             <span className="sl-label text-ink-400 block mb-1.5">{t('coach.copy.destinationWeek')}</span>
             <select
               value={copyWeekId}
               onChange={(e) => setCopyWeekId(e.target.value)}
-              disabled={!copyStudentId || destWeeks.length === 0}
+              disabled={!copyProgramId || destWeeks.length === 0}
               className={selectCls}
             >
               <option value="">
-                {!copyStudentId
-                  ? t('coach.copy.selectStudentFirst')
+                {!copyProgramId
+                  ? t('coach.copy.selectBlockFirst')
                   : destWeeks.length === 0
                     ? t('coach.copy.noWeeks')
                     : t('coach.copy.selectWeek')}

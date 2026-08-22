@@ -35,6 +35,11 @@ const stubProgram = (id) => ({
 vi.mock('../../hooks/useProgram', () => ({
   useActiveProgram: (sid) => stubProgram(sid),
   useProgram: (pid) => stubProgram(pid),
+  // CopyDialog now picks the destination BLOCK before the week, so it needs
+  // the athlete's program list rather than just their active one.
+  useProgramsForStudent: (sid) => ({
+    data: sid ? [{ id: 'prog-1', name: 'Block A', is_active: true }] : [],
+  }),
 }));
 
 vi.mock('../../hooks/useSession', () => ({
@@ -186,9 +191,13 @@ describe('SessionEditor', () => {
     renderEditor();
 
     await user.click(screen.getByText('copy to…'));
+    // Athlete → BLOCK → week. The block step is new: the dialog used to jump
+    // straight to the destination's ACTIVE program, which dead-ended for an
+    // athlete who had none and made preparing a future block impossible.
     const selects = screen.getAllByRole('combobox');
     await user.selectOptions(selects[0], 'stu-2');
-    await user.selectOptions(selects[1], 'w-10');
+    await user.selectOptions(selects[1], 'prog-1');
+    await user.selectOptions(selects[2], 'w-10');
     await user.click(screen.getByText('Copy'));
 
     expect(mockDuplicateSession.mutate).toHaveBeenCalledWith(

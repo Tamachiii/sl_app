@@ -299,6 +299,67 @@ export function useDuplicateProgram() {
   });
 }
 
+/**
+ * Copy SEVERAL sessions into one destination week — the coach's "reuse this
+ * work with another athlete" gesture.
+ *
+ * Sequential on purpose: each copy asks the destination week for its next free
+ * `sort_order`, so running them in parallel would hand every copy the same
+ * position and trip `sessions_week_sort_order_unique`. Sequential also means
+ * the copies land in the order they were selected.
+ *
+ * They append at the END of the destination week. There is deliberately no
+ * insert-at-position picker: since Stage 1 the coach can drag sessions into
+ * place on the sheet, so a fourth dropdown in this dialog would buy nothing a
+ * reorder doesn't already do better.
+ */
+export function useCopySessions() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ sessionIds, weekId }) => {
+      let done = 0;
+      for (const sessionId of sessionIds) {
+        const { data: src, error: sErr } = await supabase
+          .from('sessions')
+          .select('*, exercise_slots(*)')
+          .eq('id', sessionId)
+          .single();
+        if (sErr) { sErr.partial = done; throw sErr; }
+
+        const { data: newSess, error: nsErr } = await supabase
+          .from('sessions')
+          .insert({
+            week_id: weekId,
+            day_number: src.day_number,
+            title: src.title,
+            sort_order: await nextSessionSortOrder(weekId),
+          })
+          .select()
+          .single();
+        if (nsErr) { nsErr.partial = done; throw nsErr; }
+
+        const sourceSlots = (src.exercise_slots || []).slice().sort(
+          (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+        );
+        const slotIdMap = await copySlotsInto(newSess.id, sourceSlots, 'Session copy failed');
+        // Targets travel, the athlete's actuals do not — a copy arrives as a
+        // prescription, never as someone else's training history.
+        await copySetLogTargets(slotIdMap);
+        done += 1;
+      }
+      return { done, weekId };
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['week'] });
+      qc.invalidateQueries({ queryKey: ['program'] });
+      qc.invalidateQueries({ queryKey: ['set-logs'] });
+      qc.invalidateQueries({ queryKey: ['student-program-details'] });
+      invalidateCoachDashboard(qc);
+    },
+  });
+}
+
 export function useDuplicateSession() {
   const qc = useQueryClient();
 

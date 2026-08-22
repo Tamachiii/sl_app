@@ -345,6 +345,52 @@ export function useArchiveSession() {
       qc.invalidateQueries({ queryKey: ['program'] });
       // Archiving hides the session from the coach's Confirmed feed.
       qc.invalidateQueries({ queryKey: ['all-confirmations'] });
+      // …and pulls it out of the athlete's queue, which reads its own tree.
+      qc.invalidateQueries({ queryKey: ['student-program-details'] });
+      invalidateCoachDashboard(qc);
+    },
+  });
+}
+
+/**
+ * Archive (or restore) SEVERAL sessions at once — the coach's cleanup gesture.
+ *
+ * Archiving is the cleanup verb rather than deleting because the DB refuses to
+ * delete a session that has logged sets (`block_session_delete_with_logged_sets`),
+ * so for anything the athlete actually trained archiving is the only answer.
+ * It also keeps the record, which is the point.
+ *
+ * Sequential, not parallel: these are a handful of hand-picked rows, and a
+ * partial failure is far easier to reason about when the writes are ordered —
+ * `done` says exactly how many landed before the error.
+ */
+export function useArchiveSessions() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ sessionIds, archived }) => {
+      const archived_at = archived ? new Date().toISOString() : null;
+      let done = 0;
+      for (const id of sessionIds) {
+        const { error } = await supabase
+          .from('sessions')
+          .update({ archived_at })
+          .eq('id', id);
+        if (error) {
+          error.partial = done;
+          throw error;
+        }
+        done += 1;
+      }
+      return { done };
+    },
+    onSettled: () => {
+      // onSettled, not onSuccess: a partial failure still moved rows, so the
+      // caches must refresh either way or the sheet shows a mix of stale and
+      // fresh state.
+      qc.invalidateQueries({ queryKey: ['program'] });
+      qc.invalidateQueries({ queryKey: ['all-confirmations'] });
+      qc.invalidateQueries({ queryKey: ['student-program-details'] });
       invalidateCoachDashboard(qc);
     },
   });
