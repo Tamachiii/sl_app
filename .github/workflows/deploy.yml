@@ -32,7 +32,12 @@ jobs:
           # unset the Profile toggle renders the "not supported" copy
           # gracefully — i.e. the build still succeeds.
           VITE_VAPID_PUBLIC_KEY: ${{ secrets.VITE_VAPID_PUBLIC_KEY }}
-      - uses: peaceiris/actions-gh-pages@v4
+      # Third-party action in a job that holds a write token: pinned to a
+      # commit, because a tag can be moved to other code. To update, read the
+      # new release's commit with
+      #   git ls-remote https://github.com/peaceiris/actions-gh-pages 'refs/tags/v4*'
+      # (the `^{}` line of an annotated tag) and keep the version comment.
+      - uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist

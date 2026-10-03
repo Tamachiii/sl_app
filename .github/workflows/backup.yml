@@ -24,7 +24,12 @@ jobs:
           else
             echo "configured=true" >> "$GITHUB_OUTPUT"
           fi
-      - uses: supabase/setup-cli@v1
+      # Third-party action in a job that holds the database URL: pinned to a
+      # commit, because a tag or branch can be moved to other code (`v1` is a
+      # branch here). To update: git ls-remote
+      # https://github.com/supabase/setup-cli 'refs/tags/v1*', and keep the
+      # version comment.
+      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1.7.3
         if: steps.cfg.outputs.configured == 'true'
         with:
           version: latest

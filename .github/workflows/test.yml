@@ -45,6 +45,8 @@ jobs:
       # the registry — a red run with an unchanged lockfile means a NEW
       # advisory was published, which is the point.
       - run: npm audit --omit=dev --audit-level=high
+      # `npm run lint` carries a warning ceiling (--max-warnings in
+      # package.json): one warning more than the count on record fails here.
       - run: npm run lint
       - run: npm test -- --run
       - run: npm run build
@@ -68,3 +70,34 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npm run test:db
+
+  # The Edge Functions are Deno: outside `eslint src`, outside vitest, and
+  # deployed by hand, so nothing looked at them before this job. `deno check`
+  # resolves each entry point's jsr:/npm: imports and type-checks it.
+  functions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Third-party action, pinned to a commit (a tag can be moved). To update:
+      # git ls-remote https://github.com/denoland/setup-deno 'refs/tags/v2*',
+      # and keep the version comment.
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+      # ADVISORY until this step has been green once on a real runner: it has
+      # only ever run on a developer machine. A failure is reported by the
+      # step below and does not fail the job, so it cannot hold a deploy.
+      # After the first green run, delete `continue-on-error` and the
+      # reporting step — from then on a broken function stops the gate.
+      - id: check
+        continue-on-error: true
+        # Deno adopts the nearest package.json as its own manifest and then
+        # expects every `npm:` import to be in node_modules. That file belongs
+        # to the Vite app; the functions are standalone, which is also how the
+        # Edge runtime bundles them. Without this the check fails on
+        # `npm:web-push` before it has type-checked anything.
+        env:
+          DENO_NO_PACKAGE_JSON: '1'
+        run: deno check supabase/functions/*/index.ts
+      - if: steps.check.outcome == 'failure'
+        run: echo "::warning title=Edge Functions::deno check failed (advisory for now, see the step above)"
