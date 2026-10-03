@@ -13,11 +13,17 @@ export default defineConfig({
     // template database (shim.sql + schema.sql) every test file is cloned from.
     globalSetup: ['./supabase/tests/global-setup.js'],
     // Watch mode: the SQL is not in the module graph, so name it. A save
-    // reruns every file, after global-setup.js has rebuilt the template.
+    // reruns every file, after global-setup.js has rebuilt the template
+    // (schema.sql, shim.sql). The migrations, their audits and rollbacks, the
+    // manifest and the frozen baseline are read by the tests themselves.
     forceRerunTriggers: [
       ...configDefaults.forceRerunTriggers,
       '**/supabase/schema.sql',
       '**/supabase/tests/shim.sql',
+      '**/supabase/tests/fixtures/**',
+      '**/supabase/migrations/**',
+      '**/supabase/audits/**',
+      '**/supabase/rollbacks/**',
     ],
     // One worker process, test files one after the other. Each file gets its
     // own database, so this is about a quiet 2-core CI runner, not isolation.

@@ -1,0 +1,4 @@
+{
+  "baseline": "supabase/tests/fixtures/prod_baseline_2026_09_30.sql",
+  "migrations": []
+}

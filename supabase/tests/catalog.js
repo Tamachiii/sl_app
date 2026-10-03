@@ -45,8 +45,10 @@ const APPLICATION_SCHEMAS = ['public'];
 
 /**
  * Tables whose CONTENT comes from the SQL files, not from the app: compared
- * row by row. Add a table here when a migration seeds one. `columns` leaves
- * out what differs between two loads (timestamps, generated ids).
+ * row by row. Add a table here when a migration seeds one — parity.test.js
+ * refuses rows in an application table that is not listed, since all it could
+ * compare is how many there are. `columns` leaves out what differs between
+ * two loads (timestamps, generated ids).
  */
 export const REFERENCE_DATA = [
   { table: 'storage.buckets', columns: ['id', 'name', 'public', 'file_size_limit', 'allowed_mime_types'] },
