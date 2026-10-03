@@ -83,6 +83,8 @@ export default defineConfig({
     // Harness-created git worktrees under .claude/ contain a full copy of
     // the repo; without this exclude vitest runs every suite twice and the
     // copies fail on a second React instance.
-    exclude: ['**/node_modules/**', '**/dist/**', '.claude/**'],
+    // supabase/tests/** is the DATABASE suite: it needs a real Postgres and
+    // its own config (vitest.db.config.js, `npm run test:db`), not jsdom.
+    exclude: ['**/node_modules/**', '**/dist/**', '.claude/**', 'supabase/tests/**'],
   },
 });
