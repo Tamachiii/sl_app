@@ -10,6 +10,7 @@
     "lint": "eslint src --max-warnings 26",
     "test": "vitest",
     "test:db": "vitest run --config vitest.db.config.js",
+    "test:docs": "vitest run --config vitest.docs.config.js",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist"
   },

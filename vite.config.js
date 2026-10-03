@@ -85,6 +85,9 @@ export default defineConfig({
     // copies fail on a second React instance.
     // supabase/tests/** is the DATABASE suite: it needs a real Postgres and
     // its own config (vitest.db.config.js, `npm run test:db`), not jsdom.
-    exclude: ['**/node_modules/**', '**/dist/**', '.claude/**', 'supabase/tests/**'],
+    // docs/** is the DOCS suite (vitest.docs.config.js, `npm run test:docs`):
+    // run by the integrator and CI once the docs of a wave are folded, never
+    // by a feature package, which must not fail on a doc it does not own.
+    exclude: ['**/node_modules/**', '**/dist/**', '.claude/**', 'supabase/tests/**', 'docs/**'],
   },
 });
