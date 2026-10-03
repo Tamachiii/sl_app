@@ -1,4 +1,14 @@
 {
   "baseline": "supabase/tests/fixtures/prod_baseline_2026_09_30.sql",
-  "migrations": []
+  "migrations": [
+    {
+      "name": "2026_10_03_01_migration_ledger",
+      "kind": "required",
+      "wave": 0,
+      "checkpoint": "A0",
+      "covers": ["L26", "P69"],
+      "reversible": true,
+      "summary": "Schema app_private and the ledger app_private.app_migrations(name, applied_at) that every later migration signs."
+    }
+  ]
 }

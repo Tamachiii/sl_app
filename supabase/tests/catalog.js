@@ -41,7 +41,7 @@
 const SEARCH_PATH = '"$user", public, extensions';
 
 /** Schemas whose tables hold application rows (their row counts are compared). */
-const APPLICATION_SCHEMAS = ['public'];
+const APPLICATION_SCHEMAS = ['public', 'app_private'];
 
 /**
  * Tables whose CONTENT comes from the SQL files, not from the app: compared
@@ -52,6 +52,7 @@ const APPLICATION_SCHEMAS = ['public'];
  */
 export const REFERENCE_DATA = [
   { table: 'storage.buckets', columns: ['id', 'name', 'public', 'file_size_limit', 'allowed_mime_types'] },
+  { table: 'app_private.app_migrations', columns: ['name'] },
 ];
 
 const inScope = (ns) => `${ns}.nspname not in ('pg_catalog', 'information_schema') and ${ns}.nspname !~ '^pg_(toast|temp)'`;

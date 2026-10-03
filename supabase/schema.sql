@@ -2812,3 +2812,44 @@ BEGIN
    WHERE s.id = t.id;
 END;
 $$;
+
+-- ============================================================
+-- MIGRATION LEDGER (2026_10_03_01_migration_ledger)
+--
+-- app_private.app_migrations holds one row per applied migration of
+-- supabase/migrations/manifest.json; a migration file inserts its own name in
+-- the transaction that makes its changes, and refuses to run when the name is
+-- already there or when the migration it requires is missing.
+--
+-- `app_private` is not exposed by the API and no API role can use it. It is
+-- not `public` on purpose: a public table needs RLS, and a table with RLS and
+-- no policy reads as EMPTY to a read-only role — a check of the ledger before
+-- a deploy would read "nothing is applied".
+-- ============================================================
+CREATE SCHEMA app_private;
+
+COMMENT ON SCHEMA app_private IS
+  'Objects the API must never reach: not in the exposed schemas, no privilege '
+  'for anon, authenticated or service_role. Holds the migration ledger.';
+
+CREATE TABLE app_private.app_migrations (
+  name        text PRIMARY KEY
+              CHECK (name ~ '^[0-9]{4}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[a-z][a-z0-9_]*$'),
+  applied_at  timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE app_private.app_migrations IS
+  'One row per applied migration of supabase/migrations/manifest.json: the '
+  'file name without .sql. Written by the migration itself, in its own '
+  'transaction; removed by its rollback file.';
+
+REVOKE ALL ON SCHEMA app_private FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE app_private.app_migrations FROM PUBLIC, anon, authenticated, service_role;
+
+-- This file IS those migrations, already merged: a database installed from it
+-- starts with all of them on record. A migration that is merged in above adds
+-- its name here (a `contract` migration only once it is applied — until then
+-- this file must keep describing production). supabase/tests/parity.test.js
+-- fails when this list and the manifest disagree.
+INSERT INTO app_private.app_migrations (name) VALUES
+  ('2026_10_03_01_migration_ledger');

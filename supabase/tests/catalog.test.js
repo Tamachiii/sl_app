@@ -239,6 +239,11 @@ describe('catalogSnapshot', () => {
       `insert into public.probe_things default values`,
       /^data row count of public\.probe_things: count: 0 \(before\) ≠ 1 \(after\)$/,
     ],
+    [
+      'a row of the migration ledger',
+      `insert into app_private.app_migrations (name) values ('2099_01_01_99_not_in_the_manifest')`,
+      /^data rows of app_private\.app_migrations: rows: \["\{\\"name\\":\\"2099_01_01_99_not_in_the_manifest\\"\}"\] only in after$/,
+    ],
   ])('sees %s', async (_, sql, expected) => {
     const diff = await diffAfter(sql);
     expect(diff.some((line) => expected.test(line)), diff.join('\n') || 'no difference reported').toBe(true);

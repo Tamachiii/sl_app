@@ -100,4 +100,9 @@ describe('baseline + migrations = schema.sql', () => {
     );
     expect(diff).toEqual([]);
   });
+
+  it('schema.sql records the migrations merged into it, and no other', () => {
+    const rows = schema.data['rows of app_private.app_migrations'].rows ?? [];
+    expect(rows.map((row) => JSON.parse(row).name)).toEqual(merged.map((m) => m.name).sort());
+  });
 });
