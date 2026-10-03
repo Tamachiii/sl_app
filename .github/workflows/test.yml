@@ -42,3 +42,22 @@ jobs:
       - run: npm test -- --run
       - run: npm run build
         if: ${{ !inputs.skip-build }}
+
+  # The DATABASE suite: supabase/schema.sql loaded into a real PostgreSQL 17
+  # and exercised as anon / student / coach (RLS, triggers, RPCs). Its own job
+  # so it runs alongside the unit suite rather than after it — and, being part
+  # of this reusable workflow, it gates the deploy like the job above.
+  #
+  # No service container and no Docker: the server binaries are an npm
+  # optional dependency (@embedded-postgres/linux-x64), so `npm ci` installs
+  # them and the setup-node npm cache is their cache.
+  db:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run test:db
