@@ -14,3 +14,6 @@ TEST_AUDIT.md
 
 # Local test-account credentials for manual/preview testing (never commit).
 .claude/creds.env
+
+# Review reports (2026-09-30) and E2E run artifacts — local only
+review-2026-09-30/
