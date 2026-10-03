@@ -57,7 +57,7 @@ src/
                  VideoPlayer  Spinner  EmptyState  CopyDialog  ConfirmDialog
                  ErrorBoundary  NotFound
   test/          setup.js  utils.jsx (createTestQueryClient)
-supabase/        schema.sql  migrations/  functions/dispatch-rest-push/
+supabase/        schema.sql  migrations/  functions/dispatch-rest-push/  tests/ (DB suite)
 docs/            INVARIANTS.md  ARCHITECTURE.md  DESIGN_SYSTEM.md  ENVIRONMENT.md
 ```
 
@@ -114,7 +114,8 @@ Jump straight to the relevant files. For *behavior* details, open the file — t
 | Program trash / archive-first delete | `hooks/useProgram` (`useDeleteProgram`/`useTrashedPrograms`/`useRestoreProgram`/`useHardDeleteProgram`), `coach/ProgramSwitcher` (TrashDialog), migration `2026_07_13_programs_soft_delete.sql` (`programs.deleted_at` + `block_*_delete_with_logged_sets` triggers) |
 | Mutation error toast | `lib/toast.js`, `lib/mutationErrors.js`, `ui/ToastHost` (in `AppShell`), `queryClient.js` (MutationCache onError) |
 | Error telemetry | `lib/errorReporter.js`, `ui/ErrorBoundary`, `hooks/useClientErrors`, `coach/CoachHome` (collapsible triage list at the bottom of the Athletes roster), migration `2026_07_13_client_errors.sql` |
-| CI & deploys | `.github/workflows/test.yml` (reusable suite: lint + tests + build on dev pushes/PRs), `.github/workflows/deploy.yml` (test-gated gh-pages publish), `eslint.config.js` |
+| DB / RLS test suite (`npm run test:db`) | `supabase/tests/`: `harness.js` (`asAnon`/`asUser`/`asService`/`asAdmin`/`scenario`/`attempt` + `seed`/`createUser`/`createProgram`/`createDraftProgram` + `enablePush`/`httpCalls` — the API is documented in the file), `shim.sql` (what Supabase provides before user SQL: roles, `auth`, `storage`, `pg_net`/Vault stubs, default privileges), `postgres.js` + `global-setup.js` (embedded PG 17.6, template database, one clone per test file), `smoke.test.js`, `known-holes.test.js` (open review findings as `it.fails` — delete `.fails` to work on one), `vitest.db.config.js`. `schema.sql` is loaded UNMODIFIED; `npm test` excludes this folder. README → Database Tests for how to write one and the shim's limits |
+| CI & deploys | `.github/workflows/test.yml` (reusable suite: lint + tests + build on dev pushes/PRs, plus the `db` job running `npm run test:db`), `.github/workflows/deploy.yml` (test-gated gh-pages publish), `eslint.config.js` |
 | Nightly DB backups | `.github/workflows/backup.yml` (encrypted dump artifact), `BACKUPS.md` (secrets setup + restore drill) |
 
 Periodization, confirmations, video storage/RLS, routing persistence, and React Query invalidation details are in `docs/ARCHITECTURE.md`. Design primitives, dark-mode rules, responsive layout, and the editorial page-header pattern are in `docs/DESIGN_SYSTEM.md`.
@@ -132,6 +133,7 @@ npm run preview   # serve dist/ (4173)
 npm run lint      # eslint (correctness-only; rides the CI gate)
 npm test          # vitest watch
 npm test -- --run # single run (CI)
+npm run test:db   # DB suite: schema.sql on an embedded Postgres 17, as anon/student/coach (~2 s)
 npm run deploy    # emergency-only manual publish — bypasses the CI test gate.
                   # The normal path is the CI deploy from main.
 ```
