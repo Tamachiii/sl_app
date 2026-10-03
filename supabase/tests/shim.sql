@@ -8,9 +8,12 @@
 --
 -- Order of operations (see postgres.js):
 --   1. this file, as the bootstrap superuser `supabase_admin`, inside the
---      template database;
---   2. supabase/schema.sql, as `postgres` — the same NON-superuser role the
---      Supabase SQL editor and `supabase db query` run as.
+--      database `sl_bare` — once per cluster, because the roles it creates
+--      are cluster-wide;
+--   2. a copy of that database, then supabase/schema.sql in it, as `postgres`
+--      — the same NON-superuser role the Supabase SQL editor and `supabase db
+--      query` run as. (The parity test makes another copy and loads the
+--      production baseline plus the migrations instead.)
 --
 -- Nothing runs after schema.sql, on purpose. The ACLs that make `anon` able
 -- to EXECUTE every public function come from ALTER DEFAULT PRIVILEGES below,

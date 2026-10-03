@@ -24,6 +24,10 @@
 // A `q` always runs as the actor of the helper that created it, wherever it is
 // called from.
 //
+// A test about the SQL FILES themselves (does the production baseline plus the
+// migrations give schema.sql? can this migration be rolled back?) needs a
+// database it builds itself: scratchDatabase(), at the end of this file.
+//
 // How a role is impersonated is how PostgREST does it for every API request
 // (and how the Supabase dashboard's "role impersonation" does it): inside the
 // transaction, SET LOCAL ROLE to anon / authenticated / service_role and put
@@ -31,8 +35,14 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomBytes } from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { afterAll, inject } from 'vitest';
+import { runSql, runSqlFile } from './sql.js';
+
+/** The repository root: SQL files are named relative to it. */
+export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 const connection = inject('slDb');
 if (!connection) {
@@ -71,22 +81,35 @@ const server = {
 };
 
 let database = null;
+// The databases this file built with scratchDatabase().
+const scratch = [];
 
-async function createDatabase() {
-  // Watch mode only: the last save of schema.sql / shim.sql did not load.
-  if (connection.error) throw new Error(`The template database could not be built.\n${connection.error}`);
-  const name = `sl_test_${randomBytes(6).toString('hex')}`;
+async function asServerAdmin(fn) {
   const client = new pg.Client({ ...server, database: 'postgres' });
   await client.connect();
   try {
-    await client.query(`CREATE DATABASE ${name} TEMPLATE ${connection.template} OWNER ${connection.user}`);
+    return await fn(client);
   } finally {
     await client.end();
   }
-  const pool = new pg.Pool({ ...server, database: name, max: 4, types });
+}
+
+async function createDatabase(template = connection.template, poolOptions = {}) {
+  // Watch mode only: the last save of schema.sql / shim.sql did not load.
+  if (connection.error) throw new Error(`The template database could not be built.\n${connection.error}`);
+  const name = `sl_test_${randomBytes(6).toString('hex')}`;
+  await asServerAdmin((client) => client.query(
+    `CREATE DATABASE ${name} TEMPLATE ${template} OWNER ${connection.user}`,
+  ));
+  const pool = new pg.Pool({ ...server, database: name, max: 4, types, ...poolOptions });
   // An idle client dropped by a server shutdown must not crash the worker.
   pool.on('error', () => {});
   return { name, pool };
+}
+
+async function dropDatabase({ name, pool }) {
+  await pool.end();
+  await asServerAdmin((client) => client.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`));
 }
 
 function getDatabase() {
@@ -98,16 +121,8 @@ afterAll(async () => {
   // Nothing to drop if no helper ran, or if the clone itself failed.
   const created = await database?.catch(() => null);
   database = null;
-  if (!created) return;
-  const { name, pool } = created;
-  await pool.end();
-  const client = new pg.Client({ ...server, database: 'postgres' });
-  await client.connect();
-  try {
-    await client.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
-  } finally {
-    await client.end();
-  }
+  const all = [created, ...scratch.splice(0)].filter(Boolean);
+  for (const one of all) await dropDatabase(one);
 });
 
 // ------------------------------------------------------------
@@ -154,11 +169,12 @@ function applyActor(client, actor) {
 // violation, a RAISE EXCEPTION, a constraint) is rolled back alone and the
 // error is thrown to the test, but the transaction stays usable — the next
 // statement can go and look at what the failed one left behind. That matches
-// the app, where each PostgREST call is its own request.
+// the app, where each PostgREST call is its own request. `q.dryRun` uses the
+// same savepoint to undo a statement that succeeded.
 function createQuery(tx, actor) {
   const { client } = tx;
 
-  const exec = async (text, params) => {
+  const exec = async (text, params, keep) => {
     if (tx.actor !== actor) {
       await applyActor(client, actor);
       tx.actor = actor;
@@ -166,7 +182,9 @@ function createQuery(tx, actor) {
     await client.query('SAVEPOINT harness_statement');
     try {
       const result = await client.query(text, params);
-      await client.query('RELEASE SAVEPOINT harness_statement');
+      await client.query(keep
+        ? 'RELEASE SAVEPOINT harness_statement'
+        : 'ROLLBACK TO SAVEPOINT harness_statement; RELEASE SAVEPOINT harness_statement');
       return result;
     } catch (err) {
       await client.query('ROLLBACK TO SAVEPOINT harness_statement; RELEASE SAVEPOINT harness_statement');
@@ -175,11 +193,23 @@ function createQuery(tx, actor) {
   };
 
   // One statement at a time on the connection, even under Promise.all.
-  const q = (text, params) => {
-    const next = tx.queue.then(() => exec(text, params));
+  const enqueue = (text, params, keep) => {
+    const next = tx.queue.then(() => exec(text, params, keep));
     tx.queue = next.catch(() => {});
     return next;
   };
+  const q = withShortcuts((text, params) => enqueue(text, params, true));
+  /**
+   * Run the statement and undo it at once: the result comes back (rowCount,
+   * RETURNING rows), the database is as if it had never run — triggers and
+   * cascades included. For "could this actor delete that row?" asked of many
+   * rows in a row, where one answer must not change the next.
+   */
+  q.dryRun = (text, params) => enqueue(text, params, false);
+  return q;
+}
+
+function withShortcuts(q) {
   /** All rows. */
   q.rows = async (text, params) => (await q(text, params)).rows;
   /** First row, or null. */
@@ -553,4 +583,84 @@ export function httpCalls() {
   return run(ADMIN, (q) => q.rows(
     `select id, method, url, headers, body from net.http_request_queue order by id`,
   ));
+}
+
+// ------------------------------------------------------------
+// Databases built from SQL files
+// ------------------------------------------------------------
+
+/**
+ * A database of its own for this test file, to load SQL files into. It is
+ * dropped with the file's other databases when the file is done.
+ *
+ *   const db = await scratchDatabase();                    // an empty Supabase project
+ *   const db = await scratchDatabase({ from: 'schema' });  // a copy of schema.sql
+ *
+ *   from: 'bare'    shim.sql only — the state of a project before any user
+ *                   SQL. Load the production baseline and the migrations into
+ *                   it. (default)
+ *         'schema'  shim.sql + schema.sql, like the database asUser() & co. use,
+ *                   but separate from it.
+ *
+ * Everything runs as `postgres`, the role the Supabase SQL editor uses, and is
+ * COMMITTED — there is no rollback at the end of a call, unlike asAdmin():
+ *
+ *   db.query(sql, params)   one statement; also db.query.rows / .one / .value
+ *   db.runFile(file)        a whole .sql file as one multi-statement query,
+ *                           the way the SQL editor sends it. `file` is absolute
+ *                           or relative to the repository root. A failure
+ *                           names the file and the line, carries the SQLSTATE
+ *                           as `code`, and leaves no transaction open.
+ *   db.runSql(sql, label)   the same for SQL text
+ *   db.readOnly(sql, label) the same inside a READ ONLY transaction that is
+ *                           rolled back: any write raises 25006. Resolves to
+ *                           the result of each statement of `sql`, in order.
+ *   db.drop()               drop it now rather than at the end of the file —
+ *                           for a test that builds many
+ *
+ * asUser() and the other role helpers do not see this database.
+ */
+export async function scratchDatabase({ from = 'bare' } = {}) {
+  const template = { bare: connection.bare, schema: connection.template }[from];
+  if (!template) throw new Error(`scratchDatabase: unknown \`from\` "${from}" (expected 'bare' or 'schema')`);
+  // Connections are not kept: a file may build a dozen of these, and the
+  // server has 60 slots for the whole run.
+  const created = await createDatabase(template, { idleTimeoutMillis: 500 });
+  scratch.push(created);
+  const { name, pool } = created;
+
+  // A file with its own BEGIN that fails halfway leaves the connection inside
+  // an aborted transaction; close it before the connection goes back.
+  const onOneConnection = async (fn) => {
+    const client = await pool.connect();
+    try {
+      return await fn(client);
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+  };
+
+  return {
+    name,
+    query: withShortcuts((text, params) => pool.query(text, params)),
+    runSql: (sql, label) => onOneConnection((client) => runSql(client, sql, label)),
+    runFile: (file) => onOneConnection(
+      (client) => runSqlFile(client, path.resolve(repoRoot, file)),
+    ),
+    readOnly: (sql, label) => onOneConnection(async (client) => {
+      await client.query('BEGIN TRANSACTION READ ONLY');
+      const result = await runSql(client, sql, label);
+      await client.query('ROLLBACK');
+      return Array.isArray(result) ? result : [result];
+    }),
+    drop: async () => {
+      const index = scratch.indexOf(created);
+      if (index === -1) return;
+      scratch.splice(index, 1);
+      await dropDatabase(created);
+    },
+  };
 }

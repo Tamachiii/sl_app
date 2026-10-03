@@ -5,9 +5,16 @@
 // never by a test. Tests import harness.js.
 //
 //   initdb → postgres (npm binaries, PG 17.6 like production)
-//     → CREATE DATABASE sl_template
-//     → shim.sql      as supabase_admin (bootstrap superuser)
-//     → schema.sql    as postgres       (non-superuser owner, like Supabase)
+//     → CREATE DATABASE sl_bare
+//         shim.sql    as supabase_admin (bootstrap superuser)
+//       = an empty Supabase project, before the first line of user SQL
+//     → CREATE DATABASE sl_template TEMPLATE sl_bare
+//         schema.sql  as postgres       (non-superuser owner, like Supabase)
+//       = the install path; every test file is cloned from it
+//
+// sl_bare stays as a template of its own: a test that has to build a database
+// from other SQL (the production baseline plus the migrations) starts there —
+// see scratchDatabase() in harness.js.
 //
 // No Docker, no system Postgres, no psql: `embedded-postgres` ships the server
 // binaries as an npm optional dependency for the host platform.
@@ -20,9 +27,13 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runSqlFile } from './sql.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
+/** shim.sql only: a Supabase project with no user SQL in it yet. */
+export const BARE_DB = 'sl_bare';
+/** sl_bare + schema.sql: what a test file is cloned from. */
 export const TEMPLATE_DB = 'sl_template';
 export const SHIM_SQL = path.join(here, 'shim.sql');
 export const SCHEMA_SQL = path.join(here, '..', 'schema.sql');
@@ -44,32 +55,6 @@ function freePort() {
       server.close(() => resolve(port));
     });
   });
-}
-
-/**
- * Run a whole .sql file as one multi-statement simple query (one implicit
- * transaction, exactly like pasting it in the Supabase SQL editor). On failure
- * the error is rewritten to point at the offending line of the file.
- */
-async function runSqlFile(client, file) {
-  const sql = await fs.readFile(file, 'utf8');
-  try {
-    await client.query(sql);
-  } catch (err) {
-    const rel = path.relative(process.cwd(), file);
-    const offset = Number(err.position);
-    const line = Number.isFinite(offset) && offset > 0
-      ? sql.slice(0, offset - 1).split('\n').length
-      : null;
-    const detail = [err.detail, err.hint, err.where].filter(Boolean).join('\n  ');
-    const wrapped = new Error(
-      `${rel}${line ? `:${line}` : ''}: ${err.message}${detail ? `\n  ${detail}` : ''}`,
-    );
-    wrapped.code = err.code;
-    wrapped.cause = err;
-    wrapped.sqlFile = rel;
-    throw wrapped;
-  }
 }
 
 async function withClient(config, fn) {
@@ -153,8 +138,14 @@ async function bootCluster(port, log) {
 
     const superuser = { user: SUPERUSER, password: SUPERUSER_PASSWORD, port };
     await withClient({ ...superuser, database: 'postgres' }, (c) =>
-      c.query(`CREATE DATABASE ${TEMPLATE_DB}`));
-    await withClient({ ...superuser, database: TEMPLATE_DB }, (c) => runSqlFile(c, SHIM_SQL));
+      c.query(`CREATE DATABASE ${BARE_DB}`));
+    // shim.sql creates the cluster-wide roles, so it runs exactly once; it
+    // also hands the database it runs in to `postgres`.
+    await withClient({ ...superuser, database: BARE_DB }, (c) => runSqlFile(c, SHIM_SQL));
+    // The copy carries everything shim.sql left in the database: schemas,
+    // default privileges, the extension rows, the realtime publication.
+    await withClient({ ...superuser, database: 'postgres' }, (c) =>
+      c.query(`CREATE DATABASE ${TEMPLATE_DB} TEMPLATE ${BARE_DB} OWNER ${OWNER}`));
     await withClient(
       { user: OWNER, password: OWNER_PASSWORD, port, database: TEMPLATE_DB },
       (c) => runSqlFile(c, SCHEMA_SQL),
@@ -193,6 +184,7 @@ export async function startPostgres({ log = process.env.DB_TEST_LOG === '1' } = 
       user: OWNER,
       password: OWNER_PASSWORD,
       template: TEMPLATE_DB,
+      bare: BARE_DB,
     },
     async refresh() {
       if (cluster && cluster.built === await fingerprint()) return false;
