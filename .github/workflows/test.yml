@@ -38,6 +38,13 @@ jobs:
           node-version: 20
           cache: 'npm'
       - run: npm ci
+      # What SHIPS carries no known high or critical advisory. Runtime
+      # dependencies only (--omit=dev): an advisory in the build or test
+      # toolchain never reaches a phone, and some have no fixed release to
+      # move to, so they must not be able to hold a deploy. This step calls
+      # the registry — a red run with an unchanged lockfile means a NEW
+      # advisory was published, which is the point.
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm run lint
       - run: npm test -- --run
       - run: npm run build
