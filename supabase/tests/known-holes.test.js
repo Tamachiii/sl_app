@@ -14,6 +14,10 @@
 // A fix that lands without step 1 also turns the run red ("expected to
 // fail"), so a marker cannot outlive its hole.
 //
+// A plain `it` that carries a finding id is a hole that has been closed. It
+// stays here as the regression test of its fix; the comment above it names the
+// migration.
+//
 // Every test is one rolled-back transaction: arrange as `postgres`, attack as
 // the role named in the finding, then read the ground truth as `postgres`.
 // The attack goes through attempt() because the secure outcome may be an
@@ -30,10 +34,14 @@ beforeAll(async () => {
 const printed = (outcome) => (outcome.ok ? `returned ${JSON.stringify(outcome.value)}` : outcome.error.message);
 
 // ------------------------------------------------------------
-// P1 — the five coach-only SECURITY DEFINER RPCs run without a session.
+// P1 — CLOSED by 2026_10_03_02_rpc_auth_null_guard: these five are plain
+// tests now. The five coach-only SECURITY DEFINER RPCs ran without a session:
 // `IF v_coach_id IS NULL OR v_coach_id <> auth.uid() THEN RAISE` is NULL, not
 // true, when auth.uid() is NULL; and `REVOKE ALL … FROM public` leaves the
-// EXECUTE grant that Supabase's default privileges give `anon` by name.
+// EXECUTE grant that Supabase's default privileges give `anon` by name. The
+// check is now `auth.uid() IS NULL OR v_coach_id IS DISTINCT FROM auth.uid()`.
+// Every other caller (another coach, the service role, a token without a user
+// id) is in rpc-auth.test.js.
 // ------------------------------------------------------------
 describe('P1 — coach-only RPCs called by anon (no JWT)', () => {
   // Pull-up slot of session 1: the same exercise sits in the 3 later sessions.
@@ -56,7 +64,7 @@ describe('P1 — coach-only RPCs called by anon (no JWT)', () => {
     [firstPullUpSlot()],
   );
 
-  it.fails('P1 — anon cannot call adopt_skip', () => scenario(async (q) => {
+  it('P1 — anon cannot call adopt_skip', () => scenario(async (q) => {
     const call = await attempt(() => asAnon((anon) => anon.value(
       `select public.adopt_skip($1)`, [firstPullUpSlot()],
     )));
@@ -64,7 +72,7 @@ describe('P1 — coach-only RPCs called by anon (no JWT)', () => {
     expect(await pullUpSlots(q)).toBe(4);
   }));
 
-  it.fails('P1 — anon cannot call adopt_swap', () => scenario(async (q) => {
+  it('P1 — anon cannot call adopt_swap', () => scenario(async (q) => {
     const call = await attempt(() => asAnon((anon) => anon.value(
       `select public.adopt_swap($1, $2)`, [firstPullUpSlot(), ids.exercises.squat],
     )));
@@ -72,7 +80,7 @@ describe('P1 — coach-only RPCs called by anon (no JWT)', () => {
     expect(await pullUpSlots(q)).toBe(4);
   }));
 
-  it.fails('P1 — anon cannot call approve_program', () => scenario(async (q) => {
+  it('P1 — anon cannot call approve_program', () => scenario(async (q) => {
     const draft = await createDraftProgram(ids.studentA, { submitted: true });
     const call = await attempt(() => asAnon((anon) => anon.value(
       `select public.approve_program($1)`, [draft.id],
@@ -81,7 +89,7 @@ describe('P1 — coach-only RPCs called by anon (no JWT)', () => {
     expect(await q.value(`select status from programs where id = $1`, [draft.id])).toBe('draft');
   }));
 
-  it.fails('P1 — anon cannot call send_back_program', () => scenario(async (q) => {
+  it('P1 — anon cannot call send_back_program', () => scenario(async (q) => {
     const draft = await createDraftProgram(ids.studentA, { submitted: true });
     const call = await attempt(() => asAnon((anon) => anon.value(
       `select public.send_back_program($1)`, [draft.id],
@@ -90,7 +98,7 @@ describe('P1 — coach-only RPCs called by anon (no JWT)', () => {
     expect(await q.value(`select submitted_at is not null from programs where id = $1`, [draft.id])).toBe(true);
   }));
 
-  it.fails('P1 — anon cannot call decline_promote_request', () => scenario(async (q) => {
+  it('P1 — anon cannot call decline_promote_request', () => scenario(async (q) => {
     await requestPromotion(q);
     const call = await attempt(() => asAnon((anon) => anon.value(
       `select public.decline_promote_request($1)`, [firstPullUpSlot()],
@@ -99,7 +107,7 @@ describe('P1 — coach-only RPCs called by anon (no JWT)', () => {
     expect(await promotionPending(q)).toBe(true);
   }));
 
-  // Controls — green today, and the fix must keep them green.
+  // Controls — green before the fix, and the fix keeps them green.
   it('control: a signed-in user who is not the coach is refused by all five', () => scenario(async (q) => {
     const draft = await createDraftProgram(ids.studentA, { submitted: true });
     await requestPromotion(q);

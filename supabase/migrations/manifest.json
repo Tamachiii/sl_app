@@ -9,6 +9,15 @@
       "covers": ["L26", "P69"],
       "reversible": true,
       "summary": "Schema app_private and the ledger app_private.app_migrations(name, applied_at) that every later migration signs."
+    },
+    {
+      "name": "2026_10_03_02_rpc_auth_null_guard",
+      "kind": "required",
+      "wave": 0,
+      "checkpoint": "A0",
+      "covers": ["P1", "L29"],
+      "reversible": true,
+      "summary": "adopt_swap, adopt_skip, decline_promote_request, approve_program and send_back_program refuse a caller without a user id; the two push warnings of the program-submit loop read as in production."
     }
   ]
 }

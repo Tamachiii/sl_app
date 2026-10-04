@@ -1389,6 +1389,14 @@ CREATE TRIGGER trg_notify_coach_on_slot_deviation
 -- Phase 3.1: adopt a student's swap into the standing prescription (forward-
 -- only). Coach-only SECURITY DEFINER RPC (self-authorizes); see
 -- 2026_07_18_adopt_swap.sql for the full rationale.
+--
+-- The five coach-only definer RPCs — adopt_swap, adopt_skip,
+-- decline_promote_request, approve_program, send_back_program — authorize
+-- with the same line since 2026_10_03_02_rpc_auth_null_guard:
+--   IF auth.uid() IS NULL OR v_coach_id IS DISTINCT FROM auth.uid() THEN RAISE
+-- A definer bypasses RLS, so that line is the whole gate. Keep it, as written,
+-- when one of them is re-created: supabase/tests/rpc-auth.test.js calls each
+-- one as every kind of caller, with and without a user id.
 CREATE OR REPLACE FUNCTION public.adopt_swap(
   p_slot_id uuid,
   p_substitute_id uuid,
@@ -1425,7 +1433,9 @@ BEGIN
   END IF;
 
   v_coach_id := public.coach_profile_for_session(v_session_id);
-  IF v_coach_id IS NULL OR v_coach_id <> auth.uid() THEN
+  -- auth.uid() IS NULL is tested first, and the comparison is NULL-safe: with
+  -- a plain `<>` a caller without a session skipped this RAISE (review P1).
+  IF auth.uid() IS NULL OR v_coach_id IS DISTINCT FROM auth.uid() THEN
     RAISE EXCEPTION 'not authorized';
   END IF;
 
@@ -1574,7 +1584,9 @@ BEGIN
   END IF;
 
   v_coach_id := public.coach_profile_for_session(v_session_id);
-  IF v_coach_id IS NULL OR v_coach_id <> auth.uid() THEN
+  -- auth.uid() IS NULL is tested first, and the comparison is NULL-safe: with
+  -- a plain `<>` a caller without a session skipped this RAISE (review P1).
+  IF auth.uid() IS NULL OR v_coach_id IS DISTINCT FROM auth.uid() THEN
     RAISE EXCEPTION 'not authorized';
   END IF;
 
@@ -1799,7 +1811,9 @@ BEGIN
   END IF;
 
   v_coach_id := public.coach_profile_for_session(v_session_id);
-  IF v_coach_id IS NULL OR v_coach_id <> auth.uid() THEN
+  -- auth.uid() IS NULL is tested first, and the comparison is NULL-safe: with
+  -- a plain `<>` a caller without a session skipped this RAISE (review P1).
+  IF auth.uid() IS NULL OR v_coach_id IS DISTINCT FROM auth.uid() THEN
     RAISE EXCEPTION 'not authorized';
   END IF;
 
@@ -1969,7 +1983,9 @@ BEGIN
   END IF;
   SELECT s.coach_id, s.profile_id INTO v_coach_id, v_student_prof
     FROM public.students s WHERE s.id = v_student_id;
-  IF v_coach_id IS NULL OR v_coach_id <> auth.uid() THEN
+  -- auth.uid() IS NULL is tested first, and the comparison is NULL-safe: with
+  -- a plain `<>` a caller without a session skipped this RAISE (review P1).
+  IF auth.uid() IS NULL OR v_coach_id IS DISTINCT FROM auth.uid() THEN
     RAISE EXCEPTION 'not authorized';
   END IF;
 
@@ -2050,7 +2066,7 @@ BEGIN
           'tag', 'program-submitted-' || NEW.id::text,
           'data', jsonb_build_object('url', '/sl_app/#/coach/students/' || COALESCE(v_student_row_id::text,'') || '/programming'))));
     END IF;
-  EXCEPTION WHEN OTHERS THEN RAISE WARNING 'send-push (program submitted) failed: %', SQLERRM; END;
+  EXCEPTION WHEN OTHERS THEN RAISE WARNING 'send-push fan-out (program submitted) failed: %', SQLERRM; END;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
@@ -2068,7 +2084,9 @@ BEGIN
     FROM public.programs p WHERE p.id = p_program_id AND p.status = 'draft' AND p.submitted_at IS NOT NULL;
   IF v_student_id IS NULL THEN RETURN jsonb_build_object('sent_back', false); END IF;
   SELECT s.coach_id, s.profile_id INTO v_coach_id, v_student_prof FROM public.students s WHERE s.id = v_student_id;
-  IF v_coach_id IS NULL OR v_coach_id <> auth.uid() THEN RAISE EXCEPTION 'not authorized'; END IF;
+  -- auth.uid() IS NULL is tested first, and the comparison is NULL-safe: with
+  -- a plain `<>` a caller without a session skipped this RAISE (review P1).
+  IF auth.uid() IS NULL OR v_coach_id IS DISTINCT FROM auth.uid() THEN RAISE EXCEPTION 'not authorized'; END IF;
   UPDATE public.programs SET submitted_at = NULL WHERE id = p_program_id;
   IF v_student_prof IS NOT NULL THEN
     INSERT INTO public.notifications (recipient_id, kind, payload)
@@ -2085,7 +2103,7 @@ BEGIN
             'tag', 'program-sent-back-' || p_program_id::text,
             'data', jsonb_build_object('url', '/sl_app/#/student/author'))));
       END IF;
-    EXCEPTION WHEN OTHERS THEN RAISE WARNING 'send-push (program sent back) failed: %', SQLERRM; END;
+    EXCEPTION WHEN OTHERS THEN RAISE WARNING 'send-push fan-out (program sent back) failed: %', SQLERRM; END;
   END IF;
   RETURN jsonb_build_object('sent_back', true);
 END;
@@ -2852,4 +2870,5 @@ REVOKE ALL ON TABLE app_private.app_migrations FROM PUBLIC, anon, authenticated,
 -- this file must keep describing production). supabase/tests/parity.test.js
 -- fails when this list and the manifest disagree.
 INSERT INTO app_private.app_migrations (name) VALUES
-  ('2026_10_03_01_migration_ledger');
+  ('2026_10_03_01_migration_ledger'),
+  ('2026_10_03_02_rpc_auth_null_guard');
