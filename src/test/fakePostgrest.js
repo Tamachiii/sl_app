@@ -21,7 +21,8 @@
 //   - every other filter (`.eq`, `.is`, `.in`, `.neq`, …) is RECORDED, not
 //     applied: the fixture is taken to be what the WHERE clause lets through,
 //     and a test asserts the filter on `request.filters`;
-//   - `.maybeSingle()` / `.single()` resolve to the first row (or null);
+//   - `.maybeSingle()` resolves to the first row or null; `.single()` to the
+//     row when there is exactly one, and to a PGRST116 error otherwise;
 //   - `select(…, { head: true })` resolves to `{ count }` with no rows, the
 //     count being the response's `count`, or the number of rows — never cut,
 //     as a server-side count is not.
@@ -81,7 +82,18 @@ export function fakePostgrest(tables, { maxRows = 1000 } = {}) {
         return builder;
       },
       maybeSingle: () => settle().then((res) => ({ ...res, data: res.data ? res.data[0] ?? null : null })),
-      single: () => settle().then((res) => ({ ...res, data: res.data ? res.data[0] ?? null : null })),
+      single: () =>
+        settle().then((res) => {
+          if (res.error) return res;
+          if (res.data.length !== 1) {
+            return {
+              data: null,
+              count: null,
+              error: { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' },
+            };
+          }
+          return { ...res, data: res.data[0] };
+        }),
       then: (resolve, reject) => settle().then(resolve, reject),
     };
     for (const op of RECORDED_FILTERS) {
