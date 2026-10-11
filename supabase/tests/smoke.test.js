@@ -4,7 +4,8 @@
 
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  asAdmin, asAnon, asService, asUser, attempt, createUser, enablePush, httpCalls, scenario, seed,
+  asAdmin, asAnon, asPlatformRole, asService, asUser, attempt, createUser, enablePush, httpCalls,
+  scenario, scratchDatabase, seed,
 } from './harness.js';
 
 let ids;
@@ -65,14 +66,23 @@ describe('schema.sql on PostgreSQL 17 + shim.sql', () => {
 
 // ------------------------------------------------------------
 describe('anon — the public anon key, no user JWT', () => {
-  it('reads 0 rows from every public table', async () => {
+  // Refused outright where a privilege is missing (42501), no row elsewhere.
+  // Since migration 03 anon may execute no function, so a table whose policies
+  // call a helper refuses the whole statement; which tables those are is in
+  // snapshots/rls-matrix.txt.
+  const REFUSED = '42501';
+
+  it('reads no row from any public table', async () => {
     const tables = await publicTables();
     const seen = await asAnon(async (q) => {
       const out = {};
-      for (const { name } of tables) out[name] = await q.value(`select count(*) from public."${name}"`);
+      for (const { name } of tables) {
+        const read = await attempt(() => q.value(`select count(*) from public."${name}"`));
+        out[name] = read.ok ? read.value : read.error.code;
+      }
       return out;
     });
-    expect(Object.entries(seen).filter(([, n]) => n !== 0)).toEqual([]);
+    expect(Object.entries(seen).filter(([, n]) => n !== 0 && n !== REFUSED)).toEqual([]);
 
     // Not vacuous: the same tables do hold rows.
     const truth = await asAdmin((q) => q.value(`select count(*) from public.set_logs`));
@@ -97,8 +107,8 @@ describe('anon — the public anon key, no user JWT', () => {
     const tables = await publicTables();
     await scenario(async (q) => {
       for (const { name } of tables) {
-        const deleted = await asAnon(async (anon) => (await anon(`delete from public."${name}"`)).rowCount);
-        expect(deleted, name).toBe(0);
+        const tried = await attempt(() => asAnon((anon) => anon(`delete from public."${name}"`)));
+        expect(tried.ok ? tried.value.rowCount : tried.error.code, name).toBeOneOf([0, REFUSED]);
       }
       expect(await q.value(`select count(*) from public.set_logs`)).toBe(30);
     });
@@ -336,31 +346,51 @@ describe('harness', () => {
     expect(await asAdmin((q) => q.value(`select count(*) from messages`))).toBe(3);
   });
 
+  // What shim.sql promises: the starting point of a Supabase project. Asked of
+  // an EMPTY project, not of schema.sql — which now closes the part about
+  // functions (migration 03; function-acl.test.js holds what it leaves).
   it('reproduces the Supabase default privileges on schema public', async () => {
-    await scenario(async (q) => {
-      await q(`create function public.harness_probe() returns int language sql as 'select 1'`);
-      await q(`create table public.harness_probe_table (id int)`);
-      const canExecute = () => q.one(
-        `select has_function_privilege('anon', 'public.harness_probe()', 'EXECUTE')          as anon,
-                has_function_privilege('authenticated', 'public.harness_probe()', 'EXECUTE') as authenticated`,
-      );
+    const db = await scratchDatabase();
+    const q = db.query;
+    await q(`create function public.harness_probe() returns int language sql as 'select 1'`);
+    await q(`create table public.harness_probe_table (id int)`);
+    const canExecute = () => q.one(
+      `select has_function_privilege('anon', 'public.harness_probe()', 'EXECUTE')          as anon,
+              has_function_privilege('authenticated', 'public.harness_probe()', 'EXECUTE') as authenticated`,
+    );
 
-      // A new function is executable by the API roles from the start…
-      expect(await canExecute()).toEqual({ anon: true, authenticated: true });
-      // …REVOKE … FROM public does not take that away (the trap behind P1)…
-      await q(`revoke all on function public.harness_probe() from public`);
-      expect(await canExecute()).toEqual({ anon: true, authenticated: true });
-      // …only a revoke by name does.
-      await q(`revoke execute on function public.harness_probe() from anon`);
-      expect(await canExecute()).toEqual({ anon: false, authenticated: true });
+    // A new function is executable by the API roles from the start…
+    expect(await canExecute()).toEqual({ anon: true, authenticated: true });
+    // …REVOKE … FROM public does not take that away (the trap behind P1)…
+    await q(`revoke all on function public.harness_probe() from public`);
+    expect(await canExecute()).toEqual({ anon: true, authenticated: true });
+    // …only a revoke by name does.
+    await q(`revoke execute on function public.harness_probe() from anon`);
+    expect(await canExecute()).toEqual({ anon: false, authenticated: true });
 
-      // And a new table is fully granted: without RLS it is world-writable.
-      expect(await q.rows(
-        `select privilege
-           from unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) as privilege
-          where not has_table_privilege('anon', 'public.harness_probe_table', privilege)`,
-      )).toEqual([]);
+    // And a new table is fully granted: without RLS it is world-writable.
+    expect(await q.rows(
+      `select privilege
+         from unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) as privilege
+        where not has_table_privilege('anon', 'public.harness_probe_table', privilege)`,
+    )).toEqual([]);
+    await db.drop();
+  });
+
+  it('becomes a platform role that postgres is not a member of, and rolls back what it did as one', async () => {
+    const refused = await attempt(() => asAdmin((q) => q(`set local role supabase_auth_admin`)));
+    expect(refused.error?.code).toBe('42501');
+
+    const accounts = () => asAdmin((q) => q.value(`select count(*) from auth.users`));
+    const before = await accounts();
+    await asPlatformRole('supabase_auth_admin', async (gotrue, owner) => {
+      expect(await gotrue.value(`select current_user::text`)).toBe('supabase_auth_admin');
+      expect(await owner.value(`select current_user::text`)).toBe('postgres');
+      // Committed fixtures are visible, and GoTrue writes its own table.
+      await gotrue(`insert into auth.users (email) values ('passing@sl.test')`);
+      expect(await owner.value(`select count(*) from auth.users`)).toBe(before + 1);
     });
+    expect(await accounts()).toBe(before);
   });
 
   it('queues a Web Push through the pg_net stub once the Vault secrets exist', async () => {

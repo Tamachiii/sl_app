@@ -40,6 +40,9 @@ const printed = (outcome) => (outcome.ok ? `returned ${JSON.stringify(outcome.va
 // true, when auth.uid() is NULL; and `REVOKE ALL … FROM public` leaves the
 // EXECUTE grant that Supabase's default privileges give `anon` by name. The
 // check is now `auth.uid() IS NULL OR v_coach_id IS DISTINCT FROM auth.uid()`.
+// Since 2026_10_11_03_function_grants_lockdown `anon` is stopped one step
+// earlier, on the privilege ("permission denied for function …"); what these
+// five assert — the call fails and nothing moves — holds either way.
 // Every other caller (another coach, the service role, a token without a user
 // id) is in rpc-auth.test.js.
 // ------------------------------------------------------------

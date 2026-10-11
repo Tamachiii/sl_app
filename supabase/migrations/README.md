@@ -88,7 +88,21 @@ The rules the test holds, in the order of the file:
 4. The migration inserts its own name into the ledger, inside the transaction.
 5. `NOTIFY pgrst, 'reload schema';` whenever the migration adds, removes or changes a table or a column of `public`, a primary key, a unique constraint or a foreign key of a `public` table, or anything in the header of a `public` function (arguments, return type, volatility, `SECURITY DEFINER`, `SET` clauses) — PostgREST caches those; the foreign keys are how it knows what can be embedded in what. Not needed for a function body, a policy, a trigger, an index, a check constraint. The rollback file follows the same rule: when it changes any of those back, it carries the `NOTIFY` too.
 
-One more rule, which the conventions test does not hold but the parity test does, object by object: **a function is written with its `SET search_path` and its own `REVOKE` / `GRANT`, in the migration and in `schema.sql` alike.** `CREATE OR REPLACE` drops a `SET` clause the new text does not repeat, and a function that is new starts with the default privileges rather than the ones you meant.
+## A migration that creates or re-creates a function
+
+Since migration 03 no function of `public` is executable by `anon` or by `PUBLIC`, a signed-in user executes an explicit allow-list, and a function `postgres` creates starts closed: its owner and `service_role`, nobody else. `supabase/tests/function-acl.test.js` holds each of the rules below against the catalog, for every function there is.
+
+1. **`SET search_path = public, pg_temp` in the definition**, in the migration and in `schema.sql` alike, and every name in the body written with its schema. `CREATE OR REPLACE` drops a `SET` clause the new text does not repeat — and keeps the grants.
+2. **In the migration, the privileges stand next to the function**, so that the result does not depend on the default privileges of the database the file runs in:
+
+   ```sql
+   REVOKE ALL ON FUNCTION public.f(uuid) FROM PUBLIC, anon, authenticated;
+   GRANT EXECUTE ON FUNCTION public.f(uuid) TO authenticated;   -- only when rule 4 says so
+   ```
+
+3. **In `schema.sql`, the grant goes into the `FUNCTION PRIVILEGES` block at the end of the file, and nowhere else.** That block takes everything back from `PUBLIC`, `anon` and `authenticated` and then grants the allow-list: a `GRANT` written next to the function would be undone by it. The block stays below every function: nothing after it creates one.
+4. **Who gets the grant.** `authenticated`, when a policy calls the function (a policy runs with the privileges of the user who queries the table — so does a column default, a check constraint, a view, the expression of an index) or when the app calls it with `supabase.rpc()`. Nobody, for a trigger function: a trigger fires whatever the privileges of the user whose statement fires it. Nobody either for a function that only an Edge Function, a cron job or another `SECURITY DEFINER` function calls. Never `anon`.
+5. **The function joins a list of `function-acl.test.js`** — `HELPERS`, `RPCS`, or `NOT_FOR_USERS` with the reason; a trigger function joins none. The test fails until it does.
 
 ## The rollback file
 

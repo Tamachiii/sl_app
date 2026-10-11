@@ -197,6 +197,12 @@ CREATE INDEX idx_exercise_library_coach_id ON public.exercise_library(coach_id);
 
 -- ============================================================
 -- HELPER FUNCTIONS
+--
+-- Two rules for every function of this file (2026_10_11_03):
+--   * it carries `SET search_path = public, pg_temp` — CREATE OR REPLACE drops
+--     the clause when the new text does not repeat it;
+--   * who may execute it is said in ONE place, the FUNCTION PRIVILEGES block
+--     at the end of this file. A helper a policy calls must be listed there.
 -- ============================================================
 
 -- Walk from exercise_slot_id up to the student's profile_id
@@ -209,7 +215,7 @@ RETURNS uuid AS $$
   JOIN public.programs p ON p.id = w.program_id
   JOIN public.students s ON s.id = p.student_id
   WHERE es.id = slot_id
-$$ LANGUAGE sql SECURITY DEFINER STABLE;
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
 -- True iff the session's parent program is still the student's active block.
 -- Drives the student-side write gate on past-program sessions: once a coach
@@ -224,14 +230,14 @@ RETURNS boolean AS $$
   JOIN public.weeks w    ON w.id = sess.week_id
   JOIN public.programs p ON p.id = w.program_id
   WHERE sess.id = sess_id
-$$ LANGUAGE sql SECURITY DEFINER STABLE;
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION public.program_active_for_slot(slot_id uuid)
 RETURNS boolean AS $$
   SELECT public.program_active_for_session(es.session_id)
   FROM public.exercise_slots es
   WHERE es.id = slot_id
-$$ LANGUAGE sql SECURITY DEFINER STABLE;
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
 -- ============================================================
 -- ROW LEVEL SECURITY
@@ -476,7 +482,7 @@ RETURNS uuid AS $$
   JOIN public.programs p ON p.id = w.program_id
   JOIN public.students s ON s.id = p.student_id
   WHERE sess.id = sess_id
-$$ LANGUAGE sql SECURITY DEFINER STABLE;
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION public.coach_profile_for_session(sess_id uuid)
 RETURNS uuid AS $$
@@ -486,7 +492,7 @@ RETURNS uuid AS $$
   JOIN public.programs p ON p.id = w.program_id
   JOIN public.students s ON s.id = p.student_id
   WHERE sess.id = sess_id
-$$ LANGUAGE sql SECURITY DEFINER STABLE;
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
 ALTER TABLE public.session_confirmations ENABLE ROW LEVEL SECURITY;
 
@@ -595,12 +601,12 @@ CREATE INDEX IF NOT EXISTS idx_goal_progress_goal_id ON public.goal_progress(goa
 CREATE OR REPLACE FUNCTION public.student_profile_for_goal(g uuid)
 RETURNS uuid AS $$
   SELECT student_id FROM public.goals WHERE id = g
-$$ LANGUAGE sql SECURITY DEFINER STABLE;
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION public.coach_profile_for_goal(g uuid)
 RETURNS uuid AS $$
   SELECT coach_id FROM public.goals WHERE id = g
-$$ LANGUAGE sql SECURITY DEFINER STABLE;
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
 ALTER TABLE public.goals         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.goal_progress ENABLE ROW LEVEL SECURITY;
@@ -817,7 +823,7 @@ BEGIN
   );
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
@@ -838,7 +844,7 @@ BEGIN
   NEW.created_at := OLD.created_at;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 CREATE TRIGGER profiles_pin_immutable_columns
   BEFORE UPDATE ON public.profiles
@@ -863,7 +869,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 DROP TRIGGER IF EXISTS trg_restrict_student_goal_update ON public.goals;
 CREATE TRIGGER trg_restrict_student_goal_update
@@ -889,7 +895,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 DROP TRIGGER IF EXISTS trg_pin_set_log_targets_for_student ON public.set_logs;
 CREATE TRIGGER trg_pin_set_log_targets_for_student
@@ -920,7 +926,7 @@ RETURNS uuid AS $$
   SELECT public.student_profile_for_slot(sl.exercise_slot_id)
   FROM public.set_logs sl
   WHERE sl.id = log_id
-$$ LANGUAGE sql SECURITY DEFINER STABLE;
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
 ALTER TABLE public.set_log_videos ENABLE ROW LEVEL SECURITY;
 
@@ -1016,7 +1022,7 @@ RETURNS boolean AS $$
     WHERE (s.coach_id = a AND s.profile_id = b)
        OR (s.coach_id = b AND s.profile_id = a)
   );
-$$ LANGUAGE sql SECURITY DEFINER STABLE;
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
 -- Lock body/sender/recipient on UPDATE so the recipient-update policy can
 -- only flip read_at (RLS can't restrict per-column otherwise).
@@ -1031,7 +1037,7 @@ BEGIN
   NEW.created_at   := OLD.created_at;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 DROP TRIGGER IF EXISTS trg_lock_message_fields ON public.messages;
 CREATE TRIGGER trg_lock_message_fields
@@ -1126,7 +1132,7 @@ BEGIN
   NEW.created_at   := OLD.created_at;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 DROP TRIGGER IF EXISTS trg_lock_notification_fields ON public.notifications;
 CREATE TRIGGER trg_lock_notification_fields
@@ -1226,7 +1232,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 DROP TRIGGER IF EXISTS trg_notify_coach_on_session_confirm ON public.session_confirmations;
 CREATE TRIGGER trg_notify_coach_on_session_confirm
@@ -1263,7 +1269,7 @@ BEGIN
   UPDATE public.sessions SET performed_at = v_performed WHERE id = NEW.session_id;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 DROP TRIGGER IF EXISTS trg_sync_session_performed_at ON public.session_confirmations;
 CREATE TRIGGER trg_sync_session_performed_at
@@ -1379,7 +1385,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 DROP TRIGGER IF EXISTS trg_notify_coach_on_slot_deviation ON public.slot_deviations;
 CREATE TRIGGER trg_notify_coach_on_slot_deviation
@@ -1405,7 +1411,7 @@ CREATE OR REPLACE FUNCTION public.adopt_swap(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_session_id     uuid;
@@ -1545,8 +1551,7 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.adopt_swap(uuid, uuid, boolean) FROM public;
-GRANT EXECUTE ON FUNCTION public.adopt_swap(uuid, uuid, boolean) TO authenticated;
+-- Who may execute it: the FUNCTION PRIVILEGES block at the end of this file.
 
 -- Phase 3.2: adopt a student's SKIP — drop the exercise from upcoming sessions
 -- (forward-only DELETE). Same predicate as adopt_swap; see 2026_07_19_adopt_skip.sql.
@@ -1557,7 +1562,7 @@ CREATE OR REPLACE FUNCTION public.adopt_skip(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_session_id     uuid;
@@ -1682,8 +1687,7 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.adopt_skip(uuid, boolean) FROM public;
-GRANT EXECUTE ON FUNCTION public.adopt_skip(uuid, boolean) TO authenticated;
+-- Who may execute it: the FUNCTION PRIVILEGES block at the end of this file.
 
 -- Phase 3.3: student proposal loop. slot_deviations.promote_requested_at is the
 -- student's "make this permanent" signal; this trigger notifies the coach on
@@ -1780,7 +1784,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 DROP TRIGGER IF EXISTS trg_notify_coach_on_promote_request ON public.slot_deviations;
 CREATE TRIGGER trg_notify_coach_on_promote_request
@@ -1791,7 +1795,7 @@ CREATE OR REPLACE FUNCTION public.decline_promote_request(p_slot_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_session_id    uuid;
@@ -1877,8 +1881,7 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.decline_promote_request(uuid) FROM public;
-GRANT EXECUTE ON FUNCTION public.decline_promote_request(uuid) TO authenticated;
+-- Who may execute it: the FUNCTION PRIVILEGES block at the end of this file.
 
 -- ============================================================
 -- Phase 3.4a: student program authoring (draft → coach approve). See
@@ -1887,7 +1890,7 @@ GRANT EXECUTE ON FUNCTION public.decline_promote_request(uuid) TO authenticated;
 -- RLS + the authoring-column pin trigger + approve_program.
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.program_is_own_draft(p_program_id uuid)
-RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public AS $$
+RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.programs p
      WHERE p.id = p_program_id AND p.created_by = auth.uid()
@@ -1895,11 +1898,11 @@ RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public AS
   );
 $$;
 CREATE OR REPLACE FUNCTION public.week_is_own_draft(p_week_id uuid)
-RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public AS $$
+RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp AS $$
   SELECT public.program_is_own_draft((SELECT program_id FROM public.weeks WHERE id = p_week_id));
 $$;
 CREATE OR REPLACE FUNCTION public.session_is_own_draft(p_session_id uuid)
-RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public AS $$
+RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp AS $$
   SELECT public.week_is_own_draft((SELECT week_id FROM public.sessions WHERE id = p_session_id));
 $$;
 
@@ -1959,14 +1962,14 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 DROP TRIGGER IF EXISTS trg_pin_program_authoring_columns ON public.programs;
 CREATE TRIGGER trg_pin_program_authoring_columns
   BEFORE UPDATE ON public.programs
   FOR EACH ROW EXECUTE FUNCTION public.pin_program_authoring_columns();
 
 CREATE OR REPLACE FUNCTION public.approve_program(p_program_id uuid)
-RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
   v_student_id   uuid;
   v_student_prof uuid;
@@ -2030,8 +2033,7 @@ BEGIN
   RETURN jsonb_build_object('approved', true, 'set_logs_created', v_created);
 END;
 $$;
-REVOKE ALL ON FUNCTION public.approve_program(uuid) FROM public;
-GRANT EXECUTE ON FUNCTION public.approve_program(uuid) TO authenticated;
+-- Who may execute it: the FUNCTION PRIVILEGES block at the end of this file.
 
 -- Phase 3.4c: submit -> approve/send-back loop. See 2026_07_22_program_submit_notify.sql.
 CREATE OR REPLACE FUNCTION public.notify_coach_on_program_submit()
@@ -2069,13 +2071,13 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN RAISE WARNING 'send-push fan-out (program submitted) failed: %', SQLERRM; END;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 DROP TRIGGER IF EXISTS trg_notify_coach_on_program_submit ON public.programs;
 CREATE TRIGGER trg_notify_coach_on_program_submit
   AFTER UPDATE ON public.programs FOR EACH ROW EXECUTE FUNCTION public.notify_coach_on_program_submit();
 
 CREATE OR REPLACE FUNCTION public.send_back_program(p_program_id uuid)
-RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
   v_student_id uuid; v_student_prof uuid; v_coach_id uuid; v_prog_name text;
   v_functions_url text; v_service_key text;
@@ -2108,8 +2110,7 @@ BEGIN
   RETURN jsonb_build_object('sent_back', true);
 END;
 $$;
-REVOKE ALL ON FUNCTION public.send_back_program(uuid) FROM public;
-GRANT EXECUTE ON FUNCTION public.send_back_program(uuid) TO authenticated;
+-- Who may execute it: the FUNCTION PRIVILEGES block at the end of this file.
 
 -- Phase 3.4d — offline authoring: idempotent whole-tree upsert. SECURITY
 -- INVOKER (rides the 3.4a own-draft RLS). Children DELETE-then-reINSERT
@@ -2119,7 +2120,7 @@ CREATE OR REPLACE FUNCTION public.save_draft_tree(p_tree jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY INVOKER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_student   uuid;
@@ -2189,8 +2190,7 @@ BEGIN
   RETURN jsonb_build_object('program_id', v_pid, 'weeks', v_weeks, 'sessions', v_sessions, 'slots', v_slots);
 END;
 $$;
-REVOKE ALL ON FUNCTION public.save_draft_tree(jsonb) FROM public;
-GRANT EXECUTE ON FUNCTION public.save_draft_tree(jsonb) TO authenticated;
+-- Who may execute it: the FUNCTION PRIVILEGES block at the end of this file.
 
 -- Trigger: notify the student when their coach attaches a feedback message
 -- to a reviewed session. Fires only when messages.session_id IS NOT NULL.
@@ -2233,7 +2233,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 DROP TRIGGER IF EXISTS trg_notify_student_on_session_feedback ON public.messages;
 CREATE TRIGGER trg_notify_student_on_session_feedback
@@ -2498,7 +2498,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 -- Trigger already exists from 2026_04_30_notifications.sql; the function
 -- replacement above takes effect without re-creating the trigger.
@@ -2577,7 +2577,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 DROP TRIGGER IF EXISTS on_chat_message_push ON public.messages;
 CREATE TRIGGER on_chat_message_push
@@ -2616,7 +2616,7 @@ BEGIN
   END IF;
   RETURN OLD;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 DROP TRIGGER IF EXISTS block_program_delete_with_logged_sets ON public.programs;
 CREATE TRIGGER block_program_delete_with_logged_sets
@@ -2644,7 +2644,7 @@ BEGIN
   END IF;
   RETURN OLD;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 DROP TRIGGER IF EXISTS block_week_delete_with_logged_sets ON public.weeks;
 CREATE TRIGGER block_week_delete_with_logged_sets
@@ -2668,7 +2668,7 @@ BEGIN
   END IF;
   RETURN OLD;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 DROP TRIGGER IF EXISTS block_session_delete_with_logged_sets ON public.sessions;
 CREATE TRIGGER block_session_delete_with_logged_sets
@@ -2784,7 +2784,7 @@ CREATE OR REPLACE FUNCTION public.move_session(
 RETURNS void
 LANGUAGE plpgsql
 SECURITY INVOKER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_src_week uuid;
@@ -2832,6 +2832,82 @@ END;
 $$;
 
 -- ============================================================
+-- FUNCTION PRIVILEGES (2026_10_11_03_function_grants_lockdown)
+--
+-- KEEP THIS BLOCK BELOW EVERY FUNCTION OF THIS FILE: nothing after it may
+-- create one. It is the one place in this file that says who may execute
+-- what — a GRANT written next to a function is undone by the REVOKE below,
+-- and supabase/tests/function-acl.test.js refuses one anywhere else.
+--
+-- Why a block and not a line per function. Supabase's default privileges give
+-- `anon`, `authenticated` and `service_role` EXECUTE, by name, on every
+-- function `postgres` creates in `public`, on top of the EXECUTE PostgreSQL
+-- gives PUBLIC. So every function above was born callable through
+-- /rest/v1/rpc/ with nothing but the anon key (review B2, L21), and
+-- `REVOKE … FROM public` next to a function removes one of those four grants.
+-- Here everything is taken back at once, then given to `authenticated`
+-- function by function.
+--
+-- A NEW FUNCTION:
+--   * a helper a POLICY calls, or an RPC the APP calls  → add it to the list
+--     below. A policy runs with the privileges of the user who queries the
+--     table: a helper missing here fails every query on that table.
+--   * a TRIGGER function                                → nothing. A trigger
+--     fires whatever the privileges of the user whose statement fires it.
+--   * anything else (called by another function of this file that is
+--     SECURITY DEFINER, by an Edge Function, by a cron job) → nothing: the
+--     owner and `service_role` keep EXECUTE on everything.
+--   * always: `SET search_path = public, pg_temp` in its definition, and
+--     schema-qualified names in its body.
+-- Its MIGRATION carries the same, for that function alone:
+--     REVOKE ALL ON FUNCTION public.f(…) FROM PUBLIC, anon, authenticated;
+--     GRANT EXECUTE ON FUNCTION public.f(…) TO authenticated;   -- if listed
+-- and supabase/tests/function-acl.test.js lists it too.
+-- ============================================================
+
+-- What a function created AFTER this file starts with, when `postgres`
+-- creates it (the SQL editor, a migration): no EXECUTE for PUBLIC in any
+-- schema — global, because a per-schema default can only add to PostgreSQL's
+-- built-in grant — and none for `anon` or `authenticated` in `public`.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE ALL ON FUNCTIONS FROM anon, authenticated;
+
+-- Every function above: nobody but the owner and `service_role`.
+REVOKE ALL ON ALL ROUTINES IN SCHEMA public FROM PUBLIC, anon, authenticated;
+
+-- THE ALLOW-LIST — what a signed-in user may execute.
+-- The helpers the RLS policies are written with:
+GRANT EXECUTE ON FUNCTION
+  public.student_profile_for_slot(uuid),
+  public.student_profile_for_session(uuid),
+  public.student_profile_for_set_log(uuid),
+  public.student_profile_for_goal(uuid),
+  public.coach_profile_for_session(uuid),
+  public.coach_profile_for_goal(uuid),
+  public.profiles_are_coach_student(uuid, uuid),
+  public.program_active_for_session(uuid),
+  public.program_active_for_slot(uuid),
+  public.program_is_own_draft(uuid),
+  public.week_is_own_draft(uuid),
+  public.session_is_own_draft(uuid)
+TO authenticated;
+
+-- The RPCs the app calls. The five coach RPCs authorize the caller themselves
+-- (auth.uid() IS NULL first, then IS DISTINCT FROM); save_draft_tree and
+-- move_session are SECURITY INVOKER and ride the caller's RLS.
+GRANT EXECUTE ON FUNCTION
+  public.adopt_swap(uuid, uuid, boolean),
+  public.adopt_skip(uuid, boolean),
+  public.decline_promote_request(uuid),
+  public.approve_program(uuid),
+  public.send_back_program(uuid),
+  public.save_draft_tree(jsonb),
+  public.move_session(uuid, uuid, uuid[], uuid[])
+TO authenticated;
+
+-- ============================================================
 -- MIGRATION LEDGER (2026_10_03_01_migration_ledger)
 --
 -- app_private.app_migrations holds one row per applied migration of
@@ -2871,4 +2947,5 @@ REVOKE ALL ON TABLE app_private.app_migrations FROM PUBLIC, anon, authenticated,
 -- fails when this list and the manifest disagree.
 INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_03_01_migration_ledger'),
-  ('2026_10_03_02_rpc_auth_null_guard');
+  ('2026_10_03_02_rpc_auth_null_guard'),
+  ('2026_10_11_03_function_grants_lockdown');

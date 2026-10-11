@@ -24,6 +24,10 @@
 // A `q` always runs as the actor of the helper that created it, wherever it is
 // called from.
 //
+// The four actors above are the ones the API knows. GoTrue and the Storage
+// server arrive as roles of their own, which `postgres` cannot become:
+// asPlatformRole().
+//
 // A test about the SQL FILES themselves (does the production baseline plus the
 // migrations give schema.sql? can this migration be rolled back?) needs a
 // database it builds itself: scratchDatabase(), at the end of this file.
@@ -284,6 +288,47 @@ export const asAdmin = (fn, options) => run(ADMIN, fn, options);
  * `fn` receives an admin `q`.
  */
 export const scenario = (fn, options) => run(ADMIN, fn, options);
+
+/**
+ * Run `fn(q, owner)` as a PLATFORM role — one `postgres` is not a member of,
+ * and so cannot become with SET ROLE:
+ *
+ *   supabase_auth_admin     GoTrue. It owns auth.users: every sign-up, every
+ *                           invitation and the dashboard's "Add user" is an
+ *                           INSERT made as this role.
+ *   supabase_storage_admin  the owner of storage.objects
+ *
+ *   await asPlatformRole('supabase_auth_admin', async (gotrue, owner) => {
+ *     const id = await gotrue.value(`insert into auth.users (email) values ($1) returning id`, [email]);
+ *     expect(await owner.value(`select role from public.profiles where id = $1`, [id])).toBe('student');
+ *   });
+ *
+ * `q` runs as the role. `owner` runs as `postgres` in the same transaction, to
+ * read what `q` did — a platform role holds no privilege on `public`.
+ *
+ * It is a connection of its own (the bootstrap superuser, then SET LOCAL
+ * ROLE) and a transaction of its own, ROLLED BACK at the end. It does not join
+ * a scenario(): it sees committed rows only — seed(), not what an enclosing
+ * helper has written. There is no savepoint per statement: one that raises
+ * ends the transaction.
+ */
+export async function asPlatformRole(role, fn) {
+  if (typeof fn !== 'function') throw new TypeError('harness: expected a function');
+  const { name } = await getDatabase();
+  const client = new pg.Client({ ...server, ...connection.superuser, database: name, types });
+  await client.connect();
+  const as = (who) => withShortcuts(async (text, params) => {
+    await client.query(`select set_config('role', $1, true)`, [who]);
+    return client.query(text, params);
+  });
+  try {
+    await client.query('BEGIN');
+    return await fn(as(role), as(connection.user));
+  } finally {
+    await client.query('ROLLBACK').catch(() => {});
+    await client.end();
+  }
+}
 
 /**
  * Resolve to `{ ok: true, value }` or `{ ok: false, error }` instead of

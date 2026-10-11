@@ -17,11 +17,13 @@
 //   3. the migration file itself, on the frozen production baseline: the hole
 //      is there before, gone after, back after the rollback.
 //
-// Why the callers without a user id matter beyond `anon`: migration 03 takes
-// the EXECUTE of `anon` away, and from then on an anonymous call fails on the
-// privilege, whatever the function body says. The service role and a token
-// that names no user keep the privilege — they are the cases that go on
-// testing the body.
+// Why the callers without a user id matter beyond `anon`: migration 03 took
+// the EXECUTE of `anon` away, and since then an anonymous call fails on the
+// privilege — "permission denied for function …" — whatever the function body
+// says. The service role, a token that names no user and `postgres` keep the
+// privilege: they are the cases that go on testing the body. (On the baseline
+// with migrations 01 and 02 alone, at the end of this file, `anon` still
+// reaches the body, and is refused there.)
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -116,7 +118,6 @@ const outcome = (tried) => (tried.ok ? `returned ${JSON.stringify(tried.value)}`
 // ------------------------------------------------------------
 // `as(fn)` runs fn as that caller, inside the scenario's transaction.
 const WITHOUT_USER_ID = [
-  ['anon — the public key, no session', (fn) => asAnon(fn)],
   ['the service role', (fn) => asService(fn)],
   // Role `authenticated`, and no `sub` in the token: the privilege to execute
   // is there, the identity is not.
@@ -141,11 +142,27 @@ describe('a caller who is not the coach of the athlete', () => {
     for (const [label, as] of WITH_ANOTHER_USER_ID) {
       expect(await who(as), label).toEqual({ role: 'authenticated', has_user_id: true });
     }
-    expect(await who(WITHOUT_USER_ID[0][1])).toEqual({ role: 'anon', has_user_id: false });
-    expect(await who(WITHOUT_USER_ID[1][1])).toEqual({ role: 'service_role', has_user_id: false });
-    expect(await who(WITHOUT_USER_ID[2][1])).toEqual({ role: 'authenticated', has_user_id: false });
-    expect(await who(WITHOUT_USER_ID[3][1])).toEqual({ role: 'postgres', has_user_id: false });
+    expect(await who(asAnon)).toEqual({ role: 'anon', has_user_id: false });
+    expect(await who(WITHOUT_USER_ID[0][1])).toEqual({ role: 'service_role', has_user_id: false });
+    expect(await who(WITHOUT_USER_ID[1][1])).toEqual({ role: 'authenticated', has_user_id: false });
+    expect(await who(WITHOUT_USER_ID[2][1])).toEqual({ role: 'postgres', has_user_id: false });
   });
+
+  // The caller of the finding. Two gates now: the body refuses a caller
+  // without a user id (migration 02, the callers below), and `anon` no longer
+  // gets as far as the body (migration 03).
+  it('anon — the public key, no session: refused before any of the five is entered, and nothing changes', () => scenario(async (q) => {
+    const world = await arrange(q);
+    const before = await state(q);
+
+    for (const [name, call] of CALLS) {
+      const [sql, params] = call(world);
+      const tried = await attempt(() => asAnon((anon) => anon.value(sql, params)));
+      expect(outcome(tried), name).toBe(`permission denied for function ${name.split(' ')[0]}`);
+      expect(tried.error.code, name).toBe('42501');
+    }
+    expect(await state(q)).toEqual(before);
+  }));
 
   describe.each([
     ['without a user id', WITHOUT_USER_ID],
@@ -177,7 +194,7 @@ describe('a caller who is not the coach of the athlete', () => {
   // that is no slot, a program that is not a draft to act on. It tells a
   // caller whether a uuid it already holds is a slot or a pending draft, and
   // nothing else — the plan keeps the bodies unchanged apart from the gate.
-  it.each([WITHOUT_USER_ID[0], WITHOUT_USER_ID[2]])(
+  it.each([WITHOUT_USER_ID[0], WITHOUT_USER_ID[1]])(
     '%s: the same answers as before for ids there is nothing to do with',
     (_, as) => scenario(async (q) => {
       const nothing = '00000000-0000-0000-0000-000000000000';

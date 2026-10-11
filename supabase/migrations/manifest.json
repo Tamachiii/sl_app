@@ -18,6 +18,15 @@
       "covers": ["P1", "L29"],
       "reversible": true,
       "summary": "adopt_swap, adopt_skip, decline_promote_request, approve_program and send_back_program refuse a caller without a user id; the two push warnings of the program-submit loop read as in production."
+    },
+    {
+      "name": "2026_10_11_03_function_grants_lockdown",
+      "kind": "required",
+      "wave": 1,
+      "checkpoint": "A1",
+      "covers": ["B2", "L21", "L23"],
+      "reversible": true,
+      "summary": "No function of public is executable by anon or PUBLIC; a signed-in user executes an allow-list of 19 (the 12 helpers the policies call, the 7 RPCs the app calls); a function postgres creates later starts closed; all 36 functions run with search_path = public, pg_temp."
     }
   ]
 }

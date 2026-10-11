@@ -20,118 +20,119 @@ Cells
   delete       how many rows the caller can delete
   yes          the insert went through
   rls          refused by a row-level-security policy
-  denied       refused for want of a privilege on the table
+  denied       refused for want of a privilege: on the table, or on a function that one
+               of its policies calls (no function is executable without a session)
   +2 P0001     and 2 rows were refused with that SQLSTATE (P0001: a trigger said no;
                23503: a foreign key)
 
-table                  rows  action                   anon  athlete A  athlete B  coach       other coach  service
----------------------  ----  -----------------------  ----  ---------  ---------  ----------  -----------  -------------------
-bodyweight_logs        3     select                   0     1          1          2           1            3
-                             insert                   rls   yes        rls        rls         rls          yes
-                             update                   0     1          1          0           0            3
-                             delete                   0     1          1          0           0            3
+table                  rows  action                   anon    athlete A  athlete B  coach       other coach  service
+---------------------  ----  -----------------------  ------  ---------  ---------  ----------  -----------  -------------------
+bodyweight_logs        3     select                   0       1          1          2           1            3
+                             insert                   rls     yes        rls        rls         rls          yes
+                             update                   0       1          1          0           0            3
+                             delete                   0       1          1          0           0            3
 
-client_errors          4     select                   0     0          0          4           4            4
-                             insert                   rls   yes        rls        rls         rls          yes
-                             update                   0     0          0          0           0            4
-                             delete                   0     0          0          0           0            4
+client_errors          4     select                   0       0          0          4           4            4
+                             insert                   rls     yes        rls        rls         rls          yes
+                             update                   0       0          0          0           0            4
+                             delete                   0       0          0          0           0            4
 
-exercise_library       5     select                   0     4          4          4           1            5
-                             insert                   rls   rls        rls        yes         rls          yes
-                             update                   0     0          0          4           1            5
-                             delete                   0     0          0          1 +3 23503  0 +1 23503   1 +4 23503
+exercise_library       5     select                   0       4          4          4           1            5
+                             insert                   rls     rls        rls        yes         rls          yes
+                             update                   0       0          0          4           1            5
+                             delete                   0       0          0          1 +3 23503  0 +1 23503   1 +4 23503
 
-exercise_slots         17    select                   0     14         2          16          1            17
-                             insert                   rls   rls        rls        yes         rls          yes
-                             insert (own draft)       rls   yes        rls        yes         rls          yes
-                             update                   0     2          0          16          1            17
-                             delete                   0     2          0          16          1            17
+exercise_slots         17    select                   denied  14         2          16          1            17
+                             insert                   denied  rls        rls        yes         rls          yes
+                             insert (own draft)       denied  yes        rls        yes         rls          yes
+                             update                   denied  2          0          16          1            17
+                             delete                   denied  2          0          16          1            17
 
-goal_progress          3     select                   0     1          1          2           1            3
-                             insert                   rls   yes        rls        rls         rls          yes
-                             update                   0     1          1          0           0            3
-                             delete                   0     1          1          0           0            3
+goal_progress          3     select                   denied  1          1          2           1            3
+                             insert                   denied  yes        rls        rls         rls          yes
+                             update                   denied  1          1          0           0            3
+                             delete                   denied  1          1          0           0            3
 
-goals                  3     select                   0     1          1          2           1            3
-                             insert                   rls   rls        rls        yes         rls          yes
-                             update                   0     1          1          2           1            3
-                             delete                   0     0          0          2           1            3
+goals                  3     select                   0       1          1          2           1            3
+                             insert                   rls     rls        rls        yes         rls          yes
+                             update                   0       1          1          2           1            3
+                             delete                   0       0          0          2           1            3
 
-messages               6     select                   0     3          2          5           1            6
-                             insert (from athlete A)  rls   yes        rls        rls         rls          yes
-                             insert (to athlete A)    rls   rls        rls        yes         rls          yes
-                             update                   0     2          2          1           0            6
-                             delete                   0     1          0          2           0            6
+messages               6     select                   0       3          2          5           1            6
+                             insert (from athlete A)  denied  yes        rls        rls         rls          yes
+                             insert (to athlete A)    denied  rls        rls        yes         rls          yes
+                             update                   0       2          2          1           0            6
+                             delete                   0       1          0          2           0            6
 
-notifications          9     select                   0     1          1          4           2            9
-                             insert                   rls   rls        rls        rls         rls          yes
-                             update                   0     1          1          4           2            9
-                             delete                   0     0          0          0           0            9
+notifications          9     select                   0       1          1          4           2            9
+                             insert                   rls     rls        rls        rls         rls          yes
+                             update                   0       1          1          4           2            9
+                             delete                   0       0          0          0           0            9
 
-profiles               6     select                   0     2          2          3           2            6
-                             insert                   rls   rls        rls        rls         rls          yes
-                             update                   0     1          1          1           1            6
-                             delete                   0     0          0          0           0            3 +1 23503 +2 P0001
+profiles               6     select                   0       2          2          3           2            6
+                             insert                   rls     rls        rls        rls         rls          yes
+                             update                   0       1          1          1           1            6
+                             delete                   0       0          0          0           0            3 +1 23503 +2 P0001
 
-programs               6     select                   0     4          1          5           1            6
-                             insert                   rls   rls        rls        yes         rls          yes
-                             insert (own draft)       rls   yes        rls        yes         rls          yes
-                             update                   0     1          0          5           1            6
-                             delete                   0     1          0          3 +2 P0001  1            4 +2 P0001
+programs               6     select                   0       4          1          5           1            6
+                             insert                   rls     rls        rls        yes         rls          yes
+                             insert (own draft)       rls     yes        rls        yes         rls          yes
+                             update                   0       1          0          5           1            6
+                             delete                   0       1          0          3 +2 P0001  1            4 +2 P0001
 
-push_subscriptions     4     select                   0     1          1          1           0            4
-                             insert                   rls   yes        rls        rls         rls          yes
-                             update                   0     1          1          1           0            4
-                             delete                   0     1          1          1           0            4
+push_subscriptions     4     select                   0       1          1          1           0            4
+                             insert                   rls     yes        rls        rls         rls          yes
+                             update                   0       1          1          1           0            4
+                             delete                   0       1          1          1           0            4
 
-scheduled_pushes       3     select                   0     1          1          0           0            3
-                             insert                   rls   yes        rls        rls         rls          yes
-                             update                   0     1          1          0           0            3
-                             delete                   0     1          1          0           0            3
+scheduled_pushes       3     select                   0       1          1          0           0            3
+                             insert                   rls     yes        rls        rls         rls          yes
+                             update                   0       1          1          0           0            3
+                             delete                   0       1          1          0           0            3
 
-session_confirmations  3     select                   0     1          1          2           1            3
-                             insert                   rls   yes        rls        rls         rls          yes
-                             update                   0     1          1          0           0            3
-                             delete                   0     1          1          0           0            3
+session_confirmations  3     select                   denied  1          1          2           1            3
+                             insert                   denied  yes        rls        rls         rls          yes
+                             update                   denied  1          1          0           0            3
+                             delete                   denied  1          1          0           0            3
 
-sessions               9     select                   0     7          1          8           1            9
-                             insert                   rls   rls        rls        yes         rls          yes
-                             insert (own draft)       rls   yes        rls        yes         rls          yes
-                             update                   0     1          0          8           1            9
-                             delete                   0     1          0          6 +2 P0001  1            7 +2 P0001
+sessions               9     select                   denied  7          1          8           1            9
+                             insert                   denied  rls        rls        yes         rls          yes
+                             insert (own draft)       denied  yes        rls        yes         rls          yes
+                             update                   denied  1          0          8           1            9
+                             delete                   denied  1          0          6 +2 P0001  1            7 +2 P0001
 
-set_log_videos         3     select                   0     1          1          2           1            3
-                             insert                   rls   yes        rls        rls         rls          yes
-                             update                   0     1          1          0           0            3
-                             delete                   0     1          1          0           0            3
+set_log_videos         3     select                   denied  1          1          2           1            3
+                             insert                   denied  yes        rls        rls         rls          yes
+                             update                   denied  1          1          0           0            3
+                             delete                   denied  1          1          0           0            3
 
-set_logs               45    select                   0     37         6          43          2            45
-                             insert                   rls   yes        rls        yes         rls          yes
-                             update                   0     25         6          43          2            45
-                             delete                   0     1          0          43          2            45
+set_logs               45    select                   denied  37         6          43          2            45
+                             insert                   denied  yes        rls        yes         rls          yes
+                             update                   denied  25         6          43          2            45
+                             delete                   denied  1          0          43          2            45
 
-slot_comments          3     select                   0     1          1          2           1            3
-                             insert                   rls   yes        rls        rls         rls          yes
-                             update                   0     1          1          0           0            3
-                             delete                   0     1          1          0           0            3
+slot_comments          3     select                   denied  1          1          2           1            3
+                             insert                   denied  yes        rls        rls         rls          yes
+                             update                   denied  1          1          0           0            3
+                             delete                   denied  1          1          0           0            3
 
-slot_deviations        3     select                   0     1          1          2           1            3
-                             insert                   rls   yes        rls        rls         rls          yes
-                             update                   0     1          1          0           0            3
-                             delete                   0     1          1          0           0            3
+slot_deviations        3     select                   denied  1          1          2           1            3
+                             insert                   denied  yes        rls        rls         rls          yes
+                             update                   denied  1          1          0           0            3
+                             delete                   denied  1          1          0           0            3
 
-students               3     select                   0     1          1          2           1            3
-                             insert                   rls   rls        rls        yes         rls          yes
-                             update                   0     0          0          2           1            3
-                             delete                   0     0          0          1 +1 P0001  1            2 +1 P0001
+students               3     select                   0       1          1          2           1            3
+                             insert                   rls     rls        rls        yes         rls          yes
+                             update                   0       0          0          2           1            3
+                             delete                   0       0          0          1 +1 P0001  1            2 +1 P0001
 
-weeks                  7     select                   0     5          1          6           1            7
-                             insert                   rls   rls        rls        yes         rls          yes
-                             insert (own draft)       rls   yes        rls        yes         rls          yes
-                             update                   0     1          0          6           1            7
-                             delete                   0     1          0          4 +2 P0001  1            5 +2 P0001
+weeks                  7     select                   denied  5          1          6           1            7
+                             insert                   denied  rls        rls        yes         rls          yes
+                             insert (own draft)       denied  yes        rls        yes         rls          yes
+                             update                   denied  1          0          6           1            7
+                             delete                   denied  1          0          4 +2 P0001  1            5 +2 P0001
 
-storage.objects        3     select                   0     1          1          2           1            3
-                             insert                   rls   yes        rls        rls         rls          yes
-                             update                   0     0          0          0           0            3
-                             delete                   0     1          1          0           0            3
+storage.objects        3     select                   0       1          1          2           1            3
+                             insert                   rls     yes        rls        rls         rls          yes
+                             update                   0       0          0          0           0            3
+                             delete                   0       1          1          0           0            3

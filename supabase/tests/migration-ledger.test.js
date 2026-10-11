@@ -143,8 +143,10 @@ describe('the API roles and app_private', () => {
       { role: 'service_role', table: false, sequence: false },
     ]);
 
-    // A function is executable by PUBLIC from birth, wherever it is created;
-    // without USAGE on the schema nobody gets as far as calling it.
+    // Without USAGE on the schema nobody gets as far as calling a function in
+    // it. (Since migration 03 it would not be executable either: a function
+    // `postgres` creates no longer starts with EXECUTE for PUBLIC, in any
+    // schema — function-acl.test.js.)
     for (const [who, as] of callers()) {
       const called = await attempt(() => as((caller) => caller.value(`select app_private.later_function()`)));
       expect(called.error?.message, who).toBe('permission denied for schema app_private');

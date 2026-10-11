@@ -187,6 +187,9 @@ export async function startPostgres({ log = process.env.DB_TEST_LOG === '1' } = 
       password: OWNER_PASSWORD,
       template: TEMPLATE_DB,
       bare: BARE_DB,
+      // The bootstrap superuser. Only harness.asPlatformRole() uses it, to
+      // become a role `postgres` is not a member of.
+      superuser: { user: SUPERUSER, password: SUPERUSER_PASSWORD },
     },
     async refresh() {
       if (cluster && cluster.built === await fingerprint()) return false;
