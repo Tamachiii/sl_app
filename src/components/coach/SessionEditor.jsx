@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   DndContext,
   PointerSensor,
@@ -25,8 +25,10 @@ import {
   useRemoveSet,
 } from '../../hooks/useSession';
 import { useUpdateSession, useDeleteSession } from '../../hooks/useWeek';
+import { useSessionConfirmation } from '../../hooks/useSessionConfirmation';
 import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
 import { groupSlotsBySuperset } from '../../lib/volume';
+import { isLoggedSet } from '../../lib/loggedSets';
 import ExerciseSlotRow from './ExerciseSlotRow';
 import PreviousSessionPanel from './PreviousSessionPanel';
 import Spinner from '../ui/Spinner';
@@ -39,6 +41,7 @@ export default function SessionEditor() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const { data: session, isLoading } = useSession(sessionId);
+  const { data: confirmation } = useSessionConfirmation(sessionId);
   const { data: library } = useExerciseLibrary();
   const addSlot = useAddSlot();
   const updateSlot = useUpdateSlot();
@@ -55,8 +58,35 @@ export default function SessionEditor() {
   const [pairAsSuperset, setPairAsSuperset] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const slots = session?.exercise_slots || [];
+  // Memoised so the `|| []` fallback is not a new array on every render —
+  // it feeds the two memos below.
+  const slots = useMemo(() => session?.exercise_slots || [], [session?.exercise_slots]);
   const slotGroups = useMemo(() => groupSlotsBySuperset(slots), [slots]);
+
+  // What the athlete has already done decides how much of this page still
+  // writes.
+  //
+  // CONFIRMED — the athlete called the session finished. It is history now, so
+  // the whole editor is read-only. `performed_at` is the confirmation's mirror
+  // on the session row itself: it arrives with the session, so the lock does
+  // not wait for (or depend on) the confirmation query.
+  //
+  // LOGGED SETS, NOT CONFIRMED — a session in progress, or one the athlete
+  // stopped half-way. Its logged sets are locked (ExerciseSlotRow, and the
+  // hooks refuse them); the rest stays editable, because re-planning what is
+  // left of a session is exactly what the coach opens it for.
+  //
+  // Either way the banner says so and links to the review, which is where a
+  // trained session is read.
+  const confirmed = !!confirmation || !!session?.performed_at;
+  const hasLoggedSets = useMemo(
+    () => slots.some((slot) => (slot.set_logs || []).some(isLoggedSet)),
+    [slots],
+  );
+  const readOnly = confirmed;
+  const trained = confirmed || hasLoggedSets;
+  const editorPath = `/coach/students/${studentId}/s/${sessionId}`;
+  const reviewPath = `/coach/student/${studentId}/session/${sessionId}/review`;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -154,16 +184,22 @@ export default function SessionEditor() {
           </svg>
         </button>
         <div className="flex-1 min-w-0 sl-display text-[20px] text-gray-900 leading-tight">
-          <EditableText
-            value={session?.title || ''}
-            onSave={(title) => updateSession.mutate({ id: sessionId, title })}
-            placeholder={t('coach.editor.titlePlaceholder')}
-            ariaLabel={t('coach.editor.editTitleAria')}
-            // Hold the heading's own size while editing. Left alone the field
-            // falls back to the 16px iOS-zoom floor, so tapping the title
-            // shrank it — the same twitch the box's width used to cause.
-            inputClassName="sl-display text-[20px]"
-          />
+          {readOnly ? (
+            <span className="block truncate">
+              {session?.title || t('coach.editor.titlePlaceholder')}
+            </span>
+          ) : (
+            <EditableText
+              value={session?.title || ''}
+              onSave={(title) => updateSession.mutate({ id: sessionId, title })}
+              placeholder={t('coach.editor.titlePlaceholder')}
+              ariaLabel={t('coach.editor.editTitleAria')}
+              // Hold the heading's own size while editing. Left alone the field
+              // falls back to the 16px iOS-zoom floor, so tapping the title
+              // shrank it — the same twitch the box's width used to cause.
+              inputClassName="sl-display text-[20px]"
+            />
+          )}
         </div>
         <input
           id="session-date"
@@ -174,9 +210,36 @@ export default function SessionEditor() {
           onChange={(e) =>
             updateSession.mutate({ id: sessionId, scheduled_date: e.target.value || null })
           }
-          className="shrink-0 rounded-lg border border-ink-200 bg-white px-2 py-1.5 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+          disabled={readOnly}
+          className="shrink-0 rounded-lg border border-ink-200 bg-white px-2 py-1.5 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] disabled:opacity-60 disabled:cursor-not-allowed"
         />
       </div>
+
+      {trained && (
+        <div
+          role="note"
+          className="rounded-xl p-3 flex flex-wrap items-center gap-x-3 gap-y-2"
+          style={{
+            background: 'color-mix(in srgb, var(--color-warn) 12%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--color-warn) 35%, transparent)',
+          }}
+        >
+          <p className="flex-1 min-w-[12rem] text-[13px] text-ink-900">
+            {confirmed
+              ? t('coachLoggedHistory.editor.confirmedBanner')
+              : t('coachLoggedHistory.editor.loggedBanner')}
+          </p>
+          {/* `from` is how the review's back button returns here instead of
+              to the sessions feed. */}
+          <Link
+            to={reviewPath}
+            state={{ from: editorPath }}
+            className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 shrink-0"
+          >
+            {t('coachLoggedHistory.editor.openReview')}
+          </Link>
+        </div>
+      )}
 
       {/* What the athlete last ACTUALLY lifted for each of these exercises —
           the numbers progressive overload is written against, in place, without
@@ -217,6 +280,7 @@ export default function SessionEditor() {
                   onRemoveSet={(setNumber) =>
                     removeSet.mutate({ slotId: slot.id, setNumber, sessionId })
                   }
+                  readOnly={readOnly}
                 />
               );
               if (group.slots.length > 1) {
@@ -233,12 +297,14 @@ export default function SessionEditor() {
                       <span className="sl-label" style={{ color: 'var(--color-accent)' }}>
                         {t('coach.editor.superset')}
                       </span>
-                      <button
-                        onClick={() => handleUnlinkSuperset(group.key)}
-                        className="sl-mono text-[11px] text-ink-400 hover:text-danger underline"
-                      >
-                        {t('coach.editor.unlink')}
-                      </button>
+                      {!readOnly && (
+                        <button
+                          onClick={() => handleUnlinkSuperset(group.key)}
+                          className="sl-mono text-[11px] text-ink-400 hover:text-danger underline"
+                        >
+                          {t('coach.editor.unlink')}
+                        </button>
+                      )}
                     </div>
                     {group.slots.map(renderRow)}
                   </div>
@@ -250,7 +316,7 @@ export default function SessionEditor() {
         </SortableContext>
       </DndContext>
 
-      {showAdd ? (
+      {readOnly ? null : showAdd ? (
         <div className="sl-card p-4 space-y-3">
           <select
             value={selectedExercise}
@@ -332,16 +398,22 @@ export default function SessionEditor() {
           the title was the most prominent thing on a screen whose job is
           writing exercises, and it is the rarest action here. Archiving from
           the sheet is the everyday way to clear a session; this is the escape
-          hatch for one created by mistake. */}
-      <div className="pt-2 flex justify-end">
-        <button
-          onClick={() => setConfirmDelete(true)}
-          disabled={deleteSession.isPending}
-          className="sl-mono text-[11px] text-ink-400 hover:text-danger disabled:opacity-50 py-2 px-1 transition-colors"
-        >
-          {t('coach.editor.deleteSession')}
-        </button>
-      </div>
+          hatch for one created by mistake.
+
+          Not offered at all once the session is trained: the database refuses
+          to delete a session that carries logged sets, so the button could
+          only ever answer "archive it instead". */}
+      {!trained && (
+        <div className="pt-2 flex justify-end">
+          <button
+            onClick={() => setConfirmDelete(true)}
+            disabled={deleteSession.isPending}
+            className="sl-mono text-[11px] text-ink-400 hover:text-danger disabled:opacity-50 py-2 px-1 transition-colors"
+          >
+            {t('coach.editor.deleteSession')}
+          </button>
+        </div>
+      )}
 
       <ConfirmDialog
         open={confirmDelete}

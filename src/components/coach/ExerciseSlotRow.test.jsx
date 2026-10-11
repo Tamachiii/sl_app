@@ -284,4 +284,170 @@ describe('ExerciseSlotRow', () => {
     await user.click(screen.getByRole('button', { name: /customize sets/i }));
     expect(screen.getByRole('button', { name: /remove set 1/i })).toBeDisabled();
   });
+
+  // Review finding P3: the editor used to let the coach rewrite or delete sets
+  // the athlete had already trained. A logged set is now read-only wherever it
+  // shows up, and the rest of the exercise stays editable.
+  describe('a slot the athlete has started', () => {
+    const startedSlot = {
+      ...defaultSlot,
+      sets: 4,
+      set_logs: [
+        { id: 'l1', set_number: 1, target_reps: 10, target_weight_kg: 50, done: true, rpe: 8 },
+        { id: 'l2', set_number: 2, target_reps: 10, target_weight_kg: 50, failed: true },
+        { id: 'l3', set_number: 3, target_reps: 10, target_weight_kg: 50 },
+        { id: 'l4', set_number: 4, target_reps: 10, target_weight_kg: 50 },
+      ],
+    };
+
+    // The compact row edits "all sets" at once. With a logged set in the slot
+    // that is no longer one thing, so the per-set table takes over.
+    it('shows the per-set table, without the compact fields or a way back to them', () => {
+      renderSlotRow({ slot: startedSlot });
+      expect(screen.getByRole('table', { name: /per-set targets/i })).toBeInTheDocument();
+      expect(screen.queryByLabelText('Sets')).toBeNull();
+      expect(screen.queryByRole('button', { name: /back to uniform/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /reset to uniform/i })).toBeNull();
+    });
+
+    it('locks the logged sets and marks them', () => {
+      renderSlotRow({ slot: startedSlot });
+      for (const n of [1, 2]) {
+        expect(screen.getByLabelText(`Set ${n} reps`)).toBeDisabled();
+        expect(screen.getByLabelText(`Set ${n} weight`)).toBeDisabled();
+        expect(screen.getByLabelText(`Set ${n} rest`)).toBeDisabled();
+        expect(screen.getByRole('img', { name: `Set ${n} is logged` })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: `Remove set ${n}` })).toBeNull();
+      }
+    });
+
+    it('leaves the pending sets editable and removable', async () => {
+      const user = userEvent.setup();
+      const onUpdateSet = vi.fn();
+      const onRemoveSet = vi.fn();
+      renderSlotRow({ slot: startedSlot, onUpdateSet, onRemoveSet });
+
+      const reps = screen.getByLabelText('Set 3 reps');
+      expect(reps).toBeEnabled();
+      await user.clear(reps);
+      await user.type(reps, '8');
+      fireEvent.blur(reps);
+      expect(onUpdateSet).toHaveBeenCalledWith('l3', { reps: 8 });
+
+      await user.click(screen.getByRole('button', { name: 'Remove set 4' }));
+      expect(onRemoveSet).toHaveBeenCalledWith(4);
+      expect(screen.queryByRole('img', { name: 'Set 3 is logged' })).toBeNull();
+    });
+
+    it('still offers to add a set', async () => {
+      const user = userEvent.setup();
+      const onAddSet = vi.fn();
+      renderSlotRow({ slot: startedSlot, onAddSet });
+      await user.click(screen.getByRole('button', { name: /\+ add set/i }));
+      expect(onAddSet).toHaveBeenCalledTimes(1);
+    });
+
+    it('cannot be removed, and says why', async () => {
+      const user = userEvent.setup();
+      const { props } = renderSlotRow({ slot: startedSlot });
+      const remove = screen.getByRole('button', { name: /remove exercise/i });
+      expect(remove).toBeDisabled();
+      expect(remove).toHaveAttribute('title', expect.stringMatching(/logged sets/i));
+      await user.click(remove);
+      expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
+      expect(props.onDelete).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['skipped', { skipped: true }],
+      ['rated without being ticked', { rpe: 7 }],
+      ['logged with off-plan reps', { actual_reps: 6 }],
+      ['logged with an off-plan weight', { actual_weight_kg: 42.5 }],
+    ])('treats a set that is %s as logged', (_label, patch) => {
+      renderSlotRow({
+        slot: {
+          ...defaultSlot,
+          sets: 2,
+          set_logs: [
+            { id: 'l1', set_number: 1, target_reps: 10, target_weight_kg: 50, ...patch },
+            { id: 'l2', set_number: 2, target_reps: 10, target_weight_kg: 50 },
+          ],
+        },
+      });
+      expect(screen.getByLabelText('Set 1 reps')).toBeDisabled();
+      expect(screen.getByLabelText('Set 2 reps')).toBeEnabled();
+    });
+
+    // Extras are kept out of the table (they are the athlete's, not the
+    // prescription), but removing the exercise would cascade to them.
+    it('counts a logged student-added set against removing the exercise', () => {
+      renderSlotRow({
+        slot: {
+          ...defaultSlot,
+          sets: 1,
+          set_logs: [
+            { id: 'l1', set_number: 1, target_reps: 10, target_weight_kg: 50 },
+            { id: 'lx', set_number: 2, is_student_added: true, done: true },
+          ],
+        },
+      });
+      expect(screen.getByRole('button', { name: /remove exercise/i })).toBeDisabled();
+      // The prescription itself is untouched, so the compact row stays.
+      expect(screen.getByLabelText('Sets')).toBeEnabled();
+    });
+  });
+
+  // A session the athlete has confirmed is opened read-only as a whole.
+  describe('read-only', () => {
+    const slot = {
+      ...defaultSlot,
+      notes: 'Keep elbows tucked',
+      record_video_set_numbers: [1],
+      set_logs: [
+        { id: 'l1', set_number: 1, target_reps: 10, target_weight_kg: 50 },
+        { id: 'l2', set_number: 2, target_reps: 10, target_weight_kg: 50 },
+        { id: 'l3', set_number: 3, target_reps: 10, target_weight_kg: 50 },
+      ],
+    };
+
+    it('disables every field of the compact row and drops what would change the slot', () => {
+      renderSlotRow({ slot, readOnly: true });
+      for (const label of ['Sets', 'Reps', 'Weight', 'Rest (s)']) {
+        expect(screen.getByLabelText(label)).toBeDisabled();
+      }
+      expect(screen.queryByRole('button', { name: /remove exercise/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /reorder pull up/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /customize sets/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /add coach note/i })).toBeNull();
+      // The "record these sets" toggles stay visible as information.
+      expect(screen.getByRole('button', { name: '1' })).toBeDisabled();
+      expect(screen.queryByRole('button', { name: /^all$/i })).toBeNull();
+    });
+
+    it('keeps the coach note readable, not editable', () => {
+      renderSlotRow({ slot, readOnly: true });
+      const note = screen.getByLabelText(/coach note for student/i);
+      expect(note).toHaveValue('Keep elbows tucked');
+      expect(note).toHaveAttribute('readonly');
+    });
+
+    it('locks pending sets too, with nothing to add or remove', () => {
+      renderSlotRow({
+        slot: {
+          ...slot,
+          set_logs: [
+            { id: 'l1', set_number: 1, target_reps: 10, target_weight_kg: 80, done: true },
+            { id: 'l2', set_number: 2, target_reps: 6, target_weight_kg: 100 },
+          ],
+        },
+        readOnly: true,
+      });
+      expect(screen.getByLabelText('Set 1 reps')).toBeDisabled();
+      expect(screen.getByLabelText('Set 2 reps')).toBeDisabled();
+      expect(screen.queryByRole('button', { name: /remove set/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /\+ add set/i })).toBeNull();
+      // Only the set that IS logged carries the mark.
+      expect(screen.getAllByRole('img', { name: /is logged/i })).toHaveLength(1);
+    });
+  });
 });

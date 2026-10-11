@@ -10,6 +10,7 @@ const mockDeleteSlot = { mutate: vi.fn() };
 const mockDuplicateSession = { mutate: vi.fn(), isPending: false };
 let mockSessionData = { data: null, isLoading: false };
 let mockLibraryData = { data: [] };
+let mockConfirmation = { data: null };
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
@@ -61,6 +62,10 @@ vi.mock('../../hooks/useExerciseLibrary', () => ({
   useExerciseLibrary: () => mockLibraryData,
 }));
 
+vi.mock('../../hooks/useSessionConfirmation', () => ({
+  useSessionConfirmation: () => mockConfirmation,
+}));
+
 vi.mock('../../hooks/useDuplicate', () => ({
   useDuplicateSession: () => mockDuplicateSession,
 }));
@@ -88,6 +93,7 @@ function renderEditor() {
 describe('SessionEditor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockConfirmation = { data: null };
     mockLibraryData = {
       data: [
         { id: 'ex-1', name: 'Pull Up', type: 'pull', difficulty: 2, volume_weight: 1 },
@@ -240,5 +246,143 @@ describe('SessionEditor', () => {
     expect(mockAddSlot.mutate).toHaveBeenCalledWith(
       expect.objectContaining({ sortOrder: 6 })
     );
+  });
+
+  // Review findings P3 and P12. Every session of the sheet used to open here
+  // fully editable, confirmed ones included, and the editor's writes could
+  // delete or rewrite what the athlete had logged.
+  describe('a session the athlete has trained', () => {
+    const pullUp = { name: 'Pull Up', type: 'pull', difficulty: 2, volume_weight: 1 };
+    const dip = { name: 'Dip', type: 'push', difficulty: 2, volume_weight: 1 };
+    const set = (id, n, extra = {}) => ({
+      id, set_number: n, target_reps: 10, target_weight_kg: 20, done: false, ...extra,
+    });
+    const trainedSlots = [
+      {
+        id: 'slot-1', sets: 2, reps: 10, weight_kg: 20, sort_order: 0, exercise: pullUp,
+        set_logs: [set('a1', 1, { done: true, rpe: 8 }), set('a2', 2)],
+      },
+      {
+        id: 'slot-2', sets: 2, reps: 10, weight_kg: 20, sort_order: 1, exercise: dip,
+        set_logs: [set('b1', 1), set('b2', 2)],
+      },
+    ];
+
+    function reviewLink() {
+      return screen.getByRole('link', { name: /open the review/i });
+    }
+
+    describe('confirmed', () => {
+      beforeEach(() => {
+        mockSessionData = {
+          data: { title: 'Pull Day', scheduled_date: '2026-10-01', exercise_slots: trainedSlots },
+          isLoading: false,
+        };
+        mockConfirmation = { data: { session_id: 'sess-1', confirmed_at: '2026-10-01T18:00:00Z' } };
+      });
+
+      it('says so, and links to the review', () => {
+        renderEditor();
+        expect(screen.getByRole('note')).toHaveTextContent(/confirmed by the athlete/i);
+        expect(screen.getByRole('note')).toHaveTextContent(/read-only/i);
+        expect(reviewLink()).toHaveAttribute('href', '/coach/student/stu-1/session/sess-1/review');
+      });
+
+      it('is read-only as a whole: nothing left on the page writes', () => {
+        renderEditor();
+        // Header: the title is text, the date is off.
+        expect(screen.getByText('Pull Day')).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /edit session title/i })).toBeNull();
+        expect(screen.getByLabelText('Recommended date')).toBeDisabled();
+        // Every field of every exercise, trained or not.
+        const fields = [...screen.getAllByRole('spinbutton'), ...screen.queryAllByRole('textbox')];
+        expect(fields.length).toBeGreaterThan(0);
+        for (const field of fields) {
+          expect(field.disabled || field.readOnly).toBe(true);
+        }
+        // And none of the structural actions.
+        expect(screen.queryByText('+ ADD EXERCISE')).toBeNull();
+        expect(screen.queryByText('Delete this session')).toBeNull();
+        expect(screen.queryByRole('button', { name: /remove exercise/i })).toBeNull();
+        expect(screen.queryByRole('button', { name: /remove set/i })).toBeNull();
+        expect(screen.queryByRole('button', { name: /add set/i })).toBeNull();
+        expect(screen.queryByRole('button', { name: /^reorder /i })).toBeNull();
+      });
+
+      it('hides "unlink" on a superset', () => {
+        mockSessionData = {
+          data: {
+            title: 'Pull Day',
+            exercise_slots: trainedSlots.map((sl) => ({ ...sl, superset_group: 'g-1' })),
+          },
+          isLoading: false,
+        };
+        renderEditor();
+        expect(screen.getByText('Superset')).toBeInTheDocument();
+        expect(screen.queryByText('unlink')).toBeNull();
+      });
+
+      // `performed_at` is the confirmation mirrored onto the session row. It
+      // arrives with the session, so the lock holds while the confirmation
+      // query is still loading — or if it fails.
+      it('locks on the session row alone, before the confirmation query answers', () => {
+        mockConfirmation = { data: undefined };
+        mockSessionData = {
+          data: {
+            title: 'Pull Day',
+            performed_at: '2026-10-01T00:00:00Z',
+            exercise_slots: [{ ...trainedSlots[1] }],
+          },
+          isLoading: false,
+        };
+        renderEditor();
+        expect(screen.getByRole('note')).toHaveTextContent(/confirmed by the athlete/i);
+        expect(screen.queryByText('+ ADD EXERCISE')).toBeNull();
+      });
+    });
+
+    describe('started but not confirmed', () => {
+      beforeEach(() => {
+        mockSessionData = {
+          data: { title: 'Pull Day', exercise_slots: trainedSlots },
+          isLoading: false,
+        };
+      });
+
+      it('says which part is locked, and links to the review', () => {
+        renderEditor();
+        expect(screen.getByRole('note')).toHaveTextContent(/logged sets/i);
+        expect(screen.getByRole('note')).not.toHaveTextContent(/read-only/i);
+        expect(reviewLink()).toHaveAttribute('href', '/coach/student/stu-1/session/sess-1/review');
+      });
+
+      it('locks the logged set and keeps the rest of the session editable', () => {
+        renderEditor();
+        // Pull Up: set 1 is done, set 2 is still to do.
+        expect(screen.getByLabelText('Set 1 reps')).toBeDisabled();
+        expect(screen.getByLabelText('Set 2 reps')).toBeEnabled();
+        // Dip is untouched: its compact row works as usual.
+        expect(screen.getByLabelText('Sets')).toBeEnabled();
+        const removeButtons = screen.getAllByRole('button', { name: /remove exercise/i });
+        expect(removeButtons.map((b) => b.disabled)).toEqual([true, false]);
+        // The session can still grow…
+        expect(screen.getByText('+ ADD EXERCISE')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /edit session title/i })).toBeInTheDocument();
+        expect(screen.getByLabelText('Recommended date')).toBeEnabled();
+        // …but not be deleted: the database refuses a session with logged sets.
+        expect(screen.queryByText('Delete this session')).toBeNull();
+      });
+    });
+
+    it('shows no banner on a session nobody has trained', () => {
+      mockSessionData = {
+        data: { title: 'Pull Day', exercise_slots: [trainedSlots[1]] },
+        isLoading: false,
+      };
+      renderEditor();
+      expect(screen.queryByRole('note')).toBeNull();
+      expect(screen.queryByRole('link', { name: /open the review/i })).toBeNull();
+      expect(screen.getByText('Delete this session')).toBeInTheDocument();
+    });
   });
 });
