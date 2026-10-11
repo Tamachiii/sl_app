@@ -841,7 +841,7 @@ describe('migration 06 applied to the production baseline', () => {
   // exercises of three sets); and a draft the athlete wrote and sent in. The
   // coach's role is set the way a dump restore sets it: on the baseline the
   // documented `update profiles set role = 'coach'` is undone for every
-  // caller (finding B10, a later migration).
+  // caller (finding P20, closed by migration 07).
   const WORLD = `
     insert into auth.users (id, email, aud, role, email_confirmed_at, raw_user_meta_data) values
       ('${COACH}',   'coach@sl.test', 'authenticated', 'authenticated', now(), '{"full_name": "Coach Carla"}'),

@@ -152,6 +152,17 @@ Three tables hold rows that an athlete may write and that carry columns which ar
 - **A `SECURITY DEFINER` function called by the athlete is the athlete for these triggers** — `auth.uid()` is theirs. One that must write a held column of a set on their behalf cannot do it with an `UPDATE`.
 - **A test about a pin reads the row back.** No error is raised, and an `UPDATE … RETURNING` answers the row as it is stored.
 
+## A migration that touches `profiles`, a role or the creation of an account
+
+Two functions stand behind every row of `public.profiles`, and since migration 07 each has a rule a later `CREATE OR REPLACE` must keep. `supabase/tests/profiles.test.js` holds them.
+
+- **`handle_new_user` runs inside the `INSERT` that creates the account** (`on_auth_user_created`, on `auth.users`): an error in it is an account that cannot be created — *Add user* in the dashboard, an invitation, a sign-up all answer "Database error saving new user". So it never raises and never stores `NULL`: every step of the name answers `NULL` for a `NULL` and the last one is a constant. It stays `SECURITY DEFINER` — the `INSERT` is GoTrue's, which holds nothing on `public` — and a re-creation that leaves the two words out closes account creation the same way. A column added to `profiles` gets a default, or a value here.
+- **The name is never empty**: the name the account was created with (`raw_user_meta_data->>'full_name'`, trimmed), else the part of the address before the `@`, else `'Athlete'`. The push triggers are written with `COALESCE(name, 'Your athlete')`, which an empty string passes. A function that creates accounts (an invitation) sends the name as `full_name` in the user metadata and writes nothing to `profiles` itself.
+- **The trigger on `auth.users` is not ours to re-create.** The table is the platform's. A migration replaces the function and refuses to run where no trigger calls it (the guard of migration 07) — it does not `CREATE TRIGGER` on `auth.users`.
+- **`profiles.role` is written without a user id, or not at all.** `profiles_pin_immutable_columns` puts the role back — silently — whenever `auth.uid()` is not NULL: the app, the API, and a `SECURITY DEFINER` function called from either, which is still that user. A function that must change a role is therefore not granted to `authenticated`: it is called from the SQL editor or with the service-role key. `id` and `created_at` are put back for everyone.
+- **A role that changes is held to the coach–athlete links** (the rule of migration 05, asked from the other side): an account that is somebody's athlete is not made a coach, a coach who has athletes does not stop being one — `23514`, raised. So the order is: the role first, then the links; and the athletes moved before a coach is made an athlete again.
+- **A new column of `profiles` that its owner must not write joins that function.** "Users update own profile" lets a signed-in user write every column of their own row: a column the trigger does not put back is theirs.
+
 ## A migration that brings a rule the rows already there may break
 
 A trigger or a policy judges what is written after it. When rows that are already in the database break the rule **and leaving them would leave the hole in use**, the migration refuses to start:

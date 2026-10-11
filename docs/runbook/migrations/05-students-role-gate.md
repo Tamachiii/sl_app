@@ -199,7 +199,7 @@ It returns one row: the link. The athlete sees their coach, and the coach sees t
 | It answers | Meaning |
 |---|---|
 | no row | one of the two addresses is not an account: check the spelling in Authentication → Users |
-| `students.coach_id … is not a coach: its profile has the role student` | the second address is not a coach's. Nothing was written |
+| `students.coach_id … is not a coach: its profile has the role student` | the second address is not a coach's. Nothing was written. To make that account a coach first: [07, Making a coach](07-profile-rules.md#making-a-coach) |
 | `students.profile_id … is not an athlete: its profile has the role coach` | the first address is a coach's: a coach cannot be somebody's athlete. Nothing was written |
 | `students: profile … cannot be its own coach` | the same address twice |
 | `duplicate key value violates unique constraint "students_profile_id_key"` | this athlete already has a coach |

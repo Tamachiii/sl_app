@@ -815,7 +815,7 @@ describe('migration 05 applied to the production baseline', () => {
   // account nobody coaches. The roles are set the way a dump restore sets
   // them: on the baseline the documented `update profiles set role = 'coach'`
   // is undone by profiles_pin_immutable_columns for every caller (finding
-  // B10, a later migration).
+  // P20, closed by migration 07).
   const WORLD = `
     insert into auth.users (id, email, aud, role, email_confirmed_at, raw_user_meta_data) values
       ('${COACH}',   'coach@sl.test', 'authenticated', 'authenticated', now(), '{"full_name": "Coach Carla"}'),

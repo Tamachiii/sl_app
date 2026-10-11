@@ -54,6 +54,15 @@
       "covers": ["P13", "P14", "B4"],
       "reversible": true,
       "summary": "An athlete's own update of a set leaves its targets, its exercise, its number and is_student_added as they were; a session of a draft program carries no reviewed_at, archived_at, performed_at or scheduled_date, whoever writes it, and approve_program clears the four on the sessions of the program it approves; the author of a draft cannot change submitted_at once it is set."
+    },
+    {
+      "name": "2026_10_11_07_profile_rules",
+      "kind": "required",
+      "wave": 1,
+      "checkpoint": "A2",
+      "covers": ["P20", "B10"],
+      "reversible": true,
+      "summary": "A new account gets a profile whose name is never empty: the name it was created with, else the part of its e-mail address before the @, else 'Athlete'; profiles.role stays what it was for a request that carries a user id and is written for one that does not (the SQL editor, the service-role key), except against a coach-athlete link: an athlete with a coach is not made a coach, a coach with athletes does not stop being one."
     }
   ]
 }

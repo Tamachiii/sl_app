@@ -29,13 +29,19 @@ const byEmail = (rows) => Object.fromEntries(rows.map(({ email, ...rest }) => [e
 const today = () => asAdmin((q) => q.value(`select current_date::text`));
 
 // An account as the open sign-up made it: a row in auth.users and the profile
-// the trigger gives it. No name (the API call carried no metadata), no coach.
-const signUp = (q, email, { confirmed = true } = {}) => q.value(
-  `insert into auth.users (email, aud, role, email_confirmed_at, raw_user_meta_data)
-   values ($1, 'authenticated', 'authenticated', $2, '{}')
-   returning id`,
-  [email, confirmed ? new Date() : null],
-);
+// the trigger gave it. No name (the API call carried no metadata), no coach.
+// Sign-up was open BEFORE migration 07, which names every new account after
+// its address: the profile is given the empty name those accounts have.
+const signUp = async (q, email, { confirmed = true } = {}) => {
+  const id = await q.value(
+    `insert into auth.users (email, aud, role, email_confirmed_at, raw_user_meta_data)
+     values ($1, 'authenticated', 'authenticated', $2, '{}')
+     returning id`,
+    [email, confirmed ? new Date() : null],
+  );
+  await q(`update public.profiles set full_name = '' where id = $1`, [id]);
+  return id;
+};
 
 // A `students` row nobody should have been able to write (finding L2). The
 // triggers are stepped around, as a dump restore does: the row stands for one

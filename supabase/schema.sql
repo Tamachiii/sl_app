@@ -11,6 +11,9 @@ CREATE TYPE exercise_type AS ENUM ('pull', 'push');
 -- ============================================================
 
 -- Profiles (mirrors auth.users, holds role)
+-- One row per account, written by handle_new_user: the role is 'student' and
+-- the name is never empty. A coach is made by the owner of the database —
+-- no signed-in user changes a role (profiles_pin_immutable_columns).
 CREATE TABLE public.profiles (
   id          uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   role        text NOT NULL CHECK (role IN ('coach', 'student')),
@@ -868,18 +871,47 @@ CREATE POLICY "Coaches read slot deviations for their students"
 
 -- ============================================================
 -- TRIGGER: auto-create profile on signup
+--
+-- The role is always 'student'. The name is never empty (2026_10_11_07,
+-- review B10), in this order:
+--   * raw_user_meta_data->>'full_name' — what a sign-up form or an invitation
+--     sends — without the white space around it;
+--   * what stands before the @ of the e-mail address: "Add user" in the
+--     dashboard asks for an address and a password and nothing else;
+--   * 'Athlete' — an account without an address.
+-- White space is [[:space:]], written as a class and not as \s so that the
+-- text reads the same whatever standard_conforming_strings is.
+--
+-- It must never raise and never produce NULL: this runs inside the INSERT
+-- that creates the account, and profiles.full_name is NOT NULL. Every step
+-- answers NULL for a NULL — metadata that is missing, that is not an object,
+-- an address that is missing.
+--
+-- SECURITY DEFINER: the INSERT into auth.users is made by GoTrue, which holds
+-- nothing on public.
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
+DECLARE
+  v_name text;
 BEGIN
+  v_name := NULLIF(regexp_replace(NEW.raw_user_meta_data->>'full_name',
+                                  '^[[:space:]]+|[[:space:]]+$', '', 'g'), '');
+  IF v_name IS NULL THEN
+    v_name := NULLIF(regexp_replace(split_part(NEW.email, '@', 1),
+                                    '^[[:space:]]+|[[:space:]]+$', '', 'g'), '');
+  END IF;
+
   INSERT INTO public.profiles (id, role, full_name)
   VALUES (
     NEW.id,
     -- Never trust client-supplied metadata for the role (2026_07_12): the
-    -- anon key is public, so signup metadata is attacker-controlled. Coach
-    -- promotion is a manual UPDATE on profiles.
+    -- anon key is public, so signup metadata is attacker-controlled. A coach
+    -- is made by the owner of the database (profiles_pin_immutable_columns).
     'student',
-    COALESCE(NEW.raw_user_meta_data->>'full_name', '')
+    -- Never empty (review B10): an empty name passes every
+    -- COALESCE(name, 'Your athlete') of the push triggers.
+    COALESCE(v_name, 'Athlete')
   );
   RETURN NEW;
 END;
@@ -891,17 +923,64 @@ CREATE TRIGGER on_auth_user_created
   EXECUTE FUNCTION public.handle_new_user();
 
 -- ============================================================
--- TRIGGER: pin profile id/role/created_at on UPDATE
--- Defense in depth for the "Users update own profile" policy: even if a
--- payload sets `role: 'coach'`, this trigger reverts it before the row hits
--- the table, so a student can never promote themselves.
+-- TRIGGER: pin profile id/created_at on UPDATE — and the role, for a request
+-- that carries a user id (2026_10_11_07, review P20)
+--
+-- "Users update own profile" lets a signed-in user write their own row, every
+-- column of it: this trigger is what keeps the role out of their hands. It is
+-- keyed on the user id of the request, like the gate on public.students:
+--   * with one — the app, the API, and any function called from them, a
+--     SECURITY DEFINER one included — the role stays what it was. Silent: the
+--     rest of the write (the name) is saved.
+--   * without one — the SQL editor, `supabase db query`, the service-role
+--     key — the role is written: that is how a coach is made. A request
+--     without a session (anon) is not one of them: it has no policy on this
+--     table and reaches no row.
+-- id and created_at stay what they were for every caller.
+--
+-- A role that does change is held to what trg_check_students_link holds
+-- every row of public.students to — a coach on one side, an athlete on the
+-- other: an account that is somebody's athlete is not made a coach, and a
+-- coach who has athletes does not stop being one. Raised (23514), not silent:
+-- the caller is the owner, who has to know that nothing happened.
+--
+-- SECURITY INVOKER: the two reads of public.students are made by a caller
+-- without a user id, and those who reach a row of this table without one —
+-- the owner, the service role — read every row of that one.
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.profiles_pin_immutable_columns()
 RETURNS trigger AS $$
+DECLARE
+  v_athletes integer;
 BEGIN
   NEW.id := OLD.id;
-  NEW.role := OLD.role;
   NEW.created_at := OLD.created_at;
+
+  -- A request with a user id: nobody gives themselves — or anybody — a role.
+  IF auth.uid() IS NOT NULL THEN
+    NEW.role := OLD.role;
+    RETURN NEW;
+  END IF;
+
+  -- Without one, the role is the owner's to change (review P20) — as long as
+  -- every link of public.students still joins a coach to an athlete.
+  IF NEW.role IS DISTINCT FROM OLD.role THEN
+    IF NEW.role = 'coach' AND EXISTS (
+         SELECT 1 FROM public.students s WHERE s.profile_id = OLD.id
+       ) THEN
+      RAISE EXCEPTION 'profile % (%) cannot be made a coach: it is the athlete of a coach', OLD.id, OLD.full_name
+        USING ERRCODE = 'check_violation',
+              HINT = 'An account is a coach or an athlete, not both: a coach gets an account of their own. Nothing was written.';
+    END IF;
+    IF NEW.role IS DISTINCT FROM 'coach' THEN
+      SELECT count(*) INTO v_athletes FROM public.students s WHERE s.coach_id = OLD.id;
+      IF v_athletes > 0 THEN
+        RAISE EXCEPTION 'profile % (%) cannot stop being a coach: it has % athlete(s)', OLD.id, OLD.full_name, v_athletes
+          USING ERRCODE = 'check_violation',
+                HINT = 'Its athletes go to another coach first. Nothing was written.';
+      END IF;
+    END IF;
+  END IF;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SET search_path = public, pg_temp;
@@ -3480,4 +3559,5 @@ INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_11_03_function_grants_lockdown'),
   ('2026_10_11_04_logged_history_guards'),
   ('2026_10_11_05_students_role_gate'),
-  ('2026_10_11_06_pin_student_writes');
+  ('2026_10_11_06_pin_student_writes'),
+  ('2026_10_11_07_profile_rules');

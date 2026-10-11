@@ -351,13 +351,16 @@ const fixture = (fn) => run(ADMIN, fn, { commit: true });
 
 /**
  * Create an account the way production does: a row in auth.users, which fires
- * handle_new_user() and creates the profile (always as 'student').
+ * handle_new_user() and creates the profile — always as 'student', and never
+ * without a name: with no `fullName` it is called after the address (`alex`
+ * for `alex@sl.test`).
  *
  *   createUser({ email, fullName, role: 'coach' })
  *   createUser({ email, fullName, coach })      // student linked to that coach
  *
  * Returns `{ id, email, fullName, role, studentRowId }` — `id` is the
- * auth.users / profiles id (what auth.uid() returns); `studentRowId` is
+ * auth.users / profiles id (what auth.uid() returns); `fullName` is what was
+ * asked for (the stored name is profiles.full_name); `studentRowId` is
  * `students.id` (what `programs.student_id` points at), null without a coach.
  */
 export function createUser({ email, fullName = '', role = 'student', coach = null } = {}) {
@@ -371,20 +374,12 @@ export function createUser({ email, fullName = '', role = 'student', coach = nul
     );
 
     if (role === 'coach') {
-      // The documented promotion is a plain UPDATE, but the
-      // profiles_pin_immutable_columns trigger reverts `role` for every
-      // caller, `postgres` included. Go around the triggers the way a dump
-      // restore does until that is settled.
-      let stored = await q.value(
+      // How the owner makes a coach (docs/runbook/migrations/07-profile-rules.md):
+      // a plain UPDATE from a caller without a user id. It comes before any
+      // link — an account that is somebody's athlete is not made a coach.
+      const stored = await q.value(
         `update public.profiles set role = 'coach' where id = $1 returning role`, [id],
       );
-      if (stored !== 'coach') {
-        await q(`select set_config('session_replication_role', 'replica', true)`);
-        stored = await q.value(
-          `update public.profiles set role = 'coach' where id = $1 returning role`, [id],
-        );
-        await q(`select set_config('session_replication_role', 'origin', true)`);
-      }
       if (stored !== 'coach') throw new Error('createUser: could not promote the profile to coach');
     }
 
