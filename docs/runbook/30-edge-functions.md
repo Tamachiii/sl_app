@@ -198,10 +198,10 @@ Two things the earlier instructions got wrong, in case you remember them: the va
 
 ## Undo
 
-A function has no rollback file: going back is deploying the old code. The code in production before this page (v4) is `supabase/functions/send-push/index.ts` as commit `7af7b5c` has it:
+A function has no rollback file: going back is deploying the old code. The code in production before this page (v4) is `supabase/functions/send-push/index.ts` as commit `a61f0c31f2` has it. That commit is already on GitHub's `main`, so the command finds it whatever happens to the branch this page came with.
 
 ```bash
-git restore --source=7af7b5c --worktree -- supabase/functions/send-push/index.ts
+git restore --source=a61f0c31f2 --worktree -- supabase/functions/send-push/index.ts
 ```
 
 ```bash

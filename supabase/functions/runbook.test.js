@@ -131,6 +131,26 @@ describe(`${PAGE}: going back`, () => {
     expect(commands.filter((command) => /^git /.test(command))).toHaveLength(2);
   });
 
+  // The way back is needed on the day a deploy went wrong, possibly months
+  // from now. A commit of a branch that is not published yet can be gone by
+  // then — rebased, or squashed into one — and the first command would fail
+  // with "could not resolve". So the page names a commit GitHub's main has.
+  // true / false, or null where that cannot be told: no such commit, or no
+  // `origin/main`, in this clone.
+  const published = (() => {
+    if (!sha) return null;
+    try {
+      execFileSync('git', ['merge-base', '--is-ancestor', sha, 'origin/main'], { cwd: root, stdio: 'ignore' });
+      return true;
+    } catch (error) {
+      return error.status === 1 ? false : null;
+    }
+  })();
+
+  it.skipIf(published === null)('names a commit that the published main has, not one of a branch that can still move', () => {
+    expect(published, `${sha} is not an ancestor of origin/main`).toBe(true);
+  });
+
   // A shallow clone — CI — does not have the commit. The checkout the owner
   // deploys from does, and that is where this must hold.
   it.skipIf(before === null)('names a commit that holds send-push as it was before the gate', () => {
