@@ -88,6 +88,10 @@ export function useLogBodyweight() {
       // invalidate it explicitly or a freshly-logged bodyweight never unlocks
       // the ×BW pill / clears the "log bodyweight" nudge. Prefix match covers
       // the user.id-keyed student flow.
+      // The athlete's shared done-set history (lib/doneSetHistory) sits under
+      // the same root and is flagged stale with it: one read more than a
+      // bodyweight strictly needs, at most once a day, for a single rule —
+      // ['student-records'] renews everything records are made of.
       qc.invalidateQueries({ queryKey: ['student-records'] });
     },
   });

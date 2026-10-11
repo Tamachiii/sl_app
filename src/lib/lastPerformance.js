@@ -3,10 +3,11 @@
 // a target to beat right where sets are logged.
 //
 // Reuses the effective-load model from lib/records (a done set's actual weight/
-// reps override the prescribed target). Swap attribution is handled upstream in
-// useLastPerformance, which remaps each row to its effective (substitute)
-// exercise before calling this — so rows arriving here already carry the
-// exercise the student actually performed.
+// reps override the prescribed target). Swap attribution is handled upstream,
+// in lib/doneSetHistory: the athlete's shared history hands each set over under
+// its effective (substitute) exercise, and useLastPerformance passes those rows
+// on as they are — so rows arriving here already carry the exercise the student
+// actually performed.
 
 import { effectiveWeight, effectiveReps } from './records';
 
