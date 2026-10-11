@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useSession } from '../../hooks/useSession';
 import { useSetLogs, useEnsureSetLogs } from '../../hooks/useSetLogs';
 import { useSlotComments } from '../../hooks/useSlotComments';
@@ -65,11 +65,34 @@ function SessionTopBar({ title, meta, onBack }) {
   );
 }
 
+// What stands where "Undo confirmation" would on a session the coach has
+// reviewed: why it can no longer be changed, and the one way to get something
+// corrected. There is no reopening in the app — the coach is asked, in the
+// thread.
+function ReviewedLock({ children }) {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-col items-center gap-2 text-center">
+      <p className="sl-mono text-[11px] text-ink-400 leading-relaxed">{children}</p>
+      <Link
+        to="/student/messages"
+        className="sl-pill min-h-11 px-4 bg-ink-100 text-ink-700 hover:bg-ink-200"
+      >
+        {t('sessionReviewedLock.messageCoach')}
+      </Link>
+    </div>
+  );
+}
+
 export default function SessionView() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
   const { t, lang } = useI18n();
-  const { data: session, isLoading: sessLoading } = useSession(sessionId);
+  const {
+    data: session,
+    isLoading: sessLoading,
+    refetch: refetchSession,
+  } = useSession(sessionId);
   const { data: feedback } = useSessionFeedback(sessionId);
   const slots = session?.exercise_slots || [];
   const { data: logs, isLoading: logsLoading } = useSetLogs(sessionId, slots);
@@ -130,13 +153,62 @@ export default function SessionView() {
   //   false     → user manually closed the auto-open group; nothing is open.
   const [openKey, setOpenKey] = useState(null);
 
+  // ── What can still be written ────────────────────────────────────────
+  const hasSession = !!session;
+  const isConfirmed = !!confirmation;
+  const isArchived = !!session?.archived_at;
+  // Sessions become read-only once the parent program is no longer the
+  // student's active block (so history viewed via the stats calendar can't
+  // be retroactively confirmed/undone) or once the coach has individually
+  // archived the session. RLS enforces the same rule server-side; this is
+  // the UI gate.
+  const isPastProgram = session ? session.program_is_active === false : false;
+  // Closed: nothing about the session can be written any more, the
+  // confirmation included.
+  const isClosed = isPastProgram || isArchived;
+  // Reviewed: the coach has read this session — feedback sent, or "finish
+  // without feedback". From then on what the athlete logged has to stay what
+  // the coach read, and the confirmation can no longer be undone.
+  // `reviewed_at` on the session row is the ONE source of this: a review is
+  // recorded there with or without feedback. A feedback message is not a
+  // second source — a lock keyed on anything but the column would drift from
+  // whatever else reads it.
+  const isReviewed = !!session?.reviewed_at;
+  // Read-only is wider than closed: a reviewed session of the active block
+  // keeps its sets, notes, deviations and videos as the coach read them, but a
+  // confirmation can still be ADDED to it — only undoing one is over. That
+  // case exists: sessions reviewed without a confirmation, or whose
+  // confirmation was undone after the review, from before the two were tied
+  // together. Hiding Confirm there would leave such a session "Next" in the
+  // training list for good, with no way for the athlete to finish it.
+  const isReadOnly = isClosed || isReviewed;
+  const canUndo = isConfirmed && !isReadOnly;
+
+  // The session row reaches the page through a cache — served without a
+  // request while it is fresh, persisted for offline use — and nothing pushes
+  // a review to the athlete's device. "Not reviewed" is therefore only as true
+  // as the row is recent, so the row is asked for again at the moments a
+  // review may have happened behind the cache: when the page shows a confirmed
+  // session (the only kind a coach reviews), and when the coach's feedback
+  // arrives over the messages channel — the usual way a session becomes
+  // reviewed, a second after it happens. Tapping "Undo confirmation" asks a
+  // third time, below. It only asks: an answer that still says "not reviewed"
+  // stands, and offline the request waits for the network without holding
+  // anything up. A closed session has nothing left to lock.
+  const feedbackId = feedback?.id ?? null;
+  useEffect(() => {
+    if (hasSession && !isReadOnly && (isConfirmed || feedbackId)) {
+      refetchSession({ cancelRefetch: false });
+    }
+  }, [sessionId, hasSession, isReadOnly, isConfirmed, feedbackId, refetchSession]);
+
   // Only run the safety-net materialization on writeable sessions. Past-
   // program / coach-archived sessions reject INSERT under RLS, so calling
   // ensureLogs would only generate silent failures. The backfill migration
   // (2026_04_26_backfill_missing_set_logs.sql) covers legacy past-program
-  // slots once at deploy time.
-  const canMaterializeLogs =
-    !!session && session.program_is_active !== false && !session.archived_at;
+  // slots once at deploy time. A reviewed session is not writeable either:
+  // rows added to it now would be sets the coach never read.
+  const canMaterializeLogs = hasSession && !isReadOnly;
   useEffect(() => {
     if (canMaterializeLogs && slots.length > 0 && logs !== undefined) {
       ensureLogs.mutate({ sessionId, slots });
@@ -203,16 +275,6 @@ export default function SessionView() {
     const wasOpen = isGroupOpen(group, idx);
     setOpenKey(wasOpen ? false : group.key);
   }
-
-  const isConfirmed = !!confirmation;
-  const isArchived = !!session?.archived_at;
-  // Sessions become read-only once the parent program is no longer the
-  // student's active block (so history viewed via the stats calendar can't
-  // be retroactively confirmed/undone) or once the coach has individually
-  // archived the session. RLS enforces the same rule server-side; this is
-  // the UI gate.
-  const isPastProgram = session ? session.program_is_active === false : false;
-  const isReadOnly = isPastProgram || isArchived;
 
   function handleConfirm() {
     // Pin the training date HERE, from the set logs, rather than letting the
@@ -359,15 +421,24 @@ export default function SessionView() {
               )}
             </div>
           </div>
-          {isReadOnly ? (
+          {isClosed ? (
             <p className="sl-mono text-[11px] text-ink-400 text-center">
               {isArchived
                 ? t('student.session.lockedArchived')
                 : t('student.session.lockedPast')}
             </p>
+          ) : isReviewed ? (
+            <ReviewedLock>{t('sessionReviewedLock.locked')}</ReviewedLock>
           ) : (
             <button
-              onClick={() => setUndoDialogOpen(true)}
+              onClick={() => {
+                setUndoDialogOpen(true);
+                // "Not reviewed" is as old as the cached row, and a review
+                // without feedback sends nothing that would refresh it. Ask
+                // again while the athlete reads the dialog: an answer that
+                // says "reviewed" closes it (see `canUndo` on the dialog).
+                refetchSession({ cancelRefetch: false });
+              }}
               disabled={unconfirmSession.isPending}
               className="sl-mono text-[11px] text-ink-400 hover:text-danger underline w-full"
             >
@@ -375,7 +446,7 @@ export default function SessionView() {
             </button>
           )}
         </div>
-      ) : isReadOnly ? (
+      ) : isClosed ? (
         <div
           className="sl-card p-4 text-center"
           style={{ borderLeft: '3px solid var(--color-ink-300)' }}
@@ -387,16 +458,26 @@ export default function SessionView() {
           </p>
         </div>
       ) : (
-        <button
-          onClick={() => setConfirmDialogOpen(true)}
-          disabled={confirmSession.isPending}
-          className="sl-btn-primary w-full text-[13px] disabled:opacity-50"
-          style={{ padding: '10px 16px' }}
-        >
-          {confirmSession.isPending
-            ? t('student.session.confirming')
-            : t('student.session.confirmCta')}
-        </button>
+        <>
+          {isReviewed && (
+            <div
+              className="sl-card p-4"
+              style={{ borderLeft: '3px solid var(--color-ink-300)' }}
+            >
+              <ReviewedLock>{t('sessionReviewedLock.lockedUnconfirmed')}</ReviewedLock>
+            </div>
+          )}
+          <button
+            onClick={() => setConfirmDialogOpen(true)}
+            disabled={confirmSession.isPending}
+            className="sl-btn-primary w-full text-[13px] disabled:opacity-50"
+            style={{ padding: '10px 16px' }}
+          >
+            {confirmSession.isPending
+              ? t('student.session.confirming')
+              : t('student.session.confirmCta')}
+          </button>
+        </>
       ))}
 
       <Dialog
@@ -441,8 +522,11 @@ export default function SessionView() {
         </div>
       </Dialog>
 
+      {/* `canUndo` and not the tap alone: the session can become reviewed (or
+          archived) while this dialog is open, and its button must go with the
+          one that opened it. */}
       <ConfirmDialog
-        open={undoDialogOpen}
+        open={undoDialogOpen && canUndo}
         onClose={() => setUndoDialogOpen(false)}
         onConfirm={handleUnconfirm}
         title={t('student.session.undoConfirmTitle')}

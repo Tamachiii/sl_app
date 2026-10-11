@@ -11,13 +11,19 @@ vi.mock('react-router-dom', async () => {
   return { ...actual, useParams: () => ({ sessionId: 'sess-1' }) };
 });
 
+// The page asks for the session row again at a few moments (see "a session the
+// coach has reviewed" below), so the query's `refetch` is part of what it reads.
+const mockRefetchSession = vi.fn();
+
 vi.mock('../../hooks/useSession', () => ({
-  useSession: () => mockSessionData,
+  useSession: () => ({ refetch: mockRefetchSession, ...mockSessionData }),
 }));
+
+const mockEnsureLogs = { mutate: vi.fn() };
 
 vi.mock('../../hooks/useSetLogs', () => ({
   useSetLogs: () => mockSetLogsData,
-  useEnsureSetLogs: () => ({ mutate: vi.fn() }),
+  useEnsureSetLogs: () => mockEnsureLogs,
   useToggleSetDone: () => ({ mutate: vi.fn() }),
   useSetFailed: () => ({ mutate: vi.fn() }),
   useSetRpe: () => ({ mutate: vi.fn() }),
@@ -58,8 +64,10 @@ vi.mock('../../hooks/useSlotComments', () => ({
   useSaveSlotComment: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
+let mockVideos = { data: [], isLoading: false };
+
 vi.mock('../../hooks/useSetVideo', () => ({
-  useSetVideos: () => ({ data: [], isLoading: false }),
+  useSetVideos: () => mockVideos,
   useUploadSetVideo: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteSetVideo: () => ({ mutate: vi.fn(), isPending: false }),
   useSetVideoSignedUrl: () => ({ data: null, isLoading: false }),
@@ -1005,5 +1013,312 @@ describe('SessionView', () => {
     expect(screen.queryByRole('button', { name: /confirm session/i })).toBeNull();
     expect(screen.getByText(/archived by your coach/i)).toBeInTheDocument();
     expect(screen.getByText(/read-only/i)).toBeInTheDocument();
+  });
+});
+
+// Lock after review (review finding P57, the athlete's half). Once
+// `sessions.reviewed_at` is set, what the athlete logged has to stay what the
+// coach read: the session is read-only and its confirmation can no longer be
+// undone. There is no reopening in the app, so the page says why and links to
+// the thread with the coach.
+describe('SessionView: a session the coach has reviewed', () => {
+  const REVIEWED_AT = '2026-04-15T09:00:00Z';
+  const CONFIRMATION = {
+    id: 'c-1',
+    session_id: 'sess-1',
+    student_id: 'u-1',
+    confirmed_at: '2026-04-14T10:00:00Z',
+    notes: null,
+  };
+  const SLOT = {
+    id: 'slot-1',
+    sets: 1,
+    reps: 5,
+    weight_kg: 50,
+    sort_order: 0,
+    exercise: { id: 'ex-1', name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
+  };
+  // Pending, so its exercise is the one the page opens by itself.
+  const PENDING_LOG = {
+    id: 'l-1',
+    exercise_slot_id: 'slot-1',
+    set_number: 1,
+    done: false,
+    rpe: null,
+  };
+
+  function session(fields = {}) {
+    return {
+      data: { title: 'Day 1', exercise_slots: [], program_is_active: true, ...fields },
+      isLoading: false,
+    };
+  }
+
+  function rerenderSessionView(view) {
+    view.rerender(
+      <MemoryRouter>
+        <SessionView />
+      </MemoryRouter>
+    );
+  }
+
+  const lockLine = () => screen.queryByText(/reviewed by your coach/i);
+  const coachLink = () => screen.queryByRole('link', { name: /message your coach/i });
+  const undoButton = () => screen.queryByRole('button', { name: /undo confirmation/i });
+  const confirmButton = () => screen.queryByRole('button', { name: /^confirm session$/i });
+
+  beforeEach(() => {
+    mockConfirmation = { data: null, isLoading: false };
+    mockFeedback = { data: null };
+    mockDeviations = { data: [], isLoading: false };
+    mockSetLogsData = { data: [], isLoading: false };
+    mockVideos = { data: [], isLoading: false };
+    vi.clearAllMocks();
+    resetRestTimer();
+  });
+
+  describe('confirmed', () => {
+    beforeEach(() => {
+      mockConfirmation = { data: CONFIRMATION, isLoading: false };
+    });
+
+    it('says the coach has reviewed it and links to the thread, where Undo was', () => {
+      mockSessionData = session({ reviewed_at: REVIEWED_AT });
+      renderSessionView();
+
+      expect(screen.getByText(/session confirmed/i)).toBeInTheDocument();
+      expect(undoButton()).toBeNull();
+      expect(lockLine()).toHaveTextContent(/this session can no longer be changed/i);
+      expect(coachLink()).toHaveAttribute('href', '/student/messages');
+      // Nothing to confirm a second time.
+      expect(confirmButton()).toBeNull();
+    });
+
+    it('still offers Undo while the session is not reviewed', () => {
+      mockSessionData = session({ reviewed_at: null });
+      renderSessionView();
+
+      expect(undoButton()).toBeInTheDocument();
+      expect(lockLine()).toBeNull();
+      expect(coachLink()).toBeNull();
+    });
+
+    // A confirmed session already has its sets locked; the note for the coach
+    // is what a review closes on top of that.
+    it('closes the note for the coach, which a confirmation alone leaves open', () => {
+      mockSetLogsData = { data: [PENDING_LOG], isLoading: false };
+
+      mockSessionData = session({ exercise_slots: [SLOT], reviewed_at: null });
+      const open = renderSessionView();
+      expect(screen.getByRole('button', { name: /add note for coach/i })).toBeInTheDocument();
+      open.unmount();
+
+      mockSessionData = session({ exercise_slots: [SLOT], reviewed_at: REVIEWED_AT });
+      renderSessionView();
+      expect(screen.queryByRole('button', { name: /add note for coach/i })).toBeNull();
+    });
+
+    it('keeps the line of a past program or an archived session, which no coach can lift', () => {
+      mockSessionData = session({ reviewed_at: REVIEWED_AT, program_is_active: false });
+      const past = renderSessionView();
+      expect(screen.getByText(/from a past program — confirmation is locked/i)).toBeInTheDocument();
+      expect(lockLine()).toBeNull();
+      expect(coachLink()).toBeNull();
+      expect(undoButton()).toBeNull();
+      past.unmount();
+
+      mockSessionData = session({ reviewed_at: REVIEWED_AT, archived_at: '2026-04-20T10:00:00Z' });
+      renderSessionView();
+      expect(screen.getByText(/archived by your coach — confirmation is locked/i)).toBeInTheDocument();
+      expect(lockLine()).toBeNull();
+      expect(coachLink()).toBeNull();
+      expect(undoButton()).toBeNull();
+    });
+  });
+
+  // Sessions reviewed without a confirmation, or whose confirmation was undone
+  // after the review, exist from before the two were tied together.
+  describe('not confirmed', () => {
+    it('is read-only: no set, RPE, extra set, swap, skip or note can be written', () => {
+      mockSetLogsData = { data: [PENDING_LOG], isLoading: false };
+      mockSessionData = session({ exercise_slots: [SLOT], reviewed_at: REVIEWED_AT });
+      renderSessionView();
+
+      expect(screen.getByRole('button', { name: /mark set done/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /set rpe/i })).toBeDisabled();
+      expect(screen.queryByRole('button', { name: /log what you actually did/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /add set/i })).toBeNull();
+      expect(screen.queryByText(/can't do this exercise/i)).toBeNull();
+      expect(screen.queryByRole('button', { name: /add note for coach/i })).toBeNull();
+    });
+
+    it('the same session, not reviewed, offers all of them', () => {
+      mockSetLogsData = { data: [PENDING_LOG], isLoading: false };
+      mockSessionData = session({ exercise_slots: [SLOT], reviewed_at: null });
+      renderSessionView();
+
+      expect(screen.getByRole('button', { name: /mark set done/i })).toBeEnabled();
+      expect(screen.getByRole('button', { name: /set rpe/i })).toBeEnabled();
+      expect(screen.getByRole('button', { name: /log what you actually did/i })).toBeEnabled();
+      expect(screen.getByRole('button', { name: /add set/i })).toBeInTheDocument();
+      expect(screen.getByText(/can't do this exercise/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /add note for coach/i })).toBeInTheDocument();
+      expect(lockLine()).toBeNull();
+    });
+
+    // The video of a set is part of what the coach read. The lock reaches the
+    // button through SetRow's `locked`, like every other control of the row.
+    it('keeps the video the coach saw: it plays, and cannot be replaced or deleted', () => {
+      const slot = { ...SLOT, record_video_set_numbers: [1] };
+      mockSetLogsData = { data: [PENDING_LOG], isLoading: false };
+      mockVideos = {
+        data: [{ id: 'v-1', set_log_id: 'l-1', storage_path: 'u-1/slot-1/1.mp4' }],
+        isLoading: false,
+      };
+
+      mockSessionData = session({ exercise_slots: [slot], reviewed_at: null });
+      const open = renderSessionView();
+      expect(screen.getByRole('button', { name: /replace video/i })).toBeEnabled();
+      expect(screen.getByRole('button', { name: /delete video/i })).toBeEnabled();
+      open.unmount();
+
+      mockSessionData = session({ exercise_slots: [slot], reviewed_at: REVIEWED_AT });
+      renderSessionView();
+      expect(screen.getByRole('button', { name: /play video/i })).toBeEnabled();
+      expect(screen.getByRole('button', { name: /replace video/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /delete video/i })).toBeDisabled();
+    });
+
+    // Confirming is the one thing left: without it the session would stay
+    // "Next" in the training list for good.
+    it('says why, links to the thread, and can still be confirmed', async () => {
+      const user = userEvent.setup();
+      mockSessionData = session({ reviewed_at: REVIEWED_AT });
+      renderSessionView();
+
+      expect(lockLine()).toHaveTextContent(/what you logged can no longer be changed/i);
+      expect(lockLine()).toHaveTextContent(/you can still confirm the session/i);
+      expect(coachLink()).toHaveAttribute('href', '/student/messages');
+
+      await user.click(confirmButton());
+      await user.click(screen.getByRole('button', { name: /^confirm$/i }));
+      expect(mockConfirm.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 'sess-1' }),
+        expect.any(Object)
+      );
+    });
+
+    it('keeps the read-only line of an archived session, and offers no confirmation there', () => {
+      mockSessionData = session({ reviewed_at: REVIEWED_AT, archived_at: '2026-04-20T10:00:00Z' });
+      renderSessionView();
+
+      expect(screen.getByText(/archived by your coach — read-only/i)).toBeInTheDocument();
+      expect(lockLine()).toBeNull();
+      expect(coachLink()).toBeNull();
+      expect(confirmButton()).toBeNull();
+    });
+  });
+
+  // The safety net that creates the missing set rows of a session writes to
+  // it. On a reviewed session those would be sets the coach never read.
+  describe('missing set rows', () => {
+    it('are not created on a reviewed session', () => {
+      mockSessionData = session({ exercise_slots: [SLOT], reviewed_at: REVIEWED_AT });
+      renderSessionView();
+      expect(mockEnsureLogs.mutate).not.toHaveBeenCalled();
+    });
+
+    it('are created on a session that is not reviewed', () => {
+      mockSessionData = session({ exercise_slots: [SLOT], reviewed_at: null });
+      renderSessionView();
+      expect(mockEnsureLogs.mutate).toHaveBeenCalledWith({
+        sessionId: 'sess-1',
+        slots: [SLOT],
+      });
+    });
+  });
+
+  // `reviewed_at` comes from a cached row and nothing pushes a review to the
+  // athlete's device, so "not reviewed" is only as true as the row is recent.
+  // The page asks for the row again when a review may have happened behind it.
+  describe('how the page learns of a review', () => {
+    it('asks for the row again when it opens on a confirmed session', () => {
+      mockConfirmation = { data: CONFIRMATION, isLoading: false };
+      mockSessionData = session({ reviewed_at: null });
+      const view = renderSessionView();
+
+      expect(mockRefetchSession).toHaveBeenCalledTimes(1);
+      // Joins a request already on its way instead of cancelling it.
+      expect(mockRefetchSession).toHaveBeenCalledWith({ cancelRefetch: false });
+
+      // An answer that still says "not reviewed" stands: no second request.
+      rerenderSessionView(view);
+      expect(mockRefetchSession).toHaveBeenCalledTimes(1);
+    });
+
+    it("asks again when the coach's feedback arrives", () => {
+      mockSessionData = session({ reviewed_at: null });
+      const view = renderSessionView();
+      expect(mockRefetchSession).not.toHaveBeenCalled();
+
+      mockFeedback = {
+        data: { id: 'msg-1', body: 'Good work.', created_at: REVIEWED_AT },
+      };
+      rerenderSessionView(view);
+      expect(mockRefetchSession).toHaveBeenCalledTimes(1);
+
+      // The answer: the feedback reviewed the session.
+      mockSessionData = session({ reviewed_at: REVIEWED_AT });
+      rerenderSessionView(view);
+      expect(lockLine()).toBeInTheDocument();
+      expect(mockRefetchSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not ask for a session in progress', () => {
+      mockSetLogsData = { data: [PENDING_LOG], isLoading: false };
+      mockSessionData = session({ exercise_slots: [SLOT], reviewed_at: null });
+      renderSessionView();
+      expect(mockRefetchSession).not.toHaveBeenCalled();
+    });
+
+    it('does not ask once the session is reviewed, or closed for another reason', () => {
+      mockConfirmation = { data: CONFIRMATION, isLoading: false };
+      mockFeedback = {
+        data: { id: 'msg-1', body: 'Good work.', created_at: REVIEWED_AT },
+      };
+
+      mockSessionData = session({ reviewed_at: REVIEWED_AT });
+      renderSessionView().unmount();
+      mockSessionData = session({ reviewed_at: null, program_is_active: false });
+      renderSessionView().unmount();
+      mockSessionData = session({ reviewed_at: null, archived_at: '2026-04-20T10:00:00Z' });
+      renderSessionView().unmount();
+
+      expect(mockRefetchSession).not.toHaveBeenCalled();
+    });
+
+    // A review without feedback sends nothing that would refresh the row, so
+    // the tap on Undo asks too — and the dialog does not outlive the answer.
+    it('asks once more on a tap on Undo, and a "reviewed" answer takes the dialog away', async () => {
+      const user = userEvent.setup();
+      mockConfirmation = { data: CONFIRMATION, isLoading: false };
+      mockSessionData = session({ reviewed_at: null });
+      const view = renderSessionView();
+      expect(mockRefetchSession).toHaveBeenCalledTimes(1);
+
+      await user.click(undoButton());
+      expect(mockRefetchSession).toHaveBeenCalledTimes(2);
+      expect(mockRefetchSession).toHaveBeenLastCalledWith({ cancelRefetch: false });
+      const dialog = screen.getByText(/undo confirmation\?/i).closest('dialog');
+      expect(within(dialog).getByRole('button', { name: /undo confirmation/i })).toBeInTheDocument();
+
+      mockSessionData = session({ reviewed_at: REVIEWED_AT });
+      rerenderSessionView(view);
+
+      expect(within(dialog).queryByRole('button', { name: /undo confirmation/i })).toBeNull();
+      expect(undoButton()).toBeNull();
+      expect(lockLine()).toBeInTheDocument();
+      expect(mockUnconfirm.mutate).not.toHaveBeenCalled();
+    });
   });
 });
