@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { DAY_FULL, DAY_LABELS } from '../../lib/day';
@@ -132,12 +132,33 @@ export function SortableSessionRow({ session, position, t }) {
 // Duplicate is a different matter and does belong here: building a block is a
 // run of near-identical sessions, and doing it from the editor costs two
 // navigations per copy. It is non-destructive, so a mis-tap is cheap.
+//
+// `confirmed` — the athlete confirmed the session. `trained` — they logged at
+// least one set in it. Either one means the row's subject is no longer a plan
+// to write but a workout to read, so the row opens the REVIEW (which carries
+// the way into the editor) instead of the editor. It used to open the editor
+// for every row, ✓ ones included: the coach's main daily task was two tabs
+// away from the page listing the sessions, and one tap away from deleting them.
 export default function SessionRow({
-  session, studentId, confirmed, position, onSetDay, onDuplicate, duplicating,
+  session, studentId, confirmed, trained, position, onSetDay, onDuplicate, duplicating,
   selecting, selected, onToggleSelect, t,
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const exCount = (session.exercise_slots || []).length;
+  const opensReview = !!(confirmed || trained);
+
+  function open() {
+    if (!opensReview) {
+      navigate(`/coach/students/${studentId}/s/${session.id}`);
+      return;
+    }
+    // `from` is what the review's back button returns to — this sheet, on the
+    // block it is showing (`?program=`), not the sessions feed.
+    navigate(`/coach/student/${studentId}/session/${session.id}/review`, {
+      state: { from: location.pathname + location.search },
+    });
+  }
 
   // In select mode the whole row is the checkbox target: a 44px-wide tick box
   // beside a 44px-wide day pill on a phone is two things to miss.
@@ -181,8 +202,8 @@ export default function SessionRow({
       <DayPill session={session} onPick={onSetDay} t={t} />
       <button
         type="button"
-        onClick={() => navigate(`/coach/students/${studentId}/s/${session.id}`)}
-        aria-label={t('coach.week.openSession')}
+        onClick={open}
+        aria-label={opensReview ? t('coachLoggedHistory.sheet.openReview') : t('coach.week.openSession')}
         className="flex-1 min-w-0 text-left flex items-baseline gap-2 group"
       >
         <span className="sl-display text-[14px] text-gray-900 truncate group-hover:text-[var(--color-accent)] transition-colors">
@@ -194,6 +215,17 @@ export default function SessionRow({
           {t('coach.week.exCount', { n: exCount })}
         </span>
       </button>
+      {/* Started, not confirmed: a hollow ring where the ✓ will be, so the row
+          says why it opens the review and not the editor. */}
+      {trained && !confirmed && (
+        <span
+          role="img"
+          aria-label={t('coachLoggedHistory.sheet.inProgress')}
+          title={t('coachLoggedHistory.sheet.inProgress')}
+          className="w-4 h-4 rounded-full shrink-0 border-2"
+          style={{ borderColor: 'var(--color-success)' }}
+        />
+      )}
       {confirmed && (
         <span
           aria-label={t('coach.week.confirmedByStudent')}

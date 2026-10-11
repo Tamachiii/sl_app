@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   DndContext,
   PointerSensor,
@@ -29,6 +29,7 @@ import {
 } from '../../hooks/useWeek';
 import { useDuplicateWeek, useDuplicateSession, useCopySessions } from '../../hooks/useDuplicate';
 import { useProgramConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
+import { useProgramLoggedSessionIds } from '../../hooks/useSession';
 import { useI18n } from '../../hooks/useI18n';
 import { compareSessions } from '../../lib/day';
 import { planSessionDrag } from '../../lib/sessionMove';
@@ -61,6 +62,7 @@ function activeSessions(week) {
 export default function ProgramSheet({ studentId, program }) {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const location = useLocation();
   const createWeek = useCreateWeek();
   const updateWeek = useUpdateWeek();
   const deleteWeek = useDeleteWeek();
@@ -75,6 +77,8 @@ export default function ProgramSheet({ studentId, program }) {
   const archiveSessions = useArchiveSessions();
   const copySessions = useCopySessions();
   const { data: confirmedIds } = useProgramConfirmedSessionIds(program.id);
+  // Started but not confirmed — see SessionRow for what the two decide.
+  const { data: loggedIds } = useProgramLoggedSessionIds(program.id);
 
   const weeks = useMemo(() => program.weeks || [], [program.weeks]);
 
@@ -290,7 +294,12 @@ export default function ProgramSheet({ studentId, program }) {
                           key={s.id}
                           session={s}
                           studentId={studentId}
-                          confirmed={confirmedIds?.has(s.id)}
+                          // `performed_at` is the confirmation mirrored on
+                          // the session row: it comes with the sheet's own
+                          // query, so a confirmed row never opens the editor
+                          // while the confirmations are still loading.
+                          confirmed={!!confirmedIds?.has(s.id) || !!s.performed_at}
+                          trained={!!loggedIds?.has(s.id)}
                           position={positions[i]}
                           onSetDay={(day) => updateSession.mutate({ id: s.id, day_number: day })}
                           onDuplicate={() => duplicateSession.mutate({ sessionId: s.id })}
@@ -328,7 +337,13 @@ export default function ProgramSheet({ studentId, program }) {
                   >
                     <button
                       type="button"
-                      onClick={() => navigate(`/coach/student/${studentId}/session/${s.id}/review`)}
+                      onClick={() =>
+                        navigate(`/coach/student/${studentId}/session/${s.id}/review`, {
+                          // So the review's back button returns here — it used
+                          // to hardcode the sessions feed.
+                          state: { from: location.pathname + location.search },
+                        })
+                      }
                       aria-label={t('coach.week.openArchivedSession')}
                       className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 text-left"
                     >
@@ -343,8 +358,8 @@ export default function ProgramSheet({ studentId, program }) {
                       </span>
                     </button>
                     {/* Restoring used to mean opening the session's review page —
-                        a full-page route whose back button lands on an unrelated
-                        feed, so it was a one-way trip out of Programming. */}
+                        a full-page route, so a trip out of Programming for a
+                        one-tap action. */}
                     <button
                       type="button"
                       onClick={() => archiveSession.mutate({ sessionId: s.id, archived: false })}

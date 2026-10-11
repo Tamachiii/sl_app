@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import {
   LOGGED_SET_COLUMNS,
+  LOGGED_SET_OR_FILTER,
   isProtectedSet,
   onlyPendingSets,
   loggedSetsError,
@@ -49,6 +50,47 @@ export function useSession(sessionId) {
       return data;
     },
     enabled: !!sessionId,
+  });
+}
+
+/**
+ * Coach-facing: the sessions of ONE program the athlete has started — at least
+ * one logged set — but not confirmed. The Program Sheet opens those in the
+ * review instead of the editor, like the confirmed ones; this is the half it
+ * cannot read off `['program']`, whose slot embed is ids only.
+ *
+ * Confirmed sessions are left out on purpose, with `performed_at IS NULL`: the
+ * sheet already knows them, and they are where nearly all the logged sets of a
+ * block live. What is left is a session in progress or one abandoned half-way
+ * — a few dozen rows, where "every logged set of the block" would brush
+ * PostgREST's 1000-row cap on a long one. Should the cap ever bite anyway, the
+ * failure is the safe one: a session missing from this set opens the editor,
+ * which locks its logged sets and links to the review itself.
+ *
+ * Same shape as useHardDeleteProgram's count (filter THROUGH the joins, never
+ * an id list), and the cached value is a plain array because a Set dehydrates
+ * to {} through a persister.
+ */
+export function useProgramLoggedSessionIds(programId) {
+  return useQuery({
+    queryKey: ['program-logged-session-ids', programId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('set_logs')
+        .select(
+          'exercise_slots!inner(session_id, sessions!inner(performed_at, archived_at, weeks!inner(program_id)))',
+        )
+        .eq('exercise_slots.sessions.weeks.program_id', programId)
+        .is('exercise_slots.sessions.performed_at', null)
+        // Archived sessions are not rows of the sheet.
+        .is('exercise_slots.sessions.archived_at', null)
+        .or(LOGGED_SET_OR_FILTER);
+      if (error) throw error;
+      const ids = (data || []).map((row) => row.exercise_slots?.session_id).filter(Boolean);
+      return [...new Set(ids)];
+    },
+    select: (ids) => new Set(ids),
+    enabled: !!programId,
   });
 }
 

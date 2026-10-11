@@ -1,7 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 
 const LAST_COACH_SESSION_KEY = 'sl_last_coach_session';
+// Where "back" lands when nothing says where the coach came from: a deep link,
+// a notification, a reload in another tab.
+const DEFAULT_ORIGIN = '/coach/sessions';
+
+// Only ever a coach route of this app. The value travels through router state
+// and localStorage, and it is handed to navigate().
+function coachPath(value) {
+  return typeof value === 'string' && value.startsWith('/coach/') ? value : null;
+}
+
+function readSavedReview() {
+  try {
+    return JSON.parse(localStorage.getItem(LAST_COACH_SESSION_KEY));
+  } catch {
+    return null;
+  }
+}
 import Spinner from '../ui/Spinner';
 import VideoLightbox from '../ui/VideoLightbox';
 import VideoPlayer from '../ui/VideoPlayer';
@@ -18,6 +35,7 @@ import { useStudents } from '../../hooks/useStudents';
 import { useSessionFeedback } from '../../hooks/useMessages';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useDeclinePromote } from '../../hooks/useAdoptSwap';
+import { useI18n } from '../../hooks/useI18n';
 import SlotProgress from './SlotProgress';
 import AdoptSwapDialog from './AdoptSwapDialog';
 import RemoveExerciseDialog from './RemoveExerciseDialog';
@@ -54,6 +72,23 @@ function SlotVideoStrip({ videos, onPlay }) {
 export default function SessionReview() {
   const { studentId, sessionId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const { t } = useI18n();
+
+  // Where the coach came from: the surface that opened this review says so in
+  // router state (`from`) — the athlete's sheet, the session editor, the feed
+  // with its filter. Router state does not survive the Sessions tab bouncing
+  // back into a review left open (SessionsFeed's restore navigates without
+  // it), so the origin is saved next to the review and read back for the SAME
+  // session.
+  const origin = useMemo(() => {
+    const fromState = coachPath(location.state?.from);
+    if (fromState) return fromState;
+    const saved = readSavedReview();
+    return saved?.studentId === studentId && saved?.sessionId === sessionId
+      ? coachPath(saved.from)
+      : null;
+  }, [location.state, studentId, sessionId]);
 
   // Persist so tabbing between Sessions and other tabs returns to this
   // review instead of dropping the coach back on the feed. Cleared on
@@ -63,16 +98,22 @@ export default function SessionReview() {
     try {
       localStorage.setItem(
         LAST_COACH_SESSION_KEY,
-        JSON.stringify({ studentId, sessionId }),
+        JSON.stringify({ studentId, sessionId, ...(origin ? { from: origin } : {}) }),
       );
     } catch { /* ignore */ }
-  }, [studentId, sessionId]);
+  }, [studentId, sessionId, origin]);
+
+  function forgetReview() {
+    try { localStorage.removeItem(LAST_COACH_SESSION_KEY); } catch { /* ignore */ }
+  }
 
   function handleBack() {
-    try { localStorage.removeItem(LAST_COACH_SESSION_KEY); } catch { /* ignore */ }
-    // Explicit parent — history's previous entry can be any tab the coach
-    // came through (and the SessionsFeed restore redirect complicates it).
-    navigate('/coach/sessions');
+    forgetReview();
+    // An explicit destination, never history.back(): the previous history
+    // entry can be any tab the coach came through (and the SessionsFeed
+    // restore redirect complicates it). It is the page that opened the review
+    // when that page said so, the feed otherwise.
+    navigate(origin || DEFAULT_ORIGIN);
   }
 
   const { data: session, isLoading } = useSession(sessionId);
@@ -134,6 +175,20 @@ export default function SessionReview() {
             {session?.title || 'Session'}
           </h1>
         </div>
+        {/* The way into the editor, now that a trained session's row on the
+            sheet opens this page. It is called "editor", not "edit": on a
+            confirmed session the editor is read-only and says why. Leaving
+            through it is deliberate, so the Sessions tab must not bounce back
+            here afterwards. */}
+        <Link
+          to={`/coach/students/${studentId}/s/${sessionId}`}
+          onClick={forgetReview}
+          aria-label={t('coachLoggedHistory.review.openEditorAria')}
+          title={t('coachLoggedHistory.review.openEditorAria')}
+          className="sl-pill shrink-0 bg-ink-100 text-ink-700 hover:bg-ink-200"
+        >
+          {t('coachLoggedHistory.review.openEditor')}
+        </Link>
         <button
           onClick={() => archiveSession.mutate({ sessionId, archived: !isArchived })}
           disabled={archiveSession.isPending}

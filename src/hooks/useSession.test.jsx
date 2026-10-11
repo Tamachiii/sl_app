@@ -13,6 +13,7 @@ import {
   useResetSlotToUniform,
   useDeleteSlot,
   useMarkSessionReviewed,
+  useProgramLoggedSessionIds,
 } from './useSession';
 import { supabase } from '../lib/supabase';
 import { mutationErrorKey } from '../lib/mutationErrors';
@@ -158,6 +159,65 @@ describe('useSession', () => {
       expect(columns).toContain(col);
     }
     expect(columns).not.toContain('weight_kg');
+  });
+});
+
+describe('useProgramLoggedSessionIds', () => {
+  function chainReturning(rows) {
+    const chain = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      is: vi.fn().mockReturnThis(),
+      or: vi.fn().mockResolvedValue({ data: rows, error: null }),
+    };
+    supabase.from.mockReturnValue(chain);
+    return chain;
+  }
+
+  it('returns, as a Set, each session of the program that holds a logged set — once', async () => {
+    chainReturning([
+      { exercise_slots: { session_id: 'sess-2' } },
+      { exercise_slots: { session_id: 'sess-2' } },
+      { exercise_slots: { session_id: 'sess-5' } },
+    ]);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useProgramLoggedSessionIds('prog-1'), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data).toBeInstanceOf(Set);
+    expect([...result.current.data]).toEqual(['sess-2', 'sess-5']);
+    // What is CACHED is a plain array: a Set dehydrates to {}.
+    expect(qc.getQueryData(['program-logged-session-ids', 'prog-1'])).toEqual(['sess-2', 'sess-5']);
+  });
+
+  it('filters through the joins: this program, logged rows, unconfirmed and unarchived sessions', async () => {
+    const chain = chainReturning([]);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useProgramLoggedSessionIds('prog-1'), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(supabase.from).toHaveBeenCalledWith('set_logs');
+    expect(chain.eq).toHaveBeenCalledWith('exercise_slots.sessions.weeks.program_id', 'prog-1');
+    // Confirmed sessions hold nearly every logged set of a block and the sheet
+    // already knows them: leaving them out is what keeps this read small.
+    expect(chain.is).toHaveBeenCalledWith('exercise_slots.sessions.performed_at', null);
+    expect(chain.is).toHaveBeenCalledWith('exercise_slots.sessions.archived_at', null);
+    const or = chain.or.mock.calls[0][0];
+    for (const col of ['done', 'failed', 'skipped', 'rpe', 'actual_reps', 'actual_weight_kg']) {
+      expect(or).toContain(`${col}.`);
+    }
+    // Every embed on the path is an inner join, or the filters above would
+    // only blank the embedded object instead of dropping the row.
+    expect(chain.select.mock.calls[0][0].match(/!inner/g)).toHaveLength(3);
+  });
+
+  it('does not run without a program id', () => {
+    const qc = makeClient();
+    const { result } = renderHook(() => useProgramLoggedSessionIds(undefined), { wrapper: withClient(qc) });
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(supabase.from).not.toHaveBeenCalled();
   });
 });
 

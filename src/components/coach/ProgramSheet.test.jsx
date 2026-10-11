@@ -49,6 +49,12 @@ vi.mock('../../hooks/useSessionConfirmation', () => ({
   useProgramConfirmedSessionIds: () => mockConfirmed,
 }));
 
+// Sessions the athlete has started (a logged set) without confirming.
+let mockLogged = { data: new Set() };
+vi.mock('../../hooks/useSession', () => ({
+  useProgramLoggedSessionIds: () => mockLogged,
+}));
+
 // CopyDialog pulls the student list + program hooks; stub them out so this
 // test stays focused on the sheet itself.
 vi.mock('../../hooks/useStudents', () => ({
@@ -90,9 +96,9 @@ const program = {
 
 const oneWeek = { id: 'prog-1', weeks: [program.weeks[0]] };
 
-function renderSheet(p = program) {
+function renderSheet(p = program, at = '/coach/students/s-1') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[at]}>
       <ProgramSheet studentId="s-1" program={p} />
     </MemoryRouter>,
   );
@@ -102,6 +108,7 @@ describe('ProgramSheet', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockConfirmed = { data: new Set() };
+    mockLogged = { data: new Set() };
     localStorage.clear();
   });
 
@@ -445,6 +452,77 @@ describe('ProgramSheet', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/coach/students/s-1/s/sess-1');
   });
 
+  // Review finding P12. Every row used to open the editor, ✓ rows included:
+  // reviewing — the coach's daily task — meant leaving for the Sessions tab and
+  // finding the session again, while the tap that was on offer led to the one
+  // screen able to delete what the athlete had logged.
+  describe('a session the athlete has trained opens its review', () => {
+    const reviewOf = (id) => `/coach/student/s-1/session/${id}/review`;
+    const fromSheet = { state: { from: '/coach/students/s-1' } };
+
+    function rowButton(title) {
+      return screen.getByText(title).closest('button');
+    }
+
+    it('when it is confirmed', async () => {
+      const user = userEvent.setup();
+      mockConfirmed = { data: new Set(['sess-1']) };
+      renderSheet();
+      expect(rowButton('Pull')).toHaveAccessibleName('Open the review');
+      await user.click(rowButton('Pull'));
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+      expect(mockNavigate).toHaveBeenCalledWith(reviewOf('sess-1'), fromSheet);
+    });
+
+    it('when it has logged sets but is not confirmed, and the row says so', async () => {
+      const user = userEvent.setup();
+      mockLogged = { data: new Set(['sess-2']) };
+      renderSheet();
+      expect(screen.getAllByRole('img', { name: /started by the athlete/i })).toHaveLength(1);
+      expect(screen.queryByLabelText(/confirmed by student/i)).toBeNull();
+      await user.click(rowButton('Push'));
+      expect(mockNavigate).toHaveBeenCalledWith(reviewOf('sess-2'), fromSheet);
+    });
+
+    // `performed_at` is the confirmation mirrored on the session row. It comes
+    // with the sheet's own data, so a confirmed session does not open the
+    // editor during the moment the confirmations query is still loading.
+    it('on the session row alone, while the confirmations are still loading', async () => {
+      const user = userEvent.setup();
+      mockConfirmed = { data: undefined };
+      mockLogged = { data: undefined };
+      const p = structuredClone(program);
+      p.weeks[1].sessions[0].performed_at = '2026-10-01T00:00:00Z';
+      renderSheet(p);
+      expect(screen.getAllByLabelText(/confirmed by student/i)).toHaveLength(1);
+      await user.click(rowButton('Legs'));
+      expect(mockNavigate).toHaveBeenCalledWith(reviewOf('sess-3'), fromSheet);
+    });
+
+    it('leaves every other row on the editor', async () => {
+      const user = userEvent.setup();
+      mockConfirmed = { data: new Set(['sess-1']) };
+      mockLogged = { data: new Set(['sess-2']) };
+      renderSheet();
+      expect(screen.getAllByRole('button', { name: 'Open the review' })).toHaveLength(2);
+      expect(rowButton('Legs')).toHaveAccessibleName('Open session');
+      await user.click(rowButton('Legs'));
+      expect(mockNavigate).toHaveBeenCalledWith('/coach/students/s-1/s/sess-3');
+    });
+
+    // Back from the review must land on the block the coach was looking at,
+    // which is the `?program=` of the sheet's URL when it is not the active one.
+    it('hands the review the page to come back to, block included', async () => {
+      const user = userEvent.setup();
+      mockConfirmed = { data: new Set(['sess-1']) };
+      renderSheet(program, '/coach/students/s-1?program=prog-1');
+      await user.click(rowButton('Pull'));
+      expect(mockNavigate).toHaveBeenCalledWith(reviewOf('sess-1'), {
+        state: { from: '/coach/students/s-1?program=prog-1' },
+      });
+    });
+  });
+
   it('writes day_number when a weekday is picked', async () => {
     const user = userEvent.setup();
     renderSheet();
@@ -509,7 +587,11 @@ describe('ProgramSheet', () => {
     const archived = screen.getByRole('button', { name: /open archived session/i });
     expect(within(archived).getByText('Old')).toBeInTheDocument();
     await user.click(archived);
-    expect(mockNavigate).toHaveBeenCalledWith('/coach/student/s-1/session/sess-old/review');
+    // …and the review is told where to come back to: it used to hardcode the
+    // sessions feed, a one-way trip out of Programming.
+    expect(mockNavigate).toHaveBeenCalledWith('/coach/student/s-1/session/sess-old/review', {
+      state: { from: '/coach/students/s-1' },
+    });
   });
 
   // A one-phase block and a six-phase one are now the SAME layout. The old

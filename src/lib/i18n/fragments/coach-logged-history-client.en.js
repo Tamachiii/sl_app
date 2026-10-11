@@ -13,5 +13,13 @@ export default {
       setLogged: 'Set {n} is logged',
       removeBlocked: 'This exercise has logged sets and cannot be removed',
     },
+    sheet: {
+      openReview: 'Open the review',
+      inProgress: 'Started by the athlete, not confirmed yet',
+    },
+    review: {
+      openEditor: 'editor',
+      openEditorAria: 'Open this session in the editor',
+    },
   },
 };

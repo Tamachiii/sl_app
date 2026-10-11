@@ -71,9 +71,11 @@ vi.mock('../../hooks/useMessages', () => ({
 
 import SessionReview from './SessionReview';
 
-function renderReview() {
+// `entry` is the history entry the review is opened from: a path, or
+// `{ pathname, state }` when the opener said where to come back to.
+function renderReview(entry = '/coach/student/st-1/session/sess-1/review') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[entry]}>
       <SessionReview />
     </MemoryRouter>,
   );
@@ -147,6 +149,103 @@ describe('<SessionReview />', () => {
     fireEvent.click(screen.getByLabelText('Back'));
     expect(localStorage.getItem('sl_last_coach_session')).toBeNull();
     expect(mockNavigate).toHaveBeenCalledWith('/coach/sessions');
+  });
+
+  // Review finding P12: the back button always went to the sessions feed, so a
+  // review opened from an athlete's sheet was a one-way trip out of it.
+  describe('going back where the coach came from', () => {
+    const KEY = 'sl_last_coach_session';
+    const REVIEW = '/coach/student/st-1/session/sess-1/review';
+    const session = {
+      data: { id: 'sess-1', title: 'Push', archived_at: null, exercise_slots: [] },
+      isLoading: false,
+    };
+
+    beforeEach(() => {
+      mockSessionData = session;
+    });
+
+    it.each([
+      ['the athlete page, on its block', '/coach/students/st-1?program=prog-2'],
+      ['the session editor', '/coach/students/st-1/s/sess-1'],
+      ['the feed, on its filter', '/coach/sessions?student=st-1'],
+    ])('returns to %s', (_label, from) => {
+      renderReview({ pathname: REVIEW, state: { from } });
+      fireEvent.click(screen.getByLabelText('Back'));
+      expect(mockNavigate).toHaveBeenCalledWith(from);
+      expect(localStorage.getItem(KEY)).toBeNull();
+    });
+
+    // Sending feedback or finishing without it ends the review the same way
+    // the back button does.
+    it('returns there after "Finish without feedback" too', () => {
+      renderReview({ pathname: REVIEW, state: { from: '/coach/students/st-1' } });
+      fireEvent.click(screen.getByRole('button', { name: /finish without feedback/i }));
+      mockMarkReviewed.mutate.mock.calls[0][1].onSettled();
+      expect(mockNavigate).toHaveBeenCalledWith('/coach/students/st-1');
+    });
+
+    // The Sessions tab bounces back into a review left open, and that redirect
+    // carries no router state. The origin is saved with the review for it.
+    it('saves the origin with the open review, and reads it back without router state', () => {
+      const { unmount } = renderReview({ pathname: REVIEW, state: { from: '/coach/students/st-1' } });
+      expect(JSON.parse(localStorage.getItem(KEY))).toEqual({
+        studentId: 'st-1',
+        sessionId: 'sess-1',
+        from: '/coach/students/st-1',
+      });
+      unmount();
+
+      renderReview(REVIEW);
+      fireEvent.click(screen.getByLabelText('Back'));
+      expect(mockNavigate).toHaveBeenCalledWith('/coach/students/st-1');
+    });
+
+    it('ignores an origin saved for another session', () => {
+      localStorage.setItem(
+        KEY,
+        JSON.stringify({ studentId: 'st-9', sessionId: 'sess-9', from: '/coach/students/st-9' }),
+      );
+      renderReview(REVIEW);
+      fireEvent.click(screen.getByLabelText('Back'));
+      expect(mockNavigate).toHaveBeenCalledWith('/coach/sessions');
+    });
+
+    it.each([
+      ['a student route', '/student'],
+      ['another site', 'https://example.com/coach/'],
+      ['not a string', { pathname: '/coach/students' }],
+    ])('falls back to the feed when the origin is %s', (_label, from) => {
+      renderReview({ pathname: REVIEW, state: { from } });
+      fireEvent.click(screen.getByLabelText('Back'));
+      expect(mockNavigate).toHaveBeenCalledWith('/coach/sessions');
+    });
+  });
+
+  // The sheet now opens a trained session HERE, so this page carries the way
+  // into the editor.
+  describe('the way into the editor', () => {
+    beforeEach(() => {
+      mockSessionData = {
+        data: { id: 'sess-1', title: 'Push', archived_at: null, exercise_slots: [] },
+        isLoading: false,
+      };
+    });
+
+    it('links to the session editor inside the athlete shell', () => {
+      renderReview();
+      expect(screen.getByRole('link', { name: /open this session in the editor/i }))
+        .toHaveAttribute('href', '/coach/students/st-1/s/sess-1');
+    });
+
+    // Leaving through it is deliberate: the Sessions tab must not bounce the
+    // coach back into this review afterwards.
+    it('forgets the open review when it is used', () => {
+      renderReview();
+      expect(localStorage.getItem('sl_last_coach_session')).not.toBeNull();
+      fireEvent.click(screen.getByRole('link', { name: /open this session in the editor/i }));
+      expect(localStorage.getItem('sl_last_coach_session')).toBeNull();
+    });
   });
 
   it('archive button toggles archived state via useArchiveSession', () => {
