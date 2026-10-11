@@ -19,6 +19,10 @@ CREATE TABLE public.profiles (
 );
 
 -- Students (links a student profile to a coach)
+-- The root of the authorization model: every "Coaches …" policy below asks
+-- this table who coaches whom. No signed-in user inserts or deletes a row,
+-- and none moves a link; what a row may say is held by trg_check_students_link
+-- (section THE COACH ↔ ATHLETE LINK, 2026_10_11_05).
 CREATE TABLE public.students (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   profile_id  uuid NOT NULL UNIQUE REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -259,6 +263,28 @@ AS $$
       OR sl.actual_weight_kg IS NOT NULL
 $$;
 
+-- Is the caller a coach? (2026_10_11_05)
+-- The role is profiles.role, which a signed-in user cannot change
+-- (profiles_pin_immutable_columns). SECURITY DEFINER because it is called
+-- from policies: it must not depend on what the caller may read. It answers
+-- about the caller only, who can read that row anyway.
+-- In a policy it is written (SELECT public.is_coach()): asked once per
+-- statement, not once per row. A policy that lets a COACH write something
+-- asks for it — `coach_id = auth.uid()` alone is true for any account that
+-- puts its own id in the column.
+CREATE OR REPLACE FUNCTION public.is_coach()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.profiles p
+     WHERE p.id = auth.uid() AND p.role = 'coach'
+  )
+$$;
+
 -- ============================================================
 -- ROW LEVEL SECURITY
 -- ============================================================
@@ -309,17 +335,20 @@ CREATE POLICY "Students see own row"
   ON public.students FOR SELECT
   USING (profile_id = auth.uid());
 
-CREATE POLICY "Coaches insert students"
-  ON public.students FOR INSERT
-  WITH CHECK (coach_id = auth.uid());
-
+-- No INSERT policy and no DELETE policy (2026_10_11_05): with row-level
+-- security on, that is "nobody who goes through the API as a user". A link is
+-- created and removed by the owner of the database (SQL editor) or with the
+-- service-role key. Do NOT add one back with `coach_id = auth.uid()`: any
+-- account can put its own id there, and made itself the coach of its coach
+-- that way (review P7, L2). The app only reads this table.
+--
+-- UPDATE stays, for the columns that are not the link (notes, today): the
+-- coach of the row, who is a coach, and the row it leaves must still be
+-- theirs. trg_check_students_link keeps the link itself.
 CREATE POLICY "Coaches update their students"
   ON public.students FOR UPDATE
-  USING (coach_id = auth.uid());
-
-CREATE POLICY "Coaches delete their students"
-  ON public.students FOR DELETE
-  USING (coach_id = auth.uid());
+  USING (coach_id = auth.uid() AND (SELECT public.is_coach()))
+  WITH CHECK (coach_id = auth.uid() AND (SELECT public.is_coach()));
 
 -- PROGRAMS
 CREATE POLICY "Coaches manage programs"
@@ -379,9 +408,13 @@ CREATE POLICY "Students read own sessions"
   );
 
 -- EXERCISE LIBRARY
+-- USING: the owner of a row reads it and may delete it. WITH CHECK: a new or
+-- edited row is written by a coach (2026_10_11_05) — without the role, any
+-- account could fill a library of its own under its own id.
 CREATE POLICY "Coaches manage own library"
   ON public.exercise_library FOR ALL
-  USING (coach_id = auth.uid());
+  USING (coach_id = auth.uid())
+  WITH CHECK (coach_id = auth.uid() AND (SELECT public.is_coach()));
 
 CREATE POLICY "Students read their coachs library"
   ON public.exercise_library FOR SELECT
@@ -2897,6 +2930,182 @@ CREATE TRIGGER block_slot_sets_below_logged_set
   EXECUTE FUNCTION public.block_slot_sets_below_logged_set();
 
 -- ============================================================
+-- THE COACH ↔ ATHLETE LINK (2026_10_11_05_students_role_gate)
+--
+-- public.students says who coaches whom, and every "Coaches …" policy of
+-- this file is written against it: a row that should not exist gives its
+-- coach_id the reach of a coach over its profile_id. Three things hold it:
+--
+--   who writes a row     no INSERT and no DELETE policy; UPDATE for the coach
+--                        of the row, who is a coach (STUDENTS, above)
+--   what a row may say   trg_check_students_link, for EVERY writer — the SQL
+--                        editor and the service role included
+--   whose exercises      a slot, and the substitute of a swap, take an
+--                        exercise of the library of the program's coach; the
+--                        library itself is written by a coach (is_coach())
+--
+-- A new link is made by the owner of the database:
+--   insert into public.students (profile_id, coach_id) values (…, …);
+-- (docs/runbook/migrations/05-students-role-gate.md — "Linking an athlete to
+-- a coach".)
+-- ============================================================
+
+-- What a row of students may say.
+--   * a signed-in user cannot move the link: id, profile_id and coach_id stay
+--     what they were. Moving an athlete to another coach is done without a
+--     user id, where the new link is checked like a new row.
+--   * a new link, or one that moves: two different profiles, the coach with
+--     the role coach, the athlete with the role student.
+--   * a row whose link does not move is not judged again, so a column next to
+--     it can always be written.
+-- A profile that does not exist is left to the foreign key, which says it
+-- better.
+CREATE OR REPLACE FUNCTION public.check_students_link()
+RETURNS trigger AS $$
+DECLARE
+  v_role text;
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    IF auth.uid() IS NOT NULL
+       AND (NEW.id IS DISTINCT FROM OLD.id
+            OR NEW.profile_id IS DISTINCT FROM OLD.profile_id
+            OR NEW.coach_id IS DISTINCT FROM OLD.coach_id) THEN
+      RAISE EXCEPTION 'the coach-athlete link % cannot be changed from the app', OLD.id
+        USING ERRCODE = 'insufficient_privilege',
+              HINT = 'students.id, profile_id and coach_id are written by the owner of the database only.';
+    END IF;
+    IF NEW.profile_id IS NOT DISTINCT FROM OLD.profile_id
+       AND NEW.coach_id IS NOT DISTINCT FROM OLD.coach_id THEN
+      RETURN NEW;
+    END IF;
+  END IF;
+
+  IF NEW.profile_id = NEW.coach_id THEN
+    RAISE EXCEPTION 'students: profile % cannot be its own coach', NEW.coach_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  SELECT p.role INTO v_role FROM public.profiles p WHERE p.id = NEW.coach_id;
+  IF v_role IS NOT NULL AND v_role <> 'coach' THEN
+    RAISE EXCEPTION 'students.coach_id % is not a coach: its profile has the role %', NEW.coach_id, v_role
+      USING ERRCODE = 'check_violation',
+            HINT = 'Only a profile with the role coach can be given athletes.';
+  END IF;
+
+  SELECT p.role INTO v_role FROM public.profiles p WHERE p.id = NEW.profile_id;
+  IF v_role IS NOT NULL AND v_role <> 'student' THEN
+    RAISE EXCEPTION 'students.profile_id % is not an athlete: its profile has the role %', NEW.profile_id, v_role
+      USING ERRCODE = 'check_violation',
+            HINT = 'Only a profile with the role student can be linked to a coach.';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+CREATE TRIGGER trg_check_students_link
+  BEFORE INSERT OR UPDATE ON public.students
+  FOR EACH ROW
+  EXECUTE FUNCTION public.check_students_link();
+
+-- A slot takes an exercise of the library of its program's coach — the
+-- coach_id of the athlete the program belongs to. Asked when the slot is
+-- created or when its exercise changes: after an athlete changed coach, the
+-- slots that still hold the former coach's exercises can be edited in every
+-- other column, and take an exercise of the new library the day theirs is
+-- replaced. For every writer. A session or an exercise that does not exist is
+-- left to the foreign key.
+CREATE OR REPLACE FUNCTION public.check_slot_exercise_in_coach_library()
+RETURNS trigger AS $$
+DECLARE
+  v_program_coach uuid;
+  v_library_coach uuid;
+BEGIN
+  IF TG_OP = 'UPDATE' AND NEW.exercise_id IS NOT DISTINCT FROM OLD.exercise_id THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT st.coach_id INTO v_program_coach
+    FROM public.sessions se
+    JOIN public.weeks w     ON w.id = se.week_id
+    JOIN public.programs p  ON p.id = w.program_id
+    JOIN public.students st ON st.id = p.student_id
+   WHERE se.id = NEW.session_id;
+  SELECT el.coach_id INTO v_library_coach
+    FROM public.exercise_library el
+   WHERE el.id = NEW.exercise_id;
+
+  IF v_program_coach IS NOT NULL AND v_library_coach IS NOT NULL
+     AND v_library_coach <> v_program_coach THEN
+    RAISE EXCEPTION 'exercise % is not in the library of the coach of this program', NEW.exercise_id
+      USING ERRCODE = 'check_violation',
+            HINT = 'An exercise slot takes an exercise from the library of its athlete''s coach.';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+CREATE TRIGGER trg_check_slot_exercise_in_coach_library
+  BEFORE INSERT OR UPDATE OF exercise_id ON public.exercise_slots
+  FOR EACH ROW
+  EXECUTE FUNCTION public.check_slot_exercise_in_coach_library();
+
+-- The substitute of a swap, by the same rule. A skip has none.
+--
+-- The app saves a deviation as an upsert: INSERT … ON CONFLICT (exercise_slot_id)
+-- DO UPDATE. PostgreSQL fires the INSERT trigger on the proposed row first,
+-- whether or not the slot already has a deviation. When it has one with this
+-- same substitute, the statement can only become the UPDATE of that row (or
+-- fail on the unique key) and the substitute does not change: it is not asked
+-- again, so that a swap made before a change of coach can still take a note.
+CREATE OR REPLACE FUNCTION public.check_deviation_substitute_in_coach_library()
+RETURNS trigger AS $$
+DECLARE
+  v_program_coach uuid;
+  v_library_coach uuid;
+BEGIN
+  IF NEW.substitute_exercise_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'UPDATE' THEN
+    IF NEW.substitute_exercise_id IS NOT DISTINCT FROM OLD.substitute_exercise_id THEN
+      RETURN NEW;
+    END IF;
+  ELSIF EXISTS (
+    SELECT 1 FROM public.slot_deviations d
+     WHERE d.exercise_slot_id = NEW.exercise_slot_id
+       AND d.substitute_exercise_id = NEW.substitute_exercise_id
+  ) THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT st.coach_id INTO v_program_coach
+    FROM public.exercise_slots es
+    JOIN public.sessions se ON se.id = es.session_id
+    JOIN public.weeks w     ON w.id = se.week_id
+    JOIN public.programs p  ON p.id = w.program_id
+    JOIN public.students st ON st.id = p.student_id
+   WHERE es.id = NEW.exercise_slot_id;
+  SELECT el.coach_id INTO v_library_coach
+    FROM public.exercise_library el
+   WHERE el.id = NEW.substitute_exercise_id;
+
+  IF v_program_coach IS NOT NULL AND v_library_coach IS NOT NULL
+     AND v_library_coach <> v_program_coach THEN
+    RAISE EXCEPTION 'substitute exercise % is not in the library of the coach of this program', NEW.substitute_exercise_id
+      USING ERRCODE = 'check_violation',
+            HINT = 'A swap takes an exercise from the library of the athlete''s coach.';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+CREATE TRIGGER trg_check_deviation_substitute_in_coach_library
+  BEFORE INSERT OR UPDATE OF substitute_exercise_id ON public.slot_deviations
+  FOR EACH ROW
+  EXECUTE FUNCTION public.check_deviation_substitute_in_coach_library();
+
+-- ============================================================
 -- Client error telemetry (2026_07_13)
 -- Insert-only per authenticated user (own errors); coach-only read for
 -- in-app triage. No UPDATE/DELETE — append-only. Prune with:
@@ -3111,7 +3320,8 @@ GRANT EXECUTE ON FUNCTION
   public.program_active_for_slot(uuid),
   public.program_is_own_draft(uuid),
   public.week_is_own_draft(uuid),
-  public.session_is_own_draft(uuid)
+  public.session_is_own_draft(uuid),
+  public.is_coach()
 TO authenticated;
 
 -- The RPCs the app calls. The five coach RPCs authorize the caller themselves
@@ -3169,4 +3379,5 @@ INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_03_01_migration_ledger'),
   ('2026_10_03_02_rpc_auth_null_guard'),
   ('2026_10_11_03_function_grants_lockdown'),
-  ('2026_10_11_04_logged_history_guards');
+  ('2026_10_11_04_logged_history_guards'),
+  ('2026_10_11_05_students_role_gate');

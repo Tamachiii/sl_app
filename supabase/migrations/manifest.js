@@ -40,6 +40,12 @@ export const REFUSAL = {
   notApplied: 'SLM03',
   /** A rollback: something applied later still needs what it would remove. */
   stillNeeded: 'SLM04',
+  /**
+   * A migration: rows that are already in the database break the rule it is
+   * about to enforce. Its audit counts them and its runbook page says how to
+   * remove them; then the file is run again.
+   */
+  rowsInTheWay: 'SLM05',
 };
 
 /** The files that belong to one migration, relative to the repository root. */

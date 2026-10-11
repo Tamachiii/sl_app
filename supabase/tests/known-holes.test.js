@@ -158,12 +158,18 @@ describe('P1 — coach-only RPCs called by anon (no JWT)', () => {
 });
 
 // ------------------------------------------------------------
-// P7 / L2 — "Coaches insert students" only checks coach_id = auth.uid(): it
-// never looks at profiles.role. The coach has no `students` row of its own,
-// so a student can register its coach as "its athlete".
+// P7 / L2 — CLOSED by 2026_10_11_05_students_role_gate: this one is a plain
+// test now. "Coaches insert students" only checked coach_id = auth.uid(): it
+// never looked at profiles.role. The coach has no `students` row of its own,
+// so a student could register its coach as "its athlete". The INSERT policy
+// is gone — no signed-in user inserts a row — and a trigger refuses, for
+// every writer, a link whose coach is not a coach. Every other path — the
+// UPDATE that re-points a row, the DELETE, the exercise library, the exercise
+// of a slot and of a swap, the SQL editor and the service role — is in
+// students-gate.test.js.
 // ------------------------------------------------------------
 describe('P7/L2 — the coach ↔ athlete link can be forged', () => {
-  it.fails('P7/L2 — a student cannot insert a students row making itself the coach of its coach', () => scenario(async (q) => {
+  it('P7/L2 — a student cannot insert a students row making itself the coach of its coach', () => scenario(async (q) => {
     const forged = await attempt(() => asUser(ids.studentA, (student) => student(
       `insert into students (profile_id, coach_id) values ($1, $2)`, [ids.coach.id, ids.studentA.id],
     )));
@@ -171,6 +177,19 @@ describe('P7/L2 — the coach ↔ athlete link can be forged', () => {
       await q.value(`select count(*) from students where coach_id = $1`, [ids.studentA.id]),
       `the insert ${forged.ok ? 'succeeded' : `failed: ${forged.error.message}`}`,
     ).toBe(0);
+  }));
+
+  // Controls — the link is still made, by the one who may, and still read.
+  it('control: the owner of the database links a new athlete to the coach, and both sides see the link', () => scenario(async (q) => {
+    const newcomer = await q.value(
+      `insert into auth.users (email, aud, role, email_confirmed_at, raw_user_meta_data)
+       values ('newcomer@sl.test', 'authenticated', 'authenticated', now(), '{"full_name": "Nora Newcomer"}')
+       returning id`,
+    );
+    await q(`insert into students (profile_id, coach_id) values ($1, $2)`, [newcomer, ids.coach.id]);
+    expect(await asUser(ids.coach, (coach) => coach.value(`select count(*) from students`))).toBe(3);
+    expect(await asUser(newcomer, (athlete) => athlete.rows(`select coach_id from students`)))
+      .toEqual([{ coach_id: ids.coach.id }]);
   }));
 });
 

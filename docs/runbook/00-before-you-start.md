@@ -96,6 +96,7 @@ What an error means:
 |---|---|---|
 | `is already applied` (code `SLM01`) | this file is in the ledger | nothing — it changed nothing |
 | `needs …, which is not applied` (code `SLM02`) | the migration before it is missing | apply that one first |
+| code `SLM05` | rows that are already in the database break the rule this migration brings; the message names the first of them | nothing was changed; the migration's page says how to list and remove them, then run the file again |
 | `canceling statement due to lock timeout` | a table was in use for more than 5 seconds | nothing was changed; run the file again |
 | anything else | the file failed | nothing was changed; stop and report the full message |
 

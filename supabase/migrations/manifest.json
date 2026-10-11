@@ -36,6 +36,15 @@
       "covers": ["P3", "P17"],
       "reversible": true,
       "summary": "A logged set (set_log_is_logged: done, failed, skipped, an RPE or an actual) or one with a video cannot be deleted, directly or by a cascade, from set_logs up to programs; exercise_slots.sets cannot go below one; a signed-in user's edit leaves the targets of a logged set as they were; adopt_swap and adopt_skip leave alone a slot with a logged set, a video or a comment; SET LOCAL app.allow_history_delete = 'on' lets a statement without a user id through."
+    },
+    {
+      "name": "2026_10_11_05_students_role_gate",
+      "kind": "required",
+      "wave": 1,
+      "checkpoint": "A2",
+      "covers": ["P7", "L2"],
+      "reversible": true,
+      "summary": "No signed-in user inserts or deletes a students row, and none moves its link; every row written, by anyone, links a profile with the role coach to another one with the role student; exercise_library rows are added and edited by a coach only (is_coach()); the exercise of a slot and the substitute of a swap come from the library of the program's coach. The migration refuses to run (SLM05) while a link the gate would refuse exists."
     }
   ]
 }

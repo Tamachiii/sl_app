@@ -120,6 +120,32 @@ Since migration 04 a set the athlete has logged — `public.set_log_is_logged(sl
 - **An `UPDATE` of `target_*`** by a migration is written to logged sets too: the pin (`trg_pin_logged_set_log_targets`) is for a signed-in user. Add `WHERE NOT public.set_log_is_logged(sl)` unless rewriting what was lifted is the point of the migration.
 - **"Already trained"** is spelled `public.set_log_is_logged(sl)` wherever SQL needs it — never the six columns again.
 
+## A migration that touches who coaches whom, a library or a slot
+
+Since migration 05 `public.students` — the table every "Coaches …" policy reads — is written by the owner of the database only, and three triggers judge what is written, **for every writer: a migration and a `SECURITY DEFINER` function included**. `supabase/tests/students-gate.test.js` holds it.
+
+- **A link** (`INSERT` into `students`, or an `UPDATE` of `profile_id` / `coach_id`) joins a profile with the role `coach` to another one with the role `student`, or `trg_check_students_link` raises `23514`. With a user id the link does not move at all (`42501`), whatever role the statement runs as: a function that moves an athlete is not granted to `authenticated`, and is called from the SQL editor or with the service-role key.
+- **Never an `INSERT` or a `DELETE` policy on `students`**, and never a policy that lets a coach write on `coach_id = auth.uid()` alone: any account can put its own id in that column. A policy that lets a COACH write a row asks for the role next to the ownership:
+
+  ```sql
+  WITH CHECK (coach_id = auth.uid() AND (SELECT public.is_coach()))
+  ```
+
+  Written as a sub-select, it is asked once per statement. Keep it out of a `USING` that a `SELECT` goes through (a `FOR ALL` policy): `is_coach()` is not executable without a session, and a read that answered "no rows" would answer `permission denied for function is_coach`.
+- **An exercise** written into `exercise_slots.exercise_id` or `slot_deviations.substitute_exercise_id` is in the library of the program's coach (`students.coach_id` of the athlete the program belongs to), or the trigger raises `23514` (`… is not in the library of the coach of this program`). It is asked on `INSERT` and when the exercise changes — so a function that COPIES slots is asked for every copy, and must decide what it does with a slot that holds another coach's exercise (an athlete who changed coach) before it inserts: leave it out and say so, not fail half-way.
+- **Never** drop or disable one of the three triggers to get a row through. A row the gate refuses is a row that should not be written.
+
+## A migration that brings a rule the rows already there may break
+
+A trigger or a policy judges what is written after it. When rows that are already in the database break the rule **and leaving them would leave the hole in use**, the migration refuses to start:
+
+- its guard counts them and raises `SLM05` (`REFUSAL.rowsInTheWay`) before anything is touched, naming the first five and the runbook page. It takes the lock that keeps the table as counted until `COMMIT` (`LOCK TABLE … IN SHARE ROW EXCLUSIVE MODE`, the lock `CREATE TRIGGER` asks for anyway);
+- the audit has a line that counts the same rows with the same condition, and says that it must read `0`;
+- the runbook page gives the statement that lists them, says what each kind of row means, and gives the statement that removes ONE. The migration does not delete them itself: it cannot tell a forged row from a mistake the owner wants to repair;
+- the test puts such rows into the baseline, follows the page to the letter, and applies the file.
+
+Rows that break the rule and do no harm stay where they are: the audit counts them on lines that stop nothing, the page says what each one means, and the rule is written so that they can still be edited (migration 05: audit lines 12 to 14, and "asked when the row is created or the exercise changes").
+
 ## The rollback file
 
 ```sql
