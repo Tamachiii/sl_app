@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 vi.mock('../lib/supabase', () => ({ supabase: { from: vi.fn() } }));
@@ -10,17 +10,21 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 import { fakePostgrest } from '../test/fakePostgrest';
 
+const clients = [];
 function makeClient() {
-  return new QueryClient({
+  const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
   });
+  clients.push(qc);
+  return qc;
 }
 function withClient(qc) {
   return ({ children }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
 }
 
-// The two tables the hook reads, served by name. The fake cuts every response
-// at 1000 rows, as PostgREST does, and records each request.
+// The two tables behind the hint — the athlete's shared history, read by
+// lib/doneSetHistory — served by name. The fake cuts every response at 1000
+// rows, as PostgREST does, and records each request.
 function wire({ setLogs = [], deviations = [] }) {
   const db = fakePostgrest({ set_logs: setLogs, slot_deviations: deviations });
   supabase.from.mockImplementation(db.from);
@@ -50,6 +54,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   nextLogId = 0;
   useAuth.mockReturnValue({ user: { id: 'u-1' } });
+});
+
+afterEach(() => {
+  // Each history entry holds a ten-minute collection timer.
+  while (clients.length) clients.pop().clear();
 });
 
 const OPEN = 'sess-open';
@@ -138,9 +147,9 @@ describe('useLastPerformance — history longer than one page', () => {
   const at = (i) => new Date(Date.UTC(2023, 0, 1 + i, 12)).toISOString();
   const dateOf = (i) => at(i).slice(0, 10);
 
-  async function lastTime(db, ...args) {
+  async function lastTime() {
     const { result } = renderHook(
-      () => useLastPerformance(OPEN, slotsE1, '2026-04-20', [], true, ...args),
+      () => useLastPerformance(OPEN, slotsE1, '2026-04-20', []),
       { wrapper: withClient(makeClient()) },
     );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -164,7 +173,7 @@ describe('useLastPerformance — history longer than one page', () => {
       }),
     });
 
-    const data = await lastTime(db);
+    const data = await lastTime();
     expect(data['e-1'].sets).toEqual([{ weight: 140, reps: 3 }]);
 
     const requests = db.requestsTo('set_logs');
@@ -175,14 +184,12 @@ describe('useLastPerformance — history longer than one page', () => {
       expect(request.limit).toBe(1000);
       expect(request.filters).toContainEqual(['eq', 'done', true]);
       expect(request.filters).toContainEqual(['is', 'exercise_slots.sessions.weeks.programs.deleted_at', null]);
-      // Student flow: RLS scopes the rows, no athlete filter is sent.
-      expect(request.filters.find((f) => f[1].endsWith('.student_id'))).toBeUndefined();
     }
     expect(requests[1].filters).toContainEqual(['gt', 'id', 'l-00999']);
   });
 
   it('shows the LATEST session of a lift wherever its rows fall in id order', async () => {
-    const db = wire({
+    wire({
       setLogs: history({
         // An older session, early in id order…
         3: { slotId: 'sl-a', exerciseId: 'e-1', sessionId: 's-a', scheduledDate: '2025-01-10', loggedAt: '2025-01-10T10:00:00Z', tReps: 5, tW: 100 },
@@ -191,7 +198,7 @@ describe('useLastPerformance — history longer than one page', () => {
       }),
     });
 
-    const data = await lastTime(db);
+    const data = await lastTime();
     expect(data['e-1'].scheduledDate).toBe('2026-03-01');
     expect(data['e-1'].sets).toEqual([{ weight: 110, reps: 5 }]);
   });
@@ -207,7 +214,7 @@ describe('useLastPerformance — history longer than one page', () => {
       })),
     });
 
-    const data = await lastTime(db);
+    const data = await lastTime();
     expect(data['e-1'].sets).toEqual([{ weight: 80, reps: 6 }]);
 
     const requests = db.requestsTo('slot_deviations');
@@ -216,23 +223,206 @@ describe('useLastPerformance — history longer than one page', () => {
     expect(requests[1].filters).toContainEqual(['eq', 'kind', 'swap']);
     expect(requests[1].filters).toContainEqual(['gt', 'id', 'd-00999']);
   });
+});
 
-  it('coach flow: every page of both reads is filtered on the athlete', async () => {
-    const db = wire({
-      setLogs: history(),
-      deviations: Array.from({ length: 1001 }, (_, i) => ({
-        id: `d-${pad(i)}`, exercise_slot_id: `sl-x${i}`, substitute_exercise_id: 'e-7',
-      })),
-    });
+// INVARIANTS makes the scope a MUST: a coach's RLS returns every athlete of the
+// roster, so a hint read without the athlete filter shows the most recent
+// number across all of them. And the cache must keep athletes apart too.
+describe('useLastPerformance — whose history', () => {
+  const pad = (i) => String(i).padStart(5, '0');
+  const SCOPE = 'exercise_slots.sessions.weeks.programs.student_id';
+  const athleteOf = (request) => request.filters.find(([op, column]) => op === 'eq' && column === SCOPE)?.[2];
 
-    await lastTime(db, 'st-4');
+  // 1001 rows in each table, so each read takes two requests.
+  const twoPages = () => ({
+    setLogs: Array.from({ length: 1001 }, (_, i) =>
+      setLog({ id: `l-${pad(i)}`, slotId: `sl-${i}`, exerciseId: 'e-1', sessionId: `s-${i}`, loggedAt: '2026-04-01T10:00:00Z', tReps: 5, tW: 100 }),
+    ),
+    deviations: Array.from({ length: 1001 }, (_, i) => ({
+      id: `d-${pad(i)}`, exercise_slot_id: `sl-x${i}`, substitute_exercise_id: 'e-7',
+    })),
+  });
 
-    const scope = 'exercise_slots.sessions.weeks.programs.student_id';
+  async function lastTime(qc, { session = OPEN, slots = slotsE1, athlete } = {}) {
+    const { result } = renderHook(
+      () => useLastPerformance(session, slots, '2026-04-20', [], true, athlete),
+      { wrapper: withClient(qc) },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    return result.current.data;
+  }
+
+  it('coach flow: every page of BOTH reads is filtered on the athlete named by studentRowId', async () => {
+    const db = wire(twoPages());
+
+    await lastTime(makeClient(), { athlete: 'st-4' });
+
     expect(db.requestsTo('set_logs')).toHaveLength(2);
     expect(db.requestsTo('slot_deviations')).toHaveLength(2);
-    // Without it a coach's RLS returns every athlete's rows.
     for (const request of db.requests) {
-      expect(request.filters).toContainEqual(['eq', scope, 'st-4']);
+      expect(request.filters).toContainEqual(['eq', SCOPE, 'st-4']);
     }
+  });
+
+  it('athlete flow: with no studentRowId, NEITHER read carries an athlete filter', async () => {
+    const db = wire(twoPages());
+
+    await lastTime(makeClient());
+
+    expect(db.requestsTo('set_logs')).toHaveLength(2);
+    expect(db.requestsTo('slot_deviations')).toHaveLength(2);
+    // RLS scopes the rows to the signed-in athlete.
+    for (const request of db.requests) {
+      expect(request.filters.filter(([, column]) => String(column).endsWith('student_id'))).toEqual([]);
+    }
+  });
+
+  it('keeps two athletes apart: each has their own hint, their own entry and their own history', async () => {
+    const bench = (id, weight) =>
+      setLog({ id, slotId: `sl-${id}`, exerciseId: 'e-1', sessionId: `s-${id}`, scheduledDate: '2026-04-01', loggedAt: '2026-04-01T10:00:00Z', tReps: 5, tW: weight });
+    const db = fakePostgrest({
+      // The fake records filters without applying them; this table applies the
+      // one that separates athletes. Unfiltered, it answers like a coach's RLS:
+      // with everybody's rows.
+      set_logs: (request) =>
+        ({ 'st-4': [bench('l-4', 140)], 'st-5': [bench('l-5', 60)] })[athleteOf(request)] ||
+        [bench('l-4', 140), bench('l-5', 60)],
+      slot_deviations: [],
+    });
+    supabase.from.mockImplementation(db.from);
+    const qc = makeClient();
+
+    // The same session id and the same exercise for both: only the athlete differs.
+    const four = await lastTime(qc, { athlete: 'st-4' });
+    const five = await lastTime(qc, { athlete: 'st-5' });
+
+    expect(four['e-1'].sets).toEqual([{ weight: 140, reps: 5 }]);
+    expect(five['e-1'].sets).toEqual([{ weight: 60, reps: 5 }]);
+
+    expect(qc.getQueryCache().getAll().map((q) => q.queryKey)).toEqual(expect.arrayContaining([
+      ['last-performance', 'st-4', OPEN, ['e-1']],
+      ['last-performance', 'st-5', OPEN, ['e-1']],
+      ['student-records', 'history', 'st-4'],
+      ['student-records', 'history', 'st-5'],
+    ]));
+    expect(qc.getQueryCache().getAll()).toHaveLength(4);
+    expect(db.requestsTo('set_logs').map(athleteOf)).toEqual(['st-4', 'st-5']);
+  });
+
+  it('athlete flow: the hint is keyed "self" and the history on the signed-in user', async () => {
+    wire({
+      setLogs: [setLog({ slotId: 'sl-a', exerciseId: 'e-1', sessionId: 's-prior', loggedAt: '2026-04-01T10:00:00Z', tReps: 5, tW: 100 })],
+    });
+    const qc = makeClient();
+
+    await lastTime(qc);
+
+    expect(qc.getQueryCache().getAll().map((q) => q.queryKey)).toEqual(expect.arrayContaining([
+      ['last-performance', 'self', OPEN, ['e-1']],
+      ['student-records', 'history', 'u-1'],
+    ]));
+  });
+});
+
+// The hint is picked out of the athlete's shared history (lib/doneSetHistory).
+// A new session, or one more exercise, is a new query — not a new download.
+describe('useLastPerformance — the history is read once', () => {
+  const prior = (id, exerciseId, weight, day = '2026-04-01') =>
+    setLog({ id, slotId: `sl-${id}`, exerciseId, sessionId: `s-${id}`, scheduledDate: day, loggedAt: `${day}T10:00:00Z`, tReps: 5, tW: weight });
+  const slot = (id, exerciseId) => ({ id, exercise: { id: exerciseId } });
+
+  it('opening a second session sends nothing', async () => {
+    const db = wire({ setLogs: [prior('l-1', 'e-1', 100), prior('l-2', 'e-2', 40)] });
+    const qc = makeClient();
+
+    const first = renderHook(() => useLastPerformance('s-open-a', [slot('sl-a', 'e-1')], '2026-04-20', []), { wrapper: withClient(qc) });
+    await waitFor(() => expect(first.result.current.isSuccess).toBe(true));
+    const second = renderHook(() => useLastPerformance('s-open-b', [slot('sl-b', 'e-2')], '2026-04-22', []), { wrapper: withClient(qc) });
+    await waitFor(() => expect(second.result.current.isSuccess).toBe(true));
+
+    expect(first.result.current.data['e-1'].sets).toEqual([{ weight: 100, reps: 5 }]);
+    expect(second.result.current.data['e-2'].sets).toEqual([{ weight: 40, reps: 5 }]);
+    expect(db.requests.map((r) => r.table)).toEqual(['set_logs', 'slot_deviations']);
+  });
+
+  it('coach editor: adding an exercise to the session shows its numbers without a request', async () => {
+    const db = wire({ setLogs: [prior('l-1', 'e-1', 100), prior('l-2', 'e-2', 40)] });
+    const { result, rerender } = renderHook(
+      ({ slots }) => useLastPerformance(OPEN, slots, null, null, true, 'st-4'),
+      { wrapper: withClient(makeClient()), initialProps: { slots: [slot('sl-a', 'e-1')] } },
+    );
+    await waitFor(() => expect(result.current.data?.['e-1']).toBeDefined());
+    expect(result.current.data['e-2']).toBeUndefined();
+
+    rerender({ slots: [slot('sl-a', 'e-1'), slot('sl-b', 'e-2')] });
+
+    await waitFor(() => expect(result.current.data?.['e-2']?.sets).toEqual([{ weight: 40, reps: 5 }]));
+    expect(result.current.data['e-1'].sets).toEqual([{ weight: 100, reps: 5 }]);
+    expect(db.requests.map((r) => r.table)).toEqual(['set_logs', 'slot_deviations']);
+  });
+
+  it('a refetch — the phone unlocked between two sets — sends nothing', async () => {
+    const db = wire({ setLogs: [prior('l-1', 'e-1', 100)] });
+    const { result } = renderHook(() => useLastPerformance(OPEN, slotsE1, '2026-04-20', []), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    await act(() => result.current.refetch());
+
+    expect(db.requests.map((r) => r.table)).toEqual(['set_logs', 'slot_deviations']);
+  });
+
+  it('after ["student-records"] is invalidated — a confirmed session — the next session opened reads the history again', async () => {
+    const setLogs = [prior('l-1', 'e-1', 100, '2026-04-01')];
+    const db = wire({ setLogs });
+    const qc = makeClient();
+    const first = renderHook(() => useLastPerformance('s-open-a', slotsE1, '2026-04-10', []), { wrapper: withClient(qc) });
+    await waitFor(() => expect(first.result.current.isSuccess).toBe(true));
+
+    // Session A is trained and confirmed.
+    setLogs.push(setLog({ id: 'l-9', slotId: 'sl-a', exerciseId: 'e-1', sessionId: 's-open-a', scheduledDate: '2026-04-10', loggedAt: '2026-04-10T10:00:00Z', tReps: 5, tW: 105 }));
+    await act(() => qc.invalidateQueries({ queryKey: ['student-records'] }));
+    // Nothing derives from the history at that moment: nothing is read.
+    expect(db.requestsTo('set_logs')).toHaveLength(1);
+
+    const second = renderHook(() => useLastPerformance('s-open-b', slotsE1, '2026-04-17', []), { wrapper: withClient(qc) });
+    await waitFor(() => expect(second.result.current.isSuccess).toBe(true));
+
+    expect(second.result.current.data['e-1'].sets).toEqual([{ weight: 105, reps: 5 }]);
+    expect(db.requestsTo('set_logs')).toHaveLength(2);
+  });
+
+  it('caches the small reduced object under its key — the entry that is persisted — not the history', async () => {
+    wire({
+      setLogs: [
+        prior('l-1', 'e-1', 100),
+        // 300 sets of other lifts: in the history, not in the entry.
+        ...Array.from({ length: 300 }, (_, i) => prior(`l-x${i}`, 'e-2', 40)),
+      ],
+    });
+    const qc = makeClient();
+    const { result } = renderHook(() => useLastPerformance(OPEN, slotsE1, '2026-04-20', []), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(qc.getQueryData(['last-performance', 'self', OPEN, ['e-1']])).toEqual({
+      'e-1': { performedAt: '2026-04-01T10:00:00Z', scheduledDate: '2026-04-01', sets: [{ weight: 100, reps: 5 }] },
+    });
+    expect(qc.getQueryData(['student-records', 'history', 'u-1'])).toHaveLength(301);
+  });
+
+  it('fails when the history cannot be read, and reads it again on the next try', async () => {
+    let failing = true;
+    const db = fakePostgrest({
+      set_logs: () => (failing ? { error: { message: 'network down' } } : [prior('l-1', 'e-1', 100)]),
+      slot_deviations: [],
+    });
+    supabase.from.mockImplementation(db.from);
+    const { result } = renderHook(() => useLastPerformance(OPEN, slotsE1, '2026-04-20', []), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    failing = false;
+    await act(() => result.current.refetch());
+
+    await waitFor(() => expect(result.current.data?.['e-1']?.sets).toEqual([{ weight: 100, reps: 5 }]));
+    expect(db.requestsTo('set_logs')).toHaveLength(2);
   });
 });
