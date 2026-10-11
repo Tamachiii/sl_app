@@ -418,6 +418,59 @@ describe('fetchDoneSetHistory — one cached read per athlete', () => {
     expect(db.requestsTo('set_logs')).toHaveLength(2);
   });
 
+  describe('an invalidation that lands while the list is being read', () => {
+    // The first answer is what the server held when the request left. While it
+    // travels back, `meanwhile` runs: a set is ticked, the session confirmed.
+    function wireSlowRead(setLogs, meanwhile) {
+      let reads = 0;
+      const db = fakePostgrest({
+        set_logs: () => {
+          const answer = [...setLogs];
+          reads += 1;
+          meanwhile(reads);
+          return answer;
+        },
+        slot_deviations: [],
+      });
+      supabase.from.mockImplementation(db.from);
+      return db;
+    }
+
+    it('is not swallowed by that read: it is made again before anyone gets the list', async () => {
+      const qc = makeClient();
+      const setLogs = [rawSet({ id: 'l-1' })];
+      const db = wireSlowRead(setLogs, (reads) => {
+        if (reads > 1) return;
+        setLogs.push(rawSet({ id: 'l-2', at: '2026-04-08T10:00:00Z' }));
+        void qc.invalidateQueries({ queryKey: ['student-records'] });
+      });
+
+      // Two callers: the one that started the read and one that joined it.
+      const [first, joined] = await Promise.all([fetchDoneSetHistory(qc, athlete), fetchDoneSetHistory(qc, athlete)]);
+
+      // Without the second read both would hold l-1 alone, as fresh, for ten minutes.
+      expect(first.map((s) => s.id)).toEqual(['l-1', 'l-2']);
+      expect(joined).toBe(first);
+      expect(db.requestsTo('set_logs')).toHaveLength(2);
+      expect(db.requestsTo('slot_deviations')).toHaveLength(2);
+
+      // And the entry is fresh: the invalidation is answered, not left pending.
+      await fetchDoneSetHistory(qc, athlete);
+      expect(db.requestsTo('set_logs')).toHaveLength(2);
+    });
+
+    it('costs one more read, never a loop, when invalidations keep coming', async () => {
+      const qc = makeClient();
+      const db = wireSlowRead([rawSet({ id: 'l-1' })], () => {
+        void qc.invalidateQueries({ queryKey: ['student-records'] });
+      });
+
+      await fetchDoneSetHistory(qc, athlete);
+
+      expect(db.requestsTo('set_logs')).toHaveLength(2);
+    });
+  });
+
   it('trusts a read for HISTORY_STALE_MS, then reads again', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     const start = new Date('2026-10-11T09:00:00Z').getTime();

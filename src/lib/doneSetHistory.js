@@ -16,7 +16,8 @@
 //     ['student-records'] — confirming a session, logging a bodyweight —
 //     marks the history stale too, and the next derivation reads it again.
 //     Nothing observes the history itself, so an invalidation costs nothing
-//     until something derives from it.
+//     until something derives from it. One that lands while the list is being
+//     read is answered by one more read before the list is handed over.
 //   - Between two invalidations it is trusted for HISTORY_STALE_MS. Sets
 //     ticked on this device since the last read are missing from it until
 //     the session is confirmed or that time has passed; "Last time" never
@@ -205,9 +206,25 @@ export function fetchDoneSetHistory(queryClient, { studentRowId = null, userId =
   if (!athlete) {
     return Promise.reject(new Error('fetchDoneSetHistory: neither a studentRowId nor a userId'));
   }
+  const queryKey = doneSetHistoryKey(athlete);
+  // Whether the entry is flagged: invalidated, or left by a failed read, with
+  // no successful read since.
+  const flagged = () => !!queryClient.getQueryCache().find({ queryKey })?.state.isInvalidated;
   return queryClient.fetchQuery({
-    queryKey: doneSetHistoryKey(athlete),
-    queryFn: () => readDoneSetHistory(studentRowId),
+    queryKey,
+    queryFn: async () => {
+      const flaggedAtStart = flagged();
+      const rows = await readDoneSetHistory(studentRowId);
+      // An invalidation that lands while this read is in flight restarts
+      // nothing — the entry has no observer — and the read's own success then
+      // clears the flag: the session confirmed in that second would be missing
+      // from a list held as fresh for ten minutes. So when the flag went up
+      // during the read, the read is made again before anyone gets the list.
+      // Once: the flag cannot go up twice, so an invalidation during the
+      // repeat — or during a read that began on an entry already flagged — is
+      // not seen, and waits for HISTORY_STALE_MS like a set ticked since.
+      return !flaggedAtStart && flagged() ? readDoneSetHistory(studentRowId) : rows;
+    },
     staleTime: HISTORY_STALE_MS,
     gcTime: HISTORY_STALE_MS,
     // The hook deriving from the history retries; retrying here as well would
