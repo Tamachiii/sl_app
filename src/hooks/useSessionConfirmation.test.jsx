@@ -226,7 +226,7 @@ describe('useConfirmSession / useUnconfirmSession', () => {
     const chain = {
       upsert: vi.fn().mockReturnThis(),
       select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: { id: 'c-1' }, error: null }),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'c-1' }, error: null }),
     };
     supabase.from.mockReturnValue(chain);
 
@@ -240,8 +240,9 @@ describe('useConfirmSession / useUnconfirmSession', () => {
     expect(payload.session_id).toBe('s-1');
     expect(payload.student_id).toBe('user-1');
     expect(payload.notes).toBe('felt good');
-    // onConflict on session_id keeps offline replay idempotent.
-    expect(options).toEqual({ onConflict: 'session_id' });
+    // Insert-or-nothing on session_id: a replay against a confirmed session
+    // writes nothing, so the first note and training date stay.
+    expect(options).toEqual({ onConflict: 'session_id', ignoreDuplicates: true });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['my-confirmed-session-ids'] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['week-confirmed-session-ids'] });
   });
@@ -253,7 +254,7 @@ describe('useConfirmSession / useUnconfirmSession', () => {
     const chain = {
       upsert: vi.fn().mockReturnThis(),
       select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: { id: 'c-1' }, error: null }),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'c-1' }, error: null }),
     };
     supabase.from.mockReturnValue(chain);
 
@@ -274,7 +275,7 @@ describe('useConfirmSession / useUnconfirmSession', () => {
     const chain = {
       upsert: vi.fn().mockReturnThis(),
       select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: { id: 'c-1' }, error: null }),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'c-1' }, error: null }),
     };
     supabase.from.mockReturnValue(chain);
 
@@ -290,7 +291,7 @@ describe('useConfirmSession / useUnconfirmSession', () => {
     const chain = {
       upsert: vi.fn().mockReturnThis(),
       select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: { id: 'c-1' }, error: null }),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'c-1' }, error: null }),
     };
     supabase.from.mockReturnValue(chain);
 

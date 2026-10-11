@@ -8,7 +8,9 @@
 // lost to JSON serialization) still has an executor on resume.
 //
 // Conflict policy: every write here is row-targeted (one set_log / comment /
-// confirmation) and small, so last-writer-wins is safe. Per-set DB CHECKs
+// deviation / confirmation) and small. Set logs, comments and deviations are
+// last-writer-wins. A confirmation is the exception — the FIRST one stays and
+// a second confirm writes nothing (see `confirmSessionFn`). Per-set DB CHECKs
 // (`set_logs_done_xor_failed`, `set_logs_no_rpe_when_failed`) are encoded in
 // the patch helpers below — replays remain constraint-safe.
 
@@ -161,9 +163,24 @@ async function saveSlotDeviationFn({ slotId, studentId, kind, substituteExercise
   return data;
 }
 
-// Upsert (not insert) so that a queued confirm replayed against an already-
-// confirmed session no-ops instead of tripping the UNIQUE(session_id) constraint
-// — keeps offline replay idempotent.
+// Insert-or-nothing: INSERT ... ON CONFLICT (session_id) DO NOTHING. The first
+// confirmation of a session is the one that stays.
+//
+// `ignoreDuplicates` is what makes it "nothing". Without it PostgREST turns the
+// same call into DO UPDATE on every column of the payload, so a second confirm
+// — a replay whose first attempt did reach the server, or a second device still
+// showing the session as unconfirmed — replaced the athlete's check-in note
+// with its own (usually NULL) and moved `performed_on` to whatever that device
+// computed, after the coach may have read both. DO NOTHING also never reaches
+// the UPDATE policies, so such a replay is not refused once the coach has
+// reviewed the session and its confirmation is locked.
+//
+// Resolves the inserted row, or `null` when the session was already confirmed:
+// a statement that wrote no row returns none, hence `maybeSingle` — `single()`
+// would turn that empty answer into a PGRST116 error and the replay would fail
+// with a toast. Callers must not read the result as "the confirmation"; the
+// hook refetches it. Changing the note of an existing confirmation is undo,
+// then confirm again (DELETE, then a fresh INSERT).
 //
 // `performedOn` is computed by the CALLER at confirm time (see
 // `performedOnFromLogs`) and rides in the serialized variables, which is the
@@ -180,10 +197,10 @@ async function confirmSessionFn({ sessionId, studentId, notes, performedOn }) {
         notes: notes || null,
         performed_on: performedOn || null,
       },
-      { onConflict: 'session_id' }
+      { onConflict: 'session_id', ignoreDuplicates: true }
     )
     .select()
-    .single();
+    .maybeSingle();
   if (error) throw error;
   return data;
 }
