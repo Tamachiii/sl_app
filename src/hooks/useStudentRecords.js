@@ -94,7 +94,7 @@ export function useStudentRecords(studentRowId) {
 
       // Independent of one another, so they go out together.
       const [sets, bwRows] = await Promise.all([
-        fetchDoneSetHistory(queryClient, { studentRowId: studentRowId ?? null, userId: user.id }),
+        fetchDoneSetHistory(queryClient, { studentRowId: studentRowId ?? null, userId: user?.id ?? null }),
         readBodyweight(),
       ]);
 

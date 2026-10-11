@@ -312,6 +312,15 @@ describe('useStudentRecords — whose rows', () => {
     expect(db.requestsTo('bodyweight_logs')).toEqual([]);
   });
 
+  it('coach flow: the athlete is named by studentRowId alone — the reader’s own id is not needed', async () => {
+    useAuth.mockReturnValue({ user: null });
+    const db = wire({
+      setLogs: [log({ slotId: 'sl-1', exercise: BENCH, loggedAt: '2026-04-01T10:00:00Z', aReps: 5, aW: 100 })],
+    });
+    expect((await records('st-9')).map((r) => r.exercise_id)).toEqual(['e-1']);
+    expect(db.requestsTo('set_logs')[0].filters).toContainEqual(['eq', `${PROGRAM}.student_id`, 'st-9']);
+  });
+
   it('athlete flow: no filter and no students lookup — RLS scopes the history, the bodyweight is the user’s own', async () => {
     const db = wire({
       setLogs: [log({ slotId: 'sl-1', exercise: BENCH, loggedAt: '2026-04-01T10:00:00Z', aReps: 5, aW: 100 })],
