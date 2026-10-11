@@ -45,6 +45,15 @@
       "covers": ["P7", "L2"],
       "reversible": true,
       "summary": "No signed-in user inserts or deletes a students row, and none moves its link; every row written, by anyone, links a profile with the role coach to another one with the role student; exercise_library rows are added and edited by a coach only (is_coach()); the exercise of a slot and the substitute of a swap come from the library of the program's coach. The migration refuses to run (SLM05) while a link the gate would refuse exists."
+    },
+    {
+      "name": "2026_10_11_06_pin_student_writes",
+      "kind": "required",
+      "wave": 1,
+      "checkpoint": "A2",
+      "covers": ["P13", "P14", "B4"],
+      "reversible": true,
+      "summary": "An athlete's own update of a set leaves its targets, its exercise, its number and is_student_added as they were; a session of a draft program carries no reviewed_at, archived_at, performed_at or scheduled_date, whoever writes it, and approve_program clears the four on the sessions of the program it approves; the author of a draft cannot change submitted_at once it is set."
     }
   ]
 }

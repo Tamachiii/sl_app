@@ -454,8 +454,9 @@ CREATE POLICY "Students read own exercise slots"
 -- column separation is enforced by client discipline (coach UI never writes
 -- actuals; student UI never writes targets) AND hardened by the
 -- pin_set_log_targets_for_student BEFORE UPDATE trigger, which reverts any
--- attempt by a student to mutate the coach-owned target_* columns. If this
--- proves insufficient we can split actuals to a child table.
+-- attempt by a student to mutate the coach-owned target_* columns — and what
+-- the set IS: is_student_added, exercise_slot_id, set_number (2026_10_11_06).
+-- If this proves insufficient we can split actuals to a child table.
 -- What the coach's FOR ALL does NOT reach (2026_10_11_04, section LOGGED
 -- TRAINING IS HISTORY): a set the athlete has logged is not deleted
 -- (block_set_log_delete_when_logged), and its target_* are not rewritten by a
@@ -503,6 +504,8 @@ CREATE POLICY "Students update own set logs"
 -- DELETE is narrowed to student-added rows (2026_07_12): the target-pin
 -- trigger only guards UPDATE, so an unrestricted DELETE would let a student
 -- remove a prescribed row and re-INSERT it with forged targets.
+-- is_student_added is what this policy trusts, so the athlete's own UPDATE
+-- cannot change it (pin_set_log_targets_for_student, 2026_10_11_06).
 CREATE POLICY "Students delete own set logs"
   ON public.set_logs FOR DELETE
   USING (
@@ -934,21 +937,40 @@ CREATE TRIGGER trg_restrict_student_goal_update
   FOR EACH ROW EXECUTE FUNCTION public.restrict_student_goal_update();
 
 -- ============================================================
--- TRIGGER: pin coach-owned target_* on student set_log updates
+-- TRIGGER: pin the coach-owned columns on student set_log updates
 -- Defense in depth for the shared set_logs row: students legitimately write
--- actuals (done/failed/rpe/weight_kg/actual_*), but must never rewrite the
--- coach's prescription. When the writer is the slot's student (not the coach),
--- revert every target_* column to OLD. Coach writes resolve a different
--- auth.uid() and pass through untouched.
+-- what they DID on a set (done/failed/skipped/rpe/weight_kg/actual_*), but
+-- must never rewrite what the set IS. When the writer is the slot's student
+-- (not the coach), these go back to OLD:
+--   target_*           the coach's prescription
+--   is_student_added   prescribed, or an extra the athlete added — the DELETE
+--                      policy trusts it: only an extra is deleted by its
+--                      athlete (2026_10_11_06, review P14: flipped to true, a
+--                      prescribed set could be deleted and inserted again
+--                      with other targets)
+--   exercise_slot_id   which exercise it belongs to
+--   set_number         which set of that exercise — a set moved away leaves
+--                      its place free for a forged one
+-- Whose set it is, is asked of OLD: the slot is one of the columns held.
+-- Silent: the rest of the write goes through. Coach writes resolve a
+-- different auth.uid() and pass through untouched — the editor renumbers the
+-- athlete's extra sets when the set count changes — and so does a statement
+-- without a user id.
+-- What it does NOT cover is the INSERT: an athlete still inserts a row with
+-- targets of their choosing, because the deployed app materializes the
+-- prescribed rows under the athlete's JWT (useEnsureSetLogs).
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.pin_set_log_targets_for_student()
 RETURNS trigger AS $$
 BEGIN
-  IF public.student_profile_for_slot(NEW.exercise_slot_id) = auth.uid() THEN
+  IF public.student_profile_for_slot(OLD.exercise_slot_id) = auth.uid() THEN
     NEW.target_reps             := OLD.target_reps;
     NEW.target_duration_seconds := OLD.target_duration_seconds;
     NEW.target_weight_kg        := OLD.target_weight_kg;
     NEW.target_rest_seconds     := OLD.target_rest_seconds;
+    NEW.is_student_added        := OLD.is_student_added;
+    NEW.exercise_slot_id        := OLD.exercise_slot_id;
+    NEW.set_number              := OLD.set_number;
   END IF;
   RETURN NEW;
 END;
@@ -1995,7 +2017,8 @@ $$;
 -- Phase 3.4a: student program authoring (draft → coach approve). See
 -- 2026_07_21_student_program_authoring.sql for the full rationale. Recursion-
 -- firewall helpers (SECURITY DEFINER STABLE) + additive draft-scoped student
--- RLS + the authoring-column pin trigger + approve_program.
+-- RLS + the authoring-column pin trigger + the pin on the sessions of a draft
+-- (2026_10_11_06) + approve_program.
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.program_is_own_draft(p_program_id uuid)
 RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp AS $$
@@ -2067,6 +2090,11 @@ BEGIN
   IF auth.uid() IS NOT DISTINCT FROM OLD.created_by THEN
     NEW.status := OLD.status;
     NEW.approved_at := OLD.approved_at;
+    -- Submitted once: NULL → a time is the author's, the way back is the
+    -- coach's (review B4 — each new NULL → time edge notified the coach).
+    IF OLD.submitted_at IS NOT NULL THEN
+      NEW.submitted_at := OLD.submitted_at;
+    END IF;
   END IF;
   RETURN NEW;
 END;
@@ -2075,6 +2103,66 @@ DROP TRIGGER IF EXISTS trg_pin_program_authoring_columns ON public.programs;
 CREATE TRIGGER trg_pin_program_authoring_columns
   BEFORE UPDATE ON public.programs
   FOR EACH ROW EXECUTE FUNCTION public.pin_program_authoring_columns();
+
+-- A session of a DRAFT carries no review, no archive, no training date and
+-- no recommended date (2026_10_11_06, review P13). "Students author own draft
+-- sessions" is FOR ALL: the author writes every column of the sessions of
+-- their draft, and three of those are how the app knows a session was
+-- reviewed by the coach, archived, trained. A draft sent in with reviewed_at
+-- set gave, once approved, sessions that never reached the coach's "to
+-- review" list and refused feedback as "already reviewed".
+--
+-- NULL while the program is a draft, for EVERY writer — not "for the
+-- athlete": sessions.performed_at is written by sync_session_performed_at,
+-- which runs inside the athlete's own request when they confirm a session of
+-- an approved program (one they may have authored). A pin keyed on who writes
+-- could not tell that write from a forged one; the status of the program
+-- can: a draft is never active, and is never trained. So the coach cannot
+-- archive or date a session of a draft either — both are done after approval.
+-- A session whose week or program does not exist is not a draft's: the
+-- foreign key answers for it. Silent: the rest of the write goes through.
+-- approve_program, below, clears the four columns as well: whatever a draft
+-- carried from before this trigger, an approved program starts without it.
+--
+-- STABLE, AND IT MUST STAY SO. The policy that lets the author write the
+-- session (week_is_own_draft, STABLE) judges the program as the statement saw
+-- it when it STARTED; a VOLATILE trigger function reads it as it is by the
+-- time the row is reached. They differ when the coach approves while a stamp
+-- of the author waits for a row lock: a draft for the policy, an approved
+-- program for a VOLATILE pin, which holds nothing — the stamp is written on
+-- the approved program. STABLE makes the pin read what the policy read. No
+-- test on ONE connection sees the difference; supabase/tests/pins.test.js
+-- has one on three. The price: a week created earlier in the SAME statement
+-- (a data-modifying CTE) is not seen — nor by the policies, so only a caller
+-- row-level security does not apply to gets a stamped session in that way.
+CREATE OR REPLACE FUNCTION public.pin_draft_session_columns()
+RETURNS trigger AS $$
+BEGIN
+  -- Nothing to hold: the write every draft save makes, and most others.
+  IF NEW.reviewed_at IS NULL AND NEW.archived_at IS NULL
+     AND NEW.performed_at IS NULL AND NEW.scheduled_date IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+      FROM public.weeks w
+      JOIN public.programs p ON p.id = w.program_id
+     WHERE w.id = NEW.week_id
+       AND p.status = 'draft'
+  ) THEN
+    NEW.reviewed_at    := NULL;
+    NEW.archived_at    := NULL;
+    NEW.performed_at   := NULL;
+    NEW.scheduled_date := NULL;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
+DROP TRIGGER IF EXISTS trg_pin_draft_session_columns ON public.sessions;
+CREATE TRIGGER trg_pin_draft_session_columns
+  BEFORE INSERT OR UPDATE ON public.sessions
+  FOR EACH ROW EXECUTE FUNCTION public.pin_draft_session_columns();
 
 CREATE OR REPLACE FUNCTION public.approve_program(p_program_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
@@ -2099,6 +2187,17 @@ BEGIN
   IF auth.uid() IS NULL OR v_coach_id IS DISTINCT FROM auth.uid() THEN
     RAISE EXCEPTION 'not authorized';
   END IF;
+
+  -- No session of the program enters its life as reviewed, archived, trained
+  -- or dated (review P13): those are written after approval, by the coach and
+  -- by the athlete's confirmation.
+  UPDATE public.sessions s
+     SET reviewed_at = NULL, archived_at = NULL, performed_at = NULL, scheduled_date = NULL
+    FROM public.weeks w
+   WHERE w.id = s.week_id
+     AND w.program_id = p_program_id
+     AND (s.reviewed_at IS NOT NULL OR s.archived_at IS NOT NULL
+          OR s.performed_at IS NOT NULL OR s.scheduled_date IS NOT NULL);
 
   INSERT INTO public.set_logs
     (exercise_slot_id, set_number, done, target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds)
@@ -3380,4 +3479,5 @@ INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_03_02_rpc_auth_null_guard'),
   ('2026_10_11_03_function_grants_lockdown'),
   ('2026_10_11_04_logged_history_guards'),
-  ('2026_10_11_05_students_role_gate');
+  ('2026_10_11_05_students_role_gate'),
+  ('2026_10_11_06_pin_student_writes');

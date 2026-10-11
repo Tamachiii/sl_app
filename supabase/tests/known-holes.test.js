@@ -194,11 +194,20 @@ describe('P7/L2 — the coach ↔ athlete link can be forged', () => {
 });
 
 // ------------------------------------------------------------
-// P14 / L6 — pin_set_log_targets_for_student pins target_* only. The DELETE
-// policy trusts is_student_added, which the student can set itself.
+// P14 — CLOSED by 2026_10_11_06_pin_student_writes: this one is a plain test
+// now. pin_set_log_targets_for_student pinned target_* only, and the DELETE
+// policy trusts is_student_added, which the student could set itself. The
+// pin now holds is_student_added, exercise_slot_id and set_number as well,
+// for the athlete of the set. Every other path — the set moved to another
+// number or another exercise, the coach's renumbering, the deployed app's
+// writes — is in pins.test.js.
+// L6, the other half of the title, is still open and has no marker here: an
+// athlete INSERTs a set with targets of their choosing. The INSERT policy
+// must accept that as long as the deployed app materializes the prescribed
+// rows under the athlete's JWT (useEnsureSetLogs).
 // ------------------------------------------------------------
 describe('P14/L6 — deleting a prescribed set through is_student_added', () => {
-  it.fails('P14/L6 — a student cannot flip is_student_added and then delete a prescribed set_log', () => scenario(async (q) => {
+  it('P14/L6 — a student cannot flip is_student_added and then delete a prescribed set_log', () => scenario(async (q) => {
     const prescribed = ids.programA.setLogs[0];
     await asUser(ids.studentA, async (student) => {
       await attempt(() => student(`update set_logs set is_student_added = true where id = $1`, [prescribed]));
@@ -232,10 +241,15 @@ describe('P14/L6 — deleting a prescribed set through is_student_added', () => 
 });
 
 // ------------------------------------------------------------
-// P13 — "Students author own draft sessions" is FOR ALL with no column pin:
-// the draft's author can pre-fill the columns that mean "the coach reviewed
-// it", "archived", "trained". After approval the session never reaches the
-// coach's inbox.
+// P13 — CLOSED by 2026_10_11_06_pin_student_writes: these two are plain tests
+// now. "Students author own draft sessions" is FOR ALL with no column pin:
+// the draft's author could pre-fill the columns that mean "the coach reviewed
+// it", "archived", "trained". After approval the session never reached the
+// coach's inbox. A trigger now keeps the four columns NULL on every session
+// of a draft, whoever writes, and approve_program clears them. Every other
+// path — the coach and the owner of the database on a draft, a session moved
+// into one, what a draft carried from before, the approved programs where
+// the same columns are written as before — is in pins.test.js.
 // ------------------------------------------------------------
 describe('P13 — coach-owned session columns in a student draft', () => {
   const stamped = (q, weekId) => q.value(
@@ -245,7 +259,7 @@ describe('P13 — coach-owned session columns in a student draft', () => {
     [weekId],
   );
 
-  it.fails('P13 — a student cannot set reviewed_at / archived_at / performed_at on a session of its draft', () => scenario(async (q) => {
+  it('P13 — a student cannot set reviewed_at / archived_at / performed_at on a session of its draft', () => scenario(async (q) => {
     const draft = await createDraftProgram(ids.studentA);
     await attempt(() => asUser(ids.studentA, (student) => student(
       `update sessions set reviewed_at = now(), archived_at = now(), performed_at = now() where id = $1`,
@@ -254,7 +268,7 @@ describe('P13 — coach-owned session columns in a student draft', () => {
     expect(await stamped(q, draft.weeks[0])).toBe(0);
   }));
 
-  it.fails('P13 — a student cannot insert a draft session with reviewed_at / archived_at / performed_at pre-filled', () => scenario(async (q) => {
+  it('P13 — a student cannot insert a draft session with reviewed_at / archived_at / performed_at pre-filled', () => scenario(async (q) => {
     const draft = await createDraftProgram(ids.studentA);
     await attempt(() => asUser(ids.studentA, (student) => student(
       `insert into sessions (week_id, title, sort_order, reviewed_at, archived_at, performed_at)
