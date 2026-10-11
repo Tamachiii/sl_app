@@ -3,12 +3,21 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 import { isoDate } from '../lib/day';
 import { buildRecords } from '../lib/records';
+import { fetchAllRows } from '../lib/supabasePaging';
+import { fetchBodyweightSeries } from './useBodyweight';
 
 const RECENT_WINDOW_DAYS = 14;
 
+// When a set was logged, as a number that sorts; a done set without a stamp
+// (rows older than the column) sorts first.
+function loggedStamp(log) {
+  const t = log.logged_at ? new Date(log.logged_at).getTime() : NaN;
+  return Number.isNaN(t) ? 0 : t;
+}
+
 /**
  * A resolver for the student's bodyweight at a given set's date, from their
- * bodyweight_logs series (ascending). Returns the latest entry on/before the
+ * bodyweight_logs series (in any order). Returns the latest entry on/before the
  * set's LOCAL date; failing that the earliest entry (a documented-approximate
  * pre-history proxy); null when the series is empty. Feeds relative strength.
  */
@@ -35,6 +44,13 @@ function makeBodyweightAt(bwRows) {
  * exercise + logged_at, filtered THROUGH the program join (never an unbounded
  * id-list), and reduces them via lib/records.buildRecords. Records set within
  * the last two weeks are flagged `recent` so the UI can celebrate a fresh PR.
+ *
+ * EVERY done set means every page of them: a record can sit anywhere in the
+ * history, and PostgREST hands back 1000 rows per request at most, silently.
+ * All three reads go through lib/supabasePaging. The sets are then put in the
+ * order they were logged before the reduce — pages arrive in id order, which is
+ * none — so that of two sets tying for a best, the EARLIER one holds the
+ * record and its date: matching a best is not a new PR.
  *
  * `studentRowId` follows the same convention as useStudentProgressStats: the
  * coach passes the STUDENTS-table id directly; the student flow omits it and
@@ -94,57 +110,50 @@ export function useStudentRecords(studentRowId) {
       //      policy, student via own-rows), never an unbounded slot-id .in(),
       //   3. the bodyweight series behind the ×BW figure. Empty or unknown →
       //      records simply render without it (graceful degrade).
-      const [logRes, devRes, bwRes] = await Promise.all([
-        supabase
-          .from('set_logs')
-          .select(`
-            done, logged_at, target_reps, target_weight_kg, actual_reps, actual_weight_kg,
-            exercise_slots!inner(
-              id,
-              exercise:exercise_library!inner(id, name, type, load_mode),
-              sessions!inner(weeks!inner(programs!inner(student_id, deleted_at)))
-            )
-          `)
-          .eq('done', true)
-          .eq('exercise_slots.sessions.weeks.programs.student_id', resolvedId)
-          .is('exercise_slots.sessions.weeks.programs.deleted_at', null)
-          .limit(20000),
-        supabase
-          .from('slot_deviations')
-          .select(`
-            exercise_slot_id,
-            substitute:exercise_library(id, name, type, load_mode),
-            exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(student_id, deleted_at))))
-          `)
-          .eq('kind', 'swap')
-          .eq('exercise_slots.sessions.weeks.programs.student_id', resolvedId)
-          .is('exercise_slots.sessions.weeks.programs.deleted_at', null)
-          .limit(20000),
-        bwProfileId
-          ? supabase
-              .from('bodyweight_logs')
-              .select('weight_kg, logged_on')
-              .eq('student_id', bwProfileId)
-              .order('logged_on', { ascending: true })
-              .limit(20000)
-          : Promise.resolve({ data: [], error: null }),
+      const [data, devs, bwRows] = await Promise.all([
+        fetchAllRows(() =>
+          supabase
+            .from('set_logs')
+            .select(`
+              id, done, logged_at, target_reps, target_weight_kg, actual_reps, actual_weight_kg,
+              exercise_slots!inner(
+                id,
+                exercise:exercise_library!inner(id, name, type, load_mode),
+                sessions!inner(weeks!inner(programs!inner(student_id, deleted_at)))
+              )
+            `)
+            .eq('done', true)
+            .eq('exercise_slots.sessions.weeks.programs.student_id', resolvedId)
+            .is('exercise_slots.sessions.weeks.programs.deleted_at', null),
+        ),
+        fetchAllRows(() =>
+          supabase
+            .from('slot_deviations')
+            .select(`
+              id, exercise_slot_id,
+              substitute:exercise_library(id, name, type, load_mode),
+              exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(student_id, deleted_at))))
+            `)
+            .eq('kind', 'swap')
+            .eq('exercise_slots.sessions.weeks.programs.student_id', resolvedId)
+            .is('exercise_slots.sessions.weeks.programs.deleted_at', null),
+        ),
+        bwProfileId ? fetchBodyweightSeries(bwProfileId) : [],
       ]);
-      if (logRes.error) throw logRes.error;
-      if (devRes.error) throw devRes.error;
-      if (bwRes.error) throw bwRes.error;
-      const data = logRes.data;
-      const devs = devRes.data;
-      const bwRows = bwRes.data || [];
 
       const swapBySlot = new Map();
-      for (const d of devs || []) {
+      for (const d of devs) {
         if (d.substitute) swapBySlot.set(d.exercise_slot_id, d.substitute);
       }
+
+      // Oldest first, id as the tie-break so the order is the same on every
+      // load (see the note on ties above).
+      data.sort((a, b) => loggedStamp(a) - loggedStamp(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
       // Lift the effective exercise onto each log for buildRecords. On a swapped
       // slot the effective exercise is the substitute, and the pinned target_*
       // (the original's load) are dropped so only the logged actuals count.
-      const logs = (data || []).map((l) => {
+      const logs = data.map((l) => {
         const swap = swapBySlot.get(l.exercise_slots?.id);
         return {
           done: l.done,

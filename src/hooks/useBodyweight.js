@@ -2,6 +2,31 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 import { isoDate } from '../lib/day';
+import { fetchAllRows } from '../lib/supabasePaging';
+
+/**
+ * One athlete's WHOLE bodyweight series, newest first — what relative strength
+ * needs, since a set from two years ago is weighed against the bodyweight of
+ * that week. `profileId` is a profiles.id (`bodyweight_logs.student_id`
+ * references profiles, not the students row).
+ *
+ * Read to its end, a page at a time: a series is one row per day, so it passes
+ * the 1000 rows a single response can hold after about three years of daily
+ * weighing. The read walks `logged_on` downwards — unique within one athlete
+ * (UNIQUE (student_id, logged_on)) and served by the (student_id, logged_on
+ * DESC) index — so the first page, the only one for nearly everyone, is the
+ * recent part.
+ */
+export function fetchBodyweightSeries(profileId) {
+  return fetchAllRows(
+    () =>
+      supabase
+        .from('bodyweight_logs')
+        .select('weight_kg, logged_on')
+        .eq('student_id', profileId),
+    { column: 'logged_on', ascending: false },
+  );
+}
 
 /**
  * The signed-in student's recent bodyweight entries (newest first). Feeds the
