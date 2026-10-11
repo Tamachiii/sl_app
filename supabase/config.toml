@@ -1,0 +1,39 @@
+# What the Supabase CLI reads before every command it runs from this checkout.
+#
+# This file holds ONE decision per Edge Function: does Supabase's gateway
+# ask for a user's JWT before the function runs (`verify_jwt`)? Without the
+# file, every `supabase functions deploy` answers "yes" unless the person
+# deploying remembers `--no-verify-jwt` — and a "yes" in front of send-push
+# stops every push the database sends, without an error anywhere: the
+# database has no user JWT, the gateway answers 401 before the function runs,
+# and the triggers never read the answer.
+#
+# With the file, `supabase functions deploy <name>` is the whole command, and
+# the flag is not passed by hand.
+#
+#   verify_jwt = false   the function checks its caller itself: it opens with
+#                        the gate of functions/_shared/auth.js.
+#   verify_jwt = true    the gateway lets signed-in users through, and the
+#                        function reads who they are from their token.
+#
+# A function directory without a table here fails supabase/functions/deploy.test.js;
+# how to deploy and how to check a deploy is docs/runbook/30-edge-functions.md.
+#
+# NOTHING ELSE BELONGS HERE. No [auth], no [api], no [db]: this file is not a
+# copy of the project's settings, and `supabase config push` is never run —
+# for every setting the file does not give, it would put the CLI's default in
+# place of production's (docs/runbook/20-auth-config.md,
+# src/test/authConfig.test.js).
+
+# The name the CLI gives this checkout. Not the project ref: which project a
+# command talks to is decided by `supabase link`.
+project_id = "sl_app"
+
+# Called by the database's triggers through pg_net, with the INTERNAL_BEARER
+# secret and no user JWT.
+[functions.send-push]
+verify_jwt = false
+
+# Called by the app with the signed-in athlete's JWT.
+[functions.dispatch-rest-push]
+verify_jwt = true
