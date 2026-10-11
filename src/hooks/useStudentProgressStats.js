@@ -3,12 +3,13 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 import { computeSessionVolume } from '../lib/volume';
 import { addDays, isoDate, parseISODate, startOfWeekMonday } from '../lib/day';
+import { fetchAllRows } from '../lib/supabasePaging';
 
 /**
  * Aggregates everything the Student Stats page needs in a single fetch:
  *   - weeks[] with sessions + slots + exercise metadata (for volume maths)
  *   - confirmedSessionIds (Set)
- *   - setLogsBySlotId (for counting done sets, avg RPE, and weight history)
+ *   - the DONE set_logs, by slot (done sets, avg RPE, performed volume and tonnage)
  *
  * Stats are scoped via the `scope` parameter:
  *   - 'all'      → every program the student has ever been enrolled in (default)
@@ -150,42 +151,55 @@ export function useStudentProgressStats(studentId, scope = 'all') {
       // 3. Fetch confirmations + set_logs for this student, filtered THROUGH
       //    the program join (same scope as the tree above) rather than an
       //    .in() over every session/slot id in the tree.
+      //
+      //    All three reads below are flat lists that grow with the athlete's
+      //    history, and PostgREST answers one request with 1000 rows at most
+      //    without saying it cut. PERFORMED comes from these lists while
+      //    PLANNED comes from the tree, so a cut here reads as an athlete who
+      //    stopped training. Each one is therefore read to its end, a page at
+      //    a time (lib/supabasePaging) — which also means the rows arrive in
+      //    id order, i.e. in no meaningful order.
       const hasSessions = allSessions.length > 0;
       const hasSlots = allSlotIds.length > 0;
 
-      const { data: confRows, error: confErr } = hasSessions
-        ? await applyProgramScope(
-            supabase
-              .from('session_confirmations')
-              .select(
-                'id, session_id, confirmed_at, performed_on, notes, sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at)))'
-              ),
-            'sessions.weeks.programs'
-          ).order('confirmed_at', { ascending: false })
-        : { data: [], error: null };
-      if (confErr) throw confErr;
-      const confirmations = confRows || [];
+      const confirmations = hasSessions
+        ? await fetchAllRows(() =>
+            applyProgramScope(
+              supabase
+                .from('session_confirmations')
+                .select(
+                  'id, session_id, confirmed_at, performed_on, notes, sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at)))'
+                ),
+              'sessions.weeks.programs'
+            )
+          )
+        : [];
+      // Newest first: `recentConfirmations` below is the head of this list.
+      const confirmedStamp = (c) => {
+        const t = new Date(c.confirmed_at).getTime();
+        return Number.isNaN(t) ? 0 : t;
+      };
+      confirmations.sort((a, b) => confirmedStamp(b) - confirmedStamp(a));
       const confirmedIds = new Set(confirmations.map((c) => c.session_id));
 
-      const { data: logRows, error: logErr } = hasSlots
-        ? await applyProgramScope(
-            supabase
-              .from('set_logs')
-              .select(
-                'id, exercise_slot_id, set_number, done, failed, skipped, is_student_added, rpe, logged_at, target_reps, target_weight_kg, actual_reps, actual_weight_kg, exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at))))'
-              )
-              // Explicit high cap: performed metrics come from this flat query
-              // while planned comes from the tree, so a silent PostgREST
-              // default-row truncation would undercount performed and make a
-              // long-tenured student look like they stopped. The real fix is a
-              // server-side stats RPC (roadmap); this pushes the cap well past
-              // realistic single-student volume in the meantime.
-              .limit(20000),
-            'exercise_slots.sessions.weeks.programs'
+      // DONE sets only. Every figure derived from this list counts done sets
+      // and nothing else (a failed, skipped or still-pending row contributes
+      // zero to volume, tonnage, adherence and RPE alike), and the prescribed
+      // side — which does need every row — is read from the tree above. The
+      // not-done rows were the bulk of the download and none of the result.
+      const setLogs = hasSlots
+        ? await fetchAllRows(() =>
+            applyProgramScope(
+              supabase
+                .from('set_logs')
+                .select(
+                  'id, exercise_slot_id, set_number, done, failed, skipped, is_student_added, rpe, logged_at, target_reps, target_weight_kg, actual_reps, actual_weight_kg, exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at))))'
+                )
+                .eq('done', true),
+              'exercise_slots.sessions.weeks.programs'
+            )
           )
-        : { data: [], error: null };
-      if (logErr) throw logErr;
-      const setLogs = logRows || [];
+        : [];
 
       // 3b. Swap deviations for the in-scope slots, with the substitute
       //     exercise's metadata. Lets PERFORMED volume/tonnage follow an
@@ -193,35 +207,33 @@ export function useStudentProgressStats(studentId, scope = 'all') {
       //     crediting the coach's original prescription. slot_deviations has a
       //     single FK to exercise_library (substitute_exercise_id), so the
       //     `substitute:exercise_library(...)` embed is unambiguous.
-      const { data: devRows, error: devErr } = hasSlots
-        ? await applyProgramScope(
-            supabase
-              .from('slot_deviations')
-              .select(
-                'exercise_slot_id, kind, substitute:exercise_library(id, name, type, difficulty, volume_weight), exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at))))'
-              )
-              .eq('kind', 'swap')
-              // Match the set_logs cap so a heavy-deviation student can't have
-              // swaps silently truncated (which would undercount performed work).
-              .limit(20000),
-            'exercise_slots.sessions.weeks.programs'
+      const devRows = hasSlots
+        ? await fetchAllRows(() =>
+            applyProgramScope(
+              supabase
+                .from('slot_deviations')
+                .select(
+                  'id, exercise_slot_id, kind, substitute:exercise_library(id, name, type, difficulty, volume_weight), exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at))))'
+                )
+                .eq('kind', 'swap'),
+              'exercise_slots.sessions.weeks.programs'
+            )
           )
-        : { data: [], error: null };
-      if (devErr) throw devErr;
+        : [];
       // slotId → substitute exercise meta ({id, name, type, difficulty,
-      // volume_weight}). Only 'swap' rows carry a substitute; skips are already
-      // reflected as done=false set_logs (0 performed).
+      // volume_weight}). Only 'swap' rows carry a substitute; a skipped
+      // exercise has no done set_logs, hence 0 performed.
       const swapBySlot = new Map();
-      for (const d of devRows || []) {
+      for (const d of devRows) {
         if (d.kind === 'swap' && d.substitute) swapBySlot.set(d.exercise_slot_id, d.substitute);
       }
 
-      // Performance index: every set_log's actuals keyed by slot, so the
+      // Performance index: every DONE set_log's actuals keyed by slot, so the
       // weekly-volume and per-exercise charts can reflect PERFORMED work
-      // (what the student actually did — actuals override targets, skips and
-      // undone sets count 0) instead of the coach's prescription alone. This
-      // is what makes the off-plan actuals + deviations features visible in
-      // the motivation loop.
+      // (what the student actually did — actuals override targets; skipped
+      // and undone sets are not in the list, so they count 0) instead of the
+      // coach's prescription alone. This is what makes the off-plan actuals +
+      // deviations features visible in the motivation loop.
       const perfBySlot = new Map();
       for (const l of setLogs) {
         if (!perfBySlot.has(l.exercise_slot_id)) perfBySlot.set(l.exercise_slot_id, []);

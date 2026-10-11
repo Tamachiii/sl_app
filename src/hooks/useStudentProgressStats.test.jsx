@@ -8,6 +8,7 @@ vi.mock('./useAuth', () => ({ useAuth: vi.fn() }));
 import { useStudentProgressStats } from './useStudentProgressStats';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
+import { fakePostgrest } from '../test/fakePostgrest';
 
 function makeClient() {
   return new QueryClient({
@@ -34,15 +35,13 @@ beforeEach(() => {
 const TRAINED_AT = '2026-07-08T18:00:00Z';
 
 /**
- * Build the four sequential supabase chains the hook walks through:
- *   1) students lookup   (only when no studentId is passed)
- *   2) programs (with the join tree)
- *   3) session_confirmations
- *   4) set_logs
+ * The five tables the hook reads, served by table name (never by call order,
+ * so a test does not care which read goes out first):
+ *   students (only when no studentId is passed), programs (the join tree),
+ *   session_confirmations, set_logs (the flat DONE list), slot_deviations.
  *
- * The hook builds the query for #2 with `.eq('student_id', ...).order(...)` —
- * `.order()` is the terminal call, so we resolve there. For scope==='all' there
- * is one .eq before .order; for scope==='active' there are two .eq calls.
+ * The fake cuts every response at 1000 rows like PostgREST does, and records
+ * each request on `db.requests`.
  */
 function setupChains({
   programsData,
@@ -51,72 +50,17 @@ function setupChains({
   deviationsData = [],
   studentIdLookup = { id: 'st-1' },
 }) {
-  const studentChain = {
-    select: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockReturnThis(),
-    is: vi.fn().mockReturnThis(),
-    single: vi.fn().mockResolvedValue({ data: studentIdLookup, error: null }),
-  };
-  // The hook uses the supabase chain pattern: from(...).select(...).eq(...).order(...).
-  // Make every method return `this` and only resolve via the *terminal* awaited
-  // call. Since the hook does `await q;` (with q assigned via chained returns),
-  // all chains are thenable on resolve. We wire `.order` and `.eq` as both
-  // chainable AND awaitable: when awaited, they return the resolved promise.
-  const programsChain = {
-    select: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockReturnThis(),
-    is: vi.fn().mockReturnThis(),
-    order: vi.fn().mockReturnThis(),
-    then(resolve, reject) {
-      Promise.resolve({ data: programsData, error: null }).then(resolve, reject);
-    },
-  };
-  // Confirmations + set_logs are now filtered THROUGH the program join
-  // (applyProgramScope adds .eq(prefix.student_id).is(prefix.deleted_at)…),
-  // so both chains need .eq/.is in addition to .in-era methods.
-  const confChain = {
-    select: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockReturnThis(),
-    is: vi.fn().mockReturnThis(),
-    order: vi.fn().mockReturnThis(),
-    then(resolve, reject) {
-      Promise.resolve({ data: confirmationsData, error: null }).then(resolve, reject);
-    },
-  };
-  const logsChain = {
-    select: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockReturnThis(),
-    is: vi.fn().mockReturnThis(),
-    limit: vi.fn().mockReturnThis(),
-    then(resolve, reject) {
-      Promise.resolve({ data: setLogsData, error: null }).then(resolve, reject);
-    },
-  };
-  // slot_deviations fetch (swap-aware attribution). Only reached when the
-  // scope tree has slots; select().eq('kind','swap') then applyProgramScope's
-  // .eq/.is.
-  const devChain = {
-    select: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockReturnThis(),
-    is: vi.fn().mockReturnThis(),
-    limit: vi.fn().mockReturnThis(),
-    then(resolve, reject) {
-      Promise.resolve({ data: deviationsData, error: null }).then(resolve, reject);
-    },
-  };
-  // The hook order varies based on scope/studentId — but it always pulls
-  // students FIRST when no studentId is provided. Track call index.
-  const sequenceWithStudent = [studentChain, programsChain, confChain, logsChain, devChain];
-  const sequenceNoStudent = [programsChain, confChain, logsChain, devChain];
-  let callIdx = 0;
-  let useStudentLookup = true;
+  const db = fakePostgrest({
+    students: [studentIdLookup],
+    programs: programsData,
+    session_confirmations: confirmationsData,
+    set_logs: setLogsData,
+    slot_deviations: deviationsData,
+  });
   return {
-    chains: { studentChain, programsChain, confChain, logsChain },
-    register({ withStudentLookup = true } = {}) {
-      callIdx = 0;
-      useStudentLookup = withStudentLookup;
-      const seq = useStudentLookup ? sequenceWithStudent : sequenceNoStudent;
-      supabase.from.mockImplementation(() => seq[callIdx++]);
+    db,
+    register() {
+      supabase.from.mockImplementation(db.from);
     },
   };
 }
@@ -157,11 +101,11 @@ describe('useStudentProgressStats — scope', () => {
       wrapper: withClient(qc),
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    // .eq called with student_id=st-1 (resolved from profile) only.
-    const eqCalls = setup.chains.programsChain.eq.mock.calls;
-    expect(eqCalls).toContainEqual(['student_id', 'st-1']);
-    expect(eqCalls.find((c) => c[0] === 'is_active')).toBeUndefined();
-    expect(eqCalls.find((c) => c[0] === 'id')).toBeUndefined();
+    // Filtered on student_id=st-1 (resolved from profile) only.
+    const { filters } = setup.db.requestsTo('programs')[0];
+    expect(filters).toContainEqual(['eq', 'student_id', 'st-1']);
+    expect(filters.find((f) => f[1] === 'is_active')).toBeUndefined();
+    expect(filters.find((f) => f[1] === 'id')).toBeUndefined();
   });
 
   it('scope="active" adds is_active=true filter', async () => {
@@ -173,23 +117,21 @@ describe('useStudentProgressStats — scope', () => {
       { wrapper: withClient(qc) },
     );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    const eqCalls = setup.chains.programsChain.eq.mock.calls;
-    expect(eqCalls).toContainEqual(['is_active', true]);
+    expect(setup.db.requestsTo('programs')[0].filters).toContainEqual(['eq', 'is_active', true]);
   });
 
   it('scope=<programId> filters by id and skips the students lookup when studentId is passed', async () => {
     const setup = setupChains({ programsData: [] });
-    setup.register({ withStudentLookup: false });
+    setup.register();
     const qc = makeClient();
     const { result } = renderHook(
       () => useStudentProgressStats('st-1', 'p-7'),
       { wrapper: withClient(qc) },
     );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    const eqCalls = setup.chains.programsChain.eq.mock.calls;
-    expect(eqCalls).toContainEqual(['id', 'p-7']);
+    expect(setup.db.requestsTo('programs')[0].filters).toContainEqual(['eq', 'id', 'p-7']);
     // No students lookup invoked.
-    expect(setup.chains.studentChain.select).not.toHaveBeenCalled();
+    expect(setup.db.requestsTo('students')).toHaveLength(0);
   });
 });
 
@@ -468,6 +410,7 @@ describe('useStudentProgressStats — completion + tonnage', () => {
       ],
       deviationsData: [
         {
+          id: 'd-1',
           exercise_slot_id: 'sl-1',
           kind: 'swap',
           substitute: { id: 'e-2', name: 'Machine Row', type: 'pull', difficulty: 1, volume_weight: 1 },
@@ -525,7 +468,7 @@ describe('useStudentProgressStats — completion + tonnage', () => {
         { id: 'l-1', exercise_slot_id: 'sl-1', set_number: 1, done: true, target_reps: 5, target_weight_kg: 100, actual_reps: 5, actual_weight_kg: 60 },
       ],
       deviationsData: [
-        { exercise_slot_id: 'sl-1', kind: 'swap', substitute: { id: 'e-2', name: 'Machine Row', type: 'pull', difficulty: 1, volume_weight: 1 } },
+        { id: 'd-1', exercise_slot_id: 'sl-1', kind: 'swap', substitute: { id: 'e-2', name: 'Machine Row', type: 'pull', difficulty: 1, volume_weight: 1 } },
       ],
     });
     setup.register();
@@ -624,6 +567,10 @@ describe('useStudentProgressStats — completion + tonnage', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data.recentConfirmations).toHaveLength(5);
     expect(result.current.data.recentConfirmations[0].session_title).toBeDefined();
+    // Newest first, whatever order the rows were read in (they come by id).
+    expect(result.current.data.recentConfirmations.map((c) => c.confirmed_at)).toEqual([
+      '2026-04-26', '2026-04-25', '2026-04-24', '2026-04-23', '2026-04-22',
+    ]);
   });
 
   it('builds sessionCalendar only for sessions with scheduled_date', async () => {
@@ -769,5 +716,181 @@ describe('useStudentProgressStats — real-calendar bucketing', () => {
       { session_id: 'moved', title: 'moved', date: '2026-07-09', completed: false },
       { session_id: 'undated', title: 'undated', date: '2026-07-10', completed: false },
     ]);
+  });
+});
+
+// PostgREST answers one request with 1000 rows at most and does not say when it
+// cut. The three flat lists the hook reads all grow with history, so each must
+// be read to its end — these fixtures are sized like the two athletes who were
+// past the cap in production.
+describe('useStudentProgressStats — history longer than one page', () => {
+  const pad = (i) => String(i).padStart(4, '0');
+
+  const oneSessionProgram = (slots, over = {}) => [
+    {
+      id: 'p-1', name: 'A', sort_order: 0, is_active: true,
+      weeks: [{
+        id: 'w-1', week_number: 1, label: null,
+        sessions: [{
+          id: 's-1', title: 'Push', day_number: 1, sort_order: 0,
+          scheduled_date: null, archived_at: null, performed_at: TRAINED_AT,
+          exercise_slots: slots,
+          ...over,
+        }],
+      }],
+    },
+  ];
+
+  async function run(tables, args = []) {
+    const setup = setupChains(tables);
+    setup.register();
+    const { result } = renderHook(() => useStudentProgressStats(...args), {
+      wrapper: withClient(makeClient()),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    return { data: result.current.data, db: setup.db };
+  }
+
+  it('counts every done set of an athlete with 1119 of them, not the first 1000', async () => {
+    const DONE = 1119;
+    const { data, db } = await run({
+      programsData: oneSessionProgram([
+        {
+          id: 'sl-1', sets: DONE, reps: 5, duration_seconds: null, weight_kg: 100,
+          exercise: { id: 'e-1', name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
+          set_logs: [],
+        },
+      ]),
+      setLogsData: Array.from({ length: DONE }, (_, i) => ({
+        id: `l-${pad(i)}`, exercise_slot_id: 'sl-1', set_number: i + 1, done: true,
+        is_student_added: false, rpe: 8, target_reps: 5, target_weight_kg: 100,
+        actual_reps: null, actual_weight_kg: null,
+      })),
+    });
+
+    expect(data.totalSetsDone).toBe(DONE);
+    expect(data.weeklyVolume[0].sets_done).toBe(DONE);
+    expect(data.weeklyVolume[0].push).toBe(DONE * 5);
+    expect(data.exerciseProgress.byExercise['e-1'][0].tonnage).toBe(DONE * 5 * 100);
+
+    const requests = db.requestsTo('set_logs');
+    expect(requests).toHaveLength(2);
+    expect(requests[0].order).toEqual({ column: 'id', ascending: true });
+    expect(requests[0].limit).toBe(1000);
+    expect(requests[0].select).toMatch(/^id, /);
+    expect(requests[1].filters).toContainEqual(['gt', 'id', 'l-0999']);
+  });
+
+  it('asks for done sets only, and scopes every page to the athlete and the block', async () => {
+    const { db } = await run(
+      {
+        programsData: oneSessionProgram([
+          {
+            id: 'sl-1', sets: 1001, reps: 5, duration_seconds: null, weight_kg: 100,
+            exercise: { id: 'e-1', name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
+            set_logs: [],
+          },
+        ]),
+        setLogsData: Array.from({ length: 1001 }, (_, i) => ({
+          id: `l-${pad(i)}`, exercise_slot_id: 'sl-1', done: true, target_reps: 5, target_weight_kg: 100,
+        })),
+      },
+      ['st-9', 'active'],
+    );
+
+    const requests = db.requestsTo('set_logs');
+    expect(requests).toHaveLength(2);
+    const scope = 'exercise_slots.sessions.weeks.programs';
+    for (const request of requests) {
+      // The pending, failed and skipped rows are never downloaded: no figure
+      // of this hook is derived from them.
+      expect(request.filters).toContainEqual(['eq', 'done', true]);
+      expect(request.filters).toContainEqual(['eq', `${scope}.student_id`, 'st-9']);
+      expect(request.filters).toContainEqual(['is', `${scope}.deleted_at`, null]);
+      expect(request.filters).toContainEqual(['eq', `${scope}.is_active`, true]);
+    }
+  });
+
+  it('follows every swap of an athlete with more than 1000 of them', async () => {
+    const SLOTS = 1001;
+    const { data, db } = await run({
+      programsData: oneSessionProgram(
+        Array.from({ length: SLOTS }, (_, i) => ({
+          id: `sl-${pad(i)}`, sets: 1, reps: 5, duration_seconds: null, weight_kg: 100,
+          // Prescribed PUSH…
+          exercise: { id: 'e-1', name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
+          set_logs: [{ set_number: 1, target_reps: 5, target_weight_kg: 100 }],
+        })),
+      ),
+      setLogsData: Array.from({ length: SLOTS }, (_, i) => ({
+        id: `l-${pad(i)}`, exercise_slot_id: `sl-${pad(i)}`, set_number: 1, done: true,
+        target_reps: 5, target_weight_kg: 100, actual_reps: 5, actual_weight_kg: 60,
+      })),
+      // …every slot swapped to a PULL movement.
+      deviationsData: Array.from({ length: SLOTS }, (_, i) => ({
+        id: `d-${pad(i)}`, exercise_slot_id: `sl-${pad(i)}`, kind: 'swap',
+        substitute: { id: 'e-2', name: 'Machine Row', type: 'pull', difficulty: 1, volume_weight: 1 },
+      })),
+    });
+
+    // A swap lost to the cut would leave its set on the prescribed exercise.
+    expect(data.weeklyVolume[0].pull).toBe(SLOTS * 5);
+    expect(data.weeklyVolume[0].push).toBe(0);
+    expect(data.exerciseProgress.byExercise['e-2'][0].tonnage).toBe(SLOTS * 5 * 60);
+    expect(data.exerciseProgress.byExercise['e-1'][0].tonnage).toBe(0);
+
+    const requests = db.requestsTo('slot_deviations');
+    expect(requests).toHaveLength(2);
+    expect(requests[0].select).toMatch(/^id, /);
+    expect(requests[1].filters).toContainEqual(['eq', 'kind', 'swap']);
+    expect(requests[1].filters).toContainEqual(['gt', 'id', 'd-0999']);
+  });
+
+  it('counts every confirmed session past 1000, and still lists the newest five first', async () => {
+    const SESSIONS = 1003;
+    const day = (i) => new Date(Date.UTC(2020, 0, 1 + i, 12)).toISOString();
+    const sessions = Array.from({ length: SESSIONS }, (_, i) => ({
+      id: `s-${pad(i)}`, title: `S${i}`, day_number: 1, sort_order: i,
+      // Rows from before performed_at existed: the confirmation is their date.
+      scheduled_date: null, archived_at: null, performed_at: null, exercise_slots: [],
+    }));
+    const { data, db } = await run({
+      programsData: [
+        { id: 'p-1', name: 'A', sort_order: 0, is_active: true, weeks: [{ id: 'w-1', week_number: 1, label: null, sessions }] },
+      ],
+      // Ids run AGAINST the dates, so id order (how the rows are read) is the
+      // reverse of what "recent" means.
+      confirmationsData: sessions.map((s, i) => ({
+        id: `c-${pad(SESSIONS - 1 - i)}`, session_id: s.id, confirmed_at: day(i), performed_on: null, notes: null,
+      })),
+    });
+
+    expect(data.totalSessionsConfirmed).toBe(SESSIONS);
+    expect(data.backlogSessions).toBe(0);
+    expect(data.recentConfirmations.map((c) => c.session_id)).toEqual([
+      's-1002', 's-1001', 's-1000', 's-0999', 's-0998',
+    ]);
+
+    const requests = db.requestsTo('session_confirmations');
+    expect(requests).toHaveLength(2);
+    expect(requests[0].order).toEqual({ column: 'id', ascending: true });
+    expect(requests[1].filters).toContainEqual(['gt', 'id', 'c-0999']);
+    expect(requests[1].filters).toContainEqual(['eq', 'sessions.weeks.programs.student_id', 'st-1']);
+  });
+
+  it('reads a short history with one request per list', async () => {
+    const { db } = await run({
+      programsData: oneSessionProgram([
+        {
+          id: 'sl-1', sets: 1, reps: 5, duration_seconds: null, weight_kg: 100,
+          exercise: { id: 'e-1', name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
+          set_logs: [],
+        },
+      ]),
+      setLogsData: [{ id: 'l-1', exercise_slot_id: 'sl-1', done: true, target_reps: 5, target_weight_kg: 100 }],
+    });
+    expect(db.requestsTo('session_confirmations')).toHaveLength(1);
+    expect(db.requestsTo('set_logs')).toHaveLength(1);
+    expect(db.requestsTo('slot_deviations')).toHaveLength(1);
   });
 });
