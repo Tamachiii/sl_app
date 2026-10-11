@@ -42,9 +42,10 @@ function makeBodyweightAt(bwRows) {
  * cache, the same list "Last time" derives from. So a visit to the records
  * costs the history read only when nothing has it yet, when a session was
  * confirmed since, or when it is older than HISTORY_STALE_MS; a refetch on
- * focus re-reads the bodyweight series and nothing else. The history's key
- * starts with 'student-records' like this query's: one invalidation of
- * ['student-records'] renews both.
+ * focus re-reads the bodyweight series (for a coach, behind the athlete's
+ * profile id) and not the history. The history's key starts with
+ * 'student-records' like this query's: one invalidation of ['student-records']
+ * renews both.
  *
  * The history hands the sets over oldest first, which the reduce relies on: of
  * two sets tying for a best, the EARLIER one holds the record and its date —
