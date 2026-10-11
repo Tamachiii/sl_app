@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
@@ -15,15 +15,26 @@ export default function SessionsFeed() {
   const { t } = useI18n();
   const { profile, signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { data: confirmations, isLoading } = useAllConfirmations();
   const [showArchived, setShowArchived] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const studentFilter = searchParams.get('student') || '';
+  // Whether the coach was SENT here for one athlete: the roster's "N to
+  // review" chip and the athlete page's "Sessions" action both link to
+  // `?student=<id>`. Read once — the filter the coach picks afterwards in the
+  // select is not an arrival.
+  const [arrivedForStudent] = useState(() => !!searchParams.get('student'));
 
   // If the coach left a review open and tabbed to another section, bounce
   // them back into that review on return. Explicit "back" on the review
   // clears the saved state (see SessionReview).
+  //
+  // Not when they arrive for one athlete: that link names its destination,
+  // and bouncing into whichever review was last left open — possibly another
+  // athlete's — would make the chip land anywhere but on what it counts.
   useEffect(() => {
+    if (arrivedForStudent) return;
     let raw = null;
     try { raw = localStorage.getItem(LAST_COACH_SESSION_KEY); } catch { /* ignore */ }
     if (!raw) return;
@@ -81,12 +92,21 @@ export default function SessionsFeed() {
   const needsReview = useMemo(() => active.filter((c) => !c.reviewed_at), [active]);
 
   // The feed defaults to an inbox: only confirmations still awaiting review,
-  // with "All" restoring the full history. Exception: arriving with a
-  // ?student= deep link (the profile tab's "View sessions") is a
-  // history-browsing gesture — land those on "All" so a fully-reviewed
-  // student doesn't greet the coach with an empty page.
-  const [showAll, setShowAll] = useState(() => !!searchParams.get('student'));
+  // with "All" restoring the full history. One exception, for a coach who was
+  // sent here for an athlete with nothing left to review: they get that
+  // athlete's history instead of an "all caught up" empty page. An athlete
+  // who DOES have sessions to review opens on them — that is what the chip
+  // that links here counts. (Every `?student=` arrival used to open on "All",
+  // which buried the three sessions to review among the reviewed ones.)
+  //
+  // `viewChoice` is null until the coach picks a view, so the default can
+  // still follow the data when it arrives after the first render.
+  const [viewChoice, setViewChoice] = useState(null);
+  const showAll = viewChoice ?? (arrivedForStudent && needsReview.length === 0);
   const visibleActive = showAll ? active : needsReview;
+  // Handed to the review so its back button returns to this feed AND this
+  // filter; without it the athlete filter of a `?student=` arrival is lost.
+  const here = location.pathname + location.search;
 
   function handleFilterChange(e) {
     const value = e.target.value;
@@ -111,6 +131,7 @@ export default function SessionsFeed() {
       <Link
         key={c.id}
         to={`/coach/student/${c.student_id}/session/${c.session_id}/review`}
+        state={{ from: here }}
         className={`block sl-card p-4 space-y-1 hover:bg-ink-50 transition-colors ${
           isArchived ? 'opacity-75' : ''
         }`}
@@ -199,7 +220,7 @@ export default function SessionsFeed() {
           <button
             type="button"
             aria-pressed={!showAll}
-            onClick={() => setShowAll(false)}
+            onClick={() => setViewChoice(false)}
             className={`sl-pill ${
               !showAll ? 'bg-accent text-ink-900' : 'bg-ink-100 text-ink-700 hover:bg-ink-200'
             }`}
@@ -210,7 +231,7 @@ export default function SessionsFeed() {
           <button
             type="button"
             aria-pressed={showAll}
-            onClick={() => setShowAll(true)}
+            onClick={() => setViewChoice(true)}
             className={`sl-pill ${
               showAll ? 'bg-accent text-ink-900' : 'bg-ink-100 text-ink-700 hover:bg-ink-200'
             }`}

@@ -21,5 +21,13 @@ export default {
       openEditor: 'Editor',
       openEditorAria: 'Diese Einheit im Editor öffnen',
     },
+    roster: {
+      reviewChipAria: '{n} zu prüfen — Einheiten von {name}',
+    },
+    athlete: {
+      actionsLabel: 'Zu den Nachrichten oder Einheiten von {name}',
+      message: 'Nachricht',
+      sessions: 'Einheiten',
+    },
   },
 };

@@ -165,6 +165,39 @@ describe('CoachHome', () => {
       expect(screen.getByText(/2 to review/i)).toBeInTheDocument();
     });
 
+    // Review finding P12: the chip sat inside a card that opened the athlete
+    // page, where nothing could be reviewed. It opens what it counts.
+    it('links the "to review" chip to that athlete\'s sessions in the feed', () => {
+      renderCoachHome();
+      const chip = screen.getByRole('link', { name: /2 to review/i });
+      expect(chip).toHaveAttribute('href', '/coach/sessions?student=s3');
+      expect(chip).toHaveAccessibleName(/cara/i);
+      expect(chip).toHaveTextContent(/^2 to review$/i);
+    });
+
+    // An anchor inside an anchor is invalid HTML, and browsers split it in
+    // ways that differ. The card's link is stretched over the card instead of
+    // wrapped around it.
+    it('keeps the chip out of the card link, and the card one link', () => {
+      renderCoachHome();
+      const card = screen.getByRole('link', { name: /open cara/i });
+      const chip = screen.getByRole('link', { name: /2 to review/i });
+      expect(card).not.toContainElement(chip);
+      expect(card).toHaveAttribute('href', '/coach/students/s3');
+      expect(card.className).toContain('after:absolute');
+      expect(card.className).toContain('after:inset-0');
+      // Raised above the stretched area, or the tap would open the athlete.
+      expect(chip.className).toContain('z-10');
+      expect(document.querySelector('a a')).toBeNull();
+    });
+
+    it('leaves the other chips as plain labels', () => {
+      renderCoachHome();
+      expect(screen.getByText(/no program/i).closest('a')).toBeNull();
+      // One card link per athlete, plus the one chip.
+      expect(screen.getAllByRole('link')).toHaveLength(4);
+    });
+
     it('orders attention-first (no-program, then to-review, then calm)', () => {
       renderCoachHome();
       const names = screen.getAllByRole('link', { name: /open /i }).map((el) => el.getAttribute('aria-label'));

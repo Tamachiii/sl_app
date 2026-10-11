@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { Link, useOutletContext } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
 import StudentProgrammingSection from './StudentProgrammingSection';
 import StudentGoalsSection from './StudentGoalsSection';
@@ -71,6 +72,42 @@ function Section({ id, title, defaultOpen = false, children }) {
 }
 
 /**
+ * The athlete header's actions: the two places a coach goes FROM an athlete
+ * that are not on this page — their message thread and their sessions in the
+ * feed. Both existed on the old Profile tab and were lost when the tabs were
+ * merged, which left the page with no way to review or to write.
+ *
+ * They sit here, directly under the header, and not inside it: the header box
+ * is shared pixel for pixel with the roster (see CoachHome), and it stays
+ * mounted over the session editor, where a band of actions above the work is
+ * exactly what the editor's own header was trimmed to avoid.
+ */
+function AthleteActions({ student }) {
+  const { t } = useI18n();
+  if (!student) return null;
+  const name = student.profile?.full_name || '';
+  const cls =
+    'sl-pill min-h-9 px-3.5 bg-ink-100 text-ink-700 hover:bg-ink-200 transition-colors';
+
+  return (
+    <nav
+      aria-label={t('coachLoggedHistory.athlete.actionsLabel', { name })}
+      className="flex items-center gap-2 pb-2"
+    >
+      {/* The thread is keyed on the PROFILE id, not the students-row id. */}
+      {student.profile_id && (
+        <Link to={`/coach/messages/${student.profile_id}`} className={cls}>
+          {t('coachLoggedHistory.athlete.message')}
+        </Link>
+      )}
+      <Link to={`/coach/sessions?student=${student.id}`} className={cls}>
+        {t('coachLoggedHistory.athlete.sessions')}
+      </Link>
+    </nav>
+  );
+}
+
+/**
  * The whole athlete on one page. Replaced the Programming / Progress tab strip:
  * the coach asked to stop losing the page when moving between areas, and tabs
  * made every area a separate destination with its own mount and scroll reset.
@@ -80,9 +117,13 @@ function Section({ id, title, defaultOpen = false, children }) {
  */
 export default function StudentOverview() {
   const { t } = useI18n();
+  // CoachHome resolves the athlete and hands it down through the outlet.
+  const { student } = useOutletContext() || {};
 
   return (
     <div className="space-y-1">
+      <AthleteActions student={student} />
+
       <Section id="programming" title={t('coach.tabs.programming')} defaultOpen>
         <StudentProgrammingSection />
       </Section>

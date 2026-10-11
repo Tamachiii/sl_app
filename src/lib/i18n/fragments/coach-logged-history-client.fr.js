@@ -21,5 +21,13 @@ export default {
       openEditor: 'éditeur',
       openEditorAria: 'Ouvrir cette séance dans l’éditeur',
     },
+    roster: {
+      reviewChipAria: '{n} à revoir — séances de {name}',
+    },
+    athlete: {
+      actionsLabel: 'Aller aux messages ou aux séances de {name}',
+      message: 'Message',
+      sessions: 'Séances',
+    },
   },
 };

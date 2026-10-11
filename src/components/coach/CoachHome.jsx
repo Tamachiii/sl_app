@@ -61,48 +61,71 @@ function RosterCard({ entry, t }) {
   if (programName) bits.push(programName);
   const subtitle = bits.join(' · ').toUpperCase();
 
+  // The card is still ONE target for "open this athlete" — the link's ::after
+  // is stretched over the whole card — but it is no longer an <a> wrapped
+  // around everything, because the "N to review" chip is a link of its own
+  // now and an anchor cannot sit inside an anchor. The chip is raised above
+  // the stretched area; every other part of the card falls through to it.
   return (
-    <Link
-      to={`/coach/students/${student.id}`}
-      aria-label={t('coach.roster.openStudent', { name: fullName })}
-      className="block sl-card p-3 hover:bg-ink-50 transition-colors"
-    >
-      <div className="flex items-center gap-3 min-w-0">
-        <div
-          className="w-10 h-10 rounded-full flex items-center justify-center sl-display text-[13px] shrink-0"
-          style={{
-            background: 'color-mix(in srgb, var(--color-accent) 15%, transparent)',
-            color: 'var(--color-accent)',
-            border: '1px solid color-mix(in srgb, var(--color-accent) 35%, transparent)',
-          }}
-          aria-hidden="true"
-        >
-          {initials || '—'}
+    <div className="relative sl-card p-3 hover:bg-ink-50 transition-colors">
+      <Link
+        to={`/coach/students/${student.id}`}
+        aria-label={t('coach.roster.openStudent', { name: fullName })}
+        className="block after:absolute after:inset-0 after:rounded-[inherit]"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className="w-10 h-10 rounded-full flex items-center justify-center sl-display text-[13px] shrink-0"
+            style={{
+              background: 'color-mix(in srgb, var(--color-accent) 15%, transparent)',
+              color: 'var(--color-accent)',
+              border: '1px solid color-mix(in srgb, var(--color-accent) 35%, transparent)',
+            }}
+            aria-hidden="true"
+          >
+            {initials || '—'}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="sl-display text-[16px] text-gray-900 truncate">{fullName}</p>
+            {subtitle && (
+              <p className="sl-mono text-[11px] text-ink-400 mt-1.5 truncate">{subtitle}</p>
+            )}
+          </div>
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="sl-display text-[16px] text-gray-900 truncate">{fullName}</p>
-          {subtitle && (
-            <p className="sl-mono text-[11px] text-ink-400 mt-1.5 truncate">{subtitle}</p>
-          )}
-        </div>
-      </div>
 
-      {weekDays && <StudentWeekStrip weekDays={weekDays} className="mt-3" />}
+        {weekDays && <StudentWeekStrip weekDays={weekDays} className="mt-3" />}
+      </Link>
 
       {chips.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-3">
-          {chips.map((chip) => (
-            <span
-              key={chip.kind}
-              className="sl-pill"
-              style={CHIP_STYLE[chip.kind]}
-            >
-              {chipLabel(chip, t)}
-            </span>
-          ))}
+          {chips.map((chip) =>
+            chip.kind === 'toReview' ? (
+              // "3 to review" used to open the athlete page, which offered no
+              // way to review anything. It opens what it counts: that
+              // athlete's sessions, in the feed. The ::before only widens the
+              // tap area around a pill that is 22px tall.
+              <Link
+                key={chip.kind}
+                to={`/coach/sessions?student=${student.id}`}
+                aria-label={t('coachLoggedHistory.roster.reviewChipAria', { n: chip.n, name: fullName })}
+                className="sl-pill relative z-10 hover:brightness-125 before:absolute before:-inset-1.5"
+                style={CHIP_STYLE[chip.kind]}
+              >
+                {chipLabel(chip, t)}
+              </Link>
+            ) : (
+              <span
+                key={chip.kind}
+                className="sl-pill"
+                style={CHIP_STYLE[chip.kind]}
+              >
+                {chipLabel(chip, t)}
+              </span>
+            ),
+          )}
         </div>
       )}
-    </Link>
+    </div>
   );
 }
 

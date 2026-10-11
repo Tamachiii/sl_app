@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useParams } from 'react-router-dom';
 
 let mockConfirmations = { data: [], isLoading: false };
 
@@ -123,17 +123,75 @@ describe('SessionsFeed', () => {
     expect(screen.getByText('Pushed')).toBeInTheDocument();
   });
 
-  it('a ?student= deep link (profile "View sessions") defaults to All, not the inbox', () => {
-    mockConfirmations = {
-      data: [
-        makeConfirmation({ id: 'c-r', session_id: 's-r', session_title: 'Pulled', reviewed_at: '2026-04-30T09:00:00Z' }),
-      ],
-      isLoading: false,
-    };
-    renderFeed(['/coach/sessions?student=s-1']);
-    // History-browsing gesture: the reviewed card must be visible immediately
-    // instead of an "all caught up" empty state.
-    expect(screen.getByText('Pulled')).toBeInTheDocument();
+  // `?student=` is how the roster's "N to review" chip and the athlete page's
+  // "Sessions" action arrive.
+  describe('arriving for one athlete (?student=)', () => {
+    it('opens on their history when nothing is left to review, not on an empty inbox', () => {
+      mockConfirmations = {
+        data: [
+          makeConfirmation({ id: 'c-r', session_id: 's-r', session_title: 'Pulled', reviewed_at: '2026-04-30T09:00:00Z' }),
+        ],
+        isLoading: false,
+      };
+      renderFeed(['/coach/sessions?student=s-1']);
+      expect(screen.getByText('Pulled')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^all$/i })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    // Every such arrival used to open on "All": the chip said "2 to review"
+    // and the page answered with the athlete's whole history.
+    it('opens on what there is to review when there is something', () => {
+      mockConfirmations = {
+        data: [
+          makeConfirmation({ id: 'c-r', session_id: 's-r', session_title: 'Pulled', reviewed_at: '2026-04-30T09:00:00Z' }),
+          makeConfirmation({ id: 'c-u', session_id: 's-u', session_title: 'Pushed' }),
+          makeConfirmation({ id: 'c-b', session_id: 's-b', student_id: 's-2', student_name: 'Bob', session_title: 'Bob Pull' }),
+        ],
+        isLoading: false,
+      };
+      renderFeed(['/coach/sessions?student=s-1']);
+      expect(screen.getByText('Pushed')).toBeInTheDocument();
+      expect(screen.queryByText('Pulled')).not.toBeInTheDocument();
+      expect(screen.queryByText('Bob Pull')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /needs review · 1/i })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('still lets the coach switch to the full history', async () => {
+      const user = userEvent.setup();
+      mockConfirmations = {
+        data: [
+          makeConfirmation({ id: 'c-r', session_id: 's-r', session_title: 'Pulled', reviewed_at: '2026-04-30T09:00:00Z' }),
+          makeConfirmation({ id: 'c-u', session_id: 's-u', session_title: 'Pushed' }),
+        ],
+        isLoading: false,
+      };
+      renderFeed(['/coach/sessions?student=s-1']);
+      await user.click(screen.getByRole('button', { name: /^all$/i }));
+      expect(screen.getByText('Pulled')).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: /needs review/i }));
+      expect(screen.queryByText('Pulled')).not.toBeInTheDocument();
+    });
+
+    // The default follows the data: the confirmations can arrive after the
+    // first render (a cold load straight onto the link).
+    it('decides once the confirmations have loaded', () => {
+      mockConfirmations = { data: undefined, isLoading: true };
+      const { rerender } = renderFeed(['/coach/sessions?student=s-1']);
+      mockConfirmations = {
+        data: [
+          makeConfirmation({ id: 'c-r', session_id: 's-r', session_title: 'Pulled', reviewed_at: '2026-04-30T09:00:00Z' }),
+          makeConfirmation({ id: 'c-u', session_id: 's-u', session_title: 'Pushed' }),
+        ],
+        isLoading: false,
+      };
+      rerender(
+        <MemoryRouter initialEntries={['/coach/sessions?student=s-1']}>
+          <SessionsFeed />
+        </MemoryRouter>,
+      );
+      expect(screen.getByText('Pushed')).toBeInTheDocument();
+      expect(screen.queryByText('Pulled')).not.toBeInTheDocument();
+    });
   });
 
   it('shows an all-caught-up empty state when every confirmation is reviewed', () => {
@@ -179,7 +237,12 @@ describe('SessionsFeed', () => {
 
     function ReviewStub() {
       const { studentId, sessionId } = useParams();
-      return <div data-testid="review">{studentId}/{sessionId}</div>;
+      const { state } = useLocation();
+      return (
+        <div data-testid="review" data-from={state?.from ?? ''}>
+          {studentId}/{sessionId}
+        </div>
+      );
     }
 
     function renderWithReviewRoute(entries = ['/coach/sessions']) {
@@ -205,6 +268,29 @@ describe('SessionsFeed', () => {
     it('stays on the feed when nothing was saved', () => {
       renderWithReviewRoute();
       expect(screen.queryByTestId('review')).not.toBeInTheDocument();
+    });
+
+    // A link that names an athlete names its destination. Bouncing into the
+    // review that happened to be left open — another athlete's, possibly —
+    // would make "2 to review" land anywhere but on those two sessions.
+    it('does not bounce when the coach arrives for one athlete', () => {
+      localStorage.setItem(KEY, JSON.stringify({ studentId: 's-9', sessionId: 'sess-9' }));
+      mockConfirmations = { data: [makeConfirmation()], isLoading: false };
+      renderWithReviewRoute(['/coach/sessions?student=s-1']);
+      expect(screen.queryByTestId('review')).not.toBeInTheDocument();
+      expect(screen.getByText('Push Day')).toBeInTheDocument();
+    });
+
+    // The review's back button returns to the page that opened it. For the
+    // feed that includes the athlete filter, which a `?student=` arrival does
+    // not store anywhere else.
+    it('tells the review to come back to this feed, filter included', async () => {
+      const user = userEvent.setup();
+      mockConfirmations = { data: [makeConfirmation()], isLoading: false };
+      renderWithReviewRoute(['/coach/sessions?student=s-1']);
+      await user.click(screen.getByText('Push Day'));
+      expect(screen.getByTestId('review')).toHaveTextContent('s-1/sess-1');
+      expect(screen.getByTestId('review')).toHaveAttribute('data-from', '/coach/sessions?student=s-1');
     });
 
     it.each([
