@@ -100,7 +100,10 @@ export default function VideoUploadButton({
             <button
               type="button"
               onClick={handleDelete}
-              disabled={busy}
+              // `disabled` is the set's lock (confirmed, reviewed, archived or
+              // past-program session). Deleting is a write like replacing:
+              // only playing the video survives the lock.
+              disabled={busy || disabled}
               aria-label={deleteVideo.isPending ? 'Deleting video…' : 'Delete video'}
               className={`${iconBtn} bg-ink-100 text-ink-500 hover:bg-ink-200`}
             >

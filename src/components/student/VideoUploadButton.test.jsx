@@ -106,6 +106,30 @@ describe('<VideoUploadButton />', () => {
     expect(fileInput).toBeDisabled();
   });
 
+  // `disabled` is how a locked set reaches this button (SetRow passes its
+  // `locked`). The video of a locked set can be watched, not replaced or
+  // deleted — a session the coach has reviewed keeps the video the coach saw.
+  it('disabled: the video can still be played, but neither replaced nor deleted', () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(
+      <VideoUploadButton
+        setLogId="l-1"
+        exerciseSlotId="sl-1"
+        setNumber={1}
+        existingVideo={{ id: 'v-1', storage_path: 'p/1.mp4' }}
+        disabled
+      />,
+    );
+    expect(screen.getByRole('button', { name: /play video/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /replace video/i })).toBeDisabled();
+    const del = screen.getByRole('button', { name: /delete video/i });
+    expect(del).toBeDisabled();
+    fireEvent.click(del);
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(mockDelete.mutate).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
   it('calls useDeleteSetVideo when window.confirm returns true', () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(
