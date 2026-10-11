@@ -5,6 +5,12 @@ had **no backup posture at all** — every hard delete (and the cascade chains
 behind program/student deletes) was unrecoverable. This file documents the
 nightly backup workflow, the one-time setup it needs, and the restore drill.
 
+**Status: no nightly backup runs.** The workflow has skipped every night (its
+secrets were never set), and the one-time setup below does not work as written
+— see the notice at the top of that section before touching it. Until it is
+corrected, the backup is a dump taken by hand before each change to
+production: `docs/runbook/00-before-you-start.md`, section 2.
+
 ## What gets backed up
 
 `.github/workflows/backup.yml` runs nightly (02:30 UTC, plus on demand via
@@ -19,12 +25,51 @@ artifact (30-day retention) containing:
 - **`auth` schema (user accounts / password hashes).** Managed by Supabase and
   not part of the dump. Worst case, accounts are re-created and re-linked by
   `profiles.id`; consider the project's own PITR/backup tier for full recovery.
+  *(October 2026: the command says otherwise. `supabase db dump --data-only
+  --dry-run` prints a `pg_dump` call that leaves `auth` out of its excluded
+  schemas, so `data.sql` holds the account rows, password hashes included —
+  treat the file accordingly. Restoring accounts from it has not been tried.)*
 - **Storage buckets (set videos).** Object storage is never part of a DB dump.
   Videos are the one data class with no recovery story yet.
 - Check the Supabase dashboard → *Database* → *Backups* for what the project's
   plan already provides (paid tiers include daily backups; free tier does not).
 
 ## One-time setup (two GitHub secrets)
+
+> **Not working yet — do not follow this section.** Found in October 2026,
+> before anyone had run it: the two steps below cannot produce a dump. They
+> would leave a login role in production, its password in GitHub, and a
+> failing run every night.
+>
+> - `backup.yml` dumps with `supabase db dump --db-url`, and that command
+>   always runs `pg_dump --role "postgres"` (`supabase db dump --dry-run`
+>   prints the call; CLI 2.109.1, schema and data alike). The role below is
+>   not a member of `postgres`: `permission denied to set role "postgres"`.
+> - The role cannot read a table either. `NOINHERIT` keeps it from using
+>   `pg_read_all_data`: `permission denied for table profiles`. Without
+>   `NOINHERIT` it reads, but not the way `pg_dump` does — with `row_security`
+>   off, which needs `BYPASSRLS` on a database where every table has
+>   row-level security: `query would be affected by row-level security policy
+>   for table "profiles"`.
+>
+> The three refusals were reproduced on PostgreSQL 17.6, production's
+> version, in the database of `npm run test:db`. So the correction is more
+> than a word in the `CREATE ROLE`: a role that only reads cannot be the one
+> `supabase db dump` runs as.
+>
+> Not tried, because nothing in the repository reaches production:
+>
+> - whether the SQL editor's role may `GRANT pg_read_all_data` at all. In the
+>   test database it may not (`permission denied to grant role
+>   "pg_read_all_data"`): `postgres` is no superuser there, as in production,
+>   and the stand-in for the platform (`supabase/tests/shim.sql`) gives it no
+>   admin right on that role. Production may;
+> - whether a GitHub runner reaches `db.<project-ref>.supabase.co`. On the
+>   free plan that host is said to answer over IPv6 only, which GitHub's
+>   runners do not have; the session-pooler address would be the one to use.
+>
+> Until the section is corrected the workflow goes on skipping, and the
+> backup is the dump of `docs/runbook/00-before-you-start.md`, section 2.
 
 1. **Create a dump-only role** (SQL editor or `supabase db query`) — never put
    the service-role key or the `postgres` password in GitHub secrets:

@@ -29,19 +29,27 @@ Expected: one row, `postgres | postgres | PostgreSQL 17.…`. If the first colum
 
 ## 2. Before each checkpoint: a backup less than a day old
 
-Either of these:
+A dump on your machine: schema, then data. `supabase db dump` runs `pg_dump` in a container, so it needs Docker — `docker info` must answer first.
 
-- GitHub → Actions → **Nightly DB backup** → *Run workflow*, wait for the green run, and check that it has an artifact `db-backup-<n>`. A run that is green with **no artifact** means the two secrets are missing — that is not a backup (`BACKUPS.md`).
-- Or a dump on your machine (schema, then data). `supabase db dump` runs `pg_dump` in a container, so Docker must be running:
+```bash
+supabase db dump --linked -f ~/sl_app-backup-schema.sql
+supabase db dump --linked --data-only -f ~/sl_app-backup-data.sql
+```
 
-  ```bash
-  supabase db dump --linked -f ~/sl_app-backup-schema.sql
-  supabase db dump --linked --data-only -f ~/sl_app-backup-data.sql
-  ```
+Both files land in your home folder, not in the repository: the second one holds every athlete's data in clear text, and the repository is public. Never write a dump inside the checkout. The data file carries more than the app's tables: the CLI dumps the rows of every schema it does not treat as internal, and `auth` is not one of those — so the accounts are in it, with their e-mail addresses and password hashes.
 
-  Both files land in your home folder, not in the repository: the second one holds every athlete's data in clear text, and the repository is public. Never write a dump inside the checkout.
+Then look at what was written. A dump that could not run still leaves its file behind, empty — without Docker the command stops with `failed to run docker` and a file of 0 bytes:
 
-Neither covers the `auth` schema (accounts) or the video bucket; `BACKUPS.md` lists the gaps.
+```bash
+ls -l ~/sl_app-backup-schema.sql ~/sl_app-backup-data.sql
+tail -n 1 ~/sl_app-backup-data.sql
+```
+
+Neither size is 0, and the last line of the data file is `RESET ALL;`: the script the CLI runs for a data dump writes that line after the last row.
+
+**The nightly GitHub dump is not a backup, and not to be set up yet.** The workflow (**Nightly DB backup**) has skipped every night, because its two secrets were never set: a run that is green with no artifact `db-backup-<n>` has dumped nothing. The set-up that `BACKUPS.md` describes for it does not work as written — its role can neither run the dump command nor read a table; the page says so at the top of that section. Leave it until the page is corrected.
+
+The videos are in no dump: object storage never is.
 
 ## 3. Run an audit file
 
