@@ -141,7 +141,26 @@ Tables like `set_logs`, `session_confirmations`, `slot_comments`, `exercise_slot
 **When you add a table**, add:
 
 1. Both student-side and coach-side policies using these helpers (or equivalents).
-2. Migration SQL under [supabase/migrations/](../supabase/migrations/) *and* append the same statements to [supabase/schema.sql](../supabase/schema.sql).
+2. A migration in the format of [supabase/migrations/README.md](../supabase/migrations/README.md) (file, audit, rollback, runbook page, manifest entry) *and* the same statements merged into [supabase/schema.sql](../supabase/schema.sql).
+3. An insert probe for the table in `insertProbes()` of `supabase/tests/rls-matrix.test.js` — the test fails until the table has one.
+
+## Migrations and the ledger
+
+Production gets its SQL by hand, one file at a time; the database tests load `supabase/schema.sql`. Three pieces keep the two the same database.
+
+**The manifest.** `supabase/migrations/manifest.json` lists the migrations that follow the format, in apply order, each with a `kind` (`required`, `optional`, `contract`), its wave and checkpoint, and whether its rollback is exact (`reversible`). `supabase/migrations/manifest.js` reads it and derives, from the name `YYYY_MM_DD_NN_<name>`, the four files of a migration: `supabase/migrations/<name>.sql`, `supabase/audits/<name>.audit.sql` (one read-only query), `supabase/rollbacks/<name>.down.sql` and `docs/runbook/migrations/NN-<name>.md`. The files dated before `2026_10` are history: they cannot be replayed and nothing reads them.
+
+**The ledger.** `app_private.app_migrations (name, applied_at)`, created by migration 01. A migration file is one transaction — `BEGIN`, `SET LOCAL lock_timeout`, a guard, the change, the ledger insert, `NOTIFY pgrst, 'reload schema'` when the API surface changes (a table, a column, a primary, unique or foreign key, a function header of `public` — in the rollback file too), `COMMIT` — and its guard refuses a second run (`SLM01`) and a run before the migration it requires (`SLM02`). What a migration requires is the nearest `required` migration before it; a `contract` one requires the nearest `required` or `contract` one (`predecessorOf`). `schema.sql` ends with the same schema and table and an `INSERT` of the names of the migrations merged into it.
+
+**The tests** (`npm run test:db`). `postgres.js` builds two templates per run: `sl_bare` (`shim.sql` only — a Supabase project before any user SQL) and `sl_template` (`sl_bare` + `schema.sql`). `scratchDatabase()` in `harness.js` clones either one for a test that loads SQL files itself.
+
+- `parity.test.js`: `sl_bare` + `fixtures/prod_baseline_2026_09_30.sql` (`schema.sql` as it was compared with production on 2026-09-30, frozen, SHA-256 pinned) + the `required` and `optional` migrations must have the catalog of `schema.sql`. `catalog.js` reads a catalog as data (`catalogSnapshot`) and lists the differences one line per object (`diffCatalogs`); `catalog.test.js` makes each kind of change, on objects of its own, and checks it is seen.
+- `migration-conventions.test.js`: the rules of the format, on the text (`staticProblems`) and by running each migration on the baseline, in order (`checkMigration` in `migration-checks.js`): audit read-only → refused without the migration it requires → applied → refused twice → rolled back (catalog equal to before) → refused twice → applied again (catalog equal to the first time). A second pass on the baseline applies every migration that is not `optional` (`withoutOptionalProblems`): none may need an optional one. The same code is run on deliberately wrong migrations, and the judge of the manifest (`manifestProblems`) on a temporary folder of its own.
+- `migration-ledger.test.js`: no API role can read, write or reach `app_private`; the rollback of migration 01 refuses (`SLM04`) while the ledger records a later migration.
+- `rls-matrix.test.js`: what six callers can do to every table, against `snapshots/rls-matrix.txt`.
+- `rpc-auth.test.js` and `auth-accounts.test.js`: the commands and queries the runbook pages give, read off the page and run.
+
+**The hand-over.** Applying a migration to production is the owner's step. [RUNBOOK.md](RUNBOOK.md) is the index: the rules, the table of checkpoints (which migrations, what else by hand, whether the app is published afterwards) and the sequence of each checkpoint that is ready. [runbook/00-before-you-start.md](runbook/00-before-you-start.md) says how a file is run and what each refusal means, and every migration has its page under `docs/runbook/migrations/`. `src/test/runbookIndex.test.js` holds the index to the manifest (a migration under the checkpoint its entry names; each one audited, applied, audited again, in order; its rollback and page named; the ledger read last) and to the pages (the index repeats their commands and introduces none).
 
 ## Set video uploads
 
@@ -205,9 +224,21 @@ Only `main` (inside `AppShell`) scrolls. `html, body, #root` are `overflow: hidd
 - **`SessionCard`** supports controlled and uncontrolled open state. Pass `open` + `onToggle` to control from the parent (this is how `StudentTraining` enforces single-open accordion behavior). Omit them and the card falls back to its own `useState(defaultOpen)`. `collapsible={false}` pins it open — used for the next-up card. `locked` drops the start affordance for a past block's read-only sessions.
 - **Exercise Library filtering is client-side.** Search and type-filter state live in `ExerciseLibrary` and are applied with `useMemo` over the already-fetched list — no extra Supabase queries. Search bar + pills are hidden on an empty library to keep the add-first flow clean.
 
+## i18n: dictionaries and fragments
+
+`src/lib/i18n/en.js`, `fr.js` and `de.js` are the base dictionaries. `src/lib/i18n/index.js` exports `messages` — each base dictionary plus that language's **fragments** — and `getMessage(lang, key, params)`, which looks a dotted key up in `lang`, then in English, then returns the key itself.
+
+A fragment is how a package adds strings without editing the three dictionaries: `src/lib/i18n/fragments/<package-id>.<lang>.js`, default-exporting an object with one new top-level namespace. `index.js` loads them with one `import.meta.glob` per language (`fragmentModules`) and `mergeFragments` (`src/lib/i18n/mergeFragments.js`) merges them. The base dictionary always wins: a fragment can add a namespace, never replace one. One glob per language is deliberate, so a language loaded on demand takes its fragments with it.
+
+The integrator folds the fragments into the dictionaries at the end of waves 4 and 9 (copy the namespace, delete the three files); call sites do not change. The rules are in `src/lib/i18n/fragments/README.md` and enforced by `src/lib/i18n/parity.test.js`: three languages with identical keys, a camelCase namespace that exists neither in the base dictionaries nor in another package, non-empty string values, and no file in the folder that no language loads. `src/lib/i18n/usage.test.js` checks every literal `t('a.b')` call in `src/components` and `src/hooks` against the merged English dictionary. Both tests also run on a fixture package (`src/lib/i18n/__fixtures__/fragments/`), so the rules stay tested while the real folder is empty.
+
 ## Testing
 
 Unit tests live next to components as `*.test.jsx`. The shared wrapper [src/test/utils.jsx](../src/test/utils.jsx) stacks `ThemeProvider` + `QueryClientProvider` + a lightweight `AuthContext` + `MemoryRouter`. Hooks are stubbed per-file with `vi.mock(...)`. The `useI18n` + `useTheme` hooks both tolerate a missing provider and return no-op English/light defaults — so a component can render in isolation without pulling the whole tree in.
+
+There are three suites, each with its own command and config. `npm test` (`vite.config.js`, jsdom) is the unit suite and excludes `supabase/tests/**` and `docs/**`. `npm run test:db` (`vitest.db.config.js`) is the database suite. `npm run test:docs` (`vitest.docs.config.js`, node) runs the tests under `docs/`; it has no test yet and passes empty. `src/test/docsSuite.test.js` keeps the three apart and checks the format of the snippets in `docs/_pending/`.
+
+`src/test/hardcodedScan.js` is test support for the per-folder "no hard-coded text" tests: `scanHardcoded({ root, allow })` parses every source file of a folder with ESLint's parser and lists JSX text, strings rendered as a JSX child and the literal values of text attributes (`aria-label`, `title`, `placeholder`, `alt`, and props such as `label`, `message` or `confirmLabel`). `allow.files` exempts whole files, `allow.text` exact strings or patterns, and `unused` names the allow-list entries that no longer exempt anything. It does not see a string that reaches the screen through a variable, an object or a function call.
 
 Run the suite from WSL (see [docs/ENVIRONMENT.md](ENVIRONMENT.md)):
 
