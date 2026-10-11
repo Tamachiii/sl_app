@@ -429,7 +429,13 @@ export function useReorderPrograms() {
 /**
  * Coach dashboard summary: for each student the coach manages, resolve
  * { programName, position, total, daysSinceLast, weekDays } in a single pass.
- * RLS scopes the programs query to this coach's students.
+ *
+ * Both reads name the coach: `students!inner(coach_id)` plus a filter on it.
+ * RLS alone answers "every program I may read", and that includes the
+ * programs in which this account is the ATHLETE (a coach who also trains
+ * under another coach, or under a forged link) — which are not this coach's
+ * roster. Same rule as `useStudents`, so the summary cannot hold an athlete
+ * the roster does not list.
  *
  * Progress is the athlete's place in the QUEUE ("session 7 of 24"), not an
  * ordinal week number — the block is an ordered list the athlete works through
@@ -458,14 +464,17 @@ export function useCoachDashboardPrograms() {
           .from('programs')
           .select(`
             student_id, name,
+            student:students!inner(coach_id),
             weeks(id, week_number, label,
               sessions(id, title, day_number, sort_order, scheduled_date, archived_at, performed_at))
           `)
-          .eq('is_active', true),
+          .eq('is_active', true)
+          .eq('student.coach_id', user.id),
         supabase
           .from('session_confirmations')
-          .select('session_id, session:sessions!inner(week:weeks!inner(program:programs!inner(is_active)))')
-          .eq('session.week.program.is_active', true),
+          .select('session_id, session:sessions!inner(week:weeks!inner(program:programs!inner(is_active, student:students!inner(coach_id))))')
+          .eq('session.week.program.is_active', true)
+          .eq('session.week.program.student.coach_id', user.id),
       ]);
       if (programsRes.error) throw programsRes.error;
       if (confsRes.error) throw confsRes.error;

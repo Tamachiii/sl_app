@@ -31,7 +31,9 @@ export function useSessionConfirmation(sessionId, { refetchOnMount } = {}) {
 
 /**
  * Coach-facing: every confirmed session across the coach's students, newest
- * first. RLS scopes confirmations to this coach's students automatically.
+ * first. The coach is named in the query (`student.coach_id`), like the
+ * roster it feeds (`useStudents`): RLS says what this account may read, and
+ * the feed is narrower than that — the sessions of the athletes it coaches.
  *
  * One embedded-join query, filtered THROUGH the session→week→program→student
  * chain — NOT the old "fetch every program tree ever, then .in(all session
@@ -56,13 +58,14 @@ export function useAllConfirmations() {
               program:programs!inner(
                 deleted_at,
                 student:students!inner(
-                  id,
+                  id, coach_id,
                   profile:profiles!students_profile_id_fkey(full_name)
                 )
               )
             )
           )
         `)
+        .eq('session.week.program.student.coach_id', user.id)
         // Trashed programs' confirmations drop out of the feed.
         .is('session.week.program.deleted_at', null)
         .order('confirmed_at', { ascending: false });

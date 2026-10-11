@@ -2,6 +2,20 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 
+/**
+ * Coach-facing: the athletes the signed-in user coaches.
+ *
+ * The `coach_id` filter is the definition of that list, not a shortcut for
+ * RLS. `students` has TWO read policies — the rows you coach, and the row in
+ * which you are the athlete — so an unfiltered read answers "every link I am
+ * part of". A coach who is also somebody's athlete (an account promoted to
+ * coach that still has its athlete row, or a link forged before the database
+ * closed that path) would find themselves in their own roster, in the message
+ * list and in the copy dialog, with no way to remove the card.
+ *
+ * For an athlete the list is empty, which is the right answer: MessageThread
+ * calls this for both roles and only reads it as a coach.
+ */
 export function useStudents() {
   const { user } = useAuth();
 
@@ -14,6 +28,7 @@ export function useStudents() {
           *,
           profile:profiles!students_profile_id_fkey(full_name)
         `)
+        .eq('coach_id', user.id)
         .order('created_at');
       if (error) throw error;
       return data;

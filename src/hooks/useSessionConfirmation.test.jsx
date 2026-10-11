@@ -120,6 +120,7 @@ describe('useAllConfirmations', () => {
     // no .in(id-list). The embed nests session → week → program → student.
     const confChain = {
       select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
       is: vi.fn().mockReturnThis(),
       order: vi.fn().mockResolvedValue({
         data: [
@@ -156,6 +157,7 @@ describe('useAllConfirmations', () => {
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     // Filtered through the join, ordered newest-first — never an .in() list.
+    expect(confChain.eq).toHaveBeenCalledWith('session.week.program.student.coach_id', 'user-1');
     expect(confChain.is).toHaveBeenCalledWith('session.week.program.deleted_at', null);
     expect(confChain.order).toHaveBeenCalledWith('confirmed_at', { ascending: false });
     expect(supabase.from).toHaveBeenCalledWith('session_confirmations');
@@ -175,6 +177,7 @@ describe('useAllConfirmations', () => {
   it('returns [] when there are no confirmations', async () => {
     const confChain = {
       select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
       is: vi.fn().mockReturnThis(),
       order: vi.fn().mockResolvedValue({ data: [], error: null }),
     };
@@ -186,6 +189,81 @@ describe('useAllConfirmations', () => {
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual([]);
+  });
+
+  // The feed and the roster's "to review" chips are the sessions of the
+  // athletes this coach coaches, which is narrower than what RLS lets the
+  // account read. The filter sits four embeds deep, and an embedded filter
+  // only drops the confirmation when every embed on the way is `!inner`.
+  it('names the coach, through inner joins all the way to students', async () => {
+    const confChain = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      is: vi.fn().mockReturnThis(),
+      order: vi.fn().mockResolvedValue({ data: [], error: null }),
+    };
+    supabase.from.mockReturnValue(confChain);
+
+    const { result } = renderHook(() => useAllConfirmations(), {
+      wrapper: withClient(makeClient()),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(confChain.eq.mock.calls).toEqual([['session.week.program.student.coach_id', 'user-1']]);
+    const select = confChain.select.mock.calls[0][0].replace(/\s+/g, '');
+    expect(select).toContain('session:sessions!inner(');
+    expect(select).toContain('week:weeks!inner(');
+    expect(select).toContain('program:programs!inner(');
+    expect(select).toContain('student:students!inner(id,coach_id,');
+  });
+
+  it('leaves out a confirmation that belongs to another coach’s athlete', async () => {
+    const row = (id, coachId, name) => ({
+      id,
+      session_id: `s-${id}`,
+      student_id: `profile-${id}`,
+      confirmed_at: '2026-04-26',
+      performed_on: null,
+      notes: null,
+      session: {
+        title: 'Push',
+        day_number: 1,
+        archived_at: null,
+        reviewed_at: null,
+        week: {
+          week_number: 1,
+          label: null,
+          program: {
+            deleted_at: null,
+            student: { id: `st-${id}`, coach_id: coachId, profile: { full_name: name } },
+          },
+        },
+      },
+    });
+    // What RLS lets user-1 read; the chain applies the request's filters to
+    // it, each path leading into the embedded rows.
+    const visible = [row('1', 'user-1', 'Alex'), row('2', 'coach-other', 'Not mine')];
+    const at = (r, path) => path.split('.').reduce((node, key) => node?.[key], r);
+    const filters = [];
+    const confChain = {
+      select: vi.fn(() => confChain),
+      eq: vi.fn((path, value) => {
+        filters.push((r) => at(r, path) === value);
+        return confChain;
+      }),
+      is: vi.fn((path, value) => {
+        filters.push((r) => at(r, path) === value);
+        return confChain;
+      }),
+      order: vi.fn(async () => ({ data: visible.filter((r) => filters.every((f) => f(r))), error: null })),
+    };
+    supabase.from.mockReturnValue(confChain);
+
+    const { result } = renderHook(() => useAllConfirmations(), {
+      wrapper: withClient(makeClient()),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data.map((c) => c.student_name)).toEqual(['Alex']);
   });
 });
 

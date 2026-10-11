@@ -446,44 +446,120 @@ describe('useReorderPrograms', () => {
   });
 });
 
+// A PostgREST read is awaited after its last filter, whichever that is: every
+// method returns the builder, and the builder resolves to the result.
+function readChain(result) {
+  const chain = {
+    select: vi.fn(() => chain),
+    eq: vi.fn(() => chain),
+    then: (resolve, reject) => Promise.resolve(result).then(resolve, reject),
+  };
+  return chain;
+}
+
+// The same builder over `rows`, applying the request's `.eq()` filters the way
+// PostgREST does with `!inner` embeds: 'student.coach_id' is a path into the
+// embedded row, and a row whose embed does not match is dropped.
+function filteringChain(rows) {
+  const filters = [];
+  const at = (row, path) => path.split('.').reduce((node, key) => node?.[key], row);
+  const chain = {
+    select: vi.fn(() => chain),
+    eq: vi.fn((path, value) => {
+      filters.push([path, value]);
+      return chain;
+    }),
+    then: (resolve, reject) =>
+      Promise.resolve({
+        data: rows.filter((row) => filters.every(([path, value]) => at(row, path) === value)),
+        error: null,
+      }).then(resolve, reject),
+  };
+  return chain;
+}
+
+const oneLine = (text) => text.replace(/\s+/g, ' ').trim();
+
 describe('useCoachDashboardPrograms', () => {
+  // RLS answers "every program this account may read", which includes the
+  // programs in which the account is the ATHLETE. The roster is narrower: the
+  // athletes this coach coaches. An embedded filter only drops the parent row
+  // when the embed is `!inner`, so the select is part of the rule.
+  it('names the coach in both reads, through an inner join on students', async () => {
+    const programsChain = readChain({ data: [], error: null });
+    const confChain = readChain({ data: [], error: null });
+    supabase.from.mockImplementation((table) => (table === 'programs' ? programsChain : confChain));
+
+    const { result } = renderHook(() => useCoachDashboardPrograms(), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(oneLine(programsChain.select.mock.calls[0][0])).toContain('student:students!inner(coach_id)');
+    expect(programsChain.eq.mock.calls).toEqual([
+      ['is_active', true],
+      ['student.coach_id', 'coach-1'],
+    ]);
+
+    expect(confChain.select.mock.calls[0][0]).toBe(
+      'session_id, session:sessions!inner(week:weeks!inner(program:programs!inner(is_active, student:students!inner(coach_id))))',
+    );
+    expect(confChain.eq.mock.calls).toEqual([
+      ['session.week.program.is_active', true],
+      ['session.week.program.student.coach_id', 'coach-1'],
+    ]);
+  });
+
+  it('leaves out the program in which the coach is somebody else’s athlete', async () => {
+    const week = (id, sessionId) => ({
+      id,
+      week_number: 1,
+      label: null,
+      sessions: [{ id: sessionId, title: 'Push', day_number: 1, archived_at: null }],
+    });
+    // What RLS lets coach-1 read: the active block of an athlete they coach,
+    // and their own active block under another coach.
+    const programsChain = filteringChain([
+      { student_id: 'st-1', name: 'Block A', is_active: true, student: { coach_id: 'coach-1' }, weeks: [week('w-1', 's-1')] },
+      { student_id: 'st-self', name: 'My block', is_active: true, student: { coach_id: 'coach-other' }, weeks: [week('w-9', 's-9')] },
+    ]);
+    const confChain = readChain({ data: [], error: null });
+    supabase.from.mockImplementation((table) => (table === 'programs' ? programsChain : confChain));
+
+    const { result } = renderHook(() => useCoachDashboardPrograms(), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(Object.keys(result.current.data)).toEqual(['st-1']);
+  });
+
   it('reports the athlete position in the QUEUE, not an ordinal week', async () => {
-    const programsChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({
-        data: [
-          {
-            student_id: 'st-1',
-            name: 'Block A',
-            weeks: [
-              {
-                id: 'w-1',
-                week_number: 1,
-                label: 'Acc',
-                sessions: [
-                  { id: 's-1', archived_at: null, day_number: 1 },
-                  { id: 's-2', archived_at: null, day_number: 3 },
-                ],
-              },
-              {
-                id: 'w-2',
-                week_number: 2,
-                label: 'Hyp',
-                sessions: [{ id: 's-3', archived_at: null, day_number: 2 }],
-              },
-            ],
-          },
-        ],
-        error: null,
-      }),
-    };
-    const confChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({
-        data: [{ session_id: 's-1' }, { session_id: 's-2' }],
-        error: null,
-      }),
-    };
+    const programsChain = readChain({
+      data: [
+        {
+          student_id: 'st-1',
+          name: 'Block A',
+          weeks: [
+            {
+              id: 'w-1',
+              week_number: 1,
+              label: 'Acc',
+              sessions: [
+                { id: 's-1', archived_at: null, day_number: 1 },
+                { id: 's-2', archived_at: null, day_number: 3 },
+              ],
+            },
+            {
+              id: 'w-2',
+              week_number: 2,
+              label: 'Hyp',
+              sessions: [{ id: 's-3', archived_at: null, day_number: 2 }],
+            },
+          ],
+        },
+      ],
+      error: null,
+    });
+    const confChain = readChain({
+      data: [{ session_id: 's-1' }, { session_id: 's-2' }],
+      error: null,
+    });
     supabase.from.mockImplementation((table) => (table === 'programs' ? programsChain : confChain));
 
     const qc = makeClient();
@@ -501,29 +577,23 @@ describe('useCoachDashboardPrograms', () => {
   });
 
   it('clamps position to the block size once every session is done', async () => {
-    const programsChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({
-        data: [
-          {
-            student_id: 'st-1',
-            name: 'Done',
-            weeks: [
-              { id: 'w-1', week_number: 1, label: 'A', sessions: [{ id: 's-1', archived_at: null, day_number: 1 }] },
-              { id: 'w-2', week_number: 2, label: 'B', sessions: [{ id: 's-2', archived_at: null, day_number: 1 }] },
-            ],
-          },
-        ],
-        error: null,
-      }),
-    };
-    const confChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({
-        data: [{ session_id: 's-1' }, { session_id: 's-2' }],
-        error: null,
-      }),
-    };
+    const programsChain = readChain({
+      data: [
+        {
+          student_id: 'st-1',
+          name: 'Done',
+          weeks: [
+            { id: 'w-1', week_number: 1, label: 'A', sessions: [{ id: 's-1', archived_at: null, day_number: 1 }] },
+            { id: 'w-2', week_number: 2, label: 'B', sessions: [{ id: 's-2', archived_at: null, day_number: 1 }] },
+          ],
+        },
+      ],
+      error: null,
+    });
+    const confChain = readChain({
+      data: [{ session_id: 's-1' }, { session_id: 's-2' }],
+      error: null,
+    });
     supabase.from.mockImplementation((table) => (table === 'programs' ? programsChain : confChain));
 
     const qc = makeClient();
@@ -537,37 +607,31 @@ describe('useCoachDashboardPrograms', () => {
   });
 
   it('builds a 7-slot weekDays array, placing undated sessions on their recommended weekday', async () => {
-    const programsChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({
-        data: [
-          {
-            student_id: 'st-1',
-            name: 'Block A',
-            weeks: [
-              {
-                id: 'w-1',
-                week_number: 1,
-                label: null,
-                sessions: [
-                  { id: 's-mon', title: 'Push', day_number: 1, archived_at: null },
-                  { id: 's-wed', title: 'Pull', day_number: 3, archived_at: null },
-                  { id: 's-fri', title: 'Legs', day_number: 5, archived_at: null },
-                ],
-              },
-            ],
-          },
-        ],
-        error: null,
-      }),
-    };
-    const confChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({
-        data: [{ session_id: 's-mon' }],
-        error: null,
-      }),
-    };
+    const programsChain = readChain({
+      data: [
+        {
+          student_id: 'st-1',
+          name: 'Block A',
+          weeks: [
+            {
+              id: 'w-1',
+              week_number: 1,
+              label: null,
+              sessions: [
+                { id: 's-mon', title: 'Push', day_number: 1, archived_at: null },
+                { id: 's-wed', title: 'Pull', day_number: 3, archived_at: null },
+                { id: 's-fri', title: 'Legs', day_number: 5, archived_at: null },
+              ],
+            },
+          ],
+        },
+      ],
+      error: null,
+    });
+    const confChain = readChain({
+      data: [{ session_id: 's-mon' }],
+      error: null,
+    });
     supabase.from.mockImplementation((table) => (table === 'programs' ? programsChain : confChain));
 
     const qc = makeClient();
@@ -588,33 +652,27 @@ describe('useCoachDashboardPrograms', () => {
   });
 
   it('weekDays prefers the active session when an archived sibling shares the same day', async () => {
-    const programsChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({
-        data: [
-          {
-            student_id: 'st-1',
-            name: 'P',
-            weeks: [
-              {
-                id: 'w-1',
-                week_number: 1,
-                label: null,
-                sessions: [
-                  { id: 's-old', title: 'Old', day_number: 1, archived_at: '2026-01-01' },
-                  { id: 's-new', title: 'New', day_number: 1, archived_at: null },
-                ],
-              },
-            ],
-          },
-        ],
-        error: null,
-      }),
-    };
-    const confChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({ data: [], error: null }),
-    };
+    const programsChain = readChain({
+      data: [
+        {
+          student_id: 'st-1',
+          name: 'P',
+          weeks: [
+            {
+              id: 'w-1',
+              week_number: 1,
+              label: null,
+              sessions: [
+                { id: 's-old', title: 'Old', day_number: 1, archived_at: '2026-01-01' },
+                { id: 's-new', title: 'New', day_number: 1, archived_at: null },
+              ],
+            },
+          ],
+        },
+      ],
+      error: null,
+    });
+    const confChain = readChain({ data: [], error: null });
     supabase.from.mockImplementation((table) => (table === 'programs' ? programsChain : confChain));
 
     const qc = makeClient();
@@ -637,20 +695,14 @@ describe('useCoachDashboardPrograms', () => {
     });
 
     function mockDashboard(weeks, confirmations = []) {
-      const programsChain = {
-        select: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockResolvedValue({
-          data: [{ student_id: 'st-1', name: 'Block A', weeks }],
-          error: null,
-        }),
-      };
-      const confChain = {
-        select: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockResolvedValue({
-          data: confirmations.map((id) => ({ session_id: id })),
-          error: null,
-        }),
-      };
+      const programsChain = readChain({
+        data: [{ student_id: 'st-1', name: 'Block A', weeks }],
+        error: null,
+      });
+      const confChain = readChain({
+        data: confirmations.map((id) => ({ session_id: id })),
+        error: null,
+      });
       supabase.from.mockImplementation((table) => (table === 'programs' ? programsChain : confChain));
     }
 
