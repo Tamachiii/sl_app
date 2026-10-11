@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import { fetchAllRows, PAGE_SIZE } from './supabasePaging';
 import { fakePostgrest } from '../test/fakePostgrest';
@@ -192,5 +194,46 @@ describe('fetchAllRows — the requests supabase-js sends', () => {
     }
     expect(urls[0].searchParams.has('id')).toBe(false);
     expect(urls[1].searchParams.get('id')).toBe(`gt.${all[999].id}`);
+  });
+});
+
+// `.limit(20000)` was how three hooks believed they read everything. A limit
+// above one page is always that belief: the server returns a page at most.
+describe('no read asks PostgREST for more than a page', () => {
+  const root = resolve(__dirname, '../..');
+  const walk = (dir) =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) return walk(path);
+      return /\.(js|jsx)$/.test(entry.name) && !/\.test\.(js|jsx)$/.test(entry.name) ? [path] : [];
+    });
+
+  // Reads known to ask for more than a page, each waiting for the package that
+  // pages it. Delete the entry with the fix.
+  const WAITING = {
+    // The conversation list: 2000 asked, 1000 received (coach-lists-scale).
+    'src/hooks/useMessages.js': [2000],
+  };
+
+  it('holds for every source file', () => {
+    const offenders = {};
+    for (const file of walk(resolve(root, 'src'))) {
+      const name = relative(root, file).split('\\').join('/');
+      if (name.startsWith('src/test/')) continue;
+      // Code only: a comment may well quote the mistake it explains.
+      const code = readFileSync(file, 'utf8')
+        .split('\n')
+        .filter((line) => !/^\s*(\/\/|\/\*|\*)/.test(line))
+        .join('\n');
+      const found = [...code.matchAll(/\.limit\(\s*([\d_]+)\s*\)/g)]
+        .map((m) => Number(m[1].replace(/_/g, '')))
+        .filter((n) => n > PAGE_SIZE);
+      const waiting = WAITING[name] || [];
+      const unexpected = found.filter((n) => !waiting.includes(n));
+      if (unexpected.length) offenders[name] = unexpected;
+    }
+    // A hit here is a read that silently stops at 1000 rows: page it with
+    // fetchAllRows, or narrow it on the server.
+    expect(offenders).toEqual({});
   });
 });
