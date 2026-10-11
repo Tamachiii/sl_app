@@ -42,6 +42,7 @@ import RemoveExerciseDialog from './RemoveExerciseDialog';
 import SessionFeedbackComposer from './SessionFeedbackComposer';
 import SessionFeedbackSent from './SessionFeedbackSent';
 import SessionReviewedNoFeedback from './SessionReviewedNoFeedback';
+import SessionReviewNotConfirmed from './SessionReviewNotConfirmed';
 import {
   formatRestSeconds,
   groupSlotsBySuperset,
@@ -69,11 +70,21 @@ function SlotVideoStrip({ videos, onPlay }) {
   );
 }
 
+// One mount per session. The page takes the moment it opened as the line
+// between "what the cache held" and "what was read for this visit" (see
+// `confirmationState`), and that moment belongs to the session on screen: a
+// route change from one review to another must not carry it over.
 export default function SessionReview() {
+  const { studentId, sessionId } = useParams();
+  return <SessionReviewPage key={`${studentId}/${sessionId}`} />;
+}
+
+function SessionReviewPage() {
   const { studentId, sessionId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useI18n();
+  const [openedAt] = useState(() => Date.now());
 
   // Where the coach came from: the surface that opened this review says so in
   // router state (`from`) — the athlete's sheet, the session editor, the feed
@@ -141,7 +152,27 @@ export default function SessionReview() {
     });
     return m;
   }, [videos]);
-  const { data: confirmation } = useSessionConfirmation(sessionId);
+  // A review needs a confirmation: the database refuses `reviewed_at` and a
+  // feedback message for a session that has none (review finding P57). The
+  // feedback step below is offered on the strength of this row, so the answer
+  // must have been READ SINCE THE PAGE OPENED. The cache is not enough — it
+  // keeps an answer for two minutes and across reloads, and the athlete can
+  // undo a confirmation in between: that is the stale "Session completed"
+  // notification. Hence the forced read on mount, and four states:
+  //   confirmed / none — read since the page opened;
+  //   unverified       — that read failed, or waits for the network;
+  //   checking         — it is in flight.
+  // Both timestamps only move forward, so a background refetch that fails
+  // later leaves a confirmed session confirmed, and the composer (with the
+  // coach's unsent text) mounted.
+  const confirmationQuery = useSessionConfirmation(sessionId, { refetchOnMount: 'always' });
+  const confirmation = confirmationQuery.data;
+  let confirmationState = 'checking';
+  if (confirmationQuery.dataUpdatedAt >= openedAt) {
+    confirmationState = confirmation ? 'confirmed' : 'none';
+  } else if (confirmationQuery.errorUpdatedAt >= openedAt || confirmationQuery.isPaused) {
+    confirmationState = 'unverified';
+  }
   const { data: existingFeedback, isLoading: feedbackLoading } = useSessionFeedback(sessionId);
   const archiveSession = useArchiveSession();
   const { data: students } = useStudents();
@@ -241,11 +272,16 @@ export default function SessionReview() {
             <p className="text-[13px] text-ink-700 whitespace-pre-wrap pt-1">{confirmation.notes}</p>
           )}
         </div>
-      ) : (
-        <div className="sl-card p-3 sl-mono text-[12px] text-ink-500">
-          Not yet confirmed by the student.
+      ) : confirmationState === 'none' ? (
+        // Said only once it has been read: while the read is in flight, or
+        // after it failed, the page does not know and claims nothing. (A
+        // confirmation the cache already holds is shown above without
+        // waiting — its date and the athlete's notes are content.)
+        <div className="sl-card p-3 space-y-1">
+          <div className="sl-label text-ink-600">{t('coachReviewConfirmation.status.title')}</div>
+          <p className="text-[13px] text-ink-600">{t('coachReviewConfirmation.status.body')}</p>
         </div>
-      )}
+      ) : null}
 
       <div className="space-y-3">
         {slotGroups.map((group) => {
@@ -465,12 +501,18 @@ export default function SessionReview() {
         })}
       </div>
 
-      {/* Feedback step — three branches based on `sessions.reviewed_at` and
-          whether a feedback message exists. Feedback is one-shot per session
-          (UNIQUE index on messages.session_id), and the review itself is
-          one-shot (reviewed_at, set either by the feedback trigger or by
-          "Finish without feedback"). The back-arrow at the top is NOT a
-          completion gesture — it leaves the session reviewable. */}
+      {/* Feedback step — branches on `sessions.reviewed_at`, on whether a
+          feedback message exists, and on the confirmation. Feedback is
+          one-shot per session (UNIQUE index on messages.session_id), and the
+          review itself is one-shot (reviewed_at, set either by the feedback
+          trigger or by "Finish without feedback"). The back-arrow at the top
+          is NOT a completion gesture — it leaves the session reviewable.
+
+          The two read-only cards come first and do not look at the
+          confirmation: a session reviewed before the rule existed keeps
+          saying so. The composer — which also carries "Finish without
+          feedback", the only other way to mark a session reviewed — is
+          offered for a confirmed session only. */}
       {!feedbackLoading && (
         existingFeedback ? (
           <SessionFeedbackSent
@@ -484,11 +526,19 @@ export default function SessionReview() {
             studentProfileId={student?.profile_id}
             onFinish={handleBack}
           />
-        ) : (
+        ) : confirmationState === 'confirmed' ? (
           <SessionFeedbackComposer
             sessionId={sessionId}
             studentProfileId={student?.profile_id}
             studentFullName={student?.profile?.full_name}
+            onFinish={handleBack}
+          />
+        ) : confirmationState === 'checking' ? null : (
+          <SessionReviewNotConfirmed
+            unverified={confirmationState === 'unverified'}
+            onRetry={() => confirmationQuery.refetch()}
+            retrying={confirmationQuery.isFetching}
+            studentProfileId={student?.profile_id}
             onFinish={handleBack}
           />
         )

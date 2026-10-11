@@ -4,7 +4,30 @@ import { MemoryRouter } from 'react-router-dom';
 
 let mockSessionData = { data: null, isLoading: false };
 let mockSetLogsData = { data: [], isLoading: false };
-let mockConfirmation = { data: null, isLoading: false };
+let mockParams = { studentId: 'st-1', sessionId: 'sess-1' };
+
+// What useSessionConfirmation hands the page. The review offers its feedback
+// step only on an answer READ SINCE THE PAGE OPENED, which it tells from the
+// query's timestamps: `dataUpdatedAt` moves on a successful read,
+// `errorUpdatedAt` on a failed one. These two stand on either side of "the
+// page opened", whenever the test runs.
+const AFTER_OPEN = Number.MAX_SAFE_INTEGER;
+const BEFORE_OPEN = 1;
+const mockRefetchConfirmation = vi.fn();
+const mockUseSessionConfirmation = vi.fn();
+function confirmationQuery(row, overrides = {}) {
+  return {
+    data: row,
+    dataUpdatedAt: AFTER_OPEN,
+    errorUpdatedAt: 0,
+    isPaused: false,
+    isFetching: false,
+    refetch: mockRefetchConfirmation,
+    ...overrides,
+  };
+}
+const CONFIRMED = { confirmed_at: '2026-04-25T14:00:00Z', notes: null };
+let mockConfirmation = confirmationQuery(null);
 let mockSessionFeedback = { data: null, isLoading: false };
 let mockDeviations = { data: [], isLoading: false };
 let mockLibrary = { data: [], isLoading: false };
@@ -19,7 +42,7 @@ vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return {
     ...actual,
-    useParams: () => ({ studentId: 'st-1', sessionId: 'sess-1' }),
+    useParams: () => mockParams,
     useNavigate: () => mockNavigate,
   };
 });
@@ -58,7 +81,10 @@ vi.mock('../../hooks/useWeek', () => ({
   useArchiveSession: () => mockArchive,
 }));
 vi.mock('../../hooks/useSessionConfirmation', () => ({
-  useSessionConfirmation: () => mockConfirmation,
+  useSessionConfirmation: (...args) => {
+    mockUseSessionConfirmation(...args);
+    return mockConfirmation;
+  },
 }));
 vi.mock('../../hooks/useStudents', () => ({
   useStudents: () => ({ data: [{ id: 'st-1', profile_id: 'p-1', profile: { full_name: 'Sam' } }] }),
@@ -73,22 +99,28 @@ import SessionReview from './SessionReview';
 
 // `entry` is the history entry the review is opened from: a path, or
 // `{ pathname, state }` when the opener said where to come back to.
-function renderReview(entry = '/coach/student/st-1/session/sess-1/review') {
-  return render(
+function reviewTree(entry = '/coach/student/st-1/session/sess-1/review') {
+  return (
     <MemoryRouter initialEntries={[entry]}>
       <SessionReview />
-    </MemoryRouter>,
+    </MemoryRouter>
   );
+}
+function renderReview(entry) {
+  return render(reviewTree(entry));
 }
 
 beforeEach(() => {
   mockSessionData = { data: null, isLoading: false };
   mockSetLogsData = { data: [], isLoading: false };
-  mockConfirmation = { data: null, isLoading: false };
+  mockParams = { studentId: 'st-1', sessionId: 'sess-1' };
+  mockConfirmation = confirmationQuery(null);
   mockSessionFeedback = { data: null, isLoading: false };
   mockDeviations = { data: [], isLoading: false };
   mockLibrary = { data: [], isLoading: false };
   mockNavigate.mockReset();
+  mockRefetchConfirmation.mockReset();
+  mockUseSessionConfirmation.mockReset();
   mockArchive.mutate.mockReset();
   mockMarkReviewed.mutate.mockReset();
   mockAdopt.mutate.mockReset();
@@ -104,13 +136,16 @@ describe('<SessionReview />', () => {
     expect(screen.getByRole('status')).toBeInTheDocument();
   });
 
-  it('renders "Not yet confirmed" placeholder when no confirmation exists', () => {
+  it('says the session is not confirmed when no confirmation exists', () => {
     mockSessionData = {
       data: { id: 'sess-1', title: 'Push', archived_at: null, exercise_slots: [] },
       isLoading: false,
     };
     renderReview();
-    expect(screen.getByText(/Not yet confirmed by the student/i)).toBeInTheDocument();
+    expect(screen.getByText('Not confirmed')).toBeInTheDocument();
+    expect(screen.getByText(/has not confirmed this session, or has undone the confirmation/i))
+      .toBeInTheDocument();
+    expect(screen.queryByText(/Confirmed by student/i)).not.toBeInTheDocument();
   });
 
   it('renders the green confirmed banner with the student notes', () => {
@@ -118,16 +153,14 @@ describe('<SessionReview />', () => {
       data: { id: 'sess-1', title: 'Push', archived_at: null, exercise_slots: [] },
       isLoading: false,
     };
-    mockConfirmation = {
-      data: {
-        confirmed_at: '2026-04-25T14:00:00Z',
-        notes: 'felt strong',
-      },
-      isLoading: false,
-    };
+    mockConfirmation = confirmationQuery({
+      confirmed_at: '2026-04-25T14:00:00Z',
+      notes: 'felt strong',
+    });
     renderReview();
     expect(screen.getByText(/Confirmed by student/i)).toBeInTheDocument();
     expect(screen.getByText(/felt strong/)).toBeInTheDocument();
+    expect(screen.queryByText('Not confirmed')).not.toBeInTheDocument();
   });
 
   it('persists the studentId/sessionId pair to localStorage on render', () => {
@@ -179,6 +212,7 @@ describe('<SessionReview />', () => {
     // Sending feedback or finishing without it ends the review the same way
     // the back button does.
     it('returns there after "Finish without feedback" too', () => {
+      mockConfirmation = confirmationQuery(CONFIRMED);
       renderReview({ pathname: REVIEW, state: { from: '/coach/students/st-1' } });
       fireEvent.click(screen.getByRole('button', { name: /finish without feedback/i }));
       mockMarkReviewed.mutate.mock.calls[0][1].onSettled();
@@ -281,6 +315,7 @@ describe('<SessionReview />', () => {
       data: { id: 'sess-1', title: 'Push', archived_at: null, exercise_slots: [] },
       isLoading: false,
     };
+    mockConfirmation = confirmationQuery(CONFIRMED);
     renderReview();
     expect(screen.getByPlaceholderText(/What went well/i)).toBeInTheDocument();
     expect(screen.queryByText(/already sent/i)).not.toBeInTheDocument();
@@ -316,6 +351,7 @@ describe('<SessionReview />', () => {
       isLoading: false,
     };
     mockSessionFeedback = { data: null, isLoading: true };
+    mockConfirmation = confirmationQuery(CONFIRMED);
     renderReview();
     expect(screen.queryByPlaceholderText(/What went well/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/already sent/i)).not.toBeInTheDocument();
@@ -345,6 +381,7 @@ describe('<SessionReview />', () => {
       data: { id: 'sess-1', title: 'Push', archived_at: null, exercise_slots: [] },
       isLoading: false,
     };
+    mockConfirmation = confirmationQuery(CONFIRMED);
     renderReview();
     fireEvent.click(screen.getByRole('button', { name: /finish without feedback/i }));
     expect(mockMarkReviewed.mutate).toHaveBeenCalledWith(
@@ -355,6 +392,281 @@ describe('<SessionReview />', () => {
     const [, opts] = mockMarkReviewed.mutate.mock.calls[0];
     opts.onSettled();
     expect(mockNavigate).toHaveBeenCalledWith('/coach/sessions');
+  });
+
+  // Review finding P57, coach half. A review needs a confirmation: the
+  // database refuses `reviewed_at` and a feedback message for a session that
+  // has none, and a session reviewed without one never came back to the
+  // inbox. So the feedback step — the composer, which also carries "Finish
+  // without feedback", the only other way to mark a session reviewed — is
+  // offered for a confirmed session only.
+  describe('a review needs a confirmation', () => {
+    const composer = () => screen.queryByPlaceholderText(/What went well/i);
+    const sendButton = () => screen.queryByRole('button', { name: /send feedback/i });
+    const finishButton = () => screen.queryByRole('button', { name: /finish without feedback/i });
+    const notConfirmedCard = () => screen.queryByText(/Nothing to review yet/i);
+    const uncheckedCard = () => screen.queryByText(/Confirmation not checked/i);
+
+    function expectNoFeedbackForm() {
+      expect(composer()).not.toBeInTheDocument();
+      expect(sendButton()).not.toBeInTheDocument();
+      expect(finishButton()).not.toBeInTheDocument();
+    }
+
+    beforeEach(() => {
+      mockSessionData = {
+        data: { id: 'sess-1', title: 'Push', archived_at: null, exercise_slots: [] },
+        isLoading: false,
+      };
+    });
+
+    it('offers the composer and "Finish without feedback" for a confirmed session', () => {
+      mockConfirmation = confirmationQuery(CONFIRMED);
+      renderReview();
+      expect(composer()).toBeInTheDocument();
+      expect(sendButton()).toBeInTheDocument();
+      expect(finishButton()).toBeInTheDocument();
+      expect(notConfirmedCard()).not.toBeInTheDocument();
+      expect(uncheckedCard()).not.toBeInTheDocument();
+    });
+
+    it('offers neither without a confirmation, and says why in their place', () => {
+      renderReview();
+      expectNoFeedbackForm();
+      expect(notConfirmedCard()).toBeInTheDocument();
+      expect(screen.getByText(/can be reviewed once the athlete has confirmed it/i))
+        .toBeInTheDocument();
+      expect(uncheckedCard()).not.toBeInTheDocument();
+    });
+
+    // What is left to do about a session that cannot be reviewed: write to
+    // the athlete, or leave the way the back button does.
+    it('leads to the athlete’s thread and back from there', () => {
+      renderReview({
+        pathname: '/coach/student/st-1/session/sess-1/review',
+        state: { from: '/coach/students/st-1' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: /open thread/i }));
+      expect(mockNavigate).toHaveBeenCalledWith('/coach/messages/p-1');
+
+      fireEvent.click(screen.getByRole('button', { name: /back to sessions/i }));
+      expect(mockNavigate).toHaveBeenCalledWith('/coach/students/st-1');
+      expect(localStorage.getItem('sl_last_coach_session')).toBeNull();
+      // Leaving is not a completion gesture here: nothing is marked reviewed.
+      expect(mockMarkReviewed.mutate).not.toHaveBeenCalled();
+    });
+
+    // The cache keeps an answer for two minutes and across reloads, and the
+    // athlete can undo a confirmation in between. That is the stale "Session
+    // completed" notification: tapped again, it used to open the form on the
+    // strength of what the coach's device remembered.
+    describe('when the cache holds an answer from before the page opened', () => {
+      it('asks for a fresh read as the page opens', () => {
+        renderReview();
+        expect(mockUseSessionConfirmation).toHaveBeenCalledWith('sess-1', {
+          refetchOnMount: 'always',
+        });
+      });
+
+      it('does not offer the form on a remembered confirmation that is gone', () => {
+        mockConfirmation = confirmationQuery(CONFIRMED, {
+          dataUpdatedAt: BEFORE_OPEN,
+          isFetching: true,
+        });
+        const view = renderReview();
+        // The read is in flight: no form yet, and no verdict either.
+        expectNoFeedbackForm();
+        expect(notConfirmedCard()).not.toBeInTheDocument();
+        expect(uncheckedCard()).not.toBeInTheDocument();
+
+        // It lands: the athlete has undone the confirmation.
+        mockConfirmation = confirmationQuery(null);
+        view.rerender(reviewTree());
+        expectNoFeedbackForm();
+        expect(screen.getByText('Not confirmed')).toBeInTheDocument();
+        expect(notConfirmedCard()).toBeInTheDocument();
+      });
+
+      it('offers it as soon as the confirmation is read again', () => {
+        mockConfirmation = confirmationQuery(CONFIRMED, {
+          dataUpdatedAt: BEFORE_OPEN,
+          isFetching: true,
+        });
+        const view = renderReview();
+        // Shown at once from the cache — its date and notes are content.
+        expect(screen.getByText(/Confirmed by student/i)).toBeInTheDocument();
+        expectNoFeedbackForm();
+
+        mockConfirmation = confirmationQuery(CONFIRMED);
+        view.rerender(reviewTree());
+        expect(composer()).toBeInTheDocument();
+        expect(finishButton()).toBeInTheDocument();
+      });
+
+      // The other direction, and the common one: the coach looked at a session
+      // in progress, the athlete confirmed it since.
+      it('does not say "not confirmed" on a remembered absence', () => {
+        mockConfirmation = confirmationQuery(null, {
+          dataUpdatedAt: BEFORE_OPEN,
+          isFetching: true,
+        });
+        const view = renderReview();
+        expect(screen.queryByText('Not confirmed')).not.toBeInTheDocument();
+        expect(notConfirmedCard()).not.toBeInTheDocument();
+        expectNoFeedbackForm();
+
+        mockConfirmation = confirmationQuery(CONFIRMED);
+        view.rerender(reviewTree());
+        expect(screen.getByText(/Confirmed by student/i)).toBeInTheDocument();
+        expect(composer()).toBeInTheDocument();
+      });
+    });
+
+    // "Not confirmed" is a statement about the athlete. A read that failed
+    // says nothing about them.
+    describe('when the confirmation cannot be read', () => {
+      it('claims nothing, offers no form, and offers to check again', () => {
+        mockConfirmation = confirmationQuery(undefined, {
+          dataUpdatedAt: 0,
+          errorUpdatedAt: AFTER_OPEN,
+        });
+        renderReview();
+        expectNoFeedbackForm();
+        expect(screen.queryByText('Not confirmed')).not.toBeInTheDocument();
+        expect(notConfirmedCard()).not.toBeInTheDocument();
+        expect(uncheckedCard()).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: /check again/i }));
+        expect(mockRefetchConfirmation).toHaveBeenCalledTimes(1);
+      });
+
+      it('does not fall back on a remembered confirmation', () => {
+        mockConfirmation = confirmationQuery(CONFIRMED, {
+          dataUpdatedAt: BEFORE_OPEN,
+          errorUpdatedAt: AFTER_OPEN,
+        });
+        renderReview();
+        expectNoFeedbackForm();
+        expect(uncheckedCard()).toBeInTheDocument();
+      });
+
+      // Offline, the read does not fail: it waits for the network.
+      it('says the same while the read waits for the network', () => {
+        mockConfirmation = confirmationQuery(CONFIRMED, {
+          dataUpdatedAt: BEFORE_OPEN,
+          isPaused: true,
+        });
+        renderReview();
+        expectNoFeedbackForm();
+        expect(uncheckedCard()).toBeInTheDocument();
+        expect(notConfirmedCard()).not.toBeInTheDocument();
+      });
+
+      it('keeps the card, with its button busy, while it checks again', () => {
+        mockConfirmation = confirmationQuery(undefined, {
+          dataUpdatedAt: 0,
+          errorUpdatedAt: AFTER_OPEN,
+          isFetching: true,
+        });
+        renderReview();
+        expect(uncheckedCard()).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /checking/i })).toBeDisabled();
+      });
+    });
+
+    describe('once the composer is on screen', () => {
+      // A refetch on window focus that fails must not take the coach's unsent
+      // text with it: the confirmation was read for this visit, and a failed
+      // read does not take that back.
+      it('keeps it, and what was typed, when a later read fails', () => {
+        mockConfirmation = confirmationQuery(CONFIRMED);
+        const view = renderReview();
+        fireEvent.change(composer(), { target: { value: 'Good depth on the dips.' } });
+
+        mockConfirmation = confirmationQuery(CONFIRMED, {
+          errorUpdatedAt: AFTER_OPEN,
+          isPaused: true,
+        });
+        view.rerender(reviewTree());
+        expect(composer()).toHaveValue('Good depth on the dips.');
+        expect(uncheckedCard()).not.toBeInTheDocument();
+      });
+
+      it('withdraws it when a later read finds the confirmation undone', () => {
+        mockConfirmation = confirmationQuery(CONFIRMED);
+        const view = renderReview();
+        expect(composer()).toBeInTheDocument();
+
+        mockConfirmation = confirmationQuery(null);
+        view.rerender(reviewTree());
+        expectNoFeedbackForm();
+        expect(notConfirmedCard()).toBeInTheDocument();
+      });
+    });
+
+    // Sessions reviewed before the rule existed have no confirmation. Their
+    // read-only cards say what happened; nothing can be submitted from them.
+    describe('a session already reviewed, without a confirmation', () => {
+      it('keeps its "already reviewed" card', () => {
+        mockSessionData = {
+          data: {
+            id: 'sess-1',
+            title: 'Push',
+            archived_at: null,
+            reviewed_at: '2026-04-30T09:00:00Z',
+            exercise_slots: [],
+          },
+          isLoading: false,
+        };
+        renderReview();
+        expect(screen.getByText(/already reviewed/i)).toBeInTheDocument();
+        expect(notConfirmedCard()).not.toBeInTheDocument();
+        expectNoFeedbackForm();
+      });
+
+      it('keeps the feedback it was sent', () => {
+        mockSessionFeedback = {
+          data: {
+            id: 'm-1',
+            sender_id: 'coach-1',
+            recipient_id: 'p-1',
+            body: 'Solid session.',
+            session_id: 'sess-1',
+            created_at: '2026-04-29T10:00:00Z',
+          },
+          isLoading: false,
+        };
+        renderReview();
+        expect(screen.getByText('Solid session.')).toBeInTheDocument();
+        expect(notConfirmedCard()).not.toBeInTheDocument();
+        expectNoFeedbackForm();
+      });
+    });
+
+    // "Since the page opened" is counted per session. The router keeps the
+    // route's element mounted when only its params change, so without a mount
+    // per session the first review's opening time would vouch for whatever the
+    // cache holds about the second.
+    it('does not let one session’s opening time vouch for the next', () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      try {
+        vi.setSystemTime(1_000);
+        mockConfirmation = confirmationQuery(CONFIRMED, { dataUpdatedAt: 2_000 });
+        const view = renderReview();
+        expect(composer()).toBeInTheDocument();
+
+        // Another session, opened at 5 000; the cache read it at 2 000.
+        vi.setSystemTime(5_000);
+        mockParams = { studentId: 'st-1', sessionId: 'sess-2' };
+        view.rerender(reviewTree());
+        expect(mockUseSessionConfirmation).toHaveBeenLastCalledWith('sess-2', {
+          refetchOnMount: 'always',
+        });
+        expectNoFeedbackForm();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   const swapSession = {
@@ -368,7 +680,7 @@ describe('<SessionReview />', () => {
 
   it('offers "Adopt into program" for a swap deviation and adopts via the RPC hook', () => {
     mockSessionData = { data: swapSession, isLoading: false };
-    mockConfirmation = { data: { confirmed_at: '2026-04-25T14:00:00Z' }, isLoading: false };
+    mockConfirmation = confirmationQuery(CONFIRMED);
     mockDeviations = {
       data: [{ exercise_slot_id: 'sl-1', kind: 'swap', substitute_exercise_id: 'ex-sub' }],
       isLoading: false,
@@ -391,7 +703,7 @@ describe('<SessionReview />', () => {
 
   it('surfaces a promote request and declines it via the RPC hook', () => {
     mockSessionData = { data: swapSession, isLoading: false };
-    mockConfirmation = { data: { confirmed_at: '2026-04-25T14:00:00Z' }, isLoading: false };
+    mockConfirmation = confirmationQuery(CONFIRMED);
     mockDeviations = {
       data: [{
         exercise_slot_id: 'sl-1', kind: 'swap', substitute_exercise_id: 'ex-sub',
@@ -409,7 +721,7 @@ describe('<SessionReview />', () => {
 
   it('offers "Remove from upcoming" for a skip deviation and drops it via the RPC hook', () => {
     mockSessionData = { data: swapSession, isLoading: false };
-    mockConfirmation = { data: { confirmed_at: '2026-04-25T14:00:00Z' }, isLoading: false };
+    mockConfirmation = confirmationQuery(CONFIRMED);
     mockDeviations = {
       data: [{ exercise_slot_id: 'sl-1', kind: 'skip', substitute_exercise_id: null }],
       isLoading: false,

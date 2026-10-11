@@ -64,6 +64,54 @@ describe('useSessionConfirmation', () => {
     await waitFor(() => expect(result.current.fetchStatus).toBe('idle'));
     expect(supabase.from).not.toHaveBeenCalled();
   });
+
+  // The app serves a cached answer for two minutes (queryClient.js), and this
+  // key is persisted across reloads. That suits a screen that only shows the
+  // confirmation. The coach's review offers its feedback form on it, and the
+  // athlete can undo a confirmation in between.
+  describe('with an answer already in the cache', () => {
+    function cachedAsConfirmed() {
+      const qc = new QueryClient({
+        defaultOptions: {
+          queries: { retry: false, gcTime: Infinity, staleTime: 1000 * 60 * 2 },
+        },
+      });
+      qc.setQueryData(['session-confirmation', 's-1'], { id: 'c-1', session_id: 's-1' });
+      // What the database says now: the athlete has undone it.
+      const chain = {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+      };
+      supabase.from.mockReturnValue(chain);
+      return qc;
+    }
+
+    it('serves it without a request by default', async () => {
+      const qc = cachedAsConfirmed();
+      const { result } = renderHook(() => useSessionConfirmation('s-1'), {
+        wrapper: withClient(qc),
+      });
+      await waitFor(() => expect(result.current.fetchStatus).toBe('idle'));
+      expect(supabase.from).not.toHaveBeenCalled();
+      expect(result.current.data).toEqual({ id: 'c-1', session_id: 's-1' });
+      expect(result.current.isFetchedAfterMount).toBe(false);
+    });
+
+    it("reads it again on mount with refetchOnMount: 'always'", async () => {
+      const qc = cachedAsConfirmed();
+      const { result } = renderHook(
+        () => useSessionConfirmation('s-1', { refetchOnMount: 'always' }),
+        { wrapper: withClient(qc) },
+      );
+      const cachedAt = result.current.dataUpdatedAt;
+      await waitFor(() => expect(result.current.data).toBeNull());
+      expect(supabase.from).toHaveBeenCalledTimes(1);
+      // `dataUpdatedAt` is what the review compares with the moment it opened.
+      expect(result.current.dataUpdatedAt).toBeGreaterThanOrEqual(cachedAt);
+      expect(result.current.isSuccess).toBe(true);
+    });
+  });
 });
 
 describe('useAllConfirmations', () => {

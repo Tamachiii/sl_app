@@ -6,8 +6,13 @@ import { MUTATION_KEYS, MUTATION_FNS } from '../lib/offlineMutations';
 /**
  * Fetch the confirmation (if any) for a single session.
  * Returns `null` when the session hasn't been confirmed yet.
+ *
+ * `refetchOnMount` is React Query's option, passed through. The coach's review
+ * sets it to `'always'`: this key is cached for two minutes and persisted
+ * across reloads, the athlete can undo a confirmation in between, and the
+ * review offers its feedback form on the strength of this row.
  */
-export function useSessionConfirmation(sessionId) {
+export function useSessionConfirmation(sessionId, { refetchOnMount } = {}) {
   return useQuery({
     queryKey: ['session-confirmation', sessionId],
     queryFn: async () => {
@@ -20,6 +25,7 @@ export function useSessionConfirmation(sessionId) {
       return data;
     },
     enabled: !!sessionId,
+    ...(refetchOnMount === undefined ? {} : { refetchOnMount }),
   });
 }
 
