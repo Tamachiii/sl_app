@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { OVERRIDE, PAGE, SECRET } from '../../scripts/lib/ledger-gate.mjs';
 
 // Static guards over the CI definition itself. A workflow only runs after a
 // push, so nothing local notices when a gate is loosened or dropped — the
@@ -38,6 +39,13 @@ function runs(jobLines) {
     .map((m) => m[1]);
 }
 
+// The jobs a job waits for, from its one-line `needs: a` or `needs: [a, b]`.
+function needsOf(jobLines) {
+  const line = jobLines.map((l) => l.match(/^ {4}needs:\s+(.+?)\s*$/)).find(Boolean);
+  if (!line) return [];
+  return line[1].replace(/^\[|\]$/g, '').split(',').map((name) => name.trim()).filter(Boolean);
+}
+
 // Every `uses:` of a workflow: the reference and the trailing comment, if any.
 function uses(yaml) {
   return yaml
@@ -61,7 +69,101 @@ describe('CI gate: what ships has no high advisory', () => {
   it('is the gate the deploy waits on', () => {
     const deployYml = read('.github/workflows/deploy.yml');
     expect(job(deployYml, 'test').join('\n')).toMatch(/^\s+uses: \.\/\.github\/workflows\/test\.yml$/m);
-    expect(job(deployYml, 'deploy').join('\n')).toMatch(/^\s+needs: test$/m);
+    expect(needsOf(job(deployYml, 'deploy'))).toContain('test');
+  });
+});
+
+// The deploy gate on the database (review finding P69). The app of a commit
+// needs the migrations written with it, and those reach production by hand: a
+// push to main used to publish the client whether or not its SQL was there.
+// The `migrations` job of deploy.yml asks production's ledger first. What the
+// script decides is held in scripts/check-migrations.test.mjs and, against a
+// real PostgreSQL, in supabase/tests/deploy-gate.test.js; what is held here
+// is that the workflow cannot go around it.
+describe('deploy: the database first, the app second', () => {
+  const yaml = read('.github/workflows/deploy.yml');
+  const gate = job(yaml, 'migrations');
+  const deploy = job(yaml, 'deploy');
+  const COMMAND = 'node scripts/check-migrations.mjs --verify';
+
+  it('asks the ledger of production with the repository script, after the tests and before the publish', () => {
+    expect(gate).not.toBeNull();
+    expect(needsOf(gate)).toEqual(['test']);
+    // Both by name: `needs` does not reach through a job that was removed.
+    expect(needsOf(deploy).sort()).toEqual(['migrations', 'test']);
+    // The whole step: nothing behind the command that could swallow its exit
+    // code (`|| true`, `; echo done`).
+    expect(runs(gate).filter((step) => step.includes('check-migrations'))).toEqual([COMMAND]);
+    expect(existsSync(resolve(root, 'scripts/check-migrations.mjs'))).toBe(true);
+    // One publish in the workflow, and it is in the job that waits.
+    const publishes = (lines) => lines.filter((l) => /uses: peaceiris\/actions-gh-pages@/.test(l)).length;
+    expect(publishes(yaml.split('\n').filter((l) => !isComment(l)))).toBe(1);
+    expect(publishes(deploy)).toBe(1);
+  });
+
+  it('is the only way a workflow publishes', () => {
+    // A second workflow that pushed to gh-pages — the action again, or the
+    // emergency `npm run deploy` — would be a door beside the gate.
+    const PUBLISHES = /actions-gh-pages|\bgh-pages\b|\bnpm run deploy\b/;
+    const live = (file) => read(`.github/workflows/${file}`).split('\n').filter((l) => !isComment(l));
+    expect(WORKFLOWS).toContain('deploy.yml');
+    for (const file of WORKFLOWS.filter((name) => name !== 'deploy.yml')) {
+      expect(live(file).filter((l) => PUBLISHES.test(l)), `${file} publishes`).toEqual([]);
+    }
+    // In deploy.yml itself: the one `uses:` line of the job that waits.
+    expect(live('deploy.yml').filter((l) => PUBLISHES.test(l))).toEqual(deploy.filter((l) => PUBLISHES.test(l)));
+    expect(deploy.filter((l) => PUBLISHES.test(l))).toHaveLength(1);
+  });
+
+  it('cannot be skipped, and a red check cannot be stepped over', () => {
+    // `continue-on-error` would turn the check into advice. An `if:` on a
+    // step could skip it; an `if:` on the deploy job (`always()`,
+    // `!cancelled()`) would start the publish whatever `needs` says.
+    for (const lines of [gate, deploy]) {
+      expect(lines.filter((l) => /^\s+(?:-\s+)?if:/.test(l))).toEqual([]);
+      expect(lines.filter((l) => /continue-on-error/.test(l))).toEqual([]);
+    }
+  });
+
+  it('hands the script the secret and the override under the names it reads', () => {
+    const text = gate.join('\n');
+    expect(text).toContain(`          ${SECRET}: \${{ secrets.${SECRET} }}`);
+    expect(text).toContain(`          ${OVERRIDE}: \${{ vars.${OVERRIDE} }}`);
+    // A variable, not a secret: its value can be read back in the settings.
+    expect(yaml).not.toContain(`secrets.${OVERRIDE}`);
+    // And nothing in the workflow decides about the override on its own: the
+    // script is the one place that knows what it lifts.
+    expect(yaml.split('\n').filter((l) => !isComment(l) && l.includes(OVERRIDE))).toHaveLength(1);
+  });
+
+  it('keeps the database URL out of the job that builds and publishes', () => {
+    // The connection string of the `postgres` role: in the environment of one
+    // step, in a job without a write token, where no install script runs.
+    expect(yaml.match(/secrets\.SUPABASE_DB_URL/g)).toHaveLength(1);
+    expect(deploy.join('\n')).not.toContain(SECRET);
+    const header = gate.slice(0, gate.findIndex((l) => /^\s+steps:$/.test(l)));
+    expect(header.join('\n')).not.toMatch(/secrets\./);
+    expect(header.join('\n')).toMatch(/^ {4}permissions:\n {6}contents: read$/m);
+    expect(runs(gate).filter((step) => step.startsWith('npm '))).toEqual(['npm ci --ignore-scripts']);
+    expect(uses(gate.join('\n')).map((u) => u.ref.split('@')[0])).toEqual(['actions/checkout', 'actions/setup-node']);
+    // It holds up a deploy: it ends, whatever the network does.
+    expect(header.join('\n')).toMatch(/^ {4}timeout-minutes: \d$/m);
+  });
+
+  it('still waits for the database suite, which is what holds schema.sql to the migrations', () => {
+    const db = job(read('.github/workflows/test.yml'), 'db');
+    expect(db).not.toBeNull();
+    expect(runs(db)).toContain('npm run test:db');
+    expect(db.filter((l) => /continue-on-error|^\s+(?:-\s+)?if:/.test(l))).toEqual([]);
+  });
+
+  it('has a page that says what to do when it is red, by the same names', () => {
+    const page = read(PAGE);
+    for (const word of [`\`${SECRET}\``, `\`${OVERRIDE}\``, '`migrations`', `\`${COMMAND}\``, 'Re-run failed jobs', '.github/workflows/deploy.yml']) {
+      expect(page, `${PAGE} does not mention ${word}`).toContain(word);
+    }
+    // The comment above the job sends there.
+    expect(yaml).toContain(PAGE);
   });
 });
 

@@ -12,8 +12,47 @@ jobs:
     # pipeline's build validation — no need to also build with placeholders.
     with:
       skip-build: true
-  deploy:
+  # Database first, app second. The app of a commit calls the RPCs and reads
+  # the columns of the migrations written with it; that SQL is applied to
+  # production by hand, and until this job nothing stopped a push to main from
+  # publishing a client ahead of its database (review finding P69). The step
+  # reads production's ledger, app_private.app_migrations, and fails when a
+  # `required` migration of supabase/migrations/manifest.json is not in it,
+  # naming each one. What to do then: docs/runbook/40-deploy.md.
+  #
+  # It fails closed: without the SUPABASE_DB_URL secret the ledger cannot be
+  # read and the job is red — unless the repository VARIABLE
+  # ALLOW_DEPLOY_WITHOUT_LEDGER_CHECK is exactly `true`. That variable stands
+  # in for a secret that is not set, and for nothing else: a migration found
+  # missing stops the deploy whatever it says.
+  #
+  # A job of its own, on purpose. SUPABASE_DB_URL is the connection string of
+  # the `postgres` role: it is in the environment of one step, in a job that
+  # holds no write token and runs no dependency's install script — never in
+  # the job that builds and publishes.
+  migrations:
     needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      # --ignore-scripts: the check needs `pg`, which is plain JavaScript.
+      - run: npm ci --ignore-scripts
+      - name: Every required migration is in the ledger of production
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          ALLOW_DEPLOY_WITHOUT_LEDGER_CHECK: ${{ vars.ALLOW_DEPLOY_WITHOUT_LEDGER_CHECK }}
+        run: node scripts/check-migrations.mjs --verify
+  deploy:
+    # Both, by name: the tests and the ledger. A job that is skipped or red
+    # in `needs` keeps this one from starting.
+    needs: [test, migrations]
     runs-on: ubuntu-latest
     permissions:
       contents: write

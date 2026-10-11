@@ -15,6 +15,7 @@
     "backup:verify": "node scripts/backup/verify.mjs",
     "backup:restore": "node scripts/backup/restore.mjs",
     "backup:drill": "node scripts/backup/drill.mjs",
+    "check:migrations": "node scripts/check-migrations.mjs",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist"
   },

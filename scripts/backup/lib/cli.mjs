@@ -197,4 +197,6 @@ export function printRestore(result) {
   if (skipped.length > 0) warn(`  NOT LOADED: ${skipped.map((table) => table.name).join(', ')}.`);
 }
 
-export { grouped };
+// `describeError`: what a connection that fails means is the same for every
+// command that reads production — scripts/check-migrations.mjs is one more.
+export { describe as describeError, grouped };
