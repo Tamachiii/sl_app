@@ -40,7 +40,7 @@ The cwd becomes the Linux path, and everything Claude spawns inherits it. No `ws
 Tests and builds run directly:
 
 ```bash
-npm test -- --run     # 139+ tests, single pass
+npm test -- --run     # the unit suite, single pass
 npm run build         # production build → dist/
 npm run dev           # vite on port 5173
 ```
@@ -83,6 +83,36 @@ git worktree remove ../sl_app_wt_featurename
 - **Don't create worktrees from Windows** (`git worktree add` from `\\wsl.localhost\...`). The gitdir stays UNC and every subsequent `git` call in that worktree is slower.
 - **The `.env` symlink is required per-worktree.** Without it, Supabase calls fail at runtime with "supabaseUrl is required" — Vite reads `.env` from the project root only.
 - **GitHub CLI auth lives per OS.** If you had `gh auth login` set up on Windows, run it again inside WSL.
+
+## Supabase Auth settings (production)
+
+These live in the Supabase dashboard and nowhere else. The project's owner sets them by hand, following [runbook/20-auth-config.md](runbook/20-auth-config.md) — the steps, the read-only check, and what to leave alone; it is the third part of Checkpoint A0 in [RUNBOOK.md](RUNBOOK.md). The repository holds no copy that could be pushed: a `supabase/config.toml`, when the Edge Functions bring one, carries their flags only, and `supabase config push` is never run, because for every setting the file does not give it would put the CLI's default back (sign-up on, site URL on localhost, 6-character passwords).
+
+The values production must have:
+
+| Setting (API name) | In the dashboard, under Authentication | Value |
+|---|---|---|
+| `disable_signup` | Sign In / Providers → Allow new users to sign up | `true` (the switch is off) |
+| `site_url` | URL Configuration → Site URL | `https://tamachiii.github.io/sl_app/` |
+| `uri_allow_list` | URL Configuration → Redirect URLs | `https://tamachiii.github.io/sl_app/**`, and nothing else |
+| `password_min_length` | Sign In / Providers → Email → Minimum password length | `8` — what the app's change-password dialog asks for |
+
+Settings that stay as they are, because the app that is deployed depends on them:
+
+| Setting (API name) | Value | Why |
+|---|---|---|
+| Email provider | on | switched off, nobody can sign in |
+| `mailer_autoconfirm` (Confirm email) | `false` (the switch is on) | an address is confirmed before its first sign-in |
+| Anonymous sign-ins | off | every account has an e-mail address |
+| `security_captcha_enabled` | `false` | sign-in sends no captcha answer |
+| `security_update_password_require_reauthentication` (Secure password change) | `false` | the change-password dialog sends no re-authentication code |
+| `password_required_characters` | none | the app checks the length only |
+| `password_hibp_enabled` (leaked-password protection) | `false` | paid plan only; the project is on the free plan |
+| Custom SMTP | none (built-in sender, `rate_limit_email_sent` = 2 per hour) | nothing sends e-mail before the invitation flow |
+
+Accounts are created in the dashboard (Authentication → Users → Add user). The app has no sign-up screen.
+
+To read them: the check of the runbook page prints `disable_signup`, `mailer_autoconfirm` and the enabled providers from the public `/auth/v1/settings`. The other values are visible in the dashboard only. `src/test/runbookIndex.test.js` keeps the three values that are written here, on the runbook page and in the index the same.
 
 ## Migration from Windows-side Claude
 
