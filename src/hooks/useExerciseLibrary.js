@@ -50,6 +50,66 @@ export function useExerciseLibrary() {
   });
 }
 
+/**
+ * Whether an exercise can still be picked for new work. An archived exercise
+ * (`exercise_library.archived_at`) stays in the library read, because the
+ * slots, goals and history that use it still need its name; a picker filters
+ * its options with this. A row read before the column existed has no
+ * `archived_at` and is active.
+ */
+export function isActiveExercise(ex) {
+  return !!ex && !ex.archived_at;
+}
+
+// The three foreign keys that point at a library exercise. Each of them stops
+// a delete, so the delete dialog counts all three.
+const EXERCISE_REFERENCES = [
+  { name: 'slots', table: 'exercise_slots', column: 'exercise_id' },
+  { name: 'goals', table: 'goals', column: 'exercise_id' },
+  { name: 'swaps', table: 'slot_deviations', column: 'substitute_exercise_id' },
+];
+
+/**
+ * Where a library exercise is used: `{ slots, goals, swaps }` — the program
+ * slots that prescribe it (in every program: trashed ones and archived
+ * sessions count), the goals set on it, and the times an athlete swapped it
+ * in. The server counts (`head: true`), so no row is downloaded and no number
+ * is capped at a page.
+ *
+ * The delete dialog decides on these numbers, so they are not served from the
+ * cache: nothing is kept once the dialog lets go of the key (`gcTime: 0`), and
+ * every open reads again. A count that did not come back is an error, not a
+ * zero — "unknown" must not read as "unused".
+ *
+ * The counts are what THIS coach can read. A reference they cannot see (an
+ * athlete who moved to another coach and kept old sessions) still stops the
+ * delete in the database, and the mutation's "in use" toast says so.
+ */
+export function useExerciseUsage(exerciseId) {
+  return useQuery({
+    queryKey: ['exercise-usage', exerciseId],
+    queryFn: async () => {
+      const counts = await Promise.all(
+        EXERCISE_REFERENCES.map(async ({ table, column }) => {
+          const { count, error } = await supabase
+            .from(table)
+            .select('id', { count: 'exact', head: true })
+            .eq(column, exerciseId);
+          if (error) throw error;
+          if (!Number.isInteger(count)) {
+            throw new Error(`No count came back for ${table}.${column}`);
+          }
+          return count;
+        }),
+      );
+      return Object.fromEntries(EXERCISE_REFERENCES.map(({ name }, i) => [name, counts[i]]));
+    },
+    enabled: !!exerciseId,
+    staleTime: 0,
+    gcTime: 0,
+  });
+}
+
 export function useCreateExercise() {
   const qc = useQueryClient();
   const { user } = useAuth();
@@ -97,6 +157,11 @@ export function useDeleteExercise() {
         .eq('id', id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['exercise-library'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['exercise-library'] });
+      // A goal row embeds its exercise, and where the goals foreign key still
+      // cascades, the goals on this exercise went with it.
+      qc.invalidateQueries({ queryKey: ['goals'] });
+    },
   });
 }

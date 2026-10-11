@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -8,11 +8,29 @@ const mockCreate = { mutate: vi.fn() };
 const mockUpdate = { mutate: vi.fn() };
 const mockDelete = { mutate: vi.fn() };
 
+// The usage read behind the delete dialog, as a query that has answered since
+// the dialog opened — the only kind the dialog acts on (it compares the
+// query's timestamps with its own opening time; ExerciseDeleteDialog.test.jsx
+// runs it on the real hook).
+const usageQuery = (counts) => ({
+  data: counts,
+  isFetchedAfterMount: true,
+  dataUpdatedAt: Number.MAX_SAFE_INTEGER,
+  errorUpdatedAt: 0,
+  isPaused: false,
+  isFetching: false,
+  refetch: vi.fn(),
+});
+const UNUSED = { slots: 0, goals: 0, swaps: 0 };
+let mockUsage = usageQuery(UNUSED);
+const mockUseExerciseUsage = vi.fn(() => mockUsage);
+
 vi.mock('../../hooks/useExerciseLibrary', () => ({
   useExerciseLibrary: () => mockExercises,
   useCreateExercise: () => mockCreate,
   useUpdateExercise: () => mockUpdate,
   useDeleteExercise: () => mockDelete,
+  useExerciseUsage: (id) => mockUseExerciseUsage(id),
 }));
 
 import ExerciseLibrary from './ExerciseLibrary';
@@ -35,6 +53,7 @@ describe('ExerciseLibrary', () => {
       ],
       isLoading: false,
     };
+    mockUsage = usageQuery(UNUSED);
   });
 
   it('renders loading spinner', () => {
@@ -98,15 +117,64 @@ describe('ExerciseLibrary', () => {
     expect(screen.getByText('Save')).toBeInTheDocument();
   });
 
-  it('clicking Delete with confirm calls deleteExercise', async () => {
-    const user = userEvent.setup();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-    renderLibrary();
+  describe('deleting an exercise', () => {
+    const dialog = () => screen.getByRole('dialog');
 
-    const deleteButtons = screen.getAllByRole('button', { name: /delete/i });
-    await user.click(deleteButtons[0]);
-    expect(mockDelete.mutate).toHaveBeenCalledWith('ex-1');
-    window.confirm.mockRestore();
+    it('opens the app’s dialog for that exercise instead of the browser’s confirm', async () => {
+      const user = userEvent.setup();
+      const nativeConfirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      renderLibrary();
+
+      // Nothing is asked about any exercise until one is picked.
+      expect(mockUseExerciseUsage).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole('button', { name: 'Delete Dip' }));
+      expect(within(dialog()).getByRole('heading', { name: 'Delete "Dip"?' })).toBeInTheDocument();
+      expect(mockUseExerciseUsage).toHaveBeenCalledWith('ex-2');
+      // Opening is not deleting.
+      expect(mockDelete.mutate).not.toHaveBeenCalled();
+      expect(nativeConfirm).not.toHaveBeenCalled();
+      nativeConfirm.mockRestore();
+    });
+
+    it('deletes an unused exercise once the dialog is confirmed, and closes', async () => {
+      const user = userEvent.setup();
+      renderLibrary();
+
+      await user.click(screen.getByRole('button', { name: 'Delete Pull Up' }));
+      await user.click(within(dialog()).getByRole('button', { name: 'Delete' }));
+      expect(mockDelete.mutate).toHaveBeenCalledTimes(1);
+      expect(mockDelete.mutate).toHaveBeenCalledWith('ex-1');
+      expect(screen.queryByRole('heading', { name: 'Delete "Pull Up"?' })).not.toBeInTheDocument();
+    });
+
+    it('Cancel deletes nothing', async () => {
+      const user = userEvent.setup();
+      renderLibrary();
+
+      await user.click(screen.getByRole('button', { name: 'Delete Pull Up' }));
+      await user.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
+      expect(mockDelete.mutate).not.toHaveBeenCalled();
+      expect(screen.queryByRole('heading', { name: 'Delete "Pull Up"?' })).not.toBeInTheDocument();
+    });
+
+    // Finding L7: the old confirm() said nothing about the goals a delete
+    // would take with it.
+    it('shows the slots and goals that use the exercise, and cannot delete it', async () => {
+      const user = userEvent.setup();
+      mockUsage = usageQuery({ slots: 12, goals: 2, swaps: 0 });
+      renderLibrary();
+
+      await user.click(screen.getByRole('button', { name: 'Delete Pull Up' }));
+      const open = within(dialog());
+      expect(open.getByRole('status')).toHaveTextContent('It is in use, so it cannot be deleted.');
+      expect(open.getByText('Prescribed in sessions').nextSibling).toHaveTextContent('12');
+      expect(open.getByText('Goals set on it').nextSibling).toHaveTextContent('2');
+      expect(open.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
+
+      await user.click(open.getByRole('button', { name: 'OK' }));
+      expect(mockDelete.mutate).not.toHaveBeenCalled();
+    });
   });
 
   it('shows search bar and type filter pills when exercises exist', () => {

@@ -7,6 +7,8 @@ vi.mock('./useAuth', () => ({ useAuth: vi.fn() }));
 
 import {
   useExerciseLibrary,
+  isActiveExercise,
+  useExerciseUsage,
   useCreateExercise,
   useUpdateExercise,
   useDeleteExercise,
@@ -188,6 +190,114 @@ describe('useExerciseLibrary', () => {
   });
 });
 
+describe('isActiveExercise', () => {
+  it('is true while archived_at is empty', () => {
+    expect(isActiveExercise({ id: 'e-1', archived_at: null })).toBe(true);
+    // A row read before the column existed has no such field.
+    expect(isActiveExercise({ id: 'e-1' })).toBe(true);
+  });
+
+  it('is false once the exercise is archived', () => {
+    expect(isActiveExercise({ id: 'e-1', archived_at: '2026-10-11T08:00:00Z' })).toBe(false);
+  });
+
+  it('is false for a missing exercise, so it can filter a list as it is', () => {
+    expect(isActiveExercise(null)).toBe(false);
+    expect(isActiveExercise(undefined)).toBe(false);
+    expect([{ id: 'a' }, { id: 'b', archived_at: '2026-10-11' }, undefined].filter(isActiveExercise)).toEqual([
+      { id: 'a' },
+    ]);
+  });
+});
+
+describe('useExerciseUsage', () => {
+  // One chain per table. `answers[table]` is what the server returns for it:
+  // a HEAD read has no rows, only the count.
+  function usageTables(answers) {
+    const chains = {};
+    supabase.from.mockImplementation((table) => {
+      const chain = {
+        select: vi.fn(() => chain),
+        eq: vi.fn(async () => ({ data: null, error: null, ...answers[table] })),
+      };
+      chains[table] = chain;
+      return chain;
+    });
+    return chains;
+  }
+
+  it('counts the slots, the goals and the swaps that point at the exercise', async () => {
+    const chains = usageTables({
+      exercise_slots: { count: 12 },
+      goals: { count: 2 },
+      slot_deviations: { count: 1 },
+    });
+    const { result } = renderHook(() => useExerciseUsage('e-1'), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual({ slots: 12, goals: 2, swaps: 1 });
+
+    // Counted by the server, nothing downloaded: a page of rows would cap the
+    // number at 1000.
+    for (const table of ['exercise_slots', 'goals', 'slot_deviations']) {
+      expect(chains[table].select).toHaveBeenCalledWith('id', { count: 'exact', head: true });
+    }
+    expect(chains.exercise_slots.eq).toHaveBeenCalledWith('exercise_id', 'e-1');
+    expect(chains.goals.eq).toHaveBeenCalledWith('exercise_id', 'e-1');
+    // A swap points at the exercise through its own column.
+    expect(chains.slot_deviations.eq).toHaveBeenCalledWith('substitute_exercise_id', 'e-1');
+  });
+
+  it('reads nothing without an exercise', async () => {
+    usageTables({});
+    const { result } = renderHook(() => useExerciseUsage(undefined), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.fetchStatus).toBe('idle'));
+    expect(supabase.from).not.toHaveBeenCalled();
+  });
+
+  it('fails as a whole when one of the three counts fails', async () => {
+    usageTables({
+      exercise_slots: { count: 0 },
+      goals: { count: null, error: { message: 'permission denied', code: '42501' } },
+      slot_deviations: { count: 0 },
+    });
+    const { result } = renderHook(() => useExerciseUsage('e-1'), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.data).toBeUndefined();
+  });
+
+  // The dialog deletes on "nothing uses it". A response without a count is
+  // not that answer.
+  it('treats a count that did not come back as an error, never as zero', async () => {
+    usageTables({
+      exercise_slots: { count: 0 },
+      goals: { count: null },
+      slot_deviations: { count: 0 },
+    });
+    const { result } = renderHook(() => useExerciseUsage('e-1'), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.data).toBeUndefined();
+  });
+
+  // The app's client serves a query from its cache for two minutes. These
+  // numbers decide a delete, so a second look reads again.
+  it('keeps nothing once it is no longer watched, whatever the client’s defaults', async () => {
+    usageTables({ exercise_slots: { count: 0 }, goals: { count: 0 }, slot_deviations: { count: 0 } });
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 1000 * 60 * 2, gcTime: 1000 * 60 * 5 } },
+    });
+    const first = renderHook(() => useExerciseUsage('e-1'), { wrapper: withClient(qc) });
+    await waitFor(() => expect(first.result.current.data).toEqual({ slots: 0, goals: 0, swaps: 0 }));
+    first.unmount();
+    await waitFor(() => expect(qc.getQueryData(['exercise-usage', 'e-1'])).toBeUndefined());
+
+    // Meanwhile a slot was added.
+    usageTables({ exercise_slots: { count: 1 }, goals: { count: 0 }, slot_deviations: { count: 0 } });
+    const second = renderHook(() => useExerciseUsage('e-1'), { wrapper: withClient(qc) });
+    expect(second.result.current.data).toBeUndefined();
+    await waitFor(() => expect(second.result.current.data).toEqual({ slots: 1, goals: 0, swaps: 0 }));
+  });
+});
+
 describe('useCreateExercise', () => {
   it('injects coach_id from auth on insert', async () => {
     const chain = {
@@ -245,5 +355,40 @@ describe('useDeleteExercise', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(chain.eq).toHaveBeenCalledWith('id', 'e-1');
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['exercise-library'] });
+  });
+
+  // A goal row embeds its exercise, and a goals foreign key that still
+  // cascades takes the goals with the exercise: both goal lists (the coach's
+  // per athlete, the athlete's own) sit under ['goals'].
+  it('drops the goal lists too', async () => {
+    const chain = {
+      delete: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ error: null }),
+    };
+    supabase.from.mockReturnValue(chain);
+    const qc = makeClient();
+    qc.setQueryData(['goals', 'student', 'athlete-1'], [{ id: 'g-1', exercise_id: 'e-1' }]);
+    qc.setQueryData(['goals', 'mine', 'athlete-1'], [{ id: 'g-1', exercise_id: 'e-1' }]);
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useDeleteExercise(), { wrapper: withClient(qc) });
+    result.current.mutate('e-1');
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['goals'] });
+    expect(qc.getQueryState(['goals', 'student', 'athlete-1']).isInvalidated).toBe(true);
+    expect(qc.getQueryState(['goals', 'mine', 'athlete-1']).isInvalidated).toBe(true);
+  });
+
+  it('leaves every cache alone when the database refuses the delete', async () => {
+    const chain = {
+      delete: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ error: { code: '23503', message: 'still referenced' } }),
+    };
+    supabase.from.mockReturnValue(chain);
+    const qc = makeClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useDeleteExercise(), { wrapper: withClient(qc) });
+    result.current.mutate('e-1');
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(invalidate).not.toHaveBeenCalled();
   });
 });

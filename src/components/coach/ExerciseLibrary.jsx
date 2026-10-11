@@ -8,6 +8,7 @@ import {
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
+import ExerciseDeleteDialog from './ExerciseDeleteDialog';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 
@@ -132,6 +133,8 @@ export default function ExerciseLibrary() {
 
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  // The exercise whose delete dialog is open, or null.
+  const [deleting, setDeleting] = useState(null);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
 
@@ -285,9 +288,7 @@ export default function ExerciseLibrary() {
                     {t('coach.library.edit')}
                   </button>
                   <button
-                    onClick={() => {
-                      if (confirm(t('coach.library.confirmDelete', { name: ex.name }))) deleteExercise.mutate(ex.id);
-                    }}
+                    onClick={() => setDeleting(ex)}
                     aria-label={`Delete ${ex.name}`}
                     className="sl-mono text-[11px] text-ink-400 hover:text-danger px-1"
                   >
@@ -299,6 +300,12 @@ export default function ExerciseLibrary() {
           </div>
         ))}
       </div>
+
+      <ExerciseDeleteDialog
+        exercise={deleting}
+        onClose={() => setDeleting(null)}
+        onDelete={(id) => deleteExercise.mutate(id)}
+      />
     </div>
   );
 }
