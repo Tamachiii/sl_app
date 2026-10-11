@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
+import { fetchAllRows } from '../lib/supabasePaging';
 
 /**
  * Returns the signed-in student's all-time totals for the Profile page:
@@ -15,10 +16,10 @@ import { useAuth } from './useAuth';
  *
  * The two COUNTS are server-side (`head: true`), so they are exact no matter
  * how much history a student accumulates. Volume is still computed client-side
- * from a slim `set_logs` projection — no view or RPC for one stat — but it
- * PAGES rather than issuing one open-ended select: PostgREST caps an
- * unbounded response at `db-max-rows` (1000 by default), and a silently
- * truncated page here doesn't error, it just under-reports a lifetime total.
+ * from a slim `set_logs` projection — no view or RPC for one stat — and that
+ * projection is read to its end, a page at a time (lib/supabasePaging):
+ * PostgREST caps a response at `db-max-rows` (1000), and a silently truncated
+ * read here doesn't error, it just under-reports a lifetime total.
  */
 export function useStudentLifetimeStats() {
   const { user } = useAuth();
@@ -38,6 +39,7 @@ export function useStudentLifetimeStats() {
       if (!student) return { sessionsCompleted: 0, setsDone: 0, totalVolumeKg: 0 };
 
       const volumeSelect = `
+        id,
         weight_kg,
         target_reps,
         exercise_slot:exercise_slots!inner(
@@ -68,24 +70,14 @@ export function useStudentLifetimeStats() {
       const sessionsCompleted = confRes.count ?? 0;
       const setsDone = setsRes.count ?? 0;
 
-      // 3. Volume needs the rows themselves, so page until a short read.
-      //    PAGE_SIZE below the server's default cap keeps every page a full
-      //    page until the last one, which is what makes "short read" a
-      //    reliable terminator.
-      const PAGE_SIZE = 1000;
-      const doneLogs = [];
-      for (let from = 0; ; from += PAGE_SIZE) {
-        const { data: page, error: lErr } = await supabase
+      // 3. Volume needs the rows themselves, every one of them.
+      const doneLogs = await fetchAllRows(() =>
+        supabase
           .from('set_logs')
           .select(volumeSelect)
           .eq('done', true)
-          .eq('exercise_slot.session.week.program.student_id', student.id)
-          .order('id', { ascending: true })
-          .range(from, from + PAGE_SIZE - 1);
-        if (lErr) throw lErr;
-        doneLogs.push(...(page || []));
-        if (!page || page.length < PAGE_SIZE) break;
-      }
+          .eq('exercise_slot.session.week.program.student_id', student.id),
+      );
 
       // Volume = sum over done sets of (effective weight × target reps).
       // Effective weight: prefer the actual logged weight; fall back to the

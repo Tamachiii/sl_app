@@ -8,6 +8,7 @@ vi.mock('./useAuth', () => ({ useAuth: vi.fn() }));
 import { useStudentLifetimeStats } from './useStudentLifetimeStats';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
+import { fakePostgrest } from '../test/fakePostgrest';
 
 function makeClient() {
   return new QueryClient({
@@ -22,40 +23,29 @@ function withClient(qc) {
 }
 
 /**
- * Builds the table-keyed supabase mock. `setLogPages` is the sequence of
- * response pages the paging loop should walk; the head-count calls are served
- * from `counts`.
+ * The three tables the hook reads, served by name. `setLogs` are the DONE rows
+ * the volume read walks; the two head-count calls are answered from `counts`
+ * (a server-side count is independent of the rows a response can carry, which
+ * the fake cuts at 1000 as PostgREST does).
  */
-function mockTables({ student = { id: 'st-1' }, counts = {}, setLogPages = [[]] } = {}) {
-  const studentChain = {
-    select: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockReturnThis(),
-    maybeSingle: vi.fn().mockResolvedValue({ data: student, error: null }),
-  };
-  const confChain = {
-    select: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockResolvedValue({ count: counts.sessions ?? 0, error: null }),
-  };
-  const pages = [...setLogPages];
-  const setLogChain = {
-    select: vi.fn().mockReturnThis(),
-    order: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockReturnThis(),
-    // Each .range() hands back the next page, so the hook's "short read ends
-    // the loop" contract is what actually terminates this mock.
-    range: vi.fn(() => Promise.resolve({ data: pages.shift() || [], error: null })),
-  };
-  // The head-count call has no .range(); it awaits the chain itself.
-  setLogChain.then = (resolve) =>
-    Promise.resolve({ count: counts.sets ?? 0, error: null }).then(resolve);
-
-  supabase.from.mockImplementation((table) => {
-    if (table === 'students') return studentChain;
-    if (table === 'session_confirmations') return confChain;
-    return setLogChain;
+function mockTables({ student = { id: 'st-1' }, counts = {}, setLogs = [] } = {}) {
+  const db = fakePostgrest({
+    students: student ? [student] : [],
+    session_confirmations: { count: counts.sessions ?? 0 },
+    set_logs: { rows: setLogs, count: counts.sets ?? 0 },
   });
-  return { studentChain, confChain, setLogChain };
+  supabase.from.mockImplementation(db.from);
+  return db;
 }
+
+const pad = (i) => String(i).padStart(5, '0');
+const weighted = (n) =>
+  Array.from({ length: n }, (_, i) => ({
+    id: `l-${pad(i)}`,
+    weight_kg: 100,
+    target_reps: 5,
+    exercise_slot: { exercise: { volume_weight: 1 } },
+  }));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -89,23 +79,15 @@ describe('useStudentLifetimeStats', () => {
   });
 
   it('sums volume across every page, falling back to volume_weight when unweighted', async () => {
-    const weighted = (n) =>
-      Array.from({ length: n }, () => ({
-        weight_kg: 100,
-        target_reps: 5,
-        exercise_slot: { exercise: { volume_weight: 1 } },
-      }));
     // A full page forces a second request; the short second page ends it.
-    mockTables({
+    const db = mockTables({
       counts: { sets: 1002 },
-      setLogPages: [
-        weighted(1000),
-        [
-          // Bodyweight movement: no logged weight, so volume_weight applies.
-          { weight_kg: null, target_reps: 10, exercise_slot: { exercise: { volume_weight: 70 } } },
-          // Time-based set: no target_reps, contributes nothing.
-          { weight_kg: 50, target_reps: null, exercise_slot: { exercise: { volume_weight: 1 } } },
-        ],
+      setLogs: [
+        ...weighted(1000),
+        // Bodyweight movement: no logged weight, so volume_weight applies.
+        { id: 'l-01000', weight_kg: null, target_reps: 10, exercise_slot: { exercise: { volume_weight: 70 } } },
+        // Time-based set: no target_reps, contributes nothing.
+        { id: 'l-01001', weight_kg: 50, target_reps: null, exercise_slot: { exercise: { volume_weight: 1 } } },
       ],
     });
 
@@ -115,5 +97,30 @@ describe('useStudentLifetimeStats', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     // 1000 × (100 × 5) + (70 × 10) + 0
     expect(result.current.data.totalVolumeKg).toBe(500_700);
+
+    // The volume read: done sets of this athlete, walked on id — each page
+    // starts after the last id received, so a set logged meanwhile cannot shift
+    // the next page. (The head count is the request that carries no limit.)
+    const pages = db.requestsTo('set_logs').filter((r) => !r.options?.head);
+    expect(pages).toHaveLength(2);
+    for (const page of pages) {
+      expect(page.select).toMatch(/^\s*id,/);
+      expect(page.order).toEqual({ column: 'id', ascending: true });
+      expect(page.limit).toBe(1000);
+      expect(page.filters).toContainEqual(['eq', 'done', true]);
+      expect(page.filters).toContainEqual(['eq', 'exercise_slot.session.week.program.student_id', 'st-1']);
+    }
+    expect(pages[0].filters.find((f) => f[0] === 'gt')).toBeUndefined();
+    expect(pages[1].filters).toContainEqual(['gt', 'id', 'l-00999']);
+  });
+
+  it('asks for a second page when exactly 1000 done sets come back', async () => {
+    const db = mockTables({ counts: { sets: 1000 }, setLogs: weighted(1000) });
+    const { result } = renderHook(() => useStudentLifetimeStats(), {
+      wrapper: withClient(makeClient()),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data.totalVolumeKg).toBe(500_000);
+    expect(db.requestsTo('set_logs').filter((r) => !r.options?.head)).toHaveLength(2);
   });
 });
