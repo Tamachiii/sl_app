@@ -1,27 +1,32 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 vi.mock('../lib/supabase', () => ({ supabase: { from: vi.fn() } }));
 vi.mock('./useAuth', () => ({ useAuth: vi.fn() }));
 
 import { useStudentRecords } from './useStudentRecords';
+import { fetchDoneSetHistory } from '../lib/doneSetHistory';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 import { fakePostgrest } from '../test/fakePostgrest';
 
+const clients = [];
 function makeClient() {
-  return new QueryClient({
+  const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
   });
+  clients.push(qc);
+  return qc;
 }
 function withClient(qc) {
   return ({ children }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
 }
 
-// The tables the hook reads, served by name: students (the row id, or the
-// profile id in the coach flow), set_logs, slot_deviations, bodyweight_logs.
-// The fake cuts every response at 1000 rows, as PostgREST does.
+// The tables behind the hook, served by name: set_logs and slot_deviations
+// (the athlete's shared history, lib/doneSetHistory), bodyweight_logs, and
+// students (the coach flow reads the athlete's profile id from it). The fake
+// cuts every response at 1000 rows, as PostgREST does.
 function wire({ profile = { profile_id: 'prof-1' }, setLogs = [], deviations = [], bodyweight = [] }) {
   const db = fakePostgrest({
     students: profile ? [profile] : [],
@@ -33,26 +38,47 @@ function wire({ profile = { profile_id: 'prof-1' }, setLogs = [], deviations = [
   return db;
 }
 
+// A set_logs row as the history read receives it. `exercise` is the library
+// row of the slot's exercise ({ id, name, type, load_mode }); pass
+// `visible: false` for one the reader may not see (the embed comes back null).
 let nextLogId = 0;
-function log({ id, slotId, exercise, loggedAt, tReps = null, tW = null, aReps = null, aW = null }) {
+function log({ id, slotId, exercise, visible = true, loggedAt, tReps = null, tW = null, aReps = null, aW = null }) {
+  const { id: exerciseId, ...details } = exercise;
   return {
     id: id ?? `l-${String(nextLogId++).padStart(5, '0')}`,
-    done: true,
+    set_number: 1,
     logged_at: loggedAt,
     target_reps: tReps,
     target_weight_kg: tW,
     actual_reps: aReps,
     actual_weight_kg: aW,
-    exercise_slots: { id: slotId, exercise, sessions: { weeks: { programs: { student_id: 'st-1', deleted_at: null } } } },
+    exercise_slots: {
+      id: slotId,
+      exercise_id: exerciseId,
+      session_id: `s-${slotId}`,
+      exercise: visible ? details : null,
+      sessions: { scheduled_date: null, weeks: { programs: { student_id: 'st-1', deleted_at: null } } },
+    },
   };
 }
 
-// Coach flow by default (a students-table id); `records(null)` is the student flow.
-async function records(studentRowId = 'st-1') {
-  const { result } = renderHook(() => useStudentRecords(studentRowId ?? undefined), { wrapper: withClient(makeClient()) });
+// A swap: the slot was done as `to` instead of what it prescribed.
+function swap({ id = 'd-1', slotId, to, visible = true }) {
+  const { id: substituteId, ...details } = to;
+  return { id, exercise_slot_id: slotId, substitute_exercise_id: substituteId, substitute: visible ? details : null };
+}
+
+// Coach flow by default (a students-table id); `records(null)` is the athlete flow.
+async function records(studentRowId = 'st-1', qc = makeClient()) {
+  const { result } = renderHook(() => useStudentRecords(studentRowId ?? undefined), { wrapper: withClient(qc) });
   await waitFor(() => expect(result.current.isSuccess).toBe(true));
   return result.current.data;
 }
+
+const BENCH = { id: 'e-1', name: 'Bench', type: 'push' };
+const ROW = { id: 'e-9', name: 'Barbell Row', type: 'pull' };
+const MACHINE_ROW = { id: 'e-1', name: 'Machine Row', type: 'pull' };
+const PROGRAM = 'exercise_slots.sessions.weeks.programs';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -60,16 +86,18 @@ beforeEach(() => {
   useAuth.mockReturnValue({ user: { id: 'u-1' } });
 });
 
+afterEach(() => {
+  // Each history entry holds a ten-minute collection timer.
+  while (clients.length) clients.pop().clear();
+});
+
 describe('useStudentRecords — swap awareness', () => {
   it('builds a record for a non-swapped exercise from effective load', async () => {
     wire({
-      setLogs: [log({ slotId: 'sl-1', exercise: { id: 'e-1', name: 'Bench', type: 'push' }, loggedAt: '2026-04-01T10:00:00Z', tReps: 5, tW: 100, aReps: 5, aW: 100 })],
+      setLogs: [log({ slotId: 'sl-1', exercise: BENCH, loggedAt: '2026-04-01T10:00:00Z', tReps: 5, tW: 100, aReps: 5, aW: 100 })],
     });
-    const qc = makeClient();
-    const { result } = renderHook(() => useStudentRecords('st-1'), { wrapper: withClient(qc) });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    const bench = result.current.data.find((r) => r.exercise_id === 'e-1');
-    expect(bench).toBeTruthy();
+    const bench = (await records()).find((r) => r.exercise_id === 'e-1');
+    expect(bench).toMatchObject({ name: 'Bench', type: 'push' });
     // Epley: 100 × (1 + 5/30) ≈ 116.67 → rounded 117.
     expect(bench.bestE1rm).toBe(117);
   });
@@ -77,17 +105,15 @@ describe('useStudentRecords — swap awareness', () => {
   it('credits a swapped set to the SUBSTITUTE using the logged actual, not the original or its pinned target', async () => {
     wire({
       // Slot prescribed e-9 @ 100kg target; student swapped to e-1 and logged 6 @ 80.
-      setLogs: [log({ slotId: 'sl-swap', exercise: { id: 'e-9', name: 'Barbell Row', type: 'pull' }, loggedAt: '2026-04-02T10:00:00Z', tReps: 5, tW: 100, aReps: 6, aW: 80 })],
-      deviations: [{ id: 'd-1', exercise_slot_id: 'sl-swap', substitute: { id: 'e-1', name: 'Machine Row', type: 'pull' } }],
+      setLogs: [log({ slotId: 'sl-swap', exercise: ROW, loggedAt: '2026-04-02T10:00:00Z', tReps: 5, tW: 100, aReps: 6, aW: 80 })],
+      deviations: [swap({ slotId: 'sl-swap', to: MACHINE_ROW })],
     });
-    const qc = makeClient();
-    const { result } = renderHook(() => useStudentRecords('st-1'), { wrapper: withClient(qc) });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const data = await records();
     // The original e-9 gets NO record (the set wasn't that exercise)…
-    expect(result.current.data.find((r) => r.exercise_id === 'e-9')).toBeUndefined();
+    expect(data.find((r) => r.exercise_id === 'e-9')).toBeUndefined();
     // …the substitute e-1 gets it, from the LOGGED 80kg × 6 (not the 100kg target).
-    const sub = result.current.data.find((r) => r.exercise_id === 'e-1');
-    expect(sub).toBeTruthy();
+    const sub = data.find((r) => r.exercise_id === 'e-1');
+    expect(sub).toMatchObject({ name: 'Machine Row', type: 'pull' });
     // 80 × (1 + 6/30) = 96.
     expect(sub.bestE1rm).toBe(96);
   });
@@ -96,26 +122,36 @@ describe('useStudentRecords — swap awareness', () => {
     wire({
       // Swapped but only the coach's target exists — no actuals. Nothing to credit
       // to the substitute (and the original must not get it either).
-      setLogs: [log({ slotId: 'sl-swap', exercise: { id: 'e-9', name: 'Barbell Row', type: 'pull' }, loggedAt: '2026-04-03T10:00:00Z', tReps: 5, tW: 100, aReps: null, aW: null })],
-      deviations: [{ id: 'd-1', exercise_slot_id: 'sl-swap', substitute: { id: 'e-1', name: 'Machine Row', type: 'pull' } }],
+      setLogs: [log({ slotId: 'sl-swap', exercise: ROW, loggedAt: '2026-04-03T10:00:00Z', tReps: 5, tW: 100, aReps: null, aW: null })],
+      deviations: [swap({ slotId: 'sl-swap', to: MACHINE_ROW })],
     });
-    const qc = makeClient();
-    const { result } = renderHook(() => useStudentRecords('st-1'), { wrapper: withClient(qc) });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data).toEqual([]);
+    expect(await records()).toEqual([]);
+  });
+
+  it('sets no record for an exercise the reader may not see — and does not hand a hidden swap back to the original', async () => {
+    wire({
+      setLogs: [
+        // An exercise of a former coach's library: an id, no name.
+        log({ slotId: 'sl-old', exercise: { id: 'e-old' }, visible: false, loggedAt: '2026-04-01T10:00:00Z', aReps: 5, aW: 200 }),
+        // Prescribed e-9, done as something the reader cannot see.
+        log({ slotId: 'sl-swap', exercise: ROW, loggedAt: '2026-04-02T10:00:00Z', tReps: 5, tW: 100, aReps: 5, aW: 150 }),
+        log({ slotId: 'sl-1', exercise: BENCH, loggedAt: '2026-04-03T10:00:00Z', aReps: 1, aW: 100 }),
+      ],
+      deviations: [swap({ slotId: 'sl-swap', to: { id: 'e-gone' }, visible: false })],
+    });
+    expect((await records()).map((r) => r.exercise_id)).toEqual(['e-1']);
   });
 });
 
 describe('useStudentRecords — relative strength (×BW)', () => {
+  const PULL_UP = { id: 'e-1', name: 'Weighted Pull-up', type: 'pull', load_mode: 'added' };
+
   it('computes ×BW for a classified exercise using the bodyweight series', async () => {
     wire({
-      setLogs: [log({ slotId: 'sl-1', exercise: { id: 'e-1', name: 'Weighted Pull-up', type: 'pull', load_mode: 'added' }, loggedAt: '2026-04-10T10:00:00Z', aReps: 3, aW: 40 })],
+      setLogs: [log({ slotId: 'sl-1', exercise: PULL_UP, loggedAt: '2026-04-10T10:00:00Z', aReps: 3, aW: 40 })],
       bodyweight: [{ weight_kg: '70', logged_on: '2026-04-01' }],
     });
-    const qc = makeClient();
-    const { result } = renderHook(() => useStudentRecords('st-1'), { wrapper: withClient(qc) });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    const r = result.current.data.find((x) => x.exercise_id === 'e-1');
+    const r = (await records()).find((x) => x.exercise_id === 'e-1');
     // +40 × 3 at BW 70 → system e1RM 121, 1.7× BW. Headline stays the added-load e1RM.
     expect(r.bestE1rm).toBe(44);
     expect(r.relStrength).toBe(1.7);
@@ -124,21 +160,29 @@ describe('useStudentRecords — relative strength (×BW)', () => {
 
   it('omits ×BW when bodyweight is unknown (graceful degrade)', async () => {
     wire({
-      setLogs: [log({ slotId: 'sl-1', exercise: { id: 'e-1', name: 'Weighted Pull-up', type: 'pull', load_mode: 'added' }, loggedAt: '2026-04-10T10:00:00Z', aReps: 3, aW: 40 })],
+      setLogs: [log({ slotId: 'sl-1', exercise: PULL_UP, loggedAt: '2026-04-10T10:00:00Z', aReps: 3, aW: 40 })],
       bodyweight: [],
     });
-    const qc = makeClient();
-    const { result } = renderHook(() => useStudentRecords('st-1'), { wrapper: withClient(qc) });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    const r = result.current.data.find((x) => x.exercise_id === 'e-1');
+    const r = (await records()).find((x) => x.exercise_id === 'e-1');
     expect(r.bestE1rm).toBe(44); // added-load e1RM, as today
     expect(r.relStrength).toBeNull();
+  });
+
+  it('takes the load mode of the SUBSTITUTE on a swapped set', async () => {
+    wire({
+      // Prescribed a barbell lift (full load), done as a weighted pull-up.
+      setLogs: [log({ slotId: 'sl-swap', exercise: { ...ROW, load_mode: 'full' }, loggedAt: '2026-04-10T10:00:00Z', tReps: 5, tW: 100, aReps: 1, aW: 30 })],
+      deviations: [swap({ slotId: 'sl-swap', to: PULL_UP })],
+      bodyweight: [{ weight_kg: '60', logged_on: '2026-04-01' }],
+    });
+    const [r] = await records();
+    // (60 + 30) / 60, not 30 / 60.
+    expect(r).toMatchObject({ exercise_id: 'e-1', loadMode: 'added', relStrength: 1.5 });
   });
 });
 
 // A record can sit anywhere in the history, and one response holds 1000 rows.
 describe('useStudentRecords — history longer than one page', () => {
-  const BENCH = { id: 'e-1', name: 'Bench', type: 'push' };
   const pad = (i) => String(i).padStart(5, '0');
   const day = (i) => new Date(Date.UTC(2023, 0, 1 + i, 12)).toISOString();
 
@@ -157,14 +201,13 @@ describe('useStudentRecords — history longer than one page', () => {
 
     const requests = db.requestsTo('set_logs');
     expect(requests).toHaveLength(2);
-    const scope = 'exercise_slots.sessions.weeks.programs';
     for (const request of requests) {
       expect(request.select).toMatch(/^\s*id, /);
       expect(request.order).toEqual({ column: 'id', ascending: true });
       expect(request.limit).toBe(1000);
       expect(request.filters).toContainEqual(['eq', 'done', true]);
-      expect(request.filters).toContainEqual(['eq', `${scope}.student_id`, 'st-1']);
-      expect(request.filters).toContainEqual(['is', `${scope}.deleted_at`, null]);
+      expect(request.filters).toContainEqual(['eq', `${PROGRAM}.student_id`, 'st-1']);
+      expect(request.filters).toContainEqual(['is', `${PROGRAM}.deleted_at`, null]);
     }
     expect(requests[1].filters).toContainEqual(['gt', 'id', 'l-00999']);
   });
@@ -175,11 +218,9 @@ describe('useStudentRecords — history longer than one page', () => {
       // Every slot prescribed e-9 and swapped to e-1. Two of them were trained,
       // the first and the one whose swap is the last row of the list.
       setLogs: [0, SLOTS - 1].map((i) =>
-        log({ id: `l-${pad(i)}`, slotId: `sl-${pad(i)}`, exercise: { id: 'e-9', name: 'Barbell Row', type: 'pull' }, loggedAt: day(i), tReps: 5, tW: 100, aReps: 6, aW: 80 }),
+        log({ id: `l-${pad(i)}`, slotId: `sl-${pad(i)}`, exercise: ROW, loggedAt: day(i), tReps: 5, tW: 100, aReps: 6, aW: 80 }),
       ),
-      deviations: Array.from({ length: SLOTS }, (_, i) => ({
-        id: `d-${pad(i)}`, exercise_slot_id: `sl-${pad(i)}`, substitute: { id: 'e-1', name: 'Machine Row', type: 'pull' },
-      })),
+      deviations: Array.from({ length: SLOTS }, (_, i) => swap({ id: `d-${pad(i)}`, slotId: `sl-${pad(i)}`, to: MACHINE_ROW })),
     });
 
     const data = await records();
@@ -190,7 +231,7 @@ describe('useStudentRecords — history longer than one page', () => {
     expect(requests).toHaveLength(2);
     expect(requests[0].select).toMatch(/^\s*id, /);
     expect(requests[1].filters).toContainEqual(['eq', 'kind', 'swap']);
-    expect(requests[1].filters).toContainEqual(['eq', 'exercise_slots.sessions.weeks.programs.student_id', 'st-1']);
+    expect(requests[1].filters).toContainEqual(['eq', `${PROGRAM}.student_id`, 'st-1']);
     expect(requests[1].filters).toContainEqual(['gt', 'id', 'd-00999']);
   });
 
@@ -235,8 +276,8 @@ describe('useStudentRecords — the order of the rows does not decide a record',
     wire({
       // Ids run against the dates: read in id order, the recent set comes first.
       setLogs: [
-        log({ id: 'l-a', slotId: 'sl-2', exercise: { id: 'e-1', name: 'Bench', type: 'push' }, loggedAt: yesterday, aReps: 5, aW: 100 }),
-        log({ id: 'l-b', slotId: 'sl-1', exercise: { id: 'e-1', name: 'Bench', type: 'push' }, loggedAt: lastYear, aReps: 5, aW: 100 }),
+        log({ id: 'l-a', slotId: 'sl-2', exercise: BENCH, loggedAt: yesterday, aReps: 5, aW: 100 }),
+        log({ id: 'l-b', slotId: 'sl-1', exercise: BENCH, loggedAt: lastYear, aReps: 5, aW: 100 }),
       ],
     });
 
@@ -247,20 +288,143 @@ describe('useStudentRecords — the order of the rows does not decide a record',
 });
 
 describe('useStudentRecords — whose rows', () => {
-  it('student flow: resolves the students row from the profile and reads the own bodyweight', async () => {
-    const db = wire({ profile: { id: 'st-7' } });
-    await records(null);
+  it('coach flow: the history is filtered on the athlete, and the bodyweight is that of the athlete’s profile', async () => {
+    const db = wire({
+      profile: { profile_id: 'prof-9' },
+      setLogs: [log({ slotId: 'sl-1', exercise: BENCH, loggedAt: '2026-04-01T10:00:00Z', aReps: 5, aW: 100 })],
+    });
+    await records('st-9');
 
-    expect(db.requestsTo('students')[0].filters).toEqual([['eq', 'profile_id', 'u-1']]);
-    expect(db.requestsTo('set_logs')[0].filters).toContainEqual([
-      'eq', 'exercise_slots.sessions.weeks.programs.student_id', 'st-7',
-    ]);
+    expect(db.requestsTo('students').map((r) => r.filters)).toEqual([[['eq', 'id', 'st-9']]]);
+    for (const table of ['set_logs', 'slot_deviations']) {
+      expect(db.requestsTo(table)).toHaveLength(1);
+      expect(db.requestsTo(table)[0].filters).toContainEqual(['eq', `${PROGRAM}.student_id`, 'st-9']);
+    }
+    expect(db.requestsTo('bodyweight_logs')[0].filters).toEqual([['eq', 'student_id', 'prof-9']]);
+  });
+
+  it('coach flow: an athlete whose row is gone still gets records, without a bodyweight read', async () => {
+    const db = wire({
+      profile: null,
+      setLogs: [log({ slotId: 'sl-1', exercise: BENCH, loggedAt: '2026-04-01T10:00:00Z', aReps: 5, aW: 100 })],
+    });
+    expect((await records('st-9')).map((r) => r.exercise_id)).toEqual(['e-1']);
+    expect(db.requestsTo('bodyweight_logs')).toEqual([]);
+  });
+
+  it('athlete flow: no filter and no students lookup — RLS scopes the history, the bodyweight is the user’s own', async () => {
+    const db = wire({
+      setLogs: [log({ slotId: 'sl-1', exercise: BENCH, loggedAt: '2026-04-01T10:00:00Z', aReps: 5, aW: 100 })],
+    });
+    expect((await records(null)).map((r) => r.exercise_id)).toEqual(['e-1']);
+
+    expect(db.requestsTo('students')).toEqual([]);
+    for (const table of ['set_logs', 'slot_deviations']) {
+      expect(db.requestsTo(table)).toHaveLength(1);
+      expect(db.requestsTo(table)[0].filters.filter(([, column]) => String(column).endsWith('student_id'))).toEqual([]);
+    }
     expect(db.requestsTo('bodyweight_logs')[0].filters).toEqual([['eq', 'student_id', 'u-1']]);
   });
 
-  it('a profile with no students row has no records, and nothing else is read', async () => {
-    const db = wire({ profile: null });
+  it('athlete flow: an athlete with no done set has no records', async () => {
+    wire({});
     expect(await records(null)).toEqual([]);
-    expect(db.requests.map((r) => r.table)).toEqual(['students']);
+  });
+
+  it('keys the records on the athlete: a coach moving between two never shows one the other’s', async () => {
+    const ofAthlete = (request) =>
+      request.filters.find(([op, column]) => op === 'eq' && column === `${PROGRAM}.student_id`)?.[2];
+    const db = fakePostgrest({
+      students: [{ profile_id: 'prof-1' }],
+      // The fake records filters without applying them; this table applies the
+      // one that separates athletes.
+      set_logs: (request) =>
+        ({
+          'st-4': [log({ id: 'l-4', slotId: 'sl-4', exercise: BENCH, loggedAt: '2026-04-01T10:00:00Z', aReps: 1, aW: 140 })],
+          'st-5': [log({ id: 'l-5', slotId: 'sl-5', exercise: BENCH, loggedAt: '2026-04-01T10:00:00Z', aReps: 1, aW: 60 })],
+        })[ofAthlete(request)] || [],
+      slot_deviations: [],
+      bodyweight_logs: [],
+    });
+    supabase.from.mockImplementation(db.from);
+    const qc = makeClient();
+
+    expect((await records('st-4', qc))[0].bestE1rm).toBe(140);
+    expect((await records('st-5', qc))[0].bestE1rm).toBe(60);
+
+    const keys = qc.getQueryCache().getAll().map((q) => q.queryKey);
+    expect(keys).toEqual(expect.arrayContaining([
+      ['student-records', 'st-4'],
+      ['student-records', 'st-5'],
+      ['student-records', 'history', 'st-4'],
+      ['student-records', 'history', 'st-5'],
+    ]));
+    expect(keys).toHaveLength(4);
+  });
+});
+
+// The sets come from the athlete's shared history (lib/doneSetHistory), which
+// "Last time" derives from too: the hook must use what is there, and renew it
+// when — and only when — something says the history changed.
+describe('useStudentRecords — the history is read once and shared', () => {
+  const oneSet = () => [log({ id: 'l-1', slotId: 'sl-1', exercise: BENCH, loggedAt: '2026-04-01T10:00:00Z', aReps: 5, aW: 100 })];
+
+  it('uses a history that is already in the cache instead of reading it again', async () => {
+    const db = wire({ setLogs: oneSet() });
+    const qc = makeClient();
+    // What opening a session does first.
+    await fetchDoneSetHistory(qc, { userId: 'u-1' });
+    expect(db.requestsTo('set_logs')).toHaveLength(1);
+
+    expect((await records(null, qc))[0].bestE1rm).toBe(117);
+
+    expect(db.requestsTo('set_logs')).toHaveLength(1);
+    expect(db.requestsTo('slot_deviations')).toHaveLength(1);
+  });
+
+  it('a refetch — coming back to the tab — re-reads the bodyweight, not the history', async () => {
+    const db = wire({ setLogs: oneSet() });
+    const { result } = renderHook(() => useStudentRecords(), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    await act(() => result.current.refetch());
+
+    expect(db.requestsTo('bodyweight_logs')).toHaveLength(2);
+    expect(db.requestsTo('set_logs')).toHaveLength(1);
+    expect(db.requestsTo('slot_deviations')).toHaveLength(1);
+  });
+
+  it('invalidating ["student-records"] — a confirmed session, a logged bodyweight — renews the history and the records', async () => {
+    const setLogs = oneSet();
+    const db = wire({ setLogs });
+    const qc = makeClient();
+    const { result } = renderHook(() => useStudentRecords(), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.data?.[0].bestE1rm).toBe(117));
+
+    // The session just confirmed held a heavier single.
+    setLogs.push(log({ id: 'l-2', slotId: 'sl-2', exercise: BENCH, loggedAt: '2026-04-08T10:00:00Z', aReps: 1, aW: 130 }));
+    await act(() => qc.invalidateQueries({ queryKey: ['student-records'] }));
+
+    await waitFor(() => expect(result.current.data[0].bestE1rm).toBe(130));
+    expect(db.requestsTo('set_logs')).toHaveLength(2);
+    expect(db.requestsTo('slot_deviations')).toHaveLength(2);
+  });
+
+  it('fails when the history cannot be read, and reads it again on the next try', async () => {
+    let failing = true;
+    const db = fakePostgrest({
+      set_logs: () => (failing ? { error: { message: 'network down' } } : oneSet()),
+      slot_deviations: [],
+      bodyweight_logs: [],
+    });
+    supabase.from.mockImplementation(db.from);
+    const { result } = renderHook(() => useStudentRecords(), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    failing = false;
+    await act(() => result.current.refetch());
+
+    await waitFor(() => expect(result.current.data?.[0].bestE1rm).toBe(117));
+    expect(db.requestsTo('set_logs')).toHaveLength(2);
   });
 });
