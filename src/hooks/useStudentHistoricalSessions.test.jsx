@@ -8,6 +8,7 @@ vi.mock('./useAuth', () => ({ useAuth: vi.fn() }));
 import { useStudentHistoricalSessions } from './useStudentHistoricalSessions';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
+import { fakePostgrest } from '../test/fakePostgrest';
 
 function makeClient() {
   return new QueryClient({
@@ -28,66 +29,47 @@ beforeEach(() => {
   useAuth.mockReturnValue({ user: { id: 'u-1' } });
 });
 
+// The three tables the hook reads, served by name; every response is cut at
+// 1000 rows, as PostgREST cuts it.
+function wire({ programs = [], confirmations = [] }) {
+  const db = fakePostgrest({
+    students: [{ id: 'st-1' }],
+    programs,
+    session_confirmations: confirmations,
+  });
+  supabase.from.mockImplementation(db.from);
+  return db;
+}
+
+async function historical() {
+  const { result } = renderHook(() => useStudentHistoricalSessions(), {
+    wrapper: withClient(makeClient()),
+  });
+  await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  return result.current.data;
+}
+
 describe('useStudentHistoricalSessions', () => {
   it('queries non-active programs and tags sessions historical:true', async () => {
-    const studentChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      is: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: { id: 'st-1' }, error: null }),
-    };
-    const programsChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      // Trailing .is('deleted_at', null) is the terminal call.
-      is: vi.fn().mockResolvedValue({
-        data: [
-          {
-            id: 'p-old',
-            weeks: [
-              {
-                sessions: [
-                  {
-                    id: 's-1',
-                    title: 'Squat day',
-                    scheduled_date: '2026-03-12',
-                    archived_at: null,
-                  },
-                  {
-                    id: 's-2',
-                    title: 'Skipped',
-                    scheduled_date: null,
-                    archived_at: null,
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-        error: null,
-      }),
-    };
-    // Confirmations are now filtered through the program join (student_id +
-    // is_active=false + not-trashed), not an .in(sessionIds) list.
-    const confChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      is: vi.fn().mockResolvedValue({
-        data: [{ session_id: 's-1' }],
-        error: null,
-      }),
-    };
-    const seq = [studentChain, programsChain, confChain];
-    let i = 0;
-    supabase.from.mockImplementation(() => seq[i++]);
-
-    const qc = makeClient();
-    const { result } = renderHook(() => useStudentHistoricalSessions(), {
-      wrapper: withClient(qc),
+    const db = wire({
+      programs: [
+        {
+          id: 'p-old',
+          weeks: [
+            {
+              sessions: [
+                { id: 's-1', title: 'Squat day', scheduled_date: '2026-03-12', archived_at: null },
+                { id: 's-2', title: 'Skipped', scheduled_date: null, archived_at: null },
+              ],
+            },
+          ],
+        },
+      ],
+      confirmations: [{ session_id: 's-1' }],
     });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
     // Only s-1 has scheduled_date.
-    expect(result.current.data).toEqual([
+    expect(await historical()).toEqual([
       {
         session_id: 's-1',
         title: 'Squat day',
@@ -97,7 +79,43 @@ describe('useStudentHistoricalSessions', () => {
       },
     ]);
     // Verifies is_active=false was the filter.
-    const eqCalls = programsChain.eq.mock.calls;
-    expect(eqCalls).toContainEqual(['is_active', false]);
+    expect(db.requestsTo('programs')[0].filters).toContainEqual(['eq', 'is_active', false]);
+    // Confirmations are filtered through the program join (student_id +
+    // is_active=false + not-trashed), not an .in(sessionIds) list.
+    expect(db.requestsTo('session_confirmations')[0].filters).toEqual([
+      ['eq', 'sessions.weeks.programs.student_id', 'st-1'],
+      ['eq', 'sessions.weeks.programs.is_active', false],
+      ['is', 'sessions.weeks.programs.deleted_at', null],
+    ]);
+  });
+
+  it('marks every finished session of the past blocks, beyond the first 1000', async () => {
+    // 251 past weeks of four sessions, all of them trained.
+    const SESSIONS = 1004;
+    const pad = (i) => String(i).padStart(5, '0');
+    const db = wire({
+      programs: [
+        {
+          id: 'p-old',
+          weeks: Array.from({ length: SESSIONS / 4 }, (_, w) => ({
+            sessions: [0, 1, 2, 3].map((d) => ({
+              id: `s-${pad(w * 4 + d)}`, title: `W${w} D${d}`, scheduled_date: '2024-05-06', archived_at: null,
+            })),
+          })),
+        },
+      ],
+      confirmations: Array.from({ length: SESSIONS }, (_, i) => ({ session_id: `s-${pad(i)}` })),
+    });
+
+    const data = await historical();
+    expect(data).toHaveLength(SESSIONS);
+    expect(data.filter((s) => s.completed)).toHaveLength(SESSIONS);
+
+    const requests = db.requestsTo('session_confirmations');
+    expect(requests).toHaveLength(2);
+    expect(requests[0].order).toEqual({ column: 'session_id', ascending: true });
+    expect(requests[0].limit).toBe(1000);
+    expect(requests[1].filters).toContainEqual(['gt', 'session_id', 's-00999']);
+    expect(requests[1].filters).toContainEqual(['eq', 'sessions.weeks.programs.is_active', false]);
   });
 });

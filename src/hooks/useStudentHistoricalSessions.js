@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 import { isoDate } from '../lib/day';
+import { fetchAllRows } from '../lib/supabasePaging';
 
 /**
  * Scheduled sessions from the signed-in student's NON-active program blocks.
@@ -60,16 +61,23 @@ export function useStudentHistoricalSessions() {
       // confirmed counts as done). Filtered THROUGH the program join for the
       // student's non-active blocks rather than an unbounded .in(sessionIds)
       // list (which grows with history and eventually blows the URL length).
+      // One row per finished session of every past block: a list that only
+      // grows, so it is read to its end, a page at a time. It walks
+      // `session_id`, which is unique in this table (one confirmation per
+      // session) and is the one column the read needs.
       const confirmedIds = new Set();
       if (dated.length) {
-        const { data: confs, error: cErr } = await supabase
-          .from('session_confirmations')
-          .select('session_id, sessions!inner(weeks!inner(programs!inner(student_id, is_active, deleted_at)))')
-          .eq('sessions.weeks.programs.student_id', student.id)
-          .eq('sessions.weeks.programs.is_active', false)
-          .is('sessions.weeks.programs.deleted_at', null);
-        if (cErr) throw cErr;
-        for (const c of confs || []) confirmedIds.add(c.session_id);
+        const confs = await fetchAllRows(
+          () =>
+            supabase
+              .from('session_confirmations')
+              .select('session_id, sessions!inner(weeks!inner(programs!inner(student_id, is_active, deleted_at)))')
+              .eq('sessions.weeks.programs.student_id', student.id)
+              .eq('sessions.weeks.programs.is_active', false)
+              .is('sessions.weeks.programs.deleted_at', null),
+          { column: 'session_id' },
+        );
+        for (const c of confs) confirmedIds.add(c.session_id);
       }
 
       return dated.map((s) => ({
