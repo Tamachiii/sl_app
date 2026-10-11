@@ -17,3 +17,12 @@ TEST_AUDIT.md
 
 # Review reports (2026-09-30) and E2E run artifacts — local only
 review-2026-09-30/
+
+# Database dumps (docs/runbook/00-before-you-start.md, BACKUPS.md): every
+# athlete's data in clear text. The runbook writes them outside the checkout;
+# these lines are for the day one lands here anyway. Never commit one.
+backup-*.sql
+*-backup-*.sql
+/schema.sql
+/data.sql
+dump.tar.gz*

@@ -35,11 +35,11 @@ Either of these:
 - Or a dump on your machine (schema, then data). `supabase db dump` runs `pg_dump` in a container, so Docker must be running:
 
   ```bash
-  supabase db dump --linked -f backup-schema.sql
-  supabase db dump --linked --data-only -f backup-data.sql
+  supabase db dump --linked -f ~/sl_app-backup-schema.sql
+  supabase db dump --linked --data-only -f ~/sl_app-backup-data.sql
   ```
 
-  Keep both files outside the repository.
+  Both files land in your home folder, not in the repository: the second one holds every athlete's data in clear text, and the repository is public. Never write a dump inside the checkout.
 
 Neither covers the `auth` schema (accounts) or the video bucket; `BACKUPS.md` lists the gaps.
 
