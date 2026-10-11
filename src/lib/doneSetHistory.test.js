@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
+import { createClient } from '@supabase/supabase-js';
 
 vi.mock('./supabase', () => ({ supabase: { from: vi.fn() } }));
 
@@ -263,6 +264,65 @@ describe('readDoneSetHistory — the requests', () => {
     supabase.from.mockImplementation(db.from);
 
     await expect(readDoneSetHistory()).rejects.toBe(boom);
+  });
+});
+
+// The fake above records what the code ASKS for. This is what supabase-js makes
+// of it: the two URLs PostgREST receives, through the real client and a local
+// fetch. The embeds are the part no other test sees.
+describe('readDoneSetHistory — on the wire', () => {
+  async function urlsOf(studentRowId) {
+    const urls = [];
+    const client = createClient('http://localhost:54321', 'anon-key', {
+      global: {
+        fetch: async (input) => {
+          urls.push(new URL(typeof input === 'string' ? input : input.url));
+          return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
+        },
+      },
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    });
+    supabase.from.mockImplementation((table) => client.from(table));
+    await readDoneSetHistory(studentRowId);
+    return Object.fromEntries(urls.map((url) => [url.pathname, Object.fromEntries(url.searchParams)]));
+  }
+
+  it('coach flow: one request per table, the athlete and the trash filter on the program join', async () => {
+    expect(await urlsOf('st-4')).toEqual({
+      '/rest/v1/set_logs': {
+        select:
+          'id,set_number,logged_at,target_reps,target_weight_kg,actual_reps,actual_weight_kg,' +
+          'exercise_slots!inner(id,exercise_id,session_id,' +
+          // A plain embed: an exercise the reader may not see leaves the set in.
+          'exercise:exercise_library(name,type,load_mode),' +
+          'sessions!inner(scheduled_date,weeks!inner(programs!inner(student_id,deleted_at))))',
+        done: 'eq.true',
+        [`${PROGRAM}.deleted_at`]: 'is.null',
+        [`${PROGRAM}.student_id`]: 'eq.st-4',
+        order: 'id.asc',
+        limit: '1000',
+      },
+      '/rest/v1/slot_deviations': {
+        select:
+          'id,exercise_slot_id,substitute_exercise_id,' +
+          'substitute:exercise_library(name,type,load_mode),' +
+          'exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(student_id,deleted_at))))',
+        kind: 'eq.swap',
+        [`${PROGRAM}.deleted_at`]: 'is.null',
+        [`${PROGRAM}.student_id`]: 'eq.st-4',
+        order: 'id.asc',
+        limit: '1000',
+      },
+    });
+  });
+
+  it('athlete flow: the same two requests without the athlete filter', async () => {
+    const urls = await urlsOf(null);
+    expect(Object.keys(urls)).toEqual(['/rest/v1/set_logs', '/rest/v1/slot_deviations']);
+    for (const params of Object.values(urls)) {
+      expect(params[`${PROGRAM}.deleted_at`]).toBe('is.null');
+      expect(Object.keys(params).filter((name) => name.endsWith('student_id'))).toEqual([]);
+    }
   });
 });
 
