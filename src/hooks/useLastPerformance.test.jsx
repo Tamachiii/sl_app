@@ -8,6 +8,7 @@ vi.mock('./useAuth', () => ({ useAuth: vi.fn() }));
 import { useLastPerformance } from './useLastPerformance';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
+import { fakePostgrest } from '../test/fakePostgrest';
 
 function makeClient() {
   return new QueryClient({
@@ -18,29 +19,18 @@ function withClient(qc) {
   return ({ children }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
 }
 
-// A thenable chain that returns `this` from every builder method and resolves to
-// `data` when awaited at any terminal — matches the supabase-js fluent API.
-function chain(data) {
-  const c = {
-    select: vi.fn(() => c),
-    eq: vi.fn(() => c),
-    is: vi.fn(() => c),
-    order: vi.fn(() => c),
-    limit: vi.fn(() => c),
-    then: (resolve, reject) => Promise.resolve({ data, error: null }).then(resolve, reject),
-  };
-  return c;
-}
-
-// The hook fetches set_logs first, then slot_deviations — wire them in order.
+// The two tables the hook reads, served by name. The fake cuts every response
+// at 1000 rows, as PostgREST does, and records each request.
 function wire({ setLogs = [], deviations = [] }) {
-  const seq = [chain(setLogs), chain(deviations)];
-  let i = 0;
-  supabase.from.mockImplementation(() => seq[i++]);
+  const db = fakePostgrest({ set_logs: setLogs, slot_deviations: deviations });
+  supabase.from.mockImplementation(db.from);
+  return db;
 }
 
-function setLog({ slotId, exerciseId, sessionId, scheduledDate = null, loggedAt, setNumber = 1, tReps = null, tW = null, aReps = null, aW = null }) {
+let nextLogId = 0;
+function setLog({ id, slotId, exerciseId, sessionId, scheduledDate = null, loggedAt, setNumber = 1, tReps = null, tW = null, aReps = null, aW = null }) {
   return {
+    id: id ?? `l-${String(nextLogId++).padStart(5, '0')}`,
     set_number: setNumber,
     logged_at: loggedAt,
     target_reps: tReps,
@@ -58,6 +48,7 @@ function setLog({ slotId, exerciseId, sessionId, scheduledDate = null, loggedAt,
 
 beforeEach(() => {
   vi.clearAllMocks();
+  nextLogId = 0;
   useAuth.mockReturnValue({ user: { id: 'u-1' } });
 });
 
@@ -88,7 +79,7 @@ describe('useLastPerformance — swap awareness', () => {
       setLogs: [
         setLog({ slotId: 'sl-swap', exerciseId: 'e-9', sessionId: 's-prior', scheduledDate: '2026-04-02', loggedAt: '2026-04-02T10:00:00Z', setNumber: 1, tReps: 5, tW: 100, aReps: 6, aW: 80 }),
       ],
-      deviations: [{ exercise_slot_id: 'sl-swap', substitute_exercise_id: 'e-1' }],
+      deviations: [{ id: 'd-1', exercise_slot_id: 'sl-swap', substitute_exercise_id: 'e-1' }],
     });
     const qc = makeClient();
     const { result } = renderHook(() => useLastPerformance(OPEN, slotsE1, '2026-04-20', []), { wrapper: withClient(qc) });
@@ -103,7 +94,7 @@ describe('useLastPerformance — swap awareness', () => {
       setLogs: [
         setLog({ slotId: 'sl-away', exerciseId: 'e-1', sessionId: 's-prior', scheduledDate: '2026-04-03', loggedAt: '2026-04-03T10:00:00Z', setNumber: 1, tReps: 5, tW: 100, aReps: 5, aW: 100 }),
       ],
-      deviations: [{ exercise_slot_id: 'sl-away', substitute_exercise_id: 'e-5' }],
+      deviations: [{ id: 'd-1', exercise_slot_id: 'sl-away', substitute_exercise_id: 'e-5' }],
     });
     const qc = makeClient();
     const { result } = renderHook(() => useLastPerformance(OPEN, slotsE1, '2026-04-20', []), { wrapper: withClient(qc) });
@@ -137,5 +128,111 @@ describe('useLastPerformance — swap awareness', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(result.current.fetchStatus).toBe('idle');
     expect(supabase.from).not.toHaveBeenCalled();
+  });
+});
+
+// The last time a lift was done can be anywhere in the history, and one
+// response holds 1000 rows: a hint cut there reads "never".
+describe('useLastPerformance — history longer than one page', () => {
+  const pad = (i) => String(i).padStart(5, '0');
+  const at = (i) => new Date(Date.UTC(2023, 0, 1 + i, 12)).toISOString();
+  const dateOf = (i) => at(i).slice(0, 10);
+
+  async function lastTime(db, ...args) {
+    const { result } = renderHook(
+      () => useLastPerformance(OPEN, slotsE1, '2026-04-20', [], true, ...args),
+      { wrapper: withClient(makeClient()) },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    return result.current.data;
+  }
+
+  // 1119 done sets of another lift, one a day; `over` replaces some of them.
+  const history = (over = {}) =>
+    Array.from({ length: 1119 }, (_, i) =>
+      over[i]
+        ? setLog({ id: `l-${pad(i)}`, ...over[i] })
+        : setLog({ id: `l-${pad(i)}`, slotId: `sl-${i}`, exerciseId: 'e-2', sessionId: `s-${i}`, scheduledDate: dateOf(i), loggedAt: at(i), tReps: 8, tW: 40 }),
+    );
+
+  it('finds a lift done once, long ago, behind more than 1000 other sets', async () => {
+    // The OLDEST set of the history, and the last row in id order: neither the
+    // newest 1000 nor the first 1000 by id contain it.
+    const db = wire({
+      setLogs: history({
+        1118: { slotId: 'sl-old', exerciseId: 'e-1', sessionId: 's-old', scheduledDate: '2022-06-01', loggedAt: '2022-06-01T10:00:00Z', tReps: 3, tW: 140 },
+      }),
+    });
+
+    const data = await lastTime(db);
+    expect(data['e-1'].sets).toEqual([{ weight: 140, reps: 3 }]);
+
+    const requests = db.requestsTo('set_logs');
+    expect(requests).toHaveLength(2);
+    for (const request of requests) {
+      expect(request.select).toMatch(/^\s*id, /);
+      expect(request.order).toEqual({ column: 'id', ascending: true });
+      expect(request.limit).toBe(1000);
+      expect(request.filters).toContainEqual(['eq', 'done', true]);
+      expect(request.filters).toContainEqual(['is', 'exercise_slots.sessions.weeks.programs.deleted_at', null]);
+      // Student flow: RLS scopes the rows, no athlete filter is sent.
+      expect(request.filters.find((f) => f[1].endsWith('.student_id'))).toBeUndefined();
+    }
+    expect(requests[1].filters).toContainEqual(['gt', 'id', 'l-00999']);
+  });
+
+  it('shows the LATEST session of a lift wherever its rows fall in id order', async () => {
+    const db = wire({
+      setLogs: history({
+        // An older session, early in id order…
+        3: { slotId: 'sl-a', exerciseId: 'e-1', sessionId: 's-a', scheduledDate: '2025-01-10', loggedAt: '2025-01-10T10:00:00Z', tReps: 5, tW: 100 },
+        // …and the most recent one on the second page.
+        1100: { slotId: 'sl-b', exerciseId: 'e-1', sessionId: 's-b', scheduledDate: '2026-03-01', loggedAt: '2026-03-01T10:00:00Z', tReps: 5, tW: 110 },
+      }),
+    });
+
+    const data = await lastTime(db);
+    expect(data['e-1'].scheduledDate).toBe('2026-03-01');
+    expect(data['e-1'].sets).toEqual([{ weight: 110, reps: 5 }]);
+  });
+
+  it('follows a prior swap whose row is past the first 1000 swaps', async () => {
+    const db = wire({
+      // Prescribed e-9, done as e-1: only the swap says so.
+      setLogs: [
+        setLog({ slotId: 'sl-01000', exerciseId: 'e-9', sessionId: 's-prior', scheduledDate: '2026-04-02', loggedAt: '2026-04-02T10:00:00Z', tReps: 5, tW: 100, aReps: 6, aW: 80 }),
+      ],
+      deviations: Array.from({ length: 1001 }, (_, i) => ({
+        id: `d-${pad(i)}`, exercise_slot_id: `sl-${pad(i)}`, substitute_exercise_id: 'e-1',
+      })),
+    });
+
+    const data = await lastTime(db);
+    expect(data['e-1'].sets).toEqual([{ weight: 80, reps: 6 }]);
+
+    const requests = db.requestsTo('slot_deviations');
+    expect(requests).toHaveLength(2);
+    expect(requests[0].select).toMatch(/^\s*id, /);
+    expect(requests[1].filters).toContainEqual(['eq', 'kind', 'swap']);
+    expect(requests[1].filters).toContainEqual(['gt', 'id', 'd-00999']);
+  });
+
+  it('coach flow: every page of both reads is filtered on the athlete', async () => {
+    const db = wire({
+      setLogs: history(),
+      deviations: Array.from({ length: 1001 }, (_, i) => ({
+        id: `d-${pad(i)}`, exercise_slot_id: `sl-x${i}`, substitute_exercise_id: 'e-7',
+      })),
+    });
+
+    await lastTime(db, 'st-4');
+
+    const scope = 'exercise_slots.sessions.weeks.programs.student_id';
+    expect(db.requestsTo('set_logs')).toHaveLength(2);
+    expect(db.requestsTo('slot_deviations')).toHaveLength(2);
+    // Without it a coach's RLS returns every athlete's rows.
+    for (const request of db.requests) {
+      expect(request.filters).toContainEqual(['eq', scope, 'st-4']);
+    }
   });
 });

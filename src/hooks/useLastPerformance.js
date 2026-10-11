@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 import { isoDate } from '../lib/day';
 import { buildLastPerformance } from '../lib/lastPerformance';
+import { fetchAllRows } from '../lib/supabasePaging';
 
 /**
  * For every exercise in the OPEN session, the student's most recent PRIOR
@@ -21,12 +22,14 @@ import { buildLastPerformance } from '../lib/lastPerformance';
  *     numbers, foreign to the substitute.
  *
  * Because a prior slot swapped to one of our target exercises lives under a
- * DIFFERENT exercise_id, we fetch recent done sets across all exercises (no
+ * DIFFERENT exercise_id, we fetch the done sets across all exercises (no
  * exercise_id filter) and remap/filter in JS. "Last time" only needs the most
- * recent prior session per exercise, and the query is ordered newest-first,
- * capped at the same 20000 rows as useStudentRecords — enough recent history
- * that even a rarely-programmed lift on a very-high-volume athlete keeps its
- * hint (the old per-exercise-filtered query couldn't see swap-ins).
+ * recent prior session per exercise, but that session can be anywhere in the
+ * history — a lift programmed once a block sits behind hundreds of other sets
+ * — so both reads go to their end, a page at a time (lib/supabasePaging):
+ * PostgREST hands back 1000 rows per request at most, and a hint cut there
+ * reads "never" for a lift the athlete has done. The rows arrive in id order;
+ * buildLastPerformance finds the latest session and orders its sets itself.
  *
  * NOTE — intentional difference from useStudentProgressStats: on a swapped set
  * with no logged actual, Stats still ESTIMATES volume from the slot's prescribed
@@ -81,55 +84,49 @@ export function useLastPerformance(
       const scopeToStudent = (q, prefix) =>
         studentRowId ? q.eq(`${prefix}.student_id`, studentRowId) : q;
 
-      // Recent DONE set_logs across ALL exercises — no exercise_id filter,
+      // Every DONE set_log across ALL exercises — no exercise_id filter,
       // because a prior slot swapped to one of our targets sits under a
       // different exercise_id and would otherwise be missed.
-      const { data, error } = await scopeToStudent(
-        supabase
-          .from('set_logs')
-          .select(`
-            set_number, logged_at, target_reps, target_weight_kg, actual_reps, actual_weight_kg,
-            exercise_slots!inner(
-              id, exercise_id, session_id,
-              sessions!inner(scheduled_date, weeks!inner(programs!inner(student_id, deleted_at)))
-            )
-          `)
-          .eq('done', true)
-          .is('exercise_slots.sessions.weeks.programs.deleted_at', null),
-        'exercise_slots.sessions.weeks.programs',
-      )
-        // Most recent first so the row cap keeps the relevant tail. Matches the
-        // sibling useStudentRecords cap so a heavy-volume athlete's rarely-
-        // programmed lift still keeps its "last time".
-        .order('logged_at', { ascending: false })
-        .limit(20000);
-      if (error) throw error;
+      const data = await fetchAllRows(() =>
+        scopeToStudent(
+          supabase
+            .from('set_logs')
+            .select(`
+              id, set_number, logged_at, target_reps, target_weight_kg, actual_reps, actual_weight_kg,
+              exercise_slots!inner(
+                id, exercise_id, session_id,
+                sessions!inner(scheduled_date, weeks!inner(programs!inner(student_id, deleted_at)))
+              )
+            `)
+            .eq('done', true)
+            .is('exercise_slots.sessions.weeks.programs.deleted_at', null),
+          'exercise_slots.sessions.weeks.programs',
+        ),
+      );
 
       // The student's prior swaps: slotId → substitute exercise id. RLS scopes
       // slot_deviations to the signed-in student, so no student_id filter is
       // needed; a swap on a trashed program's slot simply won't match any row.
-      const { data: devs, error: devErr } = await scopeToStudent(
-        supabase
-          .from('slot_deviations')
-          .select(`
-            exercise_slot_id, substitute_exercise_id,
-            exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(student_id))))
-          `)
-          .eq('kind', 'swap'),
-        'exercise_slots.sessions.weeks.programs',
-      )
-        // Explicit high cap so a heavy-deviation student can't have swaps
-        // silently truncated at PostgREST's default 1000-row limit.
-        .limit(20000);
-      if (devErr) throw devErr;
+      const devs = await fetchAllRows(() =>
+        scopeToStudent(
+          supabase
+            .from('slot_deviations')
+            .select(`
+              id, exercise_slot_id, substitute_exercise_id,
+              exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(student_id))))
+            `)
+            .eq('kind', 'swap'),
+          'exercise_slots.sessions.weeks.programs',
+        ),
+      );
       const swapBySlot = new Map(
-        (devs || [])
+        devs
           .filter((d) => d.substitute_exercise_id)
           .map((d) => [d.exercise_slot_id, d.substitute_exercise_id]),
       );
 
       const rows = [];
-      for (const l of data || []) {
+      for (const l of data) {
         const slotId = l.exercise_slots?.id;
         const origId = l.exercise_slots?.exercise_id;
         const swappedTo = swapBySlot.get(slotId);
@@ -161,7 +158,7 @@ export function useLastPerformance(
     },
     // `exerciseIds` is part of the key and shifts the moment a current-session
     // swap resolves, so firing before the deviations query has settled costs a
-    // full (20k-row) fetch that is immediately superseded. Gate on SETTLED, not
+    // full read of the history that is immediately superseded. Gate on SETTLED, not
     // success: a failed deviations fetch degrades to the un-swapped hint rather
     // than to no hint at all.
     // A coach has no need of their own auth id here beyond being signed in;
