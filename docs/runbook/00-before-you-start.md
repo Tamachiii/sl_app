@@ -29,27 +29,50 @@ Expected: one row, `postgres | postgres | PostgreSQL 17.…`. If the first colum
 
 ## 2. Before each checkpoint: a backup less than a day old
 
-A dump on your machine: schema, then data. `supabase db dump` runs `pg_dump` in a container, so it needs Docker — `docker info` must answer first.
+The project is on the free plan: it has no backup of its own. The backup is one file, written on your machine by a script of the repository — Node only, no Docker. `BACKUPS.md` says what the file holds and what it does not.
+
+**Once.** Create a passphrase, and keep it in your password manager: a backup cannot be opened without it.
 
 ```bash
-supabase db dump --linked -f ~/sl_app-backup-schema.sql
-supabase db dump --linked --data-only -f ~/sl_app-backup-data.sql
+openssl rand -base64 32
 ```
 
-Both files land in your home folder, not in the repository: the second one holds every athlete's data in clear text, and the repository is public. Never write a dump inside the checkout. The data file carries more than the app's tables: the CLI dumps the rows of every schema it does not treat as internal, and `auth` is not one of those — so the accounts are in it, with their e-mail addresses and password hashes.
+Then two lines in `.env` at the root of the checkout, each value between single quotes (without them a `#` cuts the value short). The database password is the one of Dashboard → Project Settings → Database. `.env` is ignored by git.
 
-Then look at what was written. A dump that could not run still leaves its file behind, empty — without Docker the command stops with `failed to run docker` and a file of 0 bytes:
+```ini
+SUPABASE_DB_PASSWORD='<the database password>'
+BACKUP_PASSPHRASE='<the passphrase>'
+```
+
+**Each time**, from the root of the repository:
 
 ```bash
-ls -l ~/sl_app-backup-schema.sql ~/sl_app-backup-data.sql
-tail -n 1 ~/sl_app-backup-data.sql
+node --env-file=.env scripts/backup/dump.mjs
 ```
 
-Neither size is 0, and the last line of the data file is `RESET ALL;`: the script the CLI runs for a data dump writes that line after the last row.
+It reads the database in one read-only transaction — it cannot change anything. It prints who it connects as and where (`postgres.<project ref> at …pooler.supabase.com`: the ref is how you see it is the right project), one line per table with its row count, and the path of the file: `~/sl_app-backups/sl_app-<UTC time>.jsonl.gz.enc`, outside the repository, encrypted with the passphrase. The line to look for is `read back … every checksum matches`. A command that prints `FAILED:` has written nothing: pass the message on.
 
-**The nightly GitHub dump is not a backup, and not to be set up yet.** The workflow (**Nightly DB backup**) has skipped every night, because its two secrets were never set: a run that is green with no artifact `db-backup-<n>` has dumped nothing. The set-up that `BACKUPS.md` describes for it does not work as written — its role can neither run the dump command nor read a table; the page says so at the top of that section. Leave it until the page is corrected.
+Then check the file on its own. This opens the most recent backup, recounts every table and recomputes every checksum; it connects to nothing:
 
-The videos are in no dump: object storage never is.
+```bash
+node --env-file=.env scripts/backup/verify.mjs
+```
+
+It ends with `OK`, the number of tables and the number of rows. Look at the counts once: `auth.users` is the number of accounts, `public.set_logs` is in the thousands.
+
+**Once, after the first backup — and again after a wave that changes tables:** restore it, for practice. This starts a throw-away PostgreSQL on your machine, loads the backup into the structure of `supabase/schema.sql`, compares every table with the file, and removes the server again. It touches no other database.
+
+```bash
+node --env-file=.env scripts/backup/drill.mjs
+```
+
+It ends with `DRILL OK`. Every table of `public` must read `identical`. The tables of `auth` and `storage` may read `row count only` or `NOT LOADED`: the throw-away server is not Supabase and has less of them — `BACKUPS.md` says what that leaves unproven.
+
+The file holds every athlete's data and the accounts, with their e-mail addresses and password hashes — encrypted, which is why the passphrase matters. Never copy a backup into the checkout: the repository is public.
+
+**The nightly backup on GitHub** does the same every night once it is set up — two repository secrets, after the first push of this branch: `BACKUPS.md`, section *The nightly run on GitHub*, and the first-push checklist of `docs/RUNBOOK.md`. Until then, the backup is the one you take here.
+
+The video files are in no backup: object storage never is. Today the bucket is empty.
 
 ## 3. Run an audit file
 

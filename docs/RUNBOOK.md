@@ -9,12 +9,12 @@ It is the index. Whatever needs more than a few lines has a page of its own:
 | [runbook/00-before-you-start.md](runbook/00-before-you-start.md) | the CLI link, the backup, how to run an audit, a migration and a rollback, how to read the ledger, what each error means |
 | [runbook/migrations/](runbook/migrations/) | one page per migration: what it does, what a clean audit looks like, what the deployed app does differently, when to roll back |
 | [runbook/20-auth-config.md](runbook/20-auth-config.md) | the Auth settings of the Supabase dashboard |
-| [../BACKUPS.md](../BACKUPS.md) | the nightly backup, which does not run yet and whose set-up is not to be followed as written; the restore drill |
+| [../BACKUPS.md](../BACKUPS.md) | what a backup holds and what it does not, how to take, check and restore one, the passphrase, the nightly run on GitHub |
 
 ## Rules that hold at every checkpoint
 
 1. **In order, and only what the checkpoint lists.** The two digits in a file name (`…_01_…`, `…_02_…`) are the order. The files in `supabase/migrations/` dated before `2026_10` are history: production has them, never run one again.
-2. **A backup less than a day old before the first statement** ([00, section 2](runbook/00-before-you-start.md)). The project is on the free plan, which has no backup of its own, and the nightly GitHub dump has never run: its set-up does not work as written (step 2 of Checkpoint A0 says why). Until it is corrected, the backup is a dump on your machine, taken again before each checkpoint.
+2. **A backup less than a day old before the first statement** ([00, section 2](runbook/00-before-you-start.md)). The project is on the free plan, which has no backup of its own. The backup is one encrypted file that a script of the repository writes on your machine, taken again before each checkpoint — until the nightly run on GitHub is set up, which is a step of the [first push](#first-push-checklist).
 3. **Audit, apply, audit.** An audit is one read-only query: run it before a migration and again after. When it does not show what the migration's page calls clean, the page says whether to go on or to stop. *Stop and report* means: apply nothing more, and pass the full output on.
 4. **A rollback only when the migration's page says so**, last applied first.
 5. **The ledger is the proof.** A checkpoint is done when `app_private.app_migrations` lists its migrations, not when a command printed nothing alarming.
@@ -58,10 +58,10 @@ A checkpoint is one sitting: a list of migrations, sometimes a dashboard step or
 
 | Checkpoint | Due | Migrations | Also by hand | App published after it | Hand-over |
 |---|---|---|---|---|---|
-| **A0** | now — wave 0 is finished | 01, 02 | Auth settings; a dump on your machine | no | **ready** |
+| **A0** | now — wave 0 is finished | 01, 02 | Auth settings; a backup on your machine | no | **ready** |
 | A1 | after wave 1 | 03 | a smoke check as athlete and as coach, with the app that is deployed | no | with wave 1 |
 | A2 | after A1 | 04–10 | — | no | with wave 1 |
-| A3 | after A2 | 11–14 | — | yes: the first one | with wave 1 |
+| A3 | after A2 | 11–14 | after the push: the two secrets of the nightly backup | yes: the first one | with wave 1 |
 | B | after wave 2 | 15–18, and 19 if pg_cron is enabled | deploy the two Edge Functions; decide on pg_cron | yes | with wave 2 |
 | C1 | after wave 3 | 20–26 | read the audit list of migration 21 first | yes | with wave 3 |
 | C2 | after wave 4 | 27–30 and 32; 31 is optional | the second end-to-end run on the test athlete | yes | with wave 4 |
@@ -102,25 +102,33 @@ Then, once: Dashboard → Project Settings → Data API → *Exposed schemas* mu
 
 ### Step 2 — a backup exists
 
-The backup of this checkpoint is a dump on your machine ([00, section 2](runbook/00-before-you-start.md)). It needs Docker: `docker info` must answer first. The two files land in your home folder, outside the repository: they hold every athlete's data in clear text, and the accounts with their e-mail addresses and password hashes.
+Page: [00, section 2](runbook/00-before-you-start.md). The backup is one file on your machine, written by a script of the repository: Node only — no Docker, no `pg_dump`. It reads the database in one read-only transaction and cannot change it.
+
+Once: a passphrase (`openssl rand -base64 32`, kept in your password manager — a backup cannot be opened without it) and two lines in `.env`, `SUPABASE_DB_PASSWORD` and `BACKUP_PASSPHRASE`. The page gives both.
 
 ```bash
-supabase db dump --linked -f ~/sl_app-backup-schema.sql
-supabase db dump --linked --data-only -f ~/sl_app-backup-data.sql
+node --env-file=.env scripts/backup/dump.mjs
 ```
 
-Then look at what was written. A dump that could not run still leaves its file behind, empty:
+First who it connects as, and where: `postgres.<project ref> at …pooler.supabase.com` — the ref is how you see it is the right project. Then one line per table with its row count, the path of the file — `~/sl_app-backups/sl_app-<UTC time>.jsonl.gz.enc`, outside the repository — and `read back … every checksum matches`.
 
 ```bash
-ls -l ~/sl_app-backup-schema.sql ~/sl_app-backup-data.sql
-tail -n 1 ~/sl_app-backup-data.sql
+node --env-file=.env scripts/backup/verify.mjs
 ```
 
-Neither size is 0, and the last line of the data file is `RESET ALL;`.
+It ends with `OK`. Look at the counts once: `auth.users` is the number of accounts, `public.set_logs` is in the thousands.
 
-**Do not set up the nightly GitHub dump at this checkpoint.** [BACKUPS.md](../BACKUPS.md) describes it — a dump-only database role and two repository secrets, `SUPABASE_DB_URL` and `BACKUP_PASSPHRASE` — and that set-up cannot produce a dump. The workflow's command, `supabase db dump --db-url`, always switches to the role `postgres`, which a dump-only role is not allowed to do; and the role as the page writes it cannot read a single table. Following it would leave a login role in production, its password in GitHub and a failing run every night. BACKUPS.md now says so above the two steps. The corrected set-up will be a step of a later checkpoint, on this page, when BACKUPS.md and the workflow have been rewritten. Until then the workflow skips every night — green, with no artifact — and the dump above is taken again before each checkpoint.
+Then, once, the restore for practice. It loads the backup into a throw-away PostgreSQL on your machine, compares every table with the file, and removes the server again:
 
-If the dump cannot be taken today — no Docker on this machine, for instance — do not let it hold up step 4. Migrations 01 and 02 write to no table of the app — 01 adds a schema and one table of its own, 02 replaces six function bodies — and each has a rollback that is tested. The open hole is the larger risk. Come back to this step before Checkpoint A1, which does not start without a backup.
+```bash
+node --env-file=.env scripts/backup/drill.mjs
+```
+
+It ends with `DRILL OK`; every table of `public` reads `identical`. The tables of `auth` and `storage` may read `row count only` or `NOT LOADED`: the throw-away server is not Supabase.
+
+**This is the first time the script meets the real database.** It is tested against PostgreSQL 17.6 in the repository, not against the project: the pooler and its TLS are new to it. If a command prints `FAILED:`, it has written nothing and changed nothing; pass the message on, and do not let it hold up step 4. Migrations 01 and 02 write to no table of the app — 01 adds a schema and one table of its own, 02 replaces six function bodies — and each has a rollback that is tested. The open hole is the larger risk. Come back to this step before Checkpoint A1, which does not start without a backup.
+
+The nightly backup on GitHub is not set up at this checkpoint: its workflow is part of this branch, which is not on `main` yet. It is a step of the [first push](#first-push-checklist).
 
 ### Step 3 — migration 01, the ledger
 
@@ -208,7 +216,7 @@ Checkpoint A1 is written against a production that has A0. Pass on:
 
 - the two ledger rows of step 4, with their dates;
 - any line of an audit, or of the account list, that was not what its page calls clean;
-- whether the two dump files of step 2 exist and are not empty, or that there is no backup yet.
+- the last line of each of the three commands of step 2 (`read back …`, `OK …`, `DRILL OK …`), or the `FAILED:` message of the one that stopped — and that there is no backup yet, if so.
 
 ### Optional — two bell rows left by the first end-to-end run
 
@@ -237,11 +245,16 @@ The coach account has no push subscription, so every push meant for the coach (a
 Nothing is pushed while the review is being worked through, so the parts of CI that only run on GitHub have never run. On the first run after the push, check:
 
 1. Job `test`, step `npm audit --omit=dev --audit-level=high`: green. Red with an unchanged lockfile means a new advisory was published since: run `npm audit --omit=dev` locally, then `npm audit fix` (never `--force`), run the tests, commit the lockfile.
-2. The three third-party actions resolve. A wrong commit fails the job at "Set up job":
+2. The two third-party actions resolve. A wrong commit fails the job at "Set up job":
    - `peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453` (v4.1.0) in `.github/workflows/deploy.yml`
-   - `supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb` (v1.7.3) in `.github/workflows/backup.yml` — run the backup once by hand (Actions → Nightly DB backup → Run workflow). It needs no secret for this: without them the run skips the dump and stays green, and the action is fetched at "Set up job" all the same
    - `denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed` (v2.0.5) in `.github/workflows/test.yml`
 3. Job `functions`: the `deno check` step is green, with no "Edge Functions" warning on the run summary. Then delete `continue-on-error: true` and the reporting step after it in `.github/workflows/test.yml`: from then on a broken function stops the gate.
+4. **The nightly backup.** A schedule runs from `main` only. From the day this branch is on `main`, `.github/workflows/backup.yml` is the workflow of [BACKUPS.md](../BACKUPS.md): it runs the same script as step 2 of Checkpoint A0, and a run without its two secrets **fails** instead of skipping. So, the same day:
+   - set the two repository secrets (Settings → Secrets and variables → Actions): `SUPABASE_DB_URL`, the session-pooler connection string of the project with the database password in it, and `BACKUP_PASSPHRASE`, the passphrase of your `.env`. BACKUPS.md, section *The nightly run on GitHub*, says where each comes from — and what it means that the first is the connection string of the `postgres` role;
+   - Actions → **Nightly DB backup** → *Run workflow*. Green, with an artifact `db-backup-<n>`;
+   - download the artifact and check it with the passphrase you kept: `verify.mjs` and `drill.mjs` with the path of the file, as in BACKUPS.md.
+
+   Until the secrets are set, the scheduled run is red every night. That is the reminder.
 
 **Updating a pinned action.** The actions are pinned to a commit, because a tag can be moved:
 

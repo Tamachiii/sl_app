@@ -11,6 +11,10 @@
     "test": "vitest",
     "test:db": "vitest run --config vitest.db.config.js",
     "test:docs": "vitest run --config vitest.docs.config.js",
+    "backup:dump": "node scripts/backup/dump.mjs",
+    "backup:verify": "node scripts/backup/verify.mjs",
+    "backup:restore": "node scripts/backup/restore.mjs",
+    "backup:drill": "node scripts/backup/drill.mjs",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist"
   },

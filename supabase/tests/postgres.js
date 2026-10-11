@@ -2,7 +2,9 @@
 // template database every test file is cloned from.
 //
 // Server side only: imported by global-setup.js (the vitest main process),
-// never by a test. Tests import harness.js.
+// never by a test. Tests import harness.js. The one other user is
+// scripts/backup/drill.mjs, which restores a backup into a server started
+// here: startPostgres() and the shape of its `connection` are its contract.
 //
 //   initdb → postgres (npm binaries, PG 17.6 like production)
 //     → CREATE DATABASE sl_bare

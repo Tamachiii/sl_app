@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -101,12 +102,12 @@ describe('workflows: third-party actions are pinned to a commit', () => {
 
   it('sees the actions it is meant to judge', () => {
     // If the parser ever matched nothing, every check below would pass
-    // vacuously. These three are in the workflows today.
+    // vacuously. These two are in the workflows today. (The backup job used
+    // a third, supabase/setup-cli, until it stopped needing the CLI.)
     expect(thirdParty.map((u) => u.ref.split('@')[0]).sort()).toEqual(
       expect.arrayContaining([
         'denoland/setup-deno',
         'peaceiris/actions-gh-pages',
-        'supabase/setup-cli',
       ]),
     );
   });
@@ -125,6 +126,105 @@ describe('workflows: third-party actions are pinned to a commit', () => {
   it('pins every other action to at least a version', () => {
     const floating = all.filter(({ ref }) => !ref.startsWith('./') && !/@\S+$/.test(ref));
     expect(floating).toEqual([]);
+  });
+});
+
+// The nightly backup (.github/workflows/backup.yml). The project is on the
+// free plan: this job and the file the owner writes by hand are the only
+// backups there are. Review finding P67: without its two secrets the job
+// skipped every step and ended green, every night, for months.
+describe('nightly backup: a night without a backup is a red run', () => {
+  const yaml = read('.github/workflows/backup.yml');
+  const dump = job(yaml, 'dump');
+  const steps = runs(dump);
+
+  // The body of a `run: |` block, by the name of its step.
+  function script(name) {
+    const lines = yaml.split('\n');
+    const at = lines.findIndex((l) => l.trim() === `- name: ${name}`);
+    if (at === -1) return null;
+    const start = lines.findIndex((l, i) => i > at && /^\s+run: \|$/.test(l));
+    const indent = lines[start + 1].match(/^\s*/)[0].length;
+    const body = [];
+    for (const line of lines.slice(start + 1)) {
+      if (line.trim() !== '' && line.match(/^\s*/)[0].length < indent) break;
+      body.push(line.slice(indent));
+    }
+    return body.join('\n');
+  }
+  const check = script('The two secrets are set');
+  // The shell of a `run:` step on a GitHub runner. A secret that is not set
+  // arrives as an empty variable.
+  const runCheck = (env) => spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', check], {
+    env: { PATH: process.env.PATH, ...env },
+    encoding: 'utf8',
+  });
+
+  it('fails, and names the secret that is missing', () => {
+    expect(check).toBeTruthy();
+    const none = runCheck({ SUPABASE_DB_URL: '', BACKUP_PASSPHRASE: '' });
+    expect(none.status).toBe(1);
+    expect(runCheck({}).status).toBe(1);
+    expect(none.stdout).toMatch(/^::error title=No backup was taken::/);
+    expect(none.stdout).toContain('SUPABASE_DB_URL');
+    expect(none.stdout).toContain('BACKUP_PASSPHRASE');
+    expect(none.stdout).toContain('BACKUPS.md');
+
+    const one = runCheck({ SUPABASE_DB_URL: 'x' });
+    expect(one.status).toBe(1);
+    expect(one.stdout).toContain('not set: BACKUP_PASSPHRASE.');
+    const other = runCheck({ SUPABASE_DB_URL: '', BACKUP_PASSPHRASE: 'x' });
+    expect(other.status).toBe(1);
+    expect(other.stdout).toContain('not set: SUPABASE_DB_URL.');
+
+    const both = runCheck({ SUPABASE_DB_URL: 'x', BACKUP_PASSPHRASE: 'y' });
+    expect(both.status).toBe(0);
+    expect(both.stdout).toBe('');
+  });
+
+  it('has no step that can be skipped: every one runs, or the job is red', () => {
+    expect(dump.filter((l) => /^\s+(?:-\s+)?if:/.test(l))).toEqual([]);
+    expect(dump.filter((l) => /continue-on-error/.test(l))).toEqual([]);
+    expect(yaml).not.toMatch(/GITHUB_OUTPUT/);
+  });
+
+  it('dumps with the repository script, checks the file, and only then uploads', () => {
+    const at = (re) => dump.findIndex((l) => re.test(l));
+    const order = [
+      at(/- name: The two secrets are set/),
+      at(/uses: actions\/checkout@/),
+      at(/run: npm ci/),
+      at(/run: node scripts\/backup\/dump\.mjs /),
+      at(/run: node scripts\/backup\/verify\.mjs /),
+      at(/uses: actions\/upload-artifact@/),
+    ];
+    expect(order.every((i) => i !== -1)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    // Not the Supabase CLI: `supabase db dump` needs Docker and always
+    // switches to the role postgres.
+    expect(yaml).not.toMatch(/supabase db dump|setup-cli/);
+    expect(steps.find((s) => s.includes('dump.mjs'))).toContain('--require-rows');
+  });
+
+  // The repository is public: an artifact can be downloaded by anyone.
+  it('never uploads a file in clear', () => {
+    expect(yaml).not.toContain('--no-encrypt');
+    const paths = dump.filter((l) => /^\s+path:/.test(l)).map((l) => l.trim());
+    expect(paths).toHaveLength(1);
+    expect(paths[0]).toMatch(/\*\.jsonl\.gz\.enc$/);
+    expect(dump.join('\n')).toMatch(/^\s+if-no-files-found: error$/m);
+    // Outside the checkout, where the script would refuse to write.
+    expect(steps.find((s) => s.includes('dump.mjs'))).toContain('--out "$RUNNER_TEMP/');
+  });
+
+  it('keeps the database URL away from every step that does not connect', () => {
+    // No job-wide environment: `npm ci` and the upload never see a secret.
+    const header = dump.slice(0, dump.findIndex((l) => /^\s+steps:$/.test(l)));
+    expect(header.join('\n')).not.toMatch(/secrets\./);
+    expect(yaml.match(/secrets\.SUPABASE_DB_URL/g)).toHaveLength(2);
+    expect(yaml.match(/secrets\.BACKUP_PASSPHRASE/g)).toHaveLength(3);
+    expect(steps).toContain('npm ci --ignore-scripts');
+    expect(yaml).toMatch(/^permissions:\n {2}contents: read$/m);
   });
 });
 

@@ -20,8 +20,10 @@ import { loadManifest } from '../../supabase/migrations/manifest.js';
 //   - the commands: the index repeats commands that a page under docs/runbook/
 //     gives — those are read off their page and run by a test — and never
 //     introduces one of its own, in a fence of any language;
-//   - the backup: the index, the page it draws on and BACKUPS.md say the same
-//     thing about the nightly dump, whose set-up does not work as written.
+//   - the backup: the index takes and checks it with the commands of the 00
+//     page (run by supabase/tests/backup-roundtrip.test.js), never writes it
+//     into the checkout, and gives the nightly run the place BACKUPS.md and
+//     the workflow give it — two secrets, after the first push.
 //
 // The index is the integrator's file. A failure here after a change to the
 // manifest or to a runbook page means the index has to follow.
@@ -43,8 +45,9 @@ const FORBIDDEN = /\bsupabase\s+(?:db\s+push|config\s+push|migration\s+(?:up|rep
 // A fence that calls the CLI: the word, then a space. Whatever the fence is
 // tagged (`sh`, `console`, nothing: it is pasted just the same) and whatever
 // stands before the word on its line (`npx supabase …`). A path
-// (`supabase/migrations/…`) is not a call.
-const CALLS_CLI = /\bsupabase\s/;
+// (`supabase/migrations/…`) is not a call. The backup scripts count as well:
+// they connect to production with the database password.
+const CALLS_CLI = /\bsupabase\s|\bscripts\/backup\//;
 
 // ------------------------------------------------------------
 // Reading a page
@@ -277,11 +280,13 @@ describe(`${INDEX}: the checkpoints against the manifest`, () => {
     for (const page of ['runbook/20-auth-config.md', '../BACKUPS.md', 'runbook/00-before-you-start.md']) {
       expect(index, `${INDEX} does not link ${page}`).toContain(`](${page})`);
     }
-    // Its backup is the dump of the 00 page: schema and data, as one paste.
-    const dumps = [...onPages].filter((body) => /^supabase db dump\b/.test(body));
-    expect(dumps).toHaveLength(1);
-    expect(dumps[0].split('\n')).toHaveLength(2);
-    expect(fencesOf(section.text).map((f) => f.body)).toContain(dumps[0]);
+    // Its backup is taken, checked and restored for practice with the three
+    // commands of the 00 page, in that order.
+    const backup = fencesOf(read('docs/runbook/00-before-you-start.md'))
+      .map((f) => f.body)
+      .filter((body) => body.includes('scripts/backup/'));
+    expect(backup).toEqual(['dump', 'verify', 'drill'].map((name) => `node --env-file=.env scripts/backup/${name}.mjs`));
+    expect(fencesOf(section.text).map((f) => f.body).filter((body) => body.includes('scripts/backup/'))).toEqual(backup);
   });
 });
 
@@ -397,6 +402,11 @@ describe(`${INDEX}: what the test would catch`, () => {
     expect(indexProblems(`${index}\n${fence(near)}`, real)).toEqual([
       `"${near}": not a command of a page under docs/runbook/`,
     ]);
+    // A backup command no page gives: the restore, which writes.
+    const restore = 'node --env-file=.env scripts/backup/restore.mjs --db-url "$SUPABASE_DB_URL"';
+    expect(indexProblems(`${index}\n${fence(restore)}`, real)).toEqual([
+      `"${restore}": not a command of a page under docs/runbook/`,
+    ]);
     for (const command of ['supabase db push', 'supabase config push', 'supabase migration repair --status applied 01']) {
       expect(indexProblems(`${index}\n${fence(command)}`, real)).toContain(`"${command}": a command the runbook forbids`);
     }
@@ -469,50 +479,69 @@ describe(`${INDEX}: what it points at`, () => {
     expect(read('.gitignore').split('\n')).toContain(LOCAL_ONLY);
   });
 
-  // A dump holds every athlete's data in clear text, and `--linked` only works
-  // from the checkout: a bare file name would put it in the working tree of a
-  // public repository, one `git add -A` away from being published.
-  it('never has a dump written into the checkout', () => {
-    const dumps = [...onPages, ...fencesOf(index).map((f) => f.body)]
-      .flatMap((body) => body.split('\n'))
-      .filter((line) => /^supabase db dump\b/.test(line));
-    expect(dumps.length).toBeGreaterThan(1);
-    const targets = dumps.map((line) => / (?:-f|--file) (\S+)/.exec(line)?.[1] ?? `no -f in: ${line}`);
-    expect(targets.filter((target) => !target.startsWith('~/'))).toEqual([]);
-    // And the net under it, for a dump that lands there anyway.
+  // A backup holds every athlete's data and the accounts, and the repository
+  // is public: a file in the working tree is one `git add -A` away from being
+  // published. The script writes to ~/sl_app-backups and refuses a path
+  // inside the checkout (supabase/tests/backup-roundtrip.test.js holds that);
+  // what is held here is that no page asks for one, and that no page still
+  // takes a backup the old way — a pg_dump that needs Docker and writes
+  // wherever `-f` points.
+  it('never has a backup written into the checkout', () => {
+    const everything = [...PAGES.map(read), index, read('BACKUPS.md')];
+    const commands = everything
+      .flatMap((text) => fencesOf(text))
+      .flatMap((f) => f.body.split('\n'))
+      .filter((line) => /scripts\/backup\/dump\.mjs|\bbackup:dump\b/.test(line));
+    expect(commands.length).toBeGreaterThan(2);
+    const targets = commands.flatMap((line) => / --out[= ](\S+)/.exec(line)?.[1] ?? []);
+    expect(targets.filter((target) => !/^(?:~\/|"?\$HOME\/)/.test(target))).toEqual([]);
+    for (const text of everything) expect(text).not.toMatch(/supabase db dump/);
+    // And the net under it, for a file that lands there anyway.
     const ignored = read('.gitignore').split('\n');
-    for (const pattern of ['backup-*.sql', '*-backup-*.sql', '/schema.sql', '/data.sql', 'dump.tar.gz*']) {
+    for (const pattern of ['*.jsonl.gz*', 'backup-*.sql', '*-backup-*.sql', '/schema.sql', '/data.sql', 'dump.tar.gz*']) {
       expect(ignored, `.gitignore does not ignore ${pattern}`).toContain(pattern);
     }
   });
 
-  // The nightly dump. BACKUPS.md says, above its own set-up, that it cannot
-  // be followed: the role it creates may neither run the workflow's dump
-  // command nor read a table. While that notice stands, the index must not
-  // make the set-up a step, and the page of the backup must not offer the
-  // nightly run as one. The day BACKUPS.md is corrected and loses the notice,
-  // this fails until both follow — the owner asked for the role and the two
-  // secrets as an early, explicit step of a checkpoint.
-  it('says of the nightly set-up what BACKUPS.md says of it: not to be followed yet', () => {
-    const setup = sectionsOf(read('BACKUPS.md')).find(({ title }) => title.startsWith('One-time setup'));
-    expect(setup, 'BACKUPS.md has no "## One-time setup …" section').toBeTruthy();
-    const notice = setup.text.includes('**Not working yet — do not follow this section.**');
-    const a0 = sectionsOf(index).find(({ title }) => title.startsWith('Checkpoint A0 — ')).text;
-    expect(
-      a0.includes('**Do not set up the nightly GitHub dump at this checkpoint.**'),
-      `${INDEX} and BACKUPS.md disagree on whether the nightly set-up can be followed`,
-    ).toBe(notice);
-    expect(
-      read('docs/runbook/00-before-you-start.md').includes('**The nightly GitHub dump is not a backup, and not to be set up yet.**'),
-      'docs/runbook/00-before-you-start.md and BACKUPS.md disagree on whether the nightly set-up can be followed',
-    ).toBe(notice);
-    // What the notice rests on is the command the workflow runs: a workflow
-    // that dumps another way needs another notice, or none.
+  // The nightly backup. Until October 2026 BACKUPS.md described a set-up that
+  // could not produce a dump, and the index said not to follow it. The
+  // workflow now runs the script the owner runs by hand, so the three places
+  // must agree on what is left to do: two secrets, by name, set once the
+  // workflow of this branch is on GitHub — the owner asked for that as an
+  // explicit step, and a run without them is red.
+  it('gives the nightly backup the same place in the index, in BACKUPS.md and in the workflow', () => {
+    const backups = read('BACKUPS.md');
     const workflow = read('.github/workflows/backup.yml');
-    expect(
-      !notice || workflow.includes('supabase db dump --db-url'),
-      'BACKUPS.md says the workflow dumps with `supabase db dump --db-url`, and backup.yml no longer does',
-    ).toBe(true);
+    // The notice went with the command it was about.
+    expect(backups).not.toContain('Not working yet');
+    expect(workflow).toContain('node scripts/backup/dump.mjs');
+    expect(workflow).toContain('node scripts/backup/verify.mjs');
+
+    const checklist = sectionsOf(index).find(({ title }) => title === 'First-push checklist')?.text;
+    expect(checklist, `${INDEX} has no "## First-push checklist" section`).toBeTruthy();
+    const nightly = sectionsOf(backups).find(({ title }) => title === 'The nightly run on GitHub')?.text;
+    expect(nightly, 'BACKUPS.md has no "## The nightly run on GitHub" section').toBeTruthy();
+    for (const secret of ['SUPABASE_DB_URL', 'BACKUP_PASSPHRASE']) {
+      expect(workflow, `backup.yml does not read the secret ${secret}`).toContain(`secrets.${secret}`);
+      expect(checklist, `the first-push checklist does not name ${secret}`).toContain(`\`${secret}\``);
+      expect(nightly, `BACKUPS.md does not say what ${secret} is`).toContain(`\`${secret}\``);
+    }
+    expect(checklist).toContain('](../BACKUPS.md)');
+    // Which role the connection string belongs to is said where it is asked for.
+    expect(nightly).toMatch(/`postgres` role/);
+    expect(nightly).toContain('session-pooler');
+
+    // Not at Checkpoint A0: the workflow that reads the secrets is not on
+    // GitHub before the first push, and the one that is there would use them
+    // for another command.
+    const a0 = sectionsOf(index).find(({ title }) => title.startsWith('Checkpoint A0 — ')).text;
+    expect(a0).toContain('The nightly backup on GitHub is not set up at this checkpoint');
+    expect(a0).not.toMatch(/Secrets and variables/);
+    expect(nightly).toContain('once the workflow of this page is on the default branch');
+    // The page of the backup sends to both.
+    const page = read('docs/runbook/00-before-you-start.md');
+    expect(page).toContain('*The nightly run on GitHub*');
+    expect(page).toContain('first-push checklist');
   });
 
   // The four Auth values are written on the page of the step, in

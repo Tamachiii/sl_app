@@ -1,57 +1,76 @@
 name: Nightly DB backup
-# Dumps the public schema (structure + data) of the linked Supabase project
-# and stores it as an ENCRYPTED workflow artifact. Encryption matters: on a
-# public repository, artifacts are downloadable by anyone — a plaintext dump
-# would leak every student's training data. See BACKUPS.md for the required
-# secrets, the dump-only role, and the restore drill.
+# One encrypted backup file of the database per night, kept as a workflow
+# artifact: scripts/backup/dump.mjs (Node + `pg`, one read-only transaction),
+# then scripts/backup/verify.mjs on what was written. What the file holds, how
+# to open and restore it, and what the two secrets are: BACKUPS.md.
+#
+# The repository is public, so an artifact can be downloaded by anyone with a
+# GitHub account. Only the ENCRYPTED file is ever uploaded: the dump refuses
+# to write a clear one on a runner, and the upload step matches `*.enc` only.
 on:
   schedule:
     - cron: '30 2 * * *'
   workflow_dispatch:
+
+# The job reads the repository. It gets no token that can write to it.
+permissions:
+  contents: read
+
+# Never two dumps at once: a run started by hand waits for the nightly one.
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
 jobs:
   dump:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - name: Check configuration
-        id: cfg
-        env:
-          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-          PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
-        run: |
-          if [ -z "$DB_URL" ] || [ -z "$PASSPHRASE" ]; then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::SUPABASE_DB_URL and/or BACKUP_PASSPHRASE secrets not set — backup skipped. See BACKUPS.md."
-          else
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          fi
-      # Third-party action in a job that holds the database URL: pinned to a
-      # commit, because a tag or branch can be moved to other code (`v1` is a
-      # branch here). To update: git ls-remote
-      # https://github.com/supabase/setup-cli 'refs/tags/v1*', and keep the
-      # version comment.
-      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1.7.3
-        if: steps.cfg.outputs.configured == 'true'
-        with:
-          version: latest
-      - name: Dump schema and data
-        if: steps.cfg.outputs.configured == 'true'
+      # Without its secrets this job used to skip every step and end green:
+      # for months the Actions tab showed a successful backup that had dumped
+      # nothing (review finding P67). A night without a backup is a red run.
+      - name: The two secrets are set
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-        run: |
-          supabase db dump --db-url "$SUPABASE_DB_URL" -f schema.sql
-          supabase db dump --db-url "$SUPABASE_DB_URL" --data-only -f data.sql
-      - name: Encrypt
-        if: steps.cfg.outputs.configured == 'true'
-        env:
           BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
         run: |
-          tar czf dump.tar.gz schema.sql data.sql
-          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt \
-            -in dump.tar.gz -out dump.tar.gz.enc -pass env:BACKUP_PASSPHRASE
-          rm -f dump.tar.gz schema.sql data.sql
+          missing=""
+          [ -n "$SUPABASE_DB_URL" ] || missing="$missing SUPABASE_DB_URL"
+          [ -n "$BACKUP_PASSPHRASE" ] || missing="$missing BACKUP_PASSPHRASE"
+          if [ -n "$missing" ]; then
+            echo "::error title=No backup was taken::Repository secret(s) not set:$missing. BACKUPS.md, section 'The nightly run on GitHub', says what each one is."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      # --ignore-scripts: the dump needs `pg`, which is plain JavaScript. No
+      # install script of any dependency runs in the job that holds the
+      # database URL — and the secrets are in the environment of the steps
+      # below only, not of this one.
+      - run: npm ci --ignore-scripts
+      # SUPABASE_DB_URL is the SESSION-POOLER connection string of the project
+      # (…pooler.supabase.com:5432): the direct host of a free-plan project
+      # answers over IPv6 only, which a GitHub runner does not have.
+      # --require-rows: a database without accounts is not the one to back up.
+      - name: Dump
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: node scripts/backup/dump.mjs --require-rows --out "$RUNNER_TEMP/db-backup/"
+      # Read the file back from the disk — decrypt, unpack, recount, recompute
+      # the checksums — before it is called a backup. No database involved.
+      - name: Verify
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: node scripts/backup/verify.mjs "$RUNNER_TEMP/db-backup"
       - uses: actions/upload-artifact@v4
-        if: steps.cfg.outputs.configured == 'true'
         with:
           name: db-backup-${{ github.run_number }}
-          path: dump.tar.gz.enc
+          path: ${{ runner.temp }}/db-backup/*.jsonl.gz.enc
+          if-no-files-found: error
           retention-days: 30
+          # Already gzip inside the cipher: a second compression gains nothing.
+          compression-level: 0

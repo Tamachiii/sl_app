@@ -26,3 +26,7 @@ backup-*.sql
 /schema.sql
 /data.sql
 dump.tar.gz*
+# The files of scripts/backup/dump.mjs (also .enc, .partial, .failed). The
+# script refuses to write one inside the checkout; this is for a copy made by
+# hand.
+*.jsonl.gz*
