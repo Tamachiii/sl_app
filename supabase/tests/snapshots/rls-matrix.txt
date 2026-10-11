@@ -4,8 +4,9 @@ Regenerate on purpose: npx vitest run --config vitest.db.config.js supabase/test
 Callers
   anon         the public anon key, no session
   athlete A    signed in; coached by "coach". Programs: an active block (session 1 trained,
-               confirmed and reviewed; session 2 archived; 3 and 4 to come), a past block,
-               a trashed block, and a draft A is writing
+               confirmed and reviewed; session 2 archived; 3 to come; 4 in progress, with an
+               extra set, a note, a skip and a video), a past block, a trashed block, and a
+               draft A is writing
   athlete B    signed in; same coach, one active block
   coach        signed in; coach of A and B
   other coach  signed in; coach of athlete C only (C has one active block)
@@ -46,7 +47,7 @@ exercise_slots         17    select                   denied  14         2      
                              insert                   denied  rls        rls        yes          rls          yes
                              insert (own draft)       denied  yes        rls        yes          rls          yes
                              update                   denied  2          0          16           1            17
-                             delete                   denied  2          0          13 +3 P0001  0 +1 P0001   13 +4 P0001
+                             delete                   denied  2          0          12 +4 P0001  0 +1 P0001   12 +5 P0001
 
 goal_progress          3     select                   denied  1          1          2            1            3
                              insert                   denied  yes        rls        rls          rls          yes
@@ -64,10 +65,10 @@ messages               6     select                   0       3          2      
                              update                   0       2          2          1            0            6
                              delete                   0       1          0          2            0            6
 
-notifications          9     select                   0       1          1          4            2            9
+notifications          10    select                   0       1          1          5            2            10
                              insert                   rls     rls        rls        rls          rls          yes
-                             update                   0       1          1          4            2            9
-                             delete                   0       0          0          0            0            9
+                             update                   0       1          1          5            2            10
+                             delete                   0       0          0          0            0            10
 
 profiles               6     select                   0       2          2          3            2            6
                              insert                   rls     rls        rls        rls          rls          yes
@@ -99,27 +100,27 @@ sessions               9     select                   denied  7          1      
                              insert                   denied  rls        rls        yes          rls          yes
                              insert (own draft)       denied  yes        rls        yes          rls          yes
                              update                   denied  1          0          8            1            9
-                             delete                   denied  1          0          5 +3 P0001   0 +1 P0001   5 +4 P0001
+                             delete                   denied  1          0          4 +4 P0001   0 +1 P0001   4 +5 P0001
 
-set_log_videos         3     select                   denied  1          1          2            1            3
+set_log_videos         4     select                   denied  2          1          3            1            4
                              insert                   denied  yes        rls        rls          rls          yes
-                             update                   denied  1          1          0            0            3
-                             delete                   denied  1          1          0            0            3
+                             update                   denied  2          1          0            0            4
+                             delete                   denied  2          1          0            0            4
 
-set_logs               45    select                   denied  37         6          43           2            45
+set_logs               46    select                   denied  38         6          44           2            46
                              insert                   denied  yes        rls        yes          rls          yes
-                             update                   denied  25         6          43           2            45
-                             delete                   denied  1          0          38 +5 P0001  1 +1 P0001   39 +6 P0001
+                             update                   denied  26         6          44           2            46
+                             delete                   denied  2          0          38 +6 P0001  1 +1 P0001   39 +7 P0001
 
-slot_comments          3     select                   denied  1          1          2            1            3
+slot_comments          4     select                   denied  2          1          3            1            4
                              insert                   denied  yes        rls        rls          rls          yes
-                             update                   denied  1          1          0            0            3
-                             delete                   denied  1          1          0            0            3
+                             update                   denied  2          1          0            0            4
+                             delete                   denied  2          1          0            0            4
 
-slot_deviations        3     select                   denied  1          1          2            1            3
+slot_deviations        4     select                   denied  2          1          3            1            4
                              insert                   denied  yes        rls        rls          rls          yes
-                             update                   denied  1          1          0            0            3
-                             delete                   denied  1          1          0            0            3
+                             update                   denied  2          1          0            0            4
+                             delete                   denied  2          1          0            0            4
 
 students               3     select                   0       1          1          2            1            3
                              insert                   rls     rls        rls        rls          rls          yes
@@ -130,9 +131,9 @@ weeks                  7     select                   denied  5          1      
                              insert                   denied  rls        rls        yes          rls          yes
                              insert (own draft)       denied  yes        rls        yes          rls          yes
                              update                   denied  1          0          6            1            7
-                             delete                   denied  1          0          3 +3 P0001   0 +1 P0001   3 +4 P0001
+                             delete                   denied  1          0          2 +4 P0001   0 +1 P0001   2 +5 P0001
 
-storage.objects        3     select                   0       1          1          2            1            3
+storage.objects        4     select                   0       2          1          3            1            4
                              insert                   rls     yes        rls        rls          rls          yes
-                             update                   0       0          0          0            0            3
-                             delete                   0       1          1          0            0            3
+                             update                   0       0          0          0            0            4
+                             delete                   0       2          1          0            0            4

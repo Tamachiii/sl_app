@@ -77,7 +77,8 @@ async function buildWorld() {
     const extraSet = await row(q,
       `insert into set_logs (exercise_slot_id, set_number, is_student_added) values ($1, 4, true)`,
       [blockA.slots[0]]);
-    // Session 2 is archived by the coach; sessions 3 and 4 are still to come.
+    // Session 2 is archived by the coach; session 3 is still to come, and
+    // session 4 is in progress (further down).
     await q(`update sessions set archived_at = now() where id = $1`, [blockA.sessions[1]]);
 
     const perAthlete = async (athlete, program, theirCoach, exerciseId) => {
@@ -111,6 +112,22 @@ async function buildWorld() {
     const goalA = await perAthlete(A, blockA, coach, exercises.pullUp);
     await perAthlete(B, blockB, coach, exercises.dip);
     await perAthlete(C, blockC, otherCoach, otherLibrary);
+
+    // Athlete A, session 4 of the active block: in progress. An extra set, a
+    // note, a skip and a video with its file — the same kinds of rows as in
+    // session 1, in a session nobody has closed, so that "can write their own
+    // row" and "can write it in this session" are two numbers.
+    const [inProgress, itsOtherSlot] = blockA.tree[1].sessions[1].slots;
+    await row(q, `insert into set_logs (exercise_slot_id, set_number, is_student_added) values ($1, 4, true)`,
+      [inProgress.id]);
+    await row(q, `insert into slot_comments (exercise_slot_id, student_id, body) values ($1, $2, 'Warm-up felt off')`,
+      [inProgress.id, A.id]);
+    await row(q, `insert into slot_deviations (exercise_slot_id, student_id, kind) values ($1, $2, 'skip')`,
+      [itsOtherSlot.id, A.id]);
+    await row(q, `insert into set_log_videos (set_log_id, storage_path, mime_type, size_bytes) values ($1, $2, 'video/mp4', 1000)`,
+      [inProgress.setLogs[0], `${A.id}/${inProgress.id}/1-clip.mp4`]);
+    await q(`insert into storage.objects (bucket_id, name) values ('set-videos', $1)`,
+      [`${A.id}/${inProgress.id}/1-clip.mp4`]);
     await row(q, `insert into client_errors (user_id, role, message) values ($1, 'coach', 'boom')`, [coach.id]);
     await row(q, `insert into push_subscriptions (user_id, endpoint, p256dh, auth) values ($1, $2, 'key', 'auth')`,
       [coach.id, `https://fcm.googleapis.com/fcm/send/${coach.id}`]);
@@ -326,8 +343,9 @@ Regenerate on purpose: npx vitest run --config vitest.db.config.js supabase/test
 Callers
   anon         the public anon key, no session
   athlete A    signed in; coached by "coach". Programs: an active block (session 1 trained,
-               confirmed and reviewed; session 2 archived; 3 and 4 to come), a past block,
-               a trashed block, and a draft A is writing
+               confirmed and reviewed; session 2 archived; 3 to come; 4 in progress, with an
+               extra set, a note, a skip and a video), a past block, a trashed block, and a
+               draft A is writing
   athlete B    signed in; same coach, one active block
   coach        signed in; coach of A and B
   other coach  signed in; coach of athlete C only (C has one active block)
