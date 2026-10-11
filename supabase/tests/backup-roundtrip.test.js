@@ -125,10 +125,8 @@ async function rowsOf(file, passphrase = PASSPHRASE) {
 // ------------------------------------------------------------
 
 // What the suite's stand-in for Supabase lacks and production has: the
-// identities of the accounts (GoTrue's table, with its generated column), and
-// a table that is not in schema.sql at all — the next migration's, here with
-// every kind of value a text dump can get wrong.
-const PLATFORM_AND_PROBE = `
+// identities of the accounts — GoTrue's table, with its generated column.
+const IDENTITIES = `
   CREATE TABLE auth.identities (
     provider_id     text NOT NULL,
     user_id         uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -140,6 +138,16 @@ const PLATFORM_AND_PROBE = `
     email           text GENERATED ALWAYS AS (lower(identity_data ->> 'email')) STORED,
     id              uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
     UNIQUE (provider_id, provider)
+  );
+`;
+
+// Two tables that are not in schema.sql at all — the next migration's. One in
+// `public`, with every kind of value a text dump can get wrong; one in the
+// schema the API never reaches, next to the ledger.
+const PROBES = `
+  CREATE TABLE app_private.backup_private_probe (
+    id   int PRIMARY KEY,
+    note text NOT NULL
   );
 
   CREATE TABLE public.backup_probe (
@@ -172,6 +180,7 @@ const PLATFORM_AND_PROBE = `
     r            text
   );
 `;
+const PLATFORM_AND_PROBE = IDENTITIES + PROBES;
 
 const PROBE_ROWS = `
   INSERT INTO public.backup_probe
@@ -197,9 +206,10 @@ const PROBE_ROWS = `
      NULL, NULL, NULL, NULL, '{}', NULL, NULL, NULL, NULL, NULL, NULL, NULL);
   -- The highest id is handed out and gone: the sequence is ahead of the rows.
   DELETE FROM public.backup_probe WHERE label = 'deleted again';
+  INSERT INTO app_private.backup_private_probe VALUES (1, 'what the API must never reach'), (2, 'and a backup must');
 `;
 
-/** A database with supabase/schema.sql and the two tables above, empty — a restore target. */
+/** A database with supabase/schema.sql and the tables above, empty — a restore target. */
 async function emptyTarget({ platform = true } = {}) {
   const db = await scratchDatabase({ from: 'schema' });
   if (platform) await db.runSql(PLATFORM_AND_PROBE, 'target');
@@ -317,9 +327,12 @@ beforeAll(async () => {
     await q(`insert into app_private.app_migrations (name) values ('2027_01_01_99_not_in_this_checkout')`);
   }, { commit: true });
 
+  // Everything a restore must give back. The ledger is in the backup too, and
+  // is the one table a restore leaves alone: it has assertions of its own.
   tables = [
     ...(await asAdmin((q) => q.rows(
-      `select 'public.' || tablename as name from pg_tables where schemaname = 'public' order by 1`,
+      `select schemaname || '.' || tablename as name from pg_tables
+        where schemaname in ('public', 'app_private') and tablename <> 'app_migrations' order by 1`,
     ))).map((row) => row.name),
     'auth.users', 'auth.identities', 'storage.buckets', 'storage.objects',
   ];
@@ -366,8 +379,8 @@ describe('a backup, from the dump to the restore', () => {
     before = await sourceSums();
     const empty = Object.entries(before).filter(([, { rows }]) => rows === 0).map(([name]) => name);
     expect(empty).toEqual([]);
-    expect(tables).toContain('public.backup_probe');
-    expect(tables.length).toBeGreaterThanOrEqual(25);
+    expect(tables).toEqual(expect.arrayContaining(['public.backup_probe', 'app_private.backup_private_probe']));
+    expect(tables.length).toBeGreaterThanOrEqual(26);
   });
 
   it('dump writes ONE encrypted file, outside the repository, and prints a count per table', async () => {
@@ -390,7 +403,8 @@ describe('a backup, from the dump to the restore', () => {
     expect(bytes.includes(Buffer.from('alex@sl.test'))).toBe(false);
 
     // The printed counts are the counts of the database, table for table —
-    // the migration ledger included, and a table schema.sql does not know.
+    // the migration ledger included, and two tables schema.sql does not know,
+    // one of them in the schema the API never reaches.
     const printed = printedCounts(result.stdout);
     expect(printed).toEqual({
       ...Object.fromEntries(Object.entries(before).map(([table, { rows }]) => [table, rows])),
@@ -1297,13 +1311,15 @@ describe('what a restore refuses', () => {
     expect(strict.code).toBe(1);
     expect(strict.stderr).toContain('auth.identities is in the backup and not in the target');
     expect(strict.stderr).toContain('public.backup_probe is in the backup and not in the target');
+    expect(strict.stderr).toContain('app_private.backup_private_probe is in the backup and not in the target');
     expect(strict.stderr).toContain('nothing was changed');
     expect(await bare.query.value(`select count(*)::int from public.profiles`)).toBe(0);
 
-    // The gap in `public` is never tolerated: those are the app's own tables.
+    // A gap in the app's own schemas is never tolerated.
     const tolerant = await restore(['--db-url', bare.url, '--tolerate-platform-gaps']);
     expect(tolerant.code).toBe(1);
     expect(tolerant.stderr).toContain('public.backup_probe is in the backup and not in the target');
+    expect(tolerant.stderr).toContain('app_private.backup_private_probe is in the backup and not in the target');
     expect(tolerant.stderr).not.toContain('auth.identities is in the backup');
     expect(await bare.query.value(`select count(*)::int from public.profiles`)).toBe(0);
 
@@ -1322,9 +1338,9 @@ describe('what a restore refuses', () => {
   });
 
   it('with --tolerate-platform-gaps, a stand-in for Supabase takes what fits and says what did not', async () => {
-    // The stand-in, plus the app's table: everything of `public` can be loaded.
+    // The stand-in, plus the app's own tables: everything of the app can be loaded.
     const standIn = await emptyTarget({ platform: false });
-    await standIn.runSql(PLATFORM_AND_PROBE.slice(PLATFORM_AND_PROBE.indexOf('CREATE TABLE public.backup_probe')), 'probe');
+    await standIn.runSql(PROBES, 'probes');
     // Its accounts table has less than the real one.
     await standIn.query(`alter table storage.objects drop column user_metadata`);
     const result = await restore(['--db-url', standIn.url, '--tolerate-platform-gaps']);
@@ -1457,7 +1473,7 @@ describe('docs/runbook/00-before-you-start.md: the backup commands, as written',
       const seeded = await run('dump.mjs', ['--out', `${path.join(home, 'for-production')}/`], { SUPABASE_DB_URL: source.url, BACKUP_PASSPHRASE: PASSPHRASE });
       const loaded = await run('restore.mjs', [writtenBy(seeded), '--db-url', production.url], { BACKUP_PASSPHRASE: PASSPHRASE });
       expect([seeded.code, loaded.code]).toEqual([0, 0]);
-      await production.query(`drop table public.backup_probe`);
+      await production.query(`drop table public.backup_probe, app_private.backup_private_probe`);
       const pooler = path.join(owner, 'pooler-url');
       fs.writeFileSync(pooler, `postgresql://${READER}@${server.host}:${server.port}/${production.name}\n`);
 

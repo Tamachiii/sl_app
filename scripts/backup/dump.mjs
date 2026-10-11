@@ -21,9 +21,9 @@ import { defaultDirectory, fileName } from './lib/format.mjs';
 
 const usage = `Usage: node --env-file=.env scripts/backup/dump.mjs [options]
 
-Writes ~/sl_app-backups/sl_app-<UTC time>.jsonl.gz.enc: every table of schema
-public, the accounts (auth.users, auth.identities), the storage metadata and
-the migration ledger, read in one read-only transaction.
+Writes ~/sl_app-backups/sl_app-<UTC time>.jsonl.gz.enc: every table of the
+schemas public and app_private, the accounts (auth.users, auth.identities) and
+the storage metadata, read in one read-only transaction.
 
 Environment
   SUPABASE_DB_PASSWORD   the database password; the address is read from

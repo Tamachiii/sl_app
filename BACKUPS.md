@@ -25,14 +25,14 @@ Tested, on every run of `npm run test:db` (`supabase/tests/backup-roundtrip.test
 
 ## What a backup holds
 
-Everything is read from the catalog at the moment of the dump, so a table that a later migration adds to `public` is in the next backup without any change to the scripts.
+The tables of the app's two schemas are read from the catalog at the moment of the dump, so a table that a later migration adds to `public` or to `app_private` is in the next backup without any change to the scripts. A table created in a **third** schema would not be: that schema has to be added to `scripts/backup/lib/catalog.mjs`.
 
 | Tables | Why |
 |---|---|
 | every table of schema `public` | the app's data: profiles, programs, sessions, logged sets, messages, goals, … |
+| every table of schema `app_private` | today one: `app_migrations`, which migrations the database had (the schema does not exist before migration 01) |
 | `auth.users`, `auth.identities` | the accounts, with their e-mail addresses and password hashes. Every row of the app hangs on `profiles.id = auth.users.id`; without them nobody can sign in to a restored database |
 | `storage.buckets`, `storage.objects` | the bucket and one row per uploaded video — the **metadata** |
-| `app_private.app_migrations` | which migrations the database had (absent before migration 01) |
 
 The file starts with a header — format version, time, PostgreSQL version, the commit of the checkout and the SHA-256 of its `supabase/schema.sql`, every table with its columns and types — and ends with a trailer: the row count and SHA-256 of each table. A dump that did not reach its end has no trailer and is not a backup; `dump.mjs` gives the file its name only once the trailer is written and the file has been read back.
 

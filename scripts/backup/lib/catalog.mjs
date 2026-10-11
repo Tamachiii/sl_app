@@ -9,14 +9,19 @@
 export const quoteIdent = (name) => `"${String(name).replace(/"/g, '""')}"`;
 export const qualified = (schema, table) => `${quoteIdent(schema)}.${quoteIdent(table)}`;
 
-/** The schema whose tables are all dumped, whatever they are called. */
-export const APP_SCHEMA = 'public';
+/**
+ * The schemas of the app. Every table in them is dumped, whatever it is
+ * called: the list is read from the catalog. `public` is what the API
+ * exposes; `app_private` is what it must never reach — the migration ledger
+ * today (the schema does not exist before migration 01), and whatever a later
+ * migration puts there.
+ */
+export const APP_SCHEMAS = ['public', 'app_private'];
 
 /**
- * The tables dumped besides those of `public`.
+ * The tables dumped from the schemas the platform owns. A Supabase project
+ * always has them: a database without one of them is not the app's.
  *
- *   app_private.app_migrations  which migrations the database had. Optional:
- *                               it does not exist before migration 01.
  *   auth.users, auth.identities the accounts. Every row of the app hangs on
  *                               profiles.id = auth.users.id; without these two
  *                               nobody can sign in to a restored database.
@@ -29,14 +34,16 @@ export const APP_SCHEMA = 'public';
  * re-created by hand), `net` and the other platform schemas.
  */
 export const PLATFORM_TABLES = [
-  { schema: 'app_private', table: 'app_migrations', required: false },
-  { schema: 'auth', table: 'users', required: true },
-  { schema: 'auth', table: 'identities', required: true },
-  { schema: 'storage', table: 'buckets', required: true },
-  { schema: 'storage', table: 'objects', required: true },
+  { schema: 'auth', table: 'users' },
+  { schema: 'auth', table: 'identities' },
+  { schema: 'storage', table: 'buckets' },
+  { schema: 'storage', table: 'objects' },
 ];
 
-/** `app_private.app_migrations`: what the schema is, not what the athletes did. */
+/**
+ * `app_private.app_migrations`: what the structure is, not what the athletes
+ * did. It is dumped like any table, and a restore does not load it.
+ */
 export const LEDGER = 'app_private.app_migrations';
 
 /**

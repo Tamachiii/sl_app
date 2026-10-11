@@ -1,9 +1,10 @@
 // Dump a database into one backup file (format.mjs describes the file).
 //
-// What is read: every table of schema `public` — the list comes from the
-// catalog at the moment of the dump, so a table added by a later migration is
-// in the next backup without anyone touching this code — and the tables of
-// catalog.mjs (accounts, storage metadata, the migration ledger).
+// What is read: every table of the app's schemas, `public` and `app_private`
+// — the list comes from the catalog at the moment of the dump, so a table
+// added by a later migration is in the next backup without anyone touching
+// this code — and the platform tables of catalog.mjs (accounts, storage
+// metadata).
 //
 // How: one read-only REPEATABLE READ transaction (snapshot.mjs), each table
 // held against a TRUNCATE or a rewrite before the first row is read, then
@@ -23,7 +24,7 @@ import { promisify } from 'node:util';
 import zlib from 'node:zlib';
 import pg from 'pg';
 import {
-  APP_SCHEMA, PLATFORM_TABLES, SETTINGS, describeTable, selectRowsSql, settingsSql, streamRows, tablesOf,
+  APP_SCHEMAS, PLATFORM_TABLES, SETTINGS, describeTable, selectRowsSql, settingsSql, streamRows, tablesOf,
 } from './catalog.mjs';
 import { clientConfig, repoRoot, tlsFor } from './connection.mjs';
 import { encryptor } from './envelope.mjs';
@@ -133,20 +134,18 @@ async function repositoryState(root) {
 
 /** The tables to dump, each with its columns, in the order they are written. */
 async function tablesToDump(query, role) {
-  const wanted = [
-    ...(await tablesOf(query, APP_SCHEMA)).map((table) => ({ schema: APP_SCHEMA, table, required: true })),
-    ...PLATFORM_TABLES,
-  ];
-  if (!wanted.some(({ schema }) => schema === APP_SCHEMA)) {
-    throw new BackupError(`Schema ${APP_SCHEMA} has no table: this is not the database of the app.`);
+  const wanted = [];
+  for (const schema of APP_SCHEMAS) {
+    for (const table of await tablesOf(query, schema)) wanted.push({ schema, table });
   }
+  if (!wanted.some(({ schema }) => schema === 'public')) {
+    throw new BackupError('Schema public has no table: this is not the database of the app.');
+  }
+  wanted.push(...PLATFORM_TABLES);
   const tables = [];
-  for (const { schema, table, required } of wanted) {
+  for (const { schema, table } of wanted) {
     const described = await describeTable(query, schema, table);
-    if (!described) {
-      if (required) throw new BackupError(`${schema}.${table} does not exist in this database; nothing was written.`);
-      continue;
-    }
+    if (!described) throw new BackupError(`${schema}.${table} does not exist in this database; nothing was written.`);
     if (!described.readable) {
       throw new BackupError(`Role ${role} may not read ${described.name}; nothing was written.`);
     }

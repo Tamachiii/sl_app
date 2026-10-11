@@ -28,7 +28,7 @@
 
 import pg from 'pg';
 import {
-  APP_SCHEMA, LEDGER, describeTable, qualified, quoteIdent, selectRowsSql, settingsSql, streamRows,
+  APP_SCHEMAS, LEDGER, describeTable, qualified, quoteIdent, selectRowsSql, settingsSql, streamRows,
 } from './catalog.mjs';
 import { clientConfig, isSupabaseHost, projectRefOf } from './connection.mjs';
 import { BackupError, USAGE } from './errors.mjs';
@@ -88,8 +88,7 @@ function planTable(inBackup, inTarget, { toleratePlatformGaps, skip }) {
   }
   // Only the tables the platform owns may differ, and only when asked: the
   // suite's stand-in for Supabase has a reduced auth.users, no auth.identities.
-  const platform = inBackup.schema !== APP_SCHEMA && inBackup.name !== LEDGER;
-  const tolerated = toleratePlatformGaps && platform;
+  const tolerated = toleratePlatformGaps && !APP_SCHEMAS.includes(inBackup.schema);
 
   if (inBackup.name === LEDGER) {
     plan.action = 'ledger';
@@ -201,7 +200,7 @@ async function resetSequences(query, plan) {
  *   refs, confirm         see refusals()
  *   replaceExistingRows   empty the tables of the backup first, when the
  *                         target already holds rows
- *   toleratePlatformGaps  for tables outside `public` only (auth.*, storage.*):
+ *   toleratePlatformGaps  for the platform's tables only (auth.*, storage.*):
  *                         skip a table or a column the target does not have,
  *                         and say so — a stand-in for Supabase has fewer
  *   skip                  names of tables of the backup to leave out
