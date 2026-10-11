@@ -246,6 +246,89 @@ RETURNS boolean AS $$
   WHERE es.id = slot_id
 $$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
+-- Is this session open for its athlete? (2026_10_12_08, review P58)
+-- The session's own lock, in ONE place: the coach has not archived it and has
+-- not reviewed it. reviewed_at, not the confirmation: a set logged offline
+-- may be replayed after the confirmation of its session.
+--
+-- It says nothing about the program — that is program_active_for_session /
+-- program_active_for_slot above. An athlete's write asks THREE things, and a
+-- policy (or a SECURITY DEFINER function that writes for an athlete) that
+-- leaves one out has a hole:
+--     student_profile_for_slot(x) = auth.uid()     -- the row is mine
+--     AND program_active_for_slot(x) = true        -- my program is the block being trained
+--     AND session_writable_for_slot(x)             -- the session is neither archived nor reviewed
+--
+-- Never NULL: a session that does not exist is not writable, so
+-- `IF NOT public.session_writable(x) THEN RAISE` refuses what it should.
+-- session_writable(session) is not called by a policy, so a signed-in user
+-- holds no EXECUTE on it (FUNCTION PRIVILEGES block): session_writable_for_slot
+-- calls it as its owner.
+CREATE OR REPLACE FUNCTION public.session_writable(sess_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT COALESCE((
+    SELECT s.archived_at IS NULL AND s.reviewed_at IS NULL
+      FROM public.sessions s
+     WHERE s.id = sess_id
+  ), false)
+$$;
+
+CREATE OR REPLACE FUNCTION public.session_writable_for_slot(slot_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT COALESCE((
+    SELECT public.session_writable(es.session_id)
+      FROM public.exercise_slots es
+     WHERE es.id = slot_id
+  ), false)
+$$;
+
+-- The exercise slot a set belongs to (2026_10_12_08). A video is attached to
+-- a set, and the three questions are asked of its slot: the policies of
+-- set_log_videos reach it through this. NULL for a set that does not exist —
+-- and every question asked of NULL is answered "no".
+CREATE OR REPLACE FUNCTION public.slot_for_set_log(log_id uuid)
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT sl.exercise_slot_id
+    FROM public.set_logs sl
+   WHERE sl.id = log_id
+$$;
+
+-- The exercise slot the path of a video names (2026_10_12_08):
+--     <athlete's profile id>/<exercise slot id>/<set number>-<uuid>.<ext>
+-- its second folder. NULL when the path has no second folder or when that
+-- folder is not a uuid as PostgreSQL prints one (lower case, with dashes) —
+-- so a policy answers "no" to a path of another shape instead of failing on
+-- a cast. "Folder" as storage.foldername() means it: everything but the last
+-- part.
+CREATE OR REPLACE FUNCTION public.set_video_slot(object_name text)
+RETURNS uuid
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT CASE
+           WHEN cardinality(string_to_array(object_name, '/')) >= 3
+            AND (string_to_array(object_name, '/'))[2]
+                ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+           THEN (string_to_array(object_name, '/'))[2]::uuid
+         END
+$$;
+
 -- What "logged" means, in ONE place (2026_10_11_04): a set the athlete
 -- recorded something on — ticked done, marked failed or skipped, rated, or
 -- logged with an actual. Read by every guard of the LOGGED TRAINING IS HISTORY
@@ -480,8 +563,13 @@ CREATE POLICY "Coaches manage set log prescriptions"
 -- Students always read their own logs (so history viewed from the stats
 -- calendar shows RPEs / done flags). Writes only land on slots whose parent
 -- program is still active — once deactivated, historical sessions become
--- read-only at the DB level. SELECT is split out so the read gate can stay
--- permissive while the write gates restrict.
+-- read-only at the DB level — and whose session the coach has neither
+-- archived nor reviewed (2026_10_12_08, review P58: a second device that
+-- still showed a reviewed session open kept writing its sets). SELECT is
+-- split out so the read gate can stay permissive while the write gates
+-- restrict.
+-- The gate is reviewed_at, not the confirmation: a set logged offline may be
+-- replayed after the confirmation of its session.
 CREATE POLICY "Students read own set logs"
   ON public.set_logs FOR SELECT
   USING (public.student_profile_for_slot(exercise_slot_id) = auth.uid());
@@ -491,6 +579,7 @@ CREATE POLICY "Students insert own set logs"
   WITH CHECK (
     public.student_profile_for_slot(exercise_slot_id) = auth.uid()
     AND public.program_active_for_slot(exercise_slot_id) = true
+    AND public.session_writable_for_slot(exercise_slot_id)
   );
 
 CREATE POLICY "Students update own set logs"
@@ -498,10 +587,12 @@ CREATE POLICY "Students update own set logs"
   USING (
     public.student_profile_for_slot(exercise_slot_id) = auth.uid()
     AND public.program_active_for_slot(exercise_slot_id) = true
+    AND public.session_writable_for_slot(exercise_slot_id)
   )
   WITH CHECK (
     public.student_profile_for_slot(exercise_slot_id) = auth.uid()
     AND public.program_active_for_slot(exercise_slot_id) = true
+    AND public.session_writable_for_slot(exercise_slot_id)
   );
 
 -- DELETE is narrowed to student-added rows (2026_07_12): the target-pin
@@ -514,6 +605,7 @@ CREATE POLICY "Students delete own set logs"
   USING (
     public.student_profile_for_slot(exercise_slot_id) = auth.uid()
     AND public.program_active_for_slot(exercise_slot_id) = true
+    AND public.session_writable_for_slot(exercise_slot_id)
     AND is_student_added = true
   );
 
@@ -727,7 +819,10 @@ CREATE INDEX IF NOT EXISTS idx_slot_comments_slot_id ON public.slot_comments(exe
 ALTER TABLE public.slot_comments ENABLE ROW LEVEL SECURITY;
 
 -- SELECT permissive so students can still see their own old notes on
--- archived / past-program sessions. Writes blocked under the same gates.
+-- archived / past-program sessions. Writes ask the three questions of every
+-- athlete's write (see session_writable): the note is mine, my program is the
+-- block being trained, and the session is neither archived nor reviewed
+-- (2026_10_12_08 — "not reviewed" was not asked).
 CREATE POLICY "Students read own slot comments"
   ON public.slot_comments FOR SELECT
   USING (
@@ -740,12 +835,8 @@ CREATE POLICY "Students insert own slot comments"
   WITH CHECK (
     student_id = auth.uid()
     AND public.student_profile_for_slot(exercise_slot_id) = auth.uid()
-    AND NOT EXISTS (
-      SELECT 1 FROM public.exercise_slots es
-      JOIN public.sessions s ON s.id = es.session_id
-      WHERE es.id = slot_comments.exercise_slot_id AND s.archived_at IS NOT NULL
-    )
     AND public.program_active_for_slot(exercise_slot_id) = true
+    AND public.session_writable_for_slot(exercise_slot_id)
   );
 
 CREATE POLICY "Students update own slot comments"
@@ -753,22 +844,14 @@ CREATE POLICY "Students update own slot comments"
   USING (
     student_id = auth.uid()
     AND public.student_profile_for_slot(exercise_slot_id) = auth.uid()
-    AND NOT EXISTS (
-      SELECT 1 FROM public.exercise_slots es
-      JOIN public.sessions s ON s.id = es.session_id
-      WHERE es.id = slot_comments.exercise_slot_id AND s.archived_at IS NOT NULL
-    )
     AND public.program_active_for_slot(exercise_slot_id) = true
+    AND public.session_writable_for_slot(exercise_slot_id)
   )
   WITH CHECK (
     student_id = auth.uid()
     AND public.student_profile_for_slot(exercise_slot_id) = auth.uid()
-    AND NOT EXISTS (
-      SELECT 1 FROM public.exercise_slots es
-      JOIN public.sessions s ON s.id = es.session_id
-      WHERE es.id = slot_comments.exercise_slot_id AND s.archived_at IS NOT NULL
-    )
     AND public.program_active_for_slot(exercise_slot_id) = true
+    AND public.session_writable_for_slot(exercise_slot_id)
   );
 
 CREATE POLICY "Students delete own slot comments"
@@ -776,12 +859,8 @@ CREATE POLICY "Students delete own slot comments"
   USING (
     student_id = auth.uid()
     AND public.student_profile_for_slot(exercise_slot_id) = auth.uid()
-    AND NOT EXISTS (
-      SELECT 1 FROM public.exercise_slots es
-      JOIN public.sessions s ON s.id = es.session_id
-      WHERE es.id = slot_comments.exercise_slot_id AND s.archived_at IS NOT NULL
-    )
     AND public.program_active_for_slot(exercise_slot_id) = true
+    AND public.session_writable_for_slot(exercise_slot_id)
   );
 
 CREATE POLICY "Coaches read slot comments for their students"
@@ -796,9 +875,13 @@ CREATE POLICY "Coaches read slot comments for their students"
 -- SLOT DEVIATIONS — student swaps / skips a whole prescribed exercise.
 -- One row per slot (UNIQUE exercise_slot_id). Substitutes are coach-library
 -- only (no free-text), so analytics keep a known exercise. RLS mirrors
--- slot_comments: student owns the row (read permissive, writes gated to the
--- active, non-archived program), coach reads their students' rows. A new
--- deviation notifies the coach via notify_coach_on_slot_deviation.
+-- slot_comments: student owns the row (read permissive; writes gated to the
+-- active program and to a session that is neither archived nor reviewed —
+-- on INSERT, UPDATE and DELETE alike since 2026_10_12_08), coach reads their
+-- students' rows. The coach's writes — adopt_swap, adopt_skip,
+-- decline_promote_request — are SECURITY DEFINER and do not come through
+-- these policies. A new deviation notifies the coach via
+-- notify_coach_on_slot_deviation.
 -- ============================================================
 CREATE TABLE IF NOT EXISTS public.slot_deviations (
   id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -832,12 +915,8 @@ CREATE POLICY "Students insert own slot deviations"
   WITH CHECK (
     student_id = auth.uid()
     AND public.student_profile_for_slot(exercise_slot_id) = auth.uid()
-    AND NOT EXISTS (
-      SELECT 1 FROM public.exercise_slots es
-      JOIN public.sessions s ON s.id = es.session_id
-      WHERE es.id = slot_deviations.exercise_slot_id AND s.archived_at IS NOT NULL
-    )
     AND public.program_active_for_slot(exercise_slot_id) = true
+    AND public.session_writable_for_slot(exercise_slot_id)
   );
 
 CREATE POLICY "Students update own slot deviations"
@@ -846,11 +925,13 @@ CREATE POLICY "Students update own slot deviations"
     student_id = auth.uid()
     AND public.student_profile_for_slot(exercise_slot_id) = auth.uid()
     AND public.program_active_for_slot(exercise_slot_id) = true
+    AND public.session_writable_for_slot(exercise_slot_id)
   )
   WITH CHECK (
     student_id = auth.uid()
     AND public.student_profile_for_slot(exercise_slot_id) = auth.uid()
     AND public.program_active_for_slot(exercise_slot_id) = true
+    AND public.session_writable_for_slot(exercise_slot_id)
   );
 
 CREATE POLICY "Students delete own slot deviations"
@@ -859,6 +940,7 @@ CREATE POLICY "Students delete own slot deviations"
     student_id = auth.uid()
     AND public.student_profile_for_slot(exercise_slot_id) = auth.uid()
     AND public.program_active_for_slot(exercise_slot_id) = true
+    AND public.session_writable_for_slot(exercise_slot_id)
   );
 
 CREATE POLICY "Coaches read slot deviations for their students"
@@ -1127,10 +1209,53 @@ $$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
 ALTER TABLE public.set_log_videos ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Students manage own set log videos"
-  ON public.set_log_videos FOR ALL
-  USING (public.student_profile_for_set_log(set_log_id) = auth.uid())
-  WITH CHECK (public.student_profile_for_set_log(set_log_id) = auth.uid());
+-- Four policies, not one FOR ALL (2026_10_12_08, review P58). Reading stays
+-- open: an athlete watches the videos of every session they ever trained.
+-- Adding, changing and removing a video ask the three questions of every
+-- athlete's write (see session_writable), of the slot of the set.
+--
+-- A row that is added or changed also says where its file is, and that is not
+-- the athlete's to choose: <their id>/<the slot of this set>/<file> — where
+-- the app has always stored it. The storage policies below judge a file by
+-- the slot its path names; a row free to point at a file under ANOTHER slot
+-- (one of a session still to come) would leave that file replaceable after
+-- the review of this one.
+CREATE POLICY "Students read own set log videos"
+  ON public.set_log_videos FOR SELECT
+  USING (public.student_profile_for_set_log(set_log_id) = auth.uid());
+
+CREATE POLICY "Students insert own set log videos"
+  ON public.set_log_videos FOR INSERT
+  WITH CHECK (
+    public.student_profile_for_set_log(set_log_id) = auth.uid()
+    AND public.program_active_for_slot(public.slot_for_set_log(set_log_id)) = true
+    AND public.session_writable_for_slot(public.slot_for_set_log(set_log_id))
+    AND split_part(storage_path, '/', 1) = auth.uid()::text
+    AND public.set_video_slot(storage_path) = public.slot_for_set_log(set_log_id)
+  );
+
+CREATE POLICY "Students update own set log videos"
+  ON public.set_log_videos FOR UPDATE
+  USING (
+    public.student_profile_for_set_log(set_log_id) = auth.uid()
+    AND public.program_active_for_slot(public.slot_for_set_log(set_log_id)) = true
+    AND public.session_writable_for_slot(public.slot_for_set_log(set_log_id))
+  )
+  WITH CHECK (
+    public.student_profile_for_set_log(set_log_id) = auth.uid()
+    AND public.program_active_for_slot(public.slot_for_set_log(set_log_id)) = true
+    AND public.session_writable_for_slot(public.slot_for_set_log(set_log_id))
+    AND split_part(storage_path, '/', 1) = auth.uid()::text
+    AND public.set_video_slot(storage_path) = public.slot_for_set_log(set_log_id)
+  );
+
+CREATE POLICY "Students delete own set log videos"
+  ON public.set_log_videos FOR DELETE
+  USING (
+    public.student_profile_for_set_log(set_log_id) = auth.uid()
+    AND public.program_active_for_slot(public.slot_for_set_log(set_log_id)) = true
+    AND public.session_writable_for_slot(public.slot_for_set_log(set_log_id))
+  );
 
 CREATE POLICY "Coaches read student set log videos"
   ON public.set_log_videos FOR SELECT
@@ -1154,12 +1279,24 @@ ON CONFLICT (id) DO UPDATE
       file_size_limit = EXCLUDED.file_size_limit,
       allowed_mime_types = EXCLUDED.allowed_mime_types;
 
--- Storage RLS: first path segment is owning student's profile_id.
+-- Storage RLS: first path segment is owning student's profile_id, the second
+-- the exercise slot of the set (public.set_video_slot).
+-- A file is added, and removed, at <the athlete's id>/<a slot of theirs>/<file>
+-- while that slot's program is the block being trained and its session is
+-- neither archived nor reviewed (2026_10_12_08, review P58 and L5). So: an
+-- account nobody coaches has no slot and uploads nothing; nobody uploads
+-- under another athlete's exercise; and the file of a reviewed or archived
+-- session stays where it is. There is no UPDATE policy: a file is not
+-- overwritten or renamed. Reading is by folder, for the athlete and for the
+-- coach.
 CREATE POLICY "Students upload own set videos"
   ON storage.objects FOR INSERT TO authenticated
   WITH CHECK (
     bucket_id = 'set-videos'
     AND (storage.foldername(name))[1] = auth.uid()::text
+    AND public.student_profile_for_slot(public.set_video_slot(name)) = auth.uid()
+    AND public.program_active_for_slot(public.set_video_slot(name)) = true
+    AND public.session_writable_for_slot(public.set_video_slot(name))
   );
 
 CREATE POLICY "Students read own set videos"
@@ -1174,6 +1311,9 @@ CREATE POLICY "Students delete own set videos"
   USING (
     bucket_id = 'set-videos'
     AND (storage.foldername(name))[1] = auth.uid()::text
+    AND public.student_profile_for_slot(public.set_video_slot(name)) = auth.uid()
+    AND public.program_active_for_slot(public.set_video_slot(name)) = true
+    AND public.session_writable_for_slot(public.set_video_slot(name))
   );
 
 CREATE POLICY "Coaches read student set videos"
@@ -3499,7 +3639,10 @@ GRANT EXECUTE ON FUNCTION
   public.program_is_own_draft(uuid),
   public.week_is_own_draft(uuid),
   public.session_is_own_draft(uuid),
-  public.is_coach()
+  public.is_coach(),
+  public.session_writable_for_slot(uuid),
+  public.slot_for_set_log(uuid),
+  public.set_video_slot(text)
 TO authenticated;
 
 -- The RPCs the app calls. The five coach RPCs authorize the caller themselves
@@ -3560,4 +3703,5 @@ INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_11_04_logged_history_guards'),
   ('2026_10_11_05_students_role_gate'),
   ('2026_10_11_06_pin_student_writes'),
-  ('2026_10_11_07_profile_rules');
+  ('2026_10_11_07_profile_rules'),
+  ('2026_10_12_08_session_write_gates');

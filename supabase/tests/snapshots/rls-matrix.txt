@@ -104,23 +104,23 @@ sessions               9     select                   denied  7          1      
 
 set_log_videos         4     select                   denied  2          1          3            1            4
                              insert                   denied  yes        rls        rls          rls          yes
-                             update                   denied  2          1          0            0            4
-                             delete                   denied  2          1          0            0            4
+                             update                   denied  1          0          0            0            4
+                             delete                   denied  1          0          0            0            4
 
 set_logs               46    select                   denied  38         6          44           2            46
                              insert                   denied  yes        rls        yes          rls          yes
-                             update                   denied  26         6          44           2            46
-                             delete                   denied  2          0          38 +6 P0001  1 +1 P0001   39 +7 P0001
+                             update                   denied  13         0          44           2            46
+                             delete                   denied  1          0          38 +6 P0001  1 +1 P0001   39 +7 P0001
 
 slot_comments          4     select                   denied  2          1          3            1            4
                              insert                   denied  yes        rls        rls          rls          yes
-                             update                   denied  2          1          0            0            4
-                             delete                   denied  2          1          0            0            4
+                             update                   denied  1          0          0            0            4
+                             delete                   denied  1          0          0            0            4
 
 slot_deviations        4     select                   denied  2          1          3            1            4
                              insert                   denied  yes        rls        rls          rls          yes
-                             update                   denied  2          1          0            0            4
-                             delete                   denied  2          1          0            0            4
+                             update                   denied  1          0          0            0            4
+                             delete                   denied  1          0          0            0            4
 
 students               3     select                   0       1          1          2            1            3
                              insert                   rls     rls        rls        rls          rls          yes
@@ -136,4 +136,4 @@ weeks                  7     select                   denied  5          1      
 storage.objects        4     select                   0       2          1          3            1            4
                              insert                   rls     yes        rls        rls          rls          yes
                              update                   0       0          0          0            0            4
-                             delete                   0       2          1          0            0            4
+                             delete                   0       1          0          0            0            4

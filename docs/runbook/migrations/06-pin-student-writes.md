@@ -122,9 +122,10 @@ A refusal changes nothing:
        join public.programs p on p.id = w.program_id
        join public.students st on st.id = p.student_id
       where not sl.is_student_added and p.is_active and p.deleted_at is null
+        and se.reviewed_at is null and se.archived_at is null
       order by sl.id limit 1;
      if v_set is null then
-       raise exception $m$check only: no athlete has a prescribed set in an active program, nothing to try$m$;
+       raise exception $m$check only: no athlete has a prescribed set in a session in progress of an active program, nothing to try$m$;
      end if;
      perform set_config($m$request.jwt.claims$m$,
        json_build_object($m$sub$m$, v_athlete, $m$role$m$, $m$authenticated$m$)::text, true);

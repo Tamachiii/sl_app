@@ -278,9 +278,11 @@ describe('an extra set belongs to the athlete who added it', () => {
   it('the athlete removes it again, done and filmed', () => scenario(async (q) => {
     const slot = pullUp(0);
     const extra = await athleteAddsExtraSet(slot);
+    // Where useUploadSetVideo stores it: <athlete>/<slot of the set>/<file> —
+    // the only place the athlete's row may name (migration 08).
     await asUser(ids.studentA, (athlete) => athlete(
-      `insert into set_log_videos (set_log_id, storage_path, mime_type, size_bytes) values ($1, 'a/b/4-clip.mp4', 'video/mp4', 1000)`,
-      [extra],
+      `insert into set_log_videos (set_log_id, storage_path, mime_type, size_bytes) values ($1, $2, 'video/mp4', 1000)`,
+      [extra, `${ids.studentA.id}/${slot.id}/4-clip.mp4`],
     ));
     // The write of useRemoveStudentSet.
     const removed = await asUser(ids.studentA, (athlete) => athlete(

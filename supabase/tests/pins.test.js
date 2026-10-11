@@ -1160,7 +1160,7 @@ describe('migration 06 applied to the production baseline', () => {
 
     // With no block being trained there is nothing to try, and it says so.
     await db.query(`update public.programs set is_active = false`);
-    expect(await checked()).toBe('check only: no athlete has a prescribed set in an active program, nothing to try');
+    expect(await checked()).toBe('check only: no athlete has a prescribed set in a session in progress of an active program, nothing to try');
     await db.drop();
   });
 

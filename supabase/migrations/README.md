@@ -163,6 +163,26 @@ Two functions stand behind every row of `public.profiles`, and since migration 0
 - **A role that changes is held to the coach–athlete links** (the rule of migration 05, asked from the other side): an account that is somebody's athlete is not made a coach, a coach who has athletes does not stop being one — `23514`, raised. So the order is: the role first, then the links; and the athletes moved before a coach is made an athlete again.
 - **A new column of `profiles` that its owner must not write joins that function.** "Users update own profile" lets a signed-in user write every column of their own row: a column the trigger does not put back is theirs.
 
+## A migration that adds something an athlete writes in a session
+
+Since migration 08 an athlete's write to anything that hangs under a session — `set_logs`, `slot_comments`, `slot_deviations`, `set_log_videos`, the files of the `set-videos` bucket — asks three questions. `supabase/tests/session-gates.test.js` holds them.
+
+```sql
+public.student_profile_for_slot(x) = auth.uid()     -- the row is mine
+AND public.program_active_for_slot(x) = true        -- my program is the block being trained
+AND public.session_writable_for_slot(x)             -- its session is neither archived nor reviewed
+```
+
+- **`session_writable` is the lock of the SESSION, and nothing else.** A session of a past block, of a trashed block or of a draft answers `true`: whether the program is the one being trained is `program_active_for_session` / `program_active_for_slot`. A policy that asks one and not the other has a hole — and so has a `SECURITY DEFINER` function that writes for an athlete: it goes around the policies, so it asks all three itself.
+- **It never answers NULL**: a session, a slot or a set that does not exist is not writable. `IF NOT public.session_writable(x) THEN RAISE` refuses what it should; keep the `COALESCE(…, false)` when the function is re-created.
+- **The lock is `reviewed_at`, not the confirmation.** The app queues the sets logged offline one by one and the confirmation separately: a set may arrive after the confirmation of its session, and is accepted until the coach reviews. A rule that closes a session at the confirmation loses those sets.
+- **What closes a session is said in `session_writable`, in one place.** A new column that locks a session for its athlete joins that function, not the policies.
+- **A new table an athlete writes under a session gets four policies, never `FOR ALL`**: `SELECT` with the first question only — an athlete reads every session they ever trained —, `INSERT` (`WITH CHECK`), `UPDATE` (`USING` and `WITH CHECK`) and `DELETE` (`USING`) with the three. When the table is keyed on a set, the slot is `public.slot_for_set_log(set_log_id)`.
+- **A refusal has two shapes.** An `INSERT` — an upsert included, which is judged as the `INSERT` it starts as — raises `42501`. An `UPDATE` or a `DELETE` reaches no row and says nothing. A test about a refused write shows the same statement going through on a session in progress first (`tryAll` in the test file), then reads the rows back.
+- **`session_writable(uuid)` is not in the allow-list**: no policy calls it, `session_writable_for_slot` does, as its owner. The migration whose policy asks it of a session id grants it, and moves it from `NOT_FOR_USERS` to `HELPERS` in `function-acl.test.js`.
+- **A video is stored at `<athlete's profile id>/<exercise slot of its set>/<file>`**, and the row may name no other place (`WITH CHECK` of `set_log_videos`). The storage policies judge a file by the slot its path names — `public.set_video_slot(name)`, which answers NULL for a path of any other shape. Never cast a part of a path to `uuid` in a policy: a path that is not one would fail the statement instead of being refused. Another kind of file in that bucket needs its own policy, or the same layout.
+- **The coach is not asked.** The coach's policies do not look at the state of a session, and `adopt_swap`, `adopt_skip` and `decline_promote_request` write `slot_deviations` as `SECURITY DEFINER`: a reviewed session is where they are used.
+
 ## A migration that brings a rule the rows already there may break
 
 A trigger or a policy judges what is written after it. When rows that are already in the database break the rule **and leaving them would leave the hole in use**, the migration refuses to start:

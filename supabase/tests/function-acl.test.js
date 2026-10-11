@@ -65,6 +65,9 @@ const HELPERS = [
   'program_active_for_slot(uuid)',
   'program_is_own_draft(uuid)',
   'session_is_own_draft(uuid)',
+  'session_writable_for_slot(uuid)',   // 2026_10_12_08_session_write_gates
+  'set_video_slot(text)',              // 2026_10_12_08_session_write_gates
+  'slot_for_set_log(uuid)',            // 2026_10_12_08_session_write_gates
   'student_profile_for_goal(uuid)',
   'student_profile_for_session(uuid)',
   'student_profile_for_set_log(uuid)',
@@ -90,6 +93,8 @@ const NOT_FOR_USERS = [
   // 2026_10_11_04_logged_history_guards
   ['history_delete_allowed()', 'read by the six guards on logged training — SECURITY DEFINER trigger functions, which call it as their owner'],
   ['set_log_is_logged(set_logs)', 'the one definition of a logged set: called by SECURITY DEFINER functions only (the guards, the pin on targets, adopt_swap, adopt_skip), as their owner'],
+  // 2026_10_12_08_session_write_gates
+  ['session_writable(uuid)', 'the lock of a session, asked by its id: no policy calls it — session_writable_for_slot does, a SECURITY DEFINER function, as its owner. It joins HELPERS with the first policy that asks it of a session id'],
 ];
 
 const SEARCH_PATH = 'search_path=public, pg_temp';

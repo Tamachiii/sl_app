@@ -63,6 +63,15 @@
       "covers": ["P20", "B10"],
       "reversible": true,
       "summary": "A new account gets a profile whose name is never empty: the name it was created with, else the part of its e-mail address before the @, else 'Athlete'; profiles.role stays what it was for a request that carries a user id and is written for one that does not (the SQL editor, the service-role key), except against a coach-athlete link: an athlete with a coach is not made a coach, a coach with athletes does not stop being one."
+    },
+    {
+      "name": "2026_10_12_08_session_write_gates",
+      "kind": "required",
+      "wave": 1,
+      "checkpoint": "A2",
+      "covers": ["P58", "L5"],
+      "reversible": true,
+      "summary": "An athlete writes a set, a note on an exercise, a swap or a skip, and the video of a set — its row and its file — only in a session of the block being trained that the coach has neither archived nor reviewed (session_writable, session_writable_for_slot); reading stays open; a video is stored at <athlete>/<exercise slot of its set>/, so an account nobody coaches uploads nothing and nobody uploads under another athlete's exercise. A confirmed session that is not reviewed yet is still written."
     }
   ]
 }
