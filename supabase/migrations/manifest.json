@@ -27,6 +27,15 @@
       "covers": ["B2", "L21", "L23"],
       "reversible": true,
       "summary": "No function of public is executable by anon or PUBLIC; a signed-in user executes an allow-list of 19 (the 12 helpers the policies call, the 7 RPCs the app calls); a function postgres creates later starts closed; all 36 functions run with search_path = public, pg_temp."
+    },
+    {
+      "name": "2026_10_11_04_logged_history_guards",
+      "kind": "required",
+      "wave": 1,
+      "checkpoint": "A2",
+      "covers": ["P3", "P17"],
+      "reversible": true,
+      "summary": "A logged set (set_log_is_logged: done, failed, skipped, an RPE or an actual) or one with a video cannot be deleted, directly or by a cascade, from set_logs up to programs; exercise_slots.sets cannot go below one; a signed-in user's edit leaves the targets of a logged set as they were; adopt_swap and adopt_skip leave alone a slot with a logged set, a video or a comment; SET LOCAL app.allow_history_delete = 'on' lets a statement without a user id through."
     }
   ]
 }

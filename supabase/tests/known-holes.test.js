@@ -313,17 +313,21 @@ describe('P18/L7 — deleting a library exercise that a goal uses', () => {
 });
 
 // ------------------------------------------------------------
-// P3 — "logged training can never be hard-deleted" is enforced on programs,
-// weeks and sessions (block_*_delete_with_logged_sets) but not below: the
-// coach editor deletes logged set_logs, and exercise_slots whose sets are
-// logged, with their RPE, actuals, comments and videos.
+// P3 — CLOSED by 2026_10_11_04_logged_history_guards: these two are plain
+// tests now. "Logged training can never be hard-deleted" was enforced on
+// programs, weeks and sessions (block_*_delete_with_logged_sets) but not
+// below: the coach editor deleted logged set_logs, and exercise_slots whose
+// sets are logged, with their RPE, actuals, comments and videos. A BEFORE
+// DELETE trigger now stands on both tables. Every other path — the set count,
+// the targets, the cascades, the athlete's own extra set, the way through for
+// the owner of the database — is in history-guards.test.js.
 // ------------------------------------------------------------
 describe('P3 — hard-deleting logged training below the session', () => {
   const logFirstSet = () => asUser(ids.studentA, (student) => student(
     `update set_logs set done = true, rpe = 8, logged_at = now() where id = $1`, [ids.programA.setLogs[0]],
   ));
 
-  it.fails('P3 — the coach cannot delete a logged set_log', () => scenario(async (q) => {
+  it('P3 — the coach cannot delete a logged set_log', () => scenario(async (q) => {
     await logFirstSet();
     const removal = await attempt(() => asUser(ids.coach, (coach) => coach(
       `delete from set_logs where id = $1`, [ids.programA.setLogs[0]],
@@ -334,7 +338,7 @@ describe('P3 — hard-deleting logged training below the session', () => {
     ).toEqual({ done: true, rpe: 8 });
   }));
 
-  it.fails('P3 — the coach cannot delete an exercise_slot that has logged sets', () => scenario(async (q) => {
+  it('P3 — the coach cannot delete an exercise_slot that has logged sets', () => scenario(async (q) => {
     await logFirstSet();
     const removal = await attempt(() => asUser(ids.coach, (coach) => coach(
       `delete from exercise_slots where id = $1`, [ids.programA.slots[0]],

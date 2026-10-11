@@ -239,6 +239,26 @@ RETURNS boolean AS $$
   WHERE es.id = slot_id
 $$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
+-- What "logged" means, in ONE place (2026_10_11_04): a set the athlete
+-- recorded something on — ticked done, marked failed or skipped, rated, or
+-- logged with an actual. Read by every guard of the LOGGED TRAINING IS HISTORY
+-- section further down, by the pin on the targets of a logged set, and by
+-- adopt_swap / adopt_skip. It takes the ROW, so a caller writes
+-- set_log_is_logged(sl) and cannot leave a column out.
+-- Not for the API: only SECURITY DEFINER functions of this file call it, as
+-- their owner (no grant in the FUNCTION PRIVILEGES block).
+CREATE OR REPLACE FUNCTION public.set_log_is_logged(sl public.set_logs)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT sl.done OR sl.failed OR sl.skipped
+      OR sl.rpe IS NOT NULL
+      OR sl.actual_reps IS NOT NULL
+      OR sl.actual_weight_kg IS NOT NULL
+$$;
+
 -- ============================================================
 -- ROW LEVEL SECURITY
 -- ============================================================
@@ -403,6 +423,10 @@ CREATE POLICY "Students read own exercise slots"
 -- pin_set_log_targets_for_student BEFORE UPDATE trigger, which reverts any
 -- attempt by a student to mutate the coach-owned target_* columns. If this
 -- proves insufficient we can split actuals to a child table.
+-- What the coach's FOR ALL does NOT reach (2026_10_11_04, section LOGGED
+-- TRAINING IS HISTORY): a set the athlete has logged is not deleted
+-- (block_set_log_delete_when_logged), and its target_* are not rewritten by a
+-- signed-in user (trg_pin_logged_set_log_targets).
 CREATE POLICY "Coaches manage set log prescriptions"
   ON public.set_logs FOR ALL
   USING (
@@ -901,6 +925,45 @@ DROP TRIGGER IF EXISTS trg_pin_set_log_targets_for_student ON public.set_logs;
 CREATE TRIGGER trg_pin_set_log_targets_for_student
   BEFORE UPDATE ON public.set_logs
   FOR EACH ROW EXECUTE FUNCTION public.pin_set_log_targets_for_student();
+
+-- ============================================================
+-- TRIGGER: the targets of a LOGGED set stay what they were (2026_10_11_04)
+-- A set done as prescribed has no actual: its reps and load ARE its targets.
+-- Rewriting them rewrites what the athlete lifted, in every stat and record.
+--
+-- Silent, on purpose: the coach's editor writes a change of reps, load or
+-- rest to every set of the exercise in one statement. Raising here would
+-- refuse the change for the sets still to come as well. So the logged rows
+-- keep their targets and the statement goes on.
+--
+-- For a signed-in user only. The athlete is already pinned on every row by
+-- the trigger above; this is the coach. A statement with no user id — the SQL
+-- editor, the service role — is a deliberate correction.
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.pin_logged_set_log_targets()
+RETURNS trigger AS $$
+BEGIN
+  IF auth.uid() IS NOT NULL AND public.set_log_is_logged(OLD) THEN
+    NEW.target_reps             := OLD.target_reps;
+    NEW.target_duration_seconds := OLD.target_duration_seconds;
+    NEW.target_weight_kg        := OLD.target_weight_kg;
+    NEW.target_rest_seconds     := OLD.target_rest_seconds;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+-- WHEN: an athlete ticking a set — the write this table sees most — does not
+-- touch a target, and does not enter the function.
+DROP TRIGGER IF EXISTS trg_pin_logged_set_log_targets ON public.set_logs;
+CREATE TRIGGER trg_pin_logged_set_log_targets
+  BEFORE UPDATE ON public.set_logs
+  FOR EACH ROW
+  WHEN (NEW.target_reps IS DISTINCT FROM OLD.target_reps
+        OR NEW.target_duration_seconds IS DISTINCT FROM OLD.target_duration_seconds
+        OR NEW.target_weight_kg IS DISTINCT FROM OLD.target_weight_kg
+        OR NEW.target_rest_seconds IS DISTINCT FROM OLD.target_rest_seconds)
+  EXECUTE FUNCTION public.pin_logged_set_log_targets();
 
 -- ============================================================
 -- SET LOG VIDEOS
@@ -1460,6 +1523,9 @@ BEGIN
 
   -- Forward-only via a REAL ordinal bound (strictly later in program order),
   -- not the optional "confirmed" flag: never rewrite an already-trained slot.
+  -- "Trained" is anything the athlete left on the slot: a logged set (the
+  -- shared set_log_is_logged: done, failed, skipped, an RPE or an actual), a
+  -- video, a comment, a deviation of its own (review P17).
   SELECT array_agg(es.id)
     INTO v_slot_ids
     FROM public.exercise_slots es
@@ -1477,8 +1543,11 @@ BEGIN
      AND NOT EXISTS (
        SELECT 1 FROM public.set_logs sl
         WHERE sl.exercise_slot_id = es.id
-          AND (sl.done = true OR sl.skipped = true
-               OR sl.actual_reps IS NOT NULL OR sl.actual_weight_kg IS NOT NULL)
+          AND (public.set_log_is_logged(sl)
+               OR EXISTS (SELECT 1 FROM public.set_log_videos v WHERE v.set_log_id = sl.id))
+     )
+     AND NOT EXISTS (
+       SELECT 1 FROM public.slot_comments c WHERE c.exercise_slot_id = es.id
      )
      AND NOT EXISTS (
        SELECT 1 FROM public.slot_deviations d WHERE d.exercise_slot_id = es.id
@@ -1601,6 +1670,9 @@ BEGIN
     JOIN public.weeks w ON w.id = s.week_id
    WHERE s.id = v_session_id;
 
+  -- The predicate of adopt_swap, word for word: what the dry run counts is
+  -- what the DELETE below removes, and none of it carries a logged set, a
+  -- video or a comment — so the delete guards never have to refuse it.
   SELECT array_agg(es.id)
     INTO v_slot_ids
     FROM public.exercise_slots es
@@ -1618,8 +1690,11 @@ BEGIN
      AND NOT EXISTS (
        SELECT 1 FROM public.set_logs sl
         WHERE sl.exercise_slot_id = es.id
-          AND (sl.done = true OR sl.skipped = true
-               OR sl.actual_reps IS NOT NULL OR sl.actual_weight_kg IS NOT NULL)
+          AND (public.set_log_is_logged(sl)
+               OR EXISTS (SELECT 1 FROM public.set_log_videos v WHERE v.set_log_id = sl.id))
+     )
+     AND NOT EXISTS (
+       SELECT 1 FROM public.slot_comments c WHERE c.exercise_slot_id = es.id
      )
      AND NOT EXISTS (
        SELECT 1 FROM public.slot_deviations d WHERE d.exercise_slot_id = es.id
@@ -2586,29 +2661,67 @@ CREATE TRIGGER on_chat_message_push
   EXECUTE FUNCTION public.notify_recipient_on_chat_message();
 
 -- ============================================================
--- TRIGGER: programs are undeletable while logged sets exist (2026_07_13)
--- Hard delete is only for scaffolding; real training history can only be
--- trashed (programs.deleted_at) and restored. Fires on cascades too, so a
--- students-row delete can't wipe logged history either. For a deliberate
--- full erasure: drop trigger, delete, recreate.
+-- LOGGED TRAINING IS HISTORY (2026_07_13, completed by 2026_10_11_04)
+--
+-- A set the athlete logged — public.set_log_is_logged(), in the helper
+-- section: done, failed, skipped, an RPE or an actual — or one that carries a
+-- video can never be hard-deleted, at any level:
+--
+--   programs        BEFORE DELETE   trashed (programs.deleted_at) instead
+--   weeks           BEFORE DELETE   )
+--   sessions        BEFORE DELETE   ) archived (sessions.archived_at) instead
+--   exercise_slots  BEFORE DELETE   )
+--   set_logs        BEFORE DELETE   the row itself: the net under the four
+--                                   above, since a row trigger fires on a
+--                                   cascade too — from a students row, a
+--                                   profile, an account
+--   exercise_slots  BEFORE UPDATE OF sets   the count cannot go below a
+--                                   logged prescribed set
+--
+-- Hard delete is for scaffolding: what nobody trained goes as before.
+-- Every message contains 'logged set': the client maps that to
+-- errors.hasLoggedTraining ("archive it instead of deleting").
+--
+-- ONE WAY THROUGH, for the owner of the database, inside a transaction:
+--   SET LOCAL app.allow_history_delete = 'on';
+-- It replaces "drop the trigger, delete, re-create it". The six guards read
+-- it through history_delete_allowed(), which also requires that the statement
+-- comes with NO user id — so it does nothing for a signed-in user.
+-- (docs/runbook/migrations/04-logged-history-guards.md)
 -- ============================================================
+
+-- True only when BOTH hold:
+--   * the transaction said  SET LOCAL app.allow_history_delete = 'on'
+--   * the statement comes with no user id — the SQL editor, a migration, a
+--     function called with the service-role key. A signed-in user's request
+--     always carries one, so for the app the setting does nothing, whoever
+--     managed to set it.
+CREATE OR REPLACE FUNCTION public.history_delete_allowed()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT auth.uid() IS NULL
+     AND coalesce(current_setting('app.allow_history_delete', true), '') = 'on'
+$$;
+
 CREATE OR REPLACE FUNCTION public.block_program_delete_with_logged_sets()
 RETURNS trigger AS $$
 DECLARE
   v_count int;
 BEGIN
+  IF public.history_delete_allowed() THEN
+    RETURN OLD;
+  END IF;
   SELECT count(*) INTO v_count
     FROM public.set_logs sl
     JOIN public.exercise_slots es ON es.id = sl.exercise_slot_id
     JOIN public.sessions s        ON s.id = es.session_id
     JOIN public.weeks w           ON w.id = s.week_id
    WHERE w.program_id = OLD.id
-     AND (
-       sl.done OR sl.failed OR sl.skipped
-       OR sl.rpe IS NOT NULL
-       OR sl.actual_reps IS NOT NULL
-       OR sl.actual_weight_kg IS NOT NULL
-     );
+     AND (public.set_log_is_logged(sl)
+          OR EXISTS (SELECT 1 FROM public.set_log_videos v WHERE v.set_log_id = sl.id));
   IF v_count > 0 THEN
     RAISE EXCEPTION
       'program % still has % logged set(s) — move it to the trash instead of deleting',
@@ -2624,21 +2737,24 @@ CREATE TRIGGER block_program_delete_with_logged_sets
   FOR EACH ROW
   EXECUTE FUNCTION public.block_program_delete_with_logged_sets();
 
--- Same guard at week + session level: WeekView deletes those directly, and
--- the cascade would otherwise wipe logged set_logs without touching the
--- program row. Coaches archive (sessions.archived_at) instead.
+-- Same guard at week + session level: the Program Sheet deletes those
+-- directly, and the cascade would otherwise wipe logged set_logs without
+-- touching the program row. Coaches archive (sessions.archived_at) instead.
 CREATE OR REPLACE FUNCTION public.block_week_delete_with_logged_sets()
 RETURNS trigger AS $$
-DECLARE v_count int;
+DECLARE
+  v_count int;
 BEGIN
+  IF public.history_delete_allowed() THEN
+    RETURN OLD;
+  END IF;
   SELECT count(*) INTO v_count
     FROM public.set_logs sl
     JOIN public.exercise_slots es ON es.id = sl.exercise_slot_id
     JOIN public.sessions s        ON s.id = es.session_id
    WHERE s.week_id = OLD.id
-     AND (sl.done OR sl.failed OR sl.skipped
-          OR sl.rpe IS NOT NULL OR sl.actual_reps IS NOT NULL
-          OR sl.actual_weight_kg IS NOT NULL);
+     AND (public.set_log_is_logged(sl)
+          OR EXISTS (SELECT 1 FROM public.set_log_videos v WHERE v.set_log_id = sl.id));
   IF v_count > 0 THEN
     RAISE EXCEPTION 'week % still has % logged set(s) — archive it instead of deleting', OLD.id, v_count;
   END IF;
@@ -2654,15 +2770,18 @@ CREATE TRIGGER block_week_delete_with_logged_sets
 
 CREATE OR REPLACE FUNCTION public.block_session_delete_with_logged_sets()
 RETURNS trigger AS $$
-DECLARE v_count int;
+DECLARE
+  v_count int;
 BEGIN
+  IF public.history_delete_allowed() THEN
+    RETURN OLD;
+  END IF;
   SELECT count(*) INTO v_count
     FROM public.set_logs sl
     JOIN public.exercise_slots es ON es.id = sl.exercise_slot_id
    WHERE es.session_id = OLD.id
-     AND (sl.done OR sl.failed OR sl.skipped
-          OR sl.rpe IS NOT NULL OR sl.actual_reps IS NOT NULL
-          OR sl.actual_weight_kg IS NOT NULL);
+     AND (public.set_log_is_logged(sl)
+          OR EXISTS (SELECT 1 FROM public.set_log_videos v WHERE v.set_log_id = sl.id));
   IF v_count > 0 THEN
     RAISE EXCEPTION 'session % still has % logged set(s) — archive it instead of deleting', OLD.id, v_count;
   END IF;
@@ -2675,6 +2794,107 @@ CREATE TRIGGER block_session_delete_with_logged_sets
   BEFORE DELETE ON public.sessions
   FOR EACH ROW
   EXECUTE FUNCTION public.block_session_delete_with_logged_sets();
+
+-- "Remove exercise" (2026_10_11_04). A comment or a deviation alone does not
+-- hold a slot: the coach removes it on purpose, and those go with it.
+CREATE OR REPLACE FUNCTION public.block_slot_delete_with_logged_sets()
+RETURNS trigger AS $$
+DECLARE
+  v_count int;
+BEGIN
+  IF public.history_delete_allowed() THEN
+    RETURN OLD;
+  END IF;
+  SELECT count(*) INTO v_count
+    FROM public.set_logs sl
+   WHERE sl.exercise_slot_id = OLD.id
+     AND (public.set_log_is_logged(sl)
+          OR EXISTS (SELECT 1 FROM public.set_log_videos v WHERE v.set_log_id = sl.id));
+  IF v_count > 0 THEN
+    RAISE EXCEPTION
+      'exercise slot % still has % logged set(s) — archive the session instead of deleting the exercise',
+      OLD.id, v_count;
+  END IF;
+  RETURN OLD;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+DROP TRIGGER IF EXISTS block_slot_delete_with_logged_sets ON public.exercise_slots;
+CREATE TRIGGER block_slot_delete_with_logged_sets
+  BEFORE DELETE ON public.exercise_slots
+  FOR EACH ROW
+  EXECUTE FUNCTION public.block_slot_delete_with_logged_sets();
+
+-- The set (2026_10_11_04): the × of the coach's editor, the rows a lower
+-- "Sets" drops, a DELETE sent to the API, and every cascade that reaches this
+-- table.
+--
+-- The exception is the athlete's own extra set: they added it, they may take
+-- it back, done or not. During a cascade the slot is already gone and
+-- student_profile_for_slot() answers NULL: the exception cannot hide a
+-- cascade.
+CREATE OR REPLACE FUNCTION public.block_set_log_delete_when_logged()
+RETURNS trigger AS $$
+BEGIN
+  IF NOT (public.set_log_is_logged(OLD)
+          OR EXISTS (SELECT 1 FROM public.set_log_videos v WHERE v.set_log_id = OLD.id)) THEN
+    RETURN OLD;
+  END IF;
+  IF OLD.is_student_added
+     AND public.student_profile_for_slot(OLD.exercise_slot_id) = auth.uid() THEN
+    RETURN OLD;
+  END IF;
+  IF public.history_delete_allowed() THEN
+    RETURN OLD;
+  END IF;
+  RAISE EXCEPTION 'set % of exercise slot % is a logged set — it cannot be deleted',
+    OLD.set_number, OLD.exercise_slot_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+DROP TRIGGER IF EXISTS block_set_log_delete_when_logged ON public.set_logs;
+CREATE TRIGGER block_set_log_delete_when_logged
+  BEFORE DELETE ON public.set_logs
+  FOR EACH ROW
+  EXECUTE FUNCTION public.block_set_log_delete_when_logged();
+
+-- "Sets" cannot go below a logged set (2026_10_11_04). A client that lowers a
+-- set count in two writes — exercise_slots.sets first, then the DELETE of the
+-- prescribed rows numbered above it — would be stopped by the guard above on
+-- the second and keep the first: a slot that says 3 sets and holds 5.
+-- Refusing the FIRST write leaves nothing changed. Same rows as that DELETE:
+-- prescribed (an athlete's extra set is not part of the count), numbered above
+-- the new count, logged or with a video.
+CREATE OR REPLACE FUNCTION public.block_slot_sets_below_logged_set()
+RETURNS trigger AS $$
+DECLARE
+  v_count int;
+BEGIN
+  IF public.history_delete_allowed() THEN
+    RETURN NEW;
+  END IF;
+  SELECT count(*) INTO v_count
+    FROM public.set_logs sl
+   WHERE sl.exercise_slot_id = NEW.id
+     AND NOT sl.is_student_added
+     AND sl.set_number > NEW.sets
+     AND (public.set_log_is_logged(sl)
+          OR EXISTS (SELECT 1 FROM public.set_log_videos v WHERE v.set_log_id = sl.id));
+  IF v_count > 0 THEN
+    RAISE EXCEPTION
+      'exercise slot % has % logged set(s) above set % — the set count cannot go below them',
+      NEW.id, v_count, NEW.sets;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+DROP TRIGGER IF EXISTS block_slot_sets_below_logged_set ON public.exercise_slots;
+CREATE TRIGGER block_slot_sets_below_logged_set
+  BEFORE UPDATE OF sets ON public.exercise_slots
+  FOR EACH ROW
+  WHEN (NEW.sets < OLD.sets)
+  EXECUTE FUNCTION public.block_slot_sets_below_logged_set();
 
 -- ============================================================
 -- Client error telemetry (2026_07_13)
@@ -2948,4 +3168,5 @@ REVOKE ALL ON TABLE app_private.app_migrations FROM PUBLIC, anon, authenticated,
 INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_03_01_migration_ledger'),
   ('2026_10_03_02_rpc_auth_null_guard'),
-  ('2026_10_11_03_function_grants_lockdown');
+  ('2026_10_11_03_function_grants_lockdown'),
+  ('2026_10_11_04_logged_history_guards');

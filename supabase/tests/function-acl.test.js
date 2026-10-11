@@ -85,7 +85,11 @@ const ALLOW_LIST = [...HELPERS, ...RPCS].sort();
  * Neither a trigger function nor for a signed-in user: `[signature, why]`.
  * Whatever is listed here is reachable by the owner and service_role only.
  */
-const NOT_FOR_USERS = [];
+const NOT_FOR_USERS = [
+  // 2026_10_11_04_logged_history_guards
+  ['history_delete_allowed()', 'read by the six guards on logged training — SECURITY DEFINER trigger functions, which call it as their owner'],
+  ['set_log_is_logged(set_logs)', 'the one definition of a logged set: called by SECURITY DEFINER functions only (the guards, the pin on targets, adopt_swap, adopt_skip), as their owner'],
+];
 
 const SEARCH_PATH = 'search_path=public, pg_temp';
 

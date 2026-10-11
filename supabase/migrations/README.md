@@ -104,6 +104,22 @@ Since migration 03 no function of `public` is executable by `anon` or by `PUBLIC
 4. **Who gets the grant.** `authenticated`, when a policy calls the function (a policy runs with the privileges of the user who queries the table — so does a column default, a check constraint, a view, the expression of an index) or when the app calls it with `supabase.rpc()`. Nobody, for a trigger function: a trigger fires whatever the privileges of the user whose statement fires it. Nobody either for a function that only an Edge Function, a cron job or another `SECURITY DEFINER` function calls. Never `anon`.
 5. **The function joins a list of `function-acl.test.js`** — `HELPERS`, `RPCS`, or `NOT_FOR_USERS` with the reason; a trigger function joins none. The test fails until it does.
 
+## A migration that deletes or rewrites training rows
+
+Since migration 04 a set the athlete has logged — `public.set_log_is_logged(sl)`: done, failed, skipped, an RPE or an actual — or one with a video cannot be deleted, from `set_logs` up to `programs`, and a cascade that reaches one raises (`… logged set …`). `supabase/tests/history-guards.test.js` holds it.
+
+- **A migration that must delete such rows** says so, right before the statement that needs it:
+
+  ```sql
+  SET LOCAL app.allow_history_delete = 'on';
+  ```
+
+  It lasts until `COMMIT` and is read only when the statement comes without a user id — which is how a migration runs. The header of the file says what is deleted, and the runbook page that the rows do not come back with the rollback.
+- **A function that must** (erasing an account) calls `set_config('app.allow_history_delete', 'on', true)` itself, is executable by the service role only, and never by `authenticated`: with a user id the setting is ignored.
+- **Never** drop or disable one of the guard triggers to get a delete through.
+- **An `UPDATE` of `target_*`** by a migration is written to logged sets too: the pin (`trg_pin_logged_set_log_targets`) is for a signed-in user. Add `WHERE NOT public.set_log_is_logged(sl)` unless rewriting what was lifted is the point of the migration.
+- **"Already trained"** is spelled `public.set_log_is_logged(sl)` wherever SQL needs it — never the six columns again.
+
 ## The rollback file
 
 ```sql
