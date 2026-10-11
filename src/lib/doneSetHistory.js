@@ -158,14 +158,15 @@ export async function readDoneSetHistory(studentRowId = null) {
     remember(log.exercise_slots?.exercise_id, log.exercise_slots?.exercise);
   }
 
-  const sets = [];
+  // [when it was logged, the set] — the stamp is parsed once, not per comparison.
+  const stamped = [];
   for (const log of logs) {
     const slot = log.exercise_slots;
     if (!slot) continue;
     const substituteId = substituteBySlot.get(slot.id) || null;
     const exerciseId = substituteId || slot.exercise_id;
     if (!exerciseId) continue;
-    sets.push({
+    const set = {
       id: log.id,
       slotId: slot.id,
       sessionId: slot.session_id,
@@ -179,17 +180,16 @@ export async function readDoneSetHistory(studentRowId = null) {
       target_weight_kg: substituteId ? null : (log.target_weight_kg ?? null),
       actual_reps: log.actual_reps ?? null,
       actual_weight_kg: log.actual_weight_kg ?? null,
-    });
+    };
+    stamped.push([loggedStamp(set.loggedAt), set]);
   }
 
   // Pages arrive in id order, which for a uuid is no order. Records depend on
   // this one: of two sets that tie for a best, the EARLIER holds the record.
-  sets.sort(
-    (a, b) =>
-      loggedStamp(a.loggedAt) - loggedStamp(b.loggedAt) ||
-      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  stamped.sort(
+    ([whenA, a], [whenB, b]) => whenA - whenB || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
-  return sets;
+  return stamped.map(([, set]) => set);
 }
 
 /**
