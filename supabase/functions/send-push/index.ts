@@ -12,9 +12,18 @@
 // roll back the write that triggered it. See the fan-out block in
 // schema.sql (search for `send-push`).
 //
-// Authorization: must present the service-role bearer (i.e. only the
-// project itself can invoke this — the DB trigger does). Anything else
-// gets a 401.
+// Authorization: the caller presents the project's INTERNAL_BEARER — the
+// value the vault keeps under `app_service_role_key`, which is NOT the
+// service-role key, whatever the name says. The database has no user JWT,
+// so the function is deployed with `verify_jwt = false`
+// (supabase/config.toml) and the gate in ../_shared/auth.js is the only
+// check there is: POST only, the bearer in constant time, a body of 8 kB at
+// most, no CORS. Nothing below the gate runs for anyone else.
+//
+// This file is the adapter: it reads the environment and wires the gate to
+// the fan-out. What can be decided without Deno is decided in ../_shared/,
+// where vitest runs it; index.test.js runs this file too, with the two
+// imports below replaced.
 //
 // Body shape:
 //
@@ -34,13 +43,7 @@
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import webpush from 'npm:web-push@3.6.7';
-
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
+import { admitInternalRequest } from '../_shared/auth.js';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -51,39 +54,28 @@ const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 // value in vault (which pg_net sends) can drift from the env-injected
 // value. INTERNAL_BEARER is a dedicated secret we set via `supabase
 // secrets set` and store identically in vault, so the two sides always
-// agree no matter which key format the project uses.
-const INTERNAL_BEARER = Deno.env.get('INTERNAL_BEARER')!;
+// agree no matter which key format the project uses. Unset, the gate
+// refuses every call with a 500 and says why in the log.
+const INTERNAL_BEARER = Deno.env.get('INTERNAL_BEARER');
 const VAPID_PUBLIC = Deno.env.get('VAPID_PUBLIC_KEY')!;
 const VAPID_PRIVATE = Deno.env.get('VAPID_PRIVATE_KEY')!;
 const VAPID_SUBJECT = Deno.env.get('VAPID_SUBJECT') ?? 'mailto:admin@example.com';
 
 webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC, VAPID_PRIVATE);
 
-Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: CORS_HEADERS });
-  }
-  if (req.method !== 'POST') {
-    return new Response('Method not allowed', { status: 405, headers: CORS_HEADERS });
-  }
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-  // Internal-only: caller must present the shared INTERNAL_BEARER. The
+Deno.serve(async (req: Request) => {
+  // Internal-only: POST, the shared INTERNAL_BEARER, a small JSON body. The
   // DB trigger reads the matching value from vault and sends it; nobody
   // else should know this.
-  const auth = req.headers.get('Authorization') ?? '';
-  if (!INTERNAL_BEARER || auth !== `Bearer ${INTERNAL_BEARER}`) {
-    return new Response('Unauthorized', { status: 401, headers: CORS_HEADERS });
-  }
+  const admitted = await admitInternalRequest(req, { name: 'send-push', bearer: INTERNAL_BEARER });
+  if (admitted.response) return admitted.response;
 
-  let body: { user_id?: string; payload?: Record<string, unknown> };
-  try {
-    body = await req.json();
-  } catch {
-    return new Response('Bad request', { status: 400, headers: CORS_HEADERS });
-  }
-  const { user_id, payload } = body;
+  const { user_id, payload } = admitted.body as { user_id?: string; payload?: Record<string, unknown> };
   if (!user_id || !payload) {
-    return new Response('Missing user_id or payload', { status: 400, headers: CORS_HEADERS });
+    return new Response('send-push: missing user_id or payload', { status: 400 });
   }
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
@@ -93,18 +85,8 @@ Deno.serve(async (req: Request) => {
     .select('*')
     .eq('user_id', user_id);
 
-  if (subsErr) {
-    return new Response(JSON.stringify({ error: subsErr.message }), {
-      status: 500,
-      headers: { ...CORS_HEADERS, 'content-type': 'application/json' },
-    });
-  }
-  if (!subs || subs.length === 0) {
-    return new Response(JSON.stringify({ delivered: 0 }), {
-      status: 200,
-      headers: { ...CORS_HEADERS, 'content-type': 'application/json' },
-    });
-  }
+  if (subsErr) return json({ error: subsErr.message }, 500);
+  if (!subs || subs.length === 0) return json({ delivered: 0 });
 
   const bodyStr = JSON.stringify(payload);
   let delivered = 0;
@@ -132,8 +114,5 @@ Deno.serve(async (req: Request) => {
     }),
   );
 
-  return new Response(JSON.stringify({ delivered }), {
-    status: 200,
-    headers: { ...CORS_HEADERS, 'content-type': 'application/json' },
-  });
+  return json({ delivered });
 });
