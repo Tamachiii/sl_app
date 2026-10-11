@@ -1,5 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import {
+  LOGGED_SET_COLUMNS,
+  isProtectedSet,
+  onlyPendingSets,
+  loggedSetsError,
+} from '../lib/loggedSets';
 
 export function useSession(sessionId) {
   return useQuery({
@@ -10,9 +16,12 @@ export function useSession(sessionId) {
       // SessionView's `isReadOnly` derivation. Coach views ignore this flag.
       //
       // The embedded set_logs exist ONLY for the coach's SessionEditor /
-      // ExerciseSlotRow, which read the per-set targets from here. Every
-      // student and review surface renders from ['set-logs'] instead, so
-      // that — not this projection — is the source of truth for outcomes.
+      // ExerciseSlotRow, which read the per-set targets from here — and the
+      // logged flags (done / failed / skipped / rpe / actual_*), which is how
+      // the editor knows which sets the athlete has already trained and must
+      // therefore lock. Every student and review surface renders from
+      // ['set-logs'] instead, so that — not this projection — is the source
+      // of truth for outcomes.
       const { data, error } = await supabase
         .from('sessions')
         .select(`
@@ -21,7 +30,7 @@ export function useSession(sessionId) {
           exercise_slots(
             *,
             exercise:exercise_library(*),
-            set_logs(id, set_number, done, rpe, weight_kg, is_student_added, target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds)
+            set_logs(id, set_number, ${LOGGED_SET_COLUMNS}, is_student_added, target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds)
           )
         `)
         .eq('id', sessionId)
@@ -118,22 +127,58 @@ export function useAddSlot() {
   });
 }
 
-// Fan a uniform target change (reps/weight/rest/duration) out to every
-// set_log row for the slot. Used by useUpdateSlot below and by the coach UI
-// when in uniform mode. Returns the touched columns for caller awareness.
+// Every set_logs row of one slot, with what it takes to tell a set the athlete
+// has trained from one that is still only a prescription. The three paths that
+// DELETE rows (lowering the set count, removing one set, removing the
+// exercise) read this FIRST and refuse before their first write: a refusal
+// that comes after `exercise_slots.sets` was already lowered leaves a slot
+// whose count no longer matches its rows.
+//
+// `set_log_videos(id)` rides along because a video is the athlete's too, even
+// on a set they never ticked — the database guard refuses those rows as well.
+const SLOT_LOG_COLUMNS =
+  `id, set_number, is_student_added, ${LOGGED_SET_COLUMNS}, ` +
+  'target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds, ' +
+  'set_log_videos(id)';
+
+async function readSlotLogs(slotId) {
+  const { data, error } = await supabase
+    .from('set_logs')
+    .select(SLOT_LOG_COLUMNS)
+    .eq('exercise_slot_id', slotId)
+    .order('set_number');
+  if (error) throw error;
+  return data || [];
+}
+
+// The prescribed rows a lower set count would delete. Student-added extras are
+// never part of it (see reconcileSetLogCount).
+function rowsDroppedBy(logs, nextSets) {
+  return logs.filter((l) => !l.is_student_added && l.set_number > nextSets);
+}
+
+// Fan a uniform target change (reps/weight/rest/duration) out to the set_log
+// rows of the slot that are STILL PENDING. Used by useUpdateSlot below and by
+// the coach UI when in uniform mode.
+//
+// Pending only: a logged set's target is what the athlete was asked to do when
+// they did it, and every stat falls back to it (`actual ?? target`). Rewriting
+// it changes what the athlete "lifted" after the fact.
 async function fanOutTargetUpdate(slotId, slotUpdates) {
   const targetUpdate = {};
   for (const [slotKey, logKey] of Object.entries(TARGET_FIELDS)) {
     if (slotKey in slotUpdates) targetUpdate[logKey] = slotUpdates[slotKey];
   }
   if (Object.keys(targetUpdate).length === 0) return;
-  const { error } = await supabase
-    .from('set_logs')
-    .update(targetUpdate)
-    .eq('exercise_slot_id', slotId)
-    // Never stamp coach targets onto a student's extra set — those rows are
-    // deliberately NULL-target ("extra, beyond the prescription").
-    .eq('is_student_added', false);
+  const { error } = await onlyPendingSets(
+    supabase
+      .from('set_logs')
+      .update(targetUpdate)
+      .eq('exercise_slot_id', slotId)
+      // Never stamp coach targets onto a student's extra set — those rows are
+      // deliberately NULL-target ("extra, beyond the prescription").
+      .eq('is_student_added', false),
+  );
   if (error) throw error;
 }
 
@@ -145,13 +190,14 @@ async function fanOutTargetUpdate(slotId, slotUpdates) {
 // targets template, and renumbered to stay above the prescription when an
 // increase needs their positions (park-then-place, same pattern as
 // useRemoveSet — the offsets are far above any real set_number).
+//
+// Reads the rows itself, AFTER the target fan-out, so a new row templates from
+// the targets as that fan-out left them. useUpdateSlot has already refused a
+// decrease over a logged set before writing anything; the check is repeated
+// here on the fresh rows because the athlete can log a set between the two
+// reads, and the delete below is the write that would lose it.
 async function reconcileSetLogCount(slotId, nextSets) {
-  const { data: existing, error: exErr } = await supabase
-    .from('set_logs')
-    .select('id, set_number, is_student_added, target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds')
-    .eq('exercise_slot_id', slotId)
-    .order('set_number');
-  if (exErr) throw exErr;
+  const existing = await readSlotLogs(slotId);
 
   const prescribed = existing.filter((l) => !l.is_student_added);
   const studentAdded = existing.filter((l) => l.is_student_added);
@@ -176,7 +222,9 @@ async function reconcileSetLogCount(slotId, nextSets) {
   };
 
   if (nextSets < currentCount) {
-    const drop = prescribed.filter((l) => l.set_number > nextSets).map((l) => l.id);
+    const dropped = rowsDroppedBy(existing, nextSets);
+    if (dropped.some(isProtectedSet)) throw loggedSetsError();
+    const drop = dropped.map((l) => l.id);
     if (drop.length > 0) {
       const { error } = await supabase.from('set_logs').delete().in('id', drop);
       if (error) throw error;
@@ -231,6 +279,15 @@ export function useUpdateSlot() {
           slotUpdate[k] = v;
         }
       }
+      // A lower set count deletes the rows above it. Look at them BEFORE the
+      // first write: `sets` is written ahead of the delete, so a refusal that
+      // came later would leave the slot saying 3 sets over 5 rows.
+      if ('sets' in slotUpdate) {
+        const logs = await readSlotLogs(id);
+        if (rowsDroppedBy(logs, slotUpdate.sets).some(isProtectedSet)) {
+          throw loggedSetsError();
+        }
+      }
       let data = null;
       if (Object.keys(slotUpdate).length > 0) {
         const res = await supabase
@@ -260,6 +317,12 @@ export function useUpdateSlot() {
 
 // Per-set target update — writes only to the chosen set_log row, not the
 // slot. Used when the coach is in "Customize sets" mode.
+//
+// The row is written only while it is still pending. The editor renders a
+// logged set read-only, so this is reached for one only when the athlete
+// logged it after the editor loaded: the write then matches no row, and the
+// refetch below shows the set as locked. No error on purpose — the database
+// makes the same choice (it keeps a logged row's targets without raising).
 export function useUpdateSetTarget() {
   const qc = useQueryClient();
 
@@ -270,10 +333,12 @@ export function useUpdateSetTarget() {
         if (slotKey in updates) payload[logKey] = updates[slotKey];
       }
       if (Object.keys(payload).length === 0) return { sessionId };
-      const { error } = await supabase
-        .from('set_logs')
-        .update(payload)
-        .eq('id', logId);
+      const { error } = await onlyPendingSets(
+        supabase
+          .from('set_logs')
+          .update(payload)
+          .eq('id', logId),
+      );
       if (error) throw error;
       return { sessionId };
     },
@@ -289,7 +354,9 @@ export function useUpdateSetTarget() {
 // the UNIQUE(exercise_slot_id, set_number) constraint, prunes
 // record_video_set_numbers (drop the removed N, decrement anything above
 // it), then decrements exercise_slots.sets. Refuses to remove the last
-// remaining set since exercise_slots.sets has CHECK (sets > 0).
+// remaining set since exercise_slots.sets has CHECK (sets > 0), and refuses a
+// set the athlete has logged (or filmed) — read before the delete, which is
+// this mutation's first write, so a refusal changes nothing.
 export function useRemoveSet() {
   const qc = useQueryClient();
 
@@ -303,6 +370,10 @@ export function useRemoveSet() {
       if (sErr) throw sErr;
       if (slot.sets <= 1) throw new Error('Cannot remove the last set.');
 
+      const logs = await readSlotLogs(slotId);
+      const target = logs.find((l) => l.set_number === setNumber);
+      if (target && isProtectedSet(target)) throw loggedSetsError();
+
       const { error: dErr } = await supabase
         .from('set_logs')
         .delete()
@@ -310,13 +381,9 @@ export function useRemoveSet() {
         .eq('set_number', setNumber);
       if (dErr) throw dErr;
 
-      const { data: above, error: aErr } = await supabase
-        .from('set_logs')
-        .select('id, set_number')
-        .eq('exercise_slot_id', slotId)
-        .gt('set_number', setNumber)
-        .order('set_number');
-      if (aErr) throw aErr;
+      // The rows to renumber come from the read above — it is the same list a
+      // second query would return, minus the row just deleted.
+      const above = logs.filter((l) => l.set_number > setNumber);
 
       // Pass 1: park into a high range.
       await Promise.all(
@@ -362,8 +429,10 @@ export function useRemoveSet() {
   });
 }
 
-// Reset every set_log row's targets to match set 1's. Used by the coach
-// "back to uniform" action, since a uniform compact view requires uniformity.
+// Reset every PENDING set_log row's targets to match set 1's. Used by the
+// coach "back to uniform" action, since a uniform compact view requires
+// uniformity. A logged set keeps the targets it was trained against, for the
+// same reason fanOutTargetUpdate leaves it alone.
 export function useResetSlotToUniform() {
   const qc = useQueryClient();
 
@@ -385,11 +454,13 @@ export function useResetSlotToUniform() {
         target_weight_kg: head.target_weight_kg,
         target_rest_seconds: head.target_rest_seconds,
       };
-      const { error } = await supabase
-        .from('set_logs')
-        .update(payload)
-        .eq('exercise_slot_id', slotId)
-        .eq('is_student_added', false);
+      const { error } = await onlyPendingSets(
+        supabase
+          .from('set_logs')
+          .update(payload)
+          .eq('exercise_slot_id', slotId)
+          .eq('is_student_added', false),
+      );
       if (error) throw error;
       // Mirror to deprecated slot columns so legacy reads stay consistent.
       const slotMirror = {
@@ -439,11 +510,18 @@ export function useMarkSessionReviewed() {
   });
 }
 
+// Removing an exercise cascades to its set_logs — and through them to the
+// athlete's comments, deviations and video rows. So it is refused as soon as
+// ONE of its sets is logged or filmed; a slot that only carries a comment or a
+// deviation can still be removed (an explicit coach decision, see P3).
 export function useDeleteSlot() {
   const qc = useQueryClient();
 
   return useMutation({
     mutationFn: async ({ id, sessionId }) => {
+      const logs = await readSlotLogs(id);
+      if (logs.some(isProtectedSet)) throw loggedSetsError();
+
       const { error } = await supabase
         .from('exercise_slots')
         .delete()

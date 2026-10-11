@@ -15,6 +15,7 @@ import {
   useMarkSessionReviewed,
 } from './useSession';
 import { supabase } from '../lib/supabase';
+import { mutationErrorKey } from '../lib/mutationErrors';
 
 function makeClient() {
   return new QueryClient({
@@ -32,6 +33,64 @@ function withClient(qc) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+// Hand supabase.from() its chains in call order.
+function sequence(...chains) {
+  let i = 0;
+  supabase.from.mockImplementation(() => chains[i++]);
+}
+
+// The "every set_logs row of this slot" read the delete paths start with.
+function logsRead(rows) {
+  return {
+    select: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    order: vi.fn().mockResolvedValue({ data: rows, error: null }),
+  };
+}
+
+function slotUpdateChain() {
+  return {
+    update: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    select: vi.fn().mockReturnThis(),
+    single: vi.fn().mockResolvedValue({ data: { id: 'sl-1' }, error: null }),
+  };
+}
+
+// An UPDATE on set_logs narrowed to pending rows: .eq()/.is() all chain, and
+// awaiting the (non-thenable) chain resolves to it, `error` undefined.
+function pendingUpdateChain() {
+  return {
+    update: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    is: vi.fn().mockReturnThis(),
+  };
+}
+
+// The six filters that keep a write off a set the athlete has logged.
+function expectPendingOnly(chain) {
+  expect(chain.eq).toHaveBeenCalledWith('done', false);
+  expect(chain.eq).toHaveBeenCalledWith('failed', false);
+  expect(chain.eq).toHaveBeenCalledWith('skipped', false);
+  expect(chain.is).toHaveBeenCalledWith('rpe', null);
+  expect(chain.is).toHaveBeenCalledWith('actual_reps', null);
+  expect(chain.is).toHaveBeenCalledWith('actual_weight_kg', null);
+}
+
+const pending = (id, n, extra = {}) => ({
+  id,
+  set_number: n,
+  is_student_added: false,
+  done: false,
+  failed: false,
+  skipped: false,
+  rpe: null,
+  actual_reps: null,
+  actual_weight_kg: null,
+  set_log_videos: null,
+  ...extra,
 });
 
 describe('useSession', () => {
@@ -73,6 +132,32 @@ describe('useSession', () => {
     expect(data.weeks).toBeUndefined();
     expect(data.exercise_slots.map((s) => s.id)).toEqual(['sl-1', 'sl-2']);
     expect(data.exercise_slots[1].set_logs.map((l) => l.id)).toEqual(['l-2a', 'l-2b']);
+  });
+
+  // The editor locks a set from these flags, so a column missing here is a
+  // logged set rendered as editable. `weight_kg` is the dead pre-target column:
+  // nothing reads it from this projection.
+  it('selects the logged flags of every set, and not the dead weight_kg column', async () => {
+    const chain = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: { id: 's-1', weeks: { programs: { is_active: true } }, exercise_slots: [] },
+        error: null,
+      }),
+    };
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useSession('s-1'), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const embed = chain.select.mock.calls[0][0].match(/set_logs\(([^)]*)\)/)[1];
+    const columns = embed.split(',').map((c) => c.trim());
+    for (const col of ['done', 'failed', 'skipped', 'rpe', 'actual_reps', 'actual_weight_kg']) {
+      expect(columns).toContain(col);
+    }
+    expect(columns).not.toContain('weight_kg');
   });
 });
 
@@ -153,12 +238,7 @@ describe('useAddSlot', () => {
 
 describe('useUpdateSlot', () => {
   it('writes a slot-direct field (notes) only to exercise_slots, not set_logs', async () => {
-    const updateChain = {
-      update: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: { id: 'sl-1' }, error: null }),
-    };
+    const updateChain = slotUpdateChain();
     supabase.from.mockReturnValue(updateChain);
 
     const qc = makeClient();
@@ -169,21 +249,10 @@ describe('useUpdateSlot', () => {
     expect(updateChain.update).toHaveBeenCalledWith({ notes: 'paused' });
   });
 
-  it('fans a target update (reps) to both exercise_slots AND set_logs', async () => {
-    const slotUpdate = {
-      update: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: { id: 'sl-1' }, error: null }),
-    };
-    const logsUpdate = {
-      update: vi.fn().mockReturnThis(),
-      // Two chained .eq() calls (slot id + is_student_added guard); awaiting
-      // the non-thenable chain object resolves to it, with `error` undefined.
-      eq: vi.fn().mockReturnThis(),
-    };
-    let call = 0;
-    supabase.from.mockImplementation(() => (call++ === 0 ? slotUpdate : logsUpdate));
+  it('fans a target update (reps) to exercise_slots AND to the PENDING set_logs only', async () => {
+    const slotUpdate = slotUpdateChain();
+    const logsUpdate = pendingUpdateChain();
+    sequence(slotUpdate, logsUpdate);
 
     const qc = makeClient();
     const { result } = renderHook(() => useUpdateSlot(), { wrapper: withClient(qc) });
@@ -194,37 +263,21 @@ describe('useUpdateSlot', () => {
     expect(logsUpdate.update).toHaveBeenCalledWith({ target_reps: 12 });
     expect(logsUpdate.eq).toHaveBeenCalledWith('exercise_slot_id', 'sl-1');
     expect(logsUpdate.eq).toHaveBeenCalledWith('is_student_added', false);
+    // A logged set's target is what the athlete was asked to do when they did
+    // it — and what every stat falls back to. It is never part of the fan-out.
+    expectPendingOnly(logsUpdate);
   });
 
   it('reconciles set_log count when sets is reduced', async () => {
-    // Update slot
-    const slotUpdate = {
-      update: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: { id: 'sl-1' }, error: null }),
-    };
-    // Reconcile: select existing logs
-    const existingLogs = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockResolvedValue({
-        data: [
-          { id: 'l-1', set_number: 1 },
-          { id: 'l-2', set_number: 2 },
-          { id: 'l-3', set_number: 3 },
-        ],
-        error: null,
-      }),
-    };
-    // Delete the orphans
+    const rows = [pending('l-1', 1), pending('l-2', 2), pending('l-3', 3)];
+    const precheck = logsRead(rows);
+    const slotUpdate = slotUpdateChain();
+    const existingLogs = logsRead(rows);
     const deleteLogs = {
       delete: vi.fn().mockReturnThis(),
       in: vi.fn().mockResolvedValue({ error: null }),
     };
-    const seq = [slotUpdate, existingLogs, deleteLogs];
-    let i = 0;
-    supabase.from.mockImplementation(() => seq[i++]);
+    sequence(precheck, slotUpdate, existingLogs, deleteLogs);
 
     const qc = makeClient();
     const { result } = renderHook(() => useUpdateSlot(), { wrapper: withClient(qc) });
@@ -233,44 +286,101 @@ describe('useUpdateSlot', () => {
     expect(deleteLogs.in).toHaveBeenCalledWith('id', ['l-3']);
   });
 
+  // The whole point of the pre-read: `sets` is written BEFORE the rows are
+  // deleted, so a refusal that came after it would leave "3 sets" over 5 rows.
+  it('refuses to lower sets over a logged set — before writing anything', async () => {
+    const precheck = logsRead([
+      pending('l-1', 1, { done: true }),
+      pending('l-2', 2, { done: true }),
+      pending('l-3', 3),
+      pending('l-4', 4, { done: true, rpe: 8 }),
+      pending('l-5', 5),
+    ]);
+    sequence(precheck);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useUpdateSlot(), { wrapper: withClient(qc) });
+    result.current.mutate({ id: 'sl-1', sessionId: 's-1', sets: 3 });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(mutationErrorKey(result.current.error)).toBe('errors.hasLoggedTraining');
+    // One call, and it was the read: no slot update, no delete.
+    expect(supabase.from).toHaveBeenCalledTimes(1);
+    expect(supabase.from).toHaveBeenCalledWith('set_logs');
+    expect(precheck.select.mock.calls[0][0]).toContain('actual_weight_kg');
+  });
+
+  it.each([
+    ['failed', { failed: true }],
+    ['skipped', { skipped: true }],
+    ['rated but not ticked', { rpe: 7 }],
+    ['logged off-plan reps', { actual_reps: 4 }],
+    ['logged off-plan weight', { actual_weight_kg: 60 }],
+    ['filmed but not ticked', { set_log_videos: { id: 'v-1' } }],
+  ])('refuses to lower sets over a set that is %s', async (_label, patch) => {
+    sequence(logsRead([pending('l-1', 1), pending('l-2', 2, patch)]));
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useUpdateSlot(), { wrapper: withClient(qc) });
+    result.current.mutate({ id: 'sl-1', sessionId: 's-1', sets: 1 });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(mutationErrorKey(result.current.error)).toBe('errors.hasLoggedTraining');
+    expect(supabase.from).toHaveBeenCalledTimes(1);
+  });
+
+  // Logged sets BELOW the new count are not touched by the decrease, so they
+  // must not block it: 2 done + 2 pending, down to 2, is ordinary tidying.
+  it('still lowers sets when every logged set survives the new count', async () => {
+    const rows = [
+      pending('l-1', 1, { done: true, rpe: 8 }),
+      pending('l-2', 2, { done: true }),
+      pending('l-3', 3),
+      pending('l-4', 4),
+    ];
+    const deleteLogs = {
+      delete: vi.fn().mockReturnThis(),
+      in: vi.fn().mockResolvedValue({ error: null }),
+    };
+    sequence(logsRead(rows), slotUpdateChain(), logsRead(rows), deleteLogs);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useUpdateSlot(), { wrapper: withClient(qc) });
+    result.current.mutate({ id: 'sl-1', sessionId: 's-1', sets: 2 });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(deleteLogs.in).toHaveBeenCalledWith('id', ['l-3', 'l-4']);
+  });
+
+  // The athlete can tick a set between the pre-read and the delete. The rows
+  // are read again right before the delete, and that read wins.
+  it('re-checks on the fresh rows and never deletes a set logged in between', async () => {
+    const deleteLogs = {
+      delete: vi.fn().mockReturnThis(),
+      in: vi.fn().mockResolvedValue({ error: null }),
+    };
+    sequence(
+      logsRead([pending('l-1', 1), pending('l-2', 2)]),
+      slotUpdateChain(),
+      logsRead([pending('l-1', 1), pending('l-2', 2, { done: true })]),
+      deleteLogs,
+    );
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useUpdateSlot(), { wrapper: withClient(qc) });
+    result.current.mutate({ id: 'sl-1', sessionId: 's-1', sets: 1 });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(mutationErrorKey(result.current.error)).toBe('errors.hasLoggedTraining');
+    expect(deleteLogs.delete).not.toHaveBeenCalled();
+  });
+
   it('reconciles set_log count when sets is increased — duplicates the last log targets', async () => {
-    const slotUpdate = {
-      update: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: { id: 'sl-1' }, error: null }),
-    };
-    const existingLogs = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockResolvedValue({
-        data: [
-          {
-            id: 'l-1',
-            set_number: 1,
-            target_reps: 5,
-            target_duration_seconds: null,
-            target_weight_kg: 100,
-            target_rest_seconds: 60,
-          },
-          {
-            id: 'l-2',
-            set_number: 2,
-            target_reps: 5,
-            target_duration_seconds: null,
-            target_weight_kg: 100,
-            target_rest_seconds: 60,
-          },
-        ],
-        error: null,
-      }),
-    };
+    const rows = [
+      pending('l-1', 1, { target_reps: 5, target_duration_seconds: null, target_weight_kg: 100, target_rest_seconds: 60 }),
+      pending('l-2', 2, { target_reps: 5, target_duration_seconds: null, target_weight_kg: 100, target_rest_seconds: 60 }),
+    ];
     const insertLogs = {
       insert: vi.fn().mockResolvedValue({ error: null }),
     };
-    const seq = [slotUpdate, existingLogs, insertLogs];
-    let i = 0;
-    supabase.from.mockImplementation(() => seq[i++]);
+    sequence(logsRead(rows), slotUpdateChain(), logsRead(rows), insertLogs);
 
     const qc = makeClient();
     const { result } = renderHook(() => useUpdateSlot(), { wrapper: withClient(qc) });
@@ -287,28 +397,36 @@ describe('useUpdateSlot', () => {
     });
   });
 
+  // Adding a set to an exercise the athlete has already started is the
+  // everyday case the lock must not get in the way of.
+  it('adds a set after logged ones without touching them', async () => {
+    const rows = [
+      pending('l-1', 1, { done: true, target_reps: 5, target_weight_kg: 100 }),
+      pending('l-2', 2, { done: true, target_reps: 5, target_weight_kg: 100 }),
+    ];
+    const insertLogs = { insert: vi.fn().mockResolvedValue({ error: null }) };
+    sequence(logsRead(rows), slotUpdateChain(), logsRead(rows), insertLogs);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useUpdateSlot(), { wrapper: withClient(qc) });
+    result.current.mutate({ id: 'sl-1', sessionId: 's-1', sets: 3 });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const inserted = insertLogs.insert.mock.calls[0][0];
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]).toMatchObject({ set_number: 3, done: false, target_reps: 5, target_weight_kg: 100 });
+  });
+
   it('reduce never deletes student-added extra sets (they are not prescription)', async () => {
-    const slotUpdate = {
-      update: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: { id: 'sl-1' }, error: null }),
-    };
-    const existingLogs = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockResolvedValue({
-        data: [
-          { id: 'l-1', set_number: 1, is_student_added: false },
-          { id: 'l-2', set_number: 2, is_student_added: false },
-          { id: 'l-3', set_number: 3, is_student_added: false },
-          // The student's logged extra set sits at the top of the shared
-          // set_number space — it must survive a coach sets-decrease.
-          { id: 'l-extra', set_number: 4, is_student_added: true },
-        ],
-        error: null,
-      }),
-    };
+    const rows = [
+      pending('l-1', 1),
+      pending('l-2', 2),
+      pending('l-3', 3),
+      // The student's logged extra set sits at the top of the shared
+      // set_number space — it must survive a coach sets-decrease, and being
+      // logged it must not block one either: it is not among the rows dropped.
+      pending('l-extra', 4, { is_student_added: true, done: true }),
+    ];
     const deleteLogs = {
       delete: vi.fn().mockReturnThis(),
       in: vi.fn().mockResolvedValue({ error: null }),
@@ -323,9 +441,7 @@ describe('useUpdateSlot', () => {
       update: vi.fn().mockReturnThis(),
       eq: vi.fn().mockResolvedValue({ error: null }),
     };
-    const seq = [slotUpdate, existingLogs, deleteLogs, parkChain, placeChain];
-    let i = 0;
-    supabase.from.mockImplementation(() => seq[i++]);
+    sequence(logsRead(rows), slotUpdateChain(), logsRead(rows), deleteLogs, parkChain, placeChain);
 
     const qc = makeClient();
     const { result } = renderHook(() => useUpdateSlot(), { wrapper: withClient(qc) });
@@ -338,26 +454,13 @@ describe('useUpdateSlot', () => {
   });
 
   it('increase parks student-added sets, inserts from the last PRESCRIBED template, and re-homes the extras', async () => {
-    const slotUpdate = {
-      update: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: { id: 'sl-1' }, error: null }),
-    };
-    const existingLogs = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockResolvedValue({
-        data: [
-          { id: 'l-1', set_number: 1, is_student_added: false, target_reps: 5, target_duration_seconds: null, target_weight_kg: 100, target_rest_seconds: 60 },
-          { id: 'l-2', set_number: 2, is_student_added: false, target_reps: 5, target_duration_seconds: null, target_weight_kg: 100, target_rest_seconds: 60 },
-          // NULL-target student extra at set 3 — before the fix, an increase
-          // to 3 no-oped (count matched) or templated NULL targets from it.
-          { id: 'l-extra', set_number: 3, is_student_added: true, target_reps: null, target_duration_seconds: null, target_weight_kg: null, target_rest_seconds: null },
-        ],
-        error: null,
-      }),
-    };
+    const rows = [
+      pending('l-1', 1, { target_reps: 5, target_duration_seconds: null, target_weight_kg: 100, target_rest_seconds: 60 }),
+      pending('l-2', 2, { target_reps: 5, target_duration_seconds: null, target_weight_kg: 100, target_rest_seconds: 60 }),
+      // NULL-target student extra at set 3 — before the fix, an increase
+      // to 3 no-oped (count matched) or templated NULL targets from it.
+      pending('l-extra', 3, { is_student_added: true, target_reps: null, target_duration_seconds: null, target_weight_kg: null, target_rest_seconds: null }),
+    ];
     const parkChain = {
       update: vi.fn().mockReturnThis(),
       eq: vi.fn().mockResolvedValue({ error: null }),
@@ -369,9 +472,7 @@ describe('useUpdateSlot', () => {
       update: vi.fn().mockReturnThis(),
       eq: vi.fn().mockResolvedValue({ error: null }),
     };
-    const seq = [slotUpdate, existingLogs, parkChain, insertLogs, placeChain];
-    let i = 0;
-    supabase.from.mockImplementation(() => seq[i++]);
+    sequence(logsRead(rows), slotUpdateChain(), logsRead(rows), parkChain, insertLogs, placeChain);
 
     const qc = makeClient();
     const { result } = renderHook(() => useUpdateSlot(), { wrapper: withClient(qc) });
@@ -392,11 +493,8 @@ describe('useUpdateSlot', () => {
 });
 
 describe('useUpdateSetTarget', () => {
-  it('writes only the target_* columns to a single set_log row', async () => {
-    const chain = {
-      update: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({ error: null }),
-    };
+  it('writes only the target_* columns to a single set_log row — and only while it is pending', async () => {
+    const chain = pendingUpdateChain();
     supabase.from.mockReturnValue(chain);
 
     const qc = makeClient();
@@ -413,20 +511,21 @@ describe('useUpdateSetTarget', () => {
       target_weight_kg: 80,
     });
     expect(chain.eq).toHaveBeenCalledWith('id', 'l-1');
+    // The editor shows a logged set read-only; this is what holds when the
+    // athlete logs it after the editor loaded.
+    expectPendingOnly(chain);
   });
 });
 
 describe('useRemoveSet', () => {
+  const slotRead = (slot) => ({
+    select: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    single: vi.fn().mockResolvedValue({ data: slot, error: null }),
+  });
+
   it('refuses to remove the last remaining set', async () => {
-    const slotChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: { sets: 1, record_video_set_numbers: [] },
-        error: null,
-      }),
-    };
-    supabase.from.mockReturnValue(slotChain);
+    supabase.from.mockReturnValue(slotRead({ sets: 1, record_video_set_numbers: [] }));
 
     const qc = makeClient();
     const { result } = renderHook(() => useRemoveSet(), { wrapper: withClient(qc) });
@@ -435,40 +534,49 @@ describe('useRemoveSet', () => {
     expect(result.current.error.message).toMatch(/last set/i);
   });
 
+  it.each([
+    ['done', { done: true }],
+    ['failed', { failed: true }],
+    ['skipped', { skipped: true }],
+    ['filmed', { set_log_videos: [{ id: 'v-1' }] }],
+  ])('refuses to remove a %s set, and deletes nothing', async (_label, patch) => {
+    const delLog = { delete: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis() };
+    sequence(
+      slotRead({ sets: 3, record_video_set_numbers: [] }),
+      logsRead([pending('l-1', 1), pending('l-2', 2, patch), pending('l-3', 3)]),
+      delLog,
+    );
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useRemoveSet(), { wrapper: withClient(qc) });
+    result.current.mutate({ slotId: 'sl-1', setNumber: 2, sessionId: 's-1' });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(mutationErrorKey(result.current.error)).toBe('errors.hasLoggedTraining');
+    expect(delLog.delete).not.toHaveBeenCalled();
+    expect(supabase.from).toHaveBeenCalledTimes(2);
+  });
+
   it('renumbers logs above the removed one and prunes record_video_set_numbers', async () => {
     // 1: fetch slot
-    const slotFetch = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: { sets: 4, record_video_set_numbers: [1, 3, 4] },
-        error: null,
-      }),
-    };
-    // 2: delete log set_number=2
+    const slotFetch = slotRead({ sets: 4, record_video_set_numbers: [1, 3, 4] });
+    // 2: every row of the slot — the logged check AND the list to renumber.
+    // Set 1 is done: removing the pending set 2 beside it is still allowed.
+    const allLogs = logsRead([
+      pending('l-1', 1, { done: true }),
+      pending('l-2', 2),
+      pending('l-3', 3),
+      pending('l-4', 4),
+    ]);
+    // 3: delete log set_number=2
     const delLog = {
       delete: vi.fn().mockReturnThis(),
-      eq: vi.fn(function (col, val) {
-        this._calls = (this._calls || []);
-        this._calls.push({ col, val });
+      eq: vi.fn(function (col) {
         // Only the second .eq() resolves the chain.
         if (col === 'set_number') {
           return Promise.resolve({ error: null });
         }
         return this;
-      }),
-    };
-    // 3: select logs above set_number=2
-    const aboveLogs = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      gt: vi.fn().mockReturnThis(),
-      order: vi.fn().mockResolvedValue({
-        data: [
-          { id: 'l-3', set_number: 3 },
-          { id: 'l-4', set_number: 4 },
-        ],
-        error: null,
       }),
     };
     // 4: park each into the high range, then 5: drop down by 1
@@ -485,7 +593,6 @@ describe('useRemoveSet', () => {
         }),
       };
     }
-    // The renumber and drop calls each fan-out for the 2 logs (4 update chains total).
     // 6: final exercise_slots update
     const finalUpdate = {
       update: vi.fn().mockReturnThis(),
@@ -496,8 +603,9 @@ describe('useRemoveSet', () => {
     supabase.from.mockImplementation(() => {
       const idx = call++;
       if (idx === 0) return slotFetch;
-      if (idx === 1) return delLog;
-      if (idx === 2) return aboveLogs;
+      if (idx === 1) return allLogs;
+      if (idx === 2) return delLog;
+      // The park and the place each fan out over the 2 logs above (4 chains).
       if (idx >= 3 && idx <= 6) return makeUpdateChain();
       return finalUpdate;
     });
@@ -507,17 +615,18 @@ describe('useRemoveSet', () => {
     result.current.mutate({ slotId: 'sl-1', setNumber: 2, sessionId: 's-1' });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    // 4 update operations (2 park + 2 drop) = 4 entries, each with one .eq() call.
+    expect(delLog.eq).toHaveBeenCalledWith('exercise_slot_id', 'sl-1');
+    expect(delLog.eq).toHaveBeenCalledWith('set_number', 2);
+    // 2 park + 2 place, one .eq() each — and only for the rows ABOVE set 2.
     expect(parkUpdates.length).toBe(4);
-    // The pass-1 payloads should be parked at set_number + 100000.
+    expect(parkUpdates.map((u) => u.where.id).sort()).toEqual(['l-3', 'l-3', 'l-4', 'l-4']);
+    // Pass 1 parks at set_number + 100000…
     const pass1 = parkUpdates.slice(0, 2).map((c) => c.payload.set_number);
     expect(pass1).toContain(100003);
     expect(pass1).toContain(100004);
-    // The pass-2 payloads should be set_number - 1 (which renumbers the parked rows
-    // back down to 2 and 3 — but the implementation reads `row.set_number - 1` from
-    // the parked numbers, so 100003-1=100002 and 100004-1=100003. The drop-down to
-    // contiguous 2/3 actually relies on Promise.all reading `row.set_number` from
-    // the original list captured before the park, so the operation completes correctly).
+    // …pass 2 places each one position down, from the ORIGINAL numbers.
+    const pass2 = parkUpdates.slice(2).map((c) => c.payload.set_number);
+    expect(pass2.sort()).toEqual([2, 3]);
     // Final exercise_slots update: sets decremented and video numbers pruned.
     const finalPayload = finalUpdate.update.mock.calls[0][0];
     expect(finalPayload.sets).toBe(3);
@@ -526,7 +635,7 @@ describe('useRemoveSet', () => {
 });
 
 describe('useResetSlotToUniform', () => {
-  it('copies log-1 targets to every other log AND mirrors to the slot', async () => {
+  it('copies log-1 targets to every other PENDING log AND mirrors to the slot', async () => {
     const fetchLogs = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
@@ -545,18 +654,12 @@ describe('useResetSlotToUniform', () => {
         error: null,
       }),
     };
-    const updateLogs = {
-      update: vi.fn().mockReturnThis(),
-      // Chained .eq().eq() (slot id + is_student_added guard).
-      eq: vi.fn().mockReturnThis(),
-    };
+    const updateLogs = pendingUpdateChain();
     const updateSlot = {
       update: vi.fn().mockReturnThis(),
       eq: vi.fn().mockResolvedValue({ error: null }),
     };
-    const seq = [fetchLogs, updateLogs, updateSlot];
-    let i = 0;
-    supabase.from.mockImplementation(() => seq[i++]);
+    sequence(fetchLogs, updateLogs, updateSlot);
 
     const qc = makeClient();
     const { result } = renderHook(() => useResetSlotToUniform(), { wrapper: withClient(qc) });
@@ -569,6 +672,11 @@ describe('useResetSlotToUniform', () => {
       target_weight_kg: 90,
       target_rest_seconds: 90,
     });
+    expect(updateLogs.eq).toHaveBeenCalledWith('exercise_slot_id', 'sl-1');
+    expect(updateLogs.eq).toHaveBeenCalledWith('is_student_added', false);
+    // "Uniform" is about the sets still to do; one already trained keeps the
+    // targets it was trained against.
+    expectPendingOnly(updateLogs);
     expect(updateSlot.update).toHaveBeenCalledWith({
       reps: 6,
       duration_seconds: null,
@@ -600,7 +708,7 @@ describe('useDeleteSlot', () => {
       delete: vi.fn().mockReturnThis(),
       eq: vi.fn().mockResolvedValue({ error: null }),
     };
-    supabase.from.mockReturnValue(chain);
+    sequence(logsRead([pending('l-1', 1), pending('l-2', 2)]), chain);
 
     const qc = makeClient();
     const invalidate = vi.spyOn(qc, 'invalidateQueries');
@@ -611,6 +719,31 @@ describe('useDeleteSlot', () => {
     expect(chain.eq).toHaveBeenCalledWith('id', 'sl-1');
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['session', 's-1'] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['week'] });
+  });
+
+  // The delete cascades to set_logs, and through them to the athlete's video
+  // rows, comments and deviations. One logged set is enough to refuse.
+  it.each([
+    ['a done set', { done: true }],
+    ['a skipped set', { skipped: true }],
+    ['a filmed set', { set_log_videos: { id: 'v-1' } }],
+    ['a logged extra set', { is_student_added: true, done: true }],
+  ])('refuses to remove an exercise that has %s, and deletes nothing', async (_label, patch) => {
+    const chain = {
+      delete: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ error: null }),
+    };
+    const read = logsRead([pending('l-1', 1), pending('l-2', 2, patch)]);
+    sequence(read, chain);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useDeleteSlot(), { wrapper: withClient(qc) });
+    result.current.mutate({ id: 'sl-1', sessionId: 's-1' });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(mutationErrorKey(result.current.error)).toBe('errors.hasLoggedTraining');
+    expect(read.eq).toHaveBeenCalledWith('exercise_slot_id', 'sl-1');
+    expect(chain.delete).not.toHaveBeenCalled();
   });
 });
 
