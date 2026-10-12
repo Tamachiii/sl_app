@@ -301,17 +301,21 @@ describe('session_writable: is this session open for its athlete', () => {
     expect(await both()).toEqual({ session: true, program: false });
   }));
 
-  it('answers the same whoever asks — and session_writable itself is not for a signed-in user', () => scenario(async () => {
+  // session_writable(session) was closed to a signed-in user by migration 08:
+  // no policy asked it. Since migration 09 the UPDATE and DELETE policies of
+  // session_confirmations do (review-lifecycle.test.js).
+  it('answers the same whoever asks, by slot and by session — and nothing to a request without a session', () => scenario(async () => {
     const s = session(0);
     await archive(s.id);
     for (const who of [ids.studentA, ids.studentB, ids.coach, una]) {
       expect(await asUser(who, (user) => user.value(`select public.session_writable_for_slot($1)`, [s.pullUp.id]))).toBe(false);
       expect(await asUser(who, (user) => user.value(`select public.session_writable_for_slot($1)`, [session(1).pullUp.id]))).toBe(true);
-      const direct = await attempt(() => asUser(who, (user) => user.value(`select public.session_writable($1)`, [s.id])));
-      expect(direct.error?.message).toBe('permission denied for function session_writable');
+      expect(await asUser(who, (user) => user.value(`select public.session_writable($1)`, [s.id]))).toBe(false);
+      expect(await asUser(who, (user) => user.value(`select public.session_writable($1)`, [session(1).id]))).toBe(true);
     }
     expect(await asService((service) => service.value(`select public.session_writable($1)`, [s.id]))).toBe(false);
     for (const call of [
+      `select public.session_writable('${s.id}')`,
       `select public.session_writable_for_slot('${s.pullUp.id}')`,
       `select public.slot_for_set_log('${s.pullUp.setLogs[0]}')`,
       `select public.set_video_slot('a/b/c')`,
@@ -439,14 +443,18 @@ describe('a session the coach reviewed or archived is read-only for its athlete'
       await confirmAsAthlete(t.id);
       expect((await finishWithoutFeedback(t.id)).rowCount).toBe(1);
     },
-    // The coach app that is deployed offers the review of a session its
-    // athlete has not confirmed — reached from the notification of a swap,
-    // while the athlete is still training. The athlete app goes by the
-    // confirmation: it lists that session as still to do and opens it
-    // unlocked, so here the database is the only lock there is. Line 13 of the
-    // migration's audit counts these sessions (last block of this file).
+    // The coach app that was deployed with this migration offered the review
+    // of a session its athlete had not confirmed — reached from the
+    // notification of a swap, while the athlete was still training. The
+    // athlete app went by the confirmation: it listed that session as still
+    // to do and opened it unlocked, so there the database was the only lock.
+    // Line 13 of the migration's audit counts these sessions (last block of
+    // this file). Since migration 09 a coach can no longer make one; the ones
+    // from before are still there, and here one is left the way they were:
+    // a review without a confirmation, stamped by the owner.
     'reviewed before the athlete confirmed it': async (t) => {
-      expect((await finishWithoutFeedback(t.id)).rowCount).toBe(1);
+      expect((await finishWithoutFeedback(t.id).catch((error) => error)).code).toBe('42501');
+      expect((await asAdmin((owner) => owner(`update sessions set reviewed_at = now() where id = $1`, [t.id]))).rowCount).toBe(1);
     },
     'archived': (t) => archive(t.id),
     'reviewed and archived': async (t) => {

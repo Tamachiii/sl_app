@@ -65,7 +65,7 @@ messages               6     select                   0       3          2      
                              insert (from athlete A)  denied  yes        rls        rls          rls          yes
                              insert (to athlete A)    denied  rls        rls        yes          rls          yes
                              insert (feedback)        denied  rls        rls        yes          rls          yes
-                             insert (feedback early)  denied  rls        rls        yes          rls          yes
+                             insert (feedback early)  denied  rls        rls        rls          rls          yes
                              update                   0       2          2          1            0            6
                              delete                   0       1          0          2            0            6
 
@@ -97,8 +97,8 @@ scheduled_pushes       3     select                   0       1          1      
 
 session_confirmations  4     select                   denied  2          1          3            1            4
                              insert                   denied  yes        rls        rls          rls          yes
-                             update                   denied  2          1          0            0            4
-                             delete                   denied  2          1          0            0            4
+                             update                   denied  1          0          0            0            4
+                             delete                   denied  1          0          0            0            4
 
 sessions               9     select                   denied  7          1          8            1            9
                              insert                   denied  rls        rls        yes          rls          yes

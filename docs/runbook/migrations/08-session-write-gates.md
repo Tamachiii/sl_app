@@ -248,6 +248,8 @@ The session is then open for its athlete, and it is back in your *to review* lis
 
 `update public.sessions set reviewed_at = now() where id = '<id of the session>'`
 
+Once migration 09 is applied, close by hand only a session its athlete has confirmed, and let the others be reviewed in the app: the statement is still accepted from the SQL editor, but the app no longer makes a session reviewed without a confirmation, and its page has the rest of this procedure ([Taking a review back](09-review-lifecycle.md#taking-a-review-back)).
+
 ## Adding the sets a reviewed session lacks
 
 For line 14 of the audit. This adds, to every reviewed session of a block being trained, the sets an exercise prescribes and does not hold — as sets to do, with the exercise's own reps, load and rest, which is what the app adds when the athlete opens the session. It answers one line per set added, and none when there is nothing to add:

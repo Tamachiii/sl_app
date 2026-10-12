@@ -72,6 +72,15 @@
       "covers": ["P58", "L5"],
       "reversible": true,
       "summary": "An athlete writes a set, a note on an exercise, a swap or a skip, and the video of a set — its row and its file — only in a session of the block being trained that the coach has neither archived nor reviewed (session_writable, session_writable_for_slot); reading stays open; a video is stored at <athlete>/<exercise slot of its set>/, so an account nobody coaches uploads nothing and nobody uploads under another athlete's exercise. A confirmed session that is not reviewed yet is still written."
+    },
+    {
+      "name": "2026_10_13_09_review_lifecycle",
+      "kind": "required",
+      "wave": 1,
+      "checkpoint": "A2",
+      "covers": ["P57", "L12"],
+      "reversible": true,
+      "summary": "An athlete changes or takes back a confirmation only while its session is neither archived nor reviewed, and not while the review is being written; a signed-in user marks a session as reviewed, or sends feedback on it, only once its athlete has confirmed it (session_is_confirmed) — sessions reviewed without a confirmation before stay as they are and can still be confirmed; a confirmation, a swap or a skip that is taken back takes its unread coach notifications with it, and the ones that are stale today are deleted; the push of a confirmation is tagged by session."
     }
   ]
 }

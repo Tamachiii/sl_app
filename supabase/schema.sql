@@ -261,9 +261,10 @@ $$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 --
 -- Never NULL: a session that does not exist is not writable, so
 -- `IF NOT public.session_writable(x) THEN RAISE` refuses what it should.
--- session_writable(session) is not called by a policy, so a signed-in user
--- holds no EXECUTE on it (FUNCTION PRIVILEGES block): session_writable_for_slot
--- calls it as its owner.
+-- session_writable(session) is asked of a session id by the UPDATE and DELETE
+-- policies of session_confirmations (2026_10_13_09): a confirmation is closed
+-- by the review like everything else under the session. Both are in the
+-- allow-list of the FUNCTION PRIVILEGES block.
 CREATE OR REPLACE FUNCTION public.session_writable(sess_id uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -649,12 +650,48 @@ RETURNS uuid AS $$
   WHERE sess.id = sess_id
 $$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
+-- Has the athlete confirmed this session? (2026_10_13_09, review P57)
+-- For the INSERT policy of messages: feedback, which is also the review, is
+-- sent on a confirmed session. SECURITY DEFINER, like the other helpers the
+-- policies are written with. Never NULL: a session that does not exist is not
+-- confirmed.
+-- STABLE: it answers for the database as the statement that asks saw it when
+-- it started. That is what a policy needs, and NOT enough for a rule two
+-- requests can cross: review_needs_confirmation, further down, reads the
+-- table itself.
+CREATE OR REPLACE FUNCTION public.session_is_confirmed(sess_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+      FROM public.session_confirmations c
+     WHERE c.session_id = sess_id
+  )
+$$;
+
 ALTER TABLE public.session_confirmations ENABLE ROW LEVEL SECURITY;
 
 -- SELECT is permissive so students can view the timestamp / notes of their
 -- own old confirmations on archived or past-program sessions. Writes are
 -- gated: students cannot create / undo confirmations on archived sessions
 -- OR on sessions whose parent program has been deactivated.
+--
+-- And a confirmation is CLOSED BY THE REVIEW (2026_10_13_09, review P57):
+-- UPDATE and DELETE ask session_writable(session) — neither archived nor
+-- reviewed. Not INSERT: a session can be reviewed and have no confirmation
+-- (rows from before the rule, and what the owner does by hand), its athlete's
+-- app lists it as still to do until it is confirmed, and that confirmation
+-- is then final.
+-- An upsert that meets an existing row (INSERT … ON CONFLICT DO UPDATE) is
+-- judged by the UPDATE policy and RAISES 42501 when the row may not be
+-- updated; ON CONFLICT DO NOTHING — what the app sends — is an INSERT only.
+-- The policies judge the session as the statement saw it when it started;
+-- block_confirmation_delete_when_reviewed (REVIEW LIFECYCLE, further down)
+-- is what holds when a DELETE and a review cross.
 CREATE POLICY "Students read own session confirmations"
   ON public.session_confirmations FOR SELECT
   USING (
@@ -679,20 +716,14 @@ CREATE POLICY "Students update own session confirmations"
   USING (
     student_id = auth.uid()
     AND public.student_profile_for_session(session_id) = auth.uid()
-    AND NOT EXISTS (
-      SELECT 1 FROM public.sessions s
-      WHERE s.id = session_confirmations.session_id AND s.archived_at IS NOT NULL
-    )
     AND public.program_active_for_session(session_id) = true
+    AND public.session_writable(session_id)
   )
   WITH CHECK (
     student_id = auth.uid()
     AND public.student_profile_for_session(session_id) = auth.uid()
-    AND NOT EXISTS (
-      SELECT 1 FROM public.sessions s
-      WHERE s.id = session_confirmations.session_id AND s.archived_at IS NOT NULL
-    )
     AND public.program_active_for_session(session_id) = true
+    AND public.session_writable(session_id)
   );
 
 CREATE POLICY "Students delete own session confirmations"
@@ -700,11 +731,8 @@ CREATE POLICY "Students delete own session confirmations"
   USING (
     student_id = auth.uid()
     AND public.student_profile_for_session(session_id) = auth.uid()
-    AND NOT EXISTS (
-      SELECT 1 FROM public.sessions s
-      WHERE s.id = session_confirmations.session_id AND s.archived_at IS NOT NULL
-    )
     AND public.program_active_for_session(session_id) = true
+    AND public.session_writable(session_id)
   );
 
 CREATE POLICY "Coaches read confirmations for their students"
@@ -881,7 +909,8 @@ CREATE POLICY "Coaches read slot comments for their students"
 -- students' rows. The coach's writes — adopt_swap, adopt_skip,
 -- decline_promote_request — are SECURITY DEFINER and do not come through
 -- these policies. A new deviation notifies the coach via
--- notify_coach_on_slot_deviation.
+-- notify_coach_on_slot_deviation; one that is removed takes its unread
+-- notifications with it (retract_slot_deviation_notifications, 2026_10_13_09).
 -- ============================================================
 CREATE TABLE IF NOT EXISTS public.slot_deviations (
   id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1390,7 +1419,10 @@ CREATE POLICY "Read own messages"
 -- Send: must be self + the pair must be coach/student. If session_id is
 -- attached, sender must be the coach for that session and recipient the
 -- student — keeps "feedback link" rows from being forged into unrelated
--- threads.
+-- threads. And the session must be CONFIRMED (2026_10_13_09, review P57):
+-- the INSERT of a feedback message stamps the review
+-- (notify_student_on_session_feedback), and a session reviewed before its
+-- athlete confirmed it never came into the coach's "to review" list.
 CREATE POLICY "Send to coach-student counterpart"
   ON public.messages FOR INSERT
   WITH CHECK (
@@ -1401,6 +1433,7 @@ CREATE POLICY "Send to coach-student counterpart"
       OR (
         sender_id    = public.coach_profile_for_session(session_id)
         AND recipient_id = public.student_profile_for_session(session_id)
+        AND public.session_is_confirmed(session_id)
       )
     )
   );
@@ -1488,6 +1521,11 @@ CREATE POLICY "Recipient marks notifications read"
   WITH CHECK (recipient_id = auth.uid());
 
 -- Trigger: notify the coach when their student confirms a session.
+-- The push is tagged by SESSION (2026_10_13_09): a confirmation that is taken
+-- back and made again has a new id, and with the id of the confirmation in
+-- the tag the pushes of one session stacked on the coach's lock screen. The
+-- bell row of a confirmation that is taken back is removed by
+-- retract_session_completed_notification (REVIEW LIFECYCLE, further down).
 CREATE OR REPLACE FUNCTION public.notify_coach_on_session_confirm()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -1554,7 +1592,7 @@ BEGIN
             'title', 'Session completed',
             'body',  COALESCE(v_student_name, 'Your athlete')
                      || ' completed ' || v_session_title,
-            'tag',   'session-confirm-' || NEW.id::text,
+            'tag',   'session-confirm-' || NEW.session_id::text,
             'data',  jsonb_build_object(
               'url', '/sl_app/#/coach/student/' || COALESCE(v_student_row_id::text, '')
                      || '/session/' || NEW.session_id::text || '/review'
@@ -1728,6 +1766,200 @@ DROP TRIGGER IF EXISTS trg_notify_coach_on_slot_deviation ON public.slot_deviati
 CREATE TRIGGER trg_notify_coach_on_slot_deviation
   AFTER INSERT ON public.slot_deviations
   FOR EACH ROW EXECUTE FUNCTION public.notify_coach_on_slot_deviation();
+
+-- ============================================================
+-- REVIEW LIFECYCLE (2026_10_13_09, review P57 and the server half of L12)
+--
+-- A confirmation ("I have trained this session") and a review ("I have read
+-- it", with feedback or without) are tied together:
+--
+--   a review needs a confirmation     trg_review_needs_confirmation, and the
+--                                     INSERT policy of messages
+--                                     (session_is_confirmed)
+--   a review closes the confirmation  the UPDATE and DELETE policies of
+--                                     session_confirmations (session_writable),
+--                                     and block_confirmation_delete_when_reviewed
+--                                     when the two cross
+--   what is taken back takes its      trg_retract_session_completed_notification,
+--   unread notifications with it      trg_retract_slot_deviation_notifications
+--
+-- Both rules are for a request that carries a USER ID — the app, the API, a
+-- SECURITY DEFINER function called from either. The owner of the database and
+-- the service role are not judged: sessions reviewed without a confirmation
+-- exist from before the rules, removing an account takes its confirmations
+-- away, and a review is taken back by hand
+-- (docs/runbook/migrations/09-review-lifecycle.md). There is no reopening in
+-- the app.
+-- ============================================================
+
+-- reviewed_at goes from NULL to a value only while the session has a
+-- confirmation. Both writers of the app come through here: the coach's own
+-- UPDATE ("Finish without feedback") and notify_student_on_session_feedback,
+-- whose UPDATE runs inside the coach's request and outside its EXCEPTION
+-- block — so a refusal here undoes the INSERT of the message too.
+--
+-- ON THAT TRANSITION ONLY (the WHEN of the trigger): every other write of a
+-- session reviewed without a confirmation — archive, restore, rename,
+-- reorder, move_session, the mirror of the training date — goes through, and
+-- so does taking a review back. An INSERT is not judged.
+--
+-- VOLATILE, AND IT MUST STAY SO — the opposite of pin_draft_session_columns.
+-- A BEFORE UPDATE trigger fires once the row of the session is locked; a
+-- VOLATILE function then reads session_confirmations as it is NOW, so a
+-- confirmation taken back by a request that committed while this one waited
+-- for the row is gone, and the review is refused. STABLE would read the table
+-- as the statement saw it when it started. For the same reason it does not
+-- call session_is_confirmed(), which is STABLE. No test on ONE connection
+-- sees the difference; supabase/tests/review-lifecycle.test.js has them on
+-- three.
+--
+-- THE NAME OF THE TRIGGER SORTS AFTER trg_pin_draft_session_columns, and
+-- BEFORE triggers fire in the order of their names: on a session of a draft
+-- the pin has already put reviewed_at back to NULL when the WHEN is asked, so
+-- a draft stays silent instead of raising here.
+--
+-- 42501, the code of a refusal by a policy: the app shows both as
+-- errors.notAllowed.
+CREATE OR REPLACE FUNCTION public.review_needs_confirmation()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+      FROM public.session_confirmations c
+     WHERE c.session_id = NEW.id
+  ) THEN
+    RAISE EXCEPTION 'session % is not confirmed by its athlete — it cannot be marked as reviewed', NEW.id
+      USING ERRCODE = '42501',
+            HINT = 'A review, with feedback or without, needs the confirmation of the session.';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_review_needs_confirmation ON public.sessions;
+CREATE TRIGGER trg_review_needs_confirmation
+  BEFORE UPDATE ON public.sessions
+  FOR EACH ROW
+  WHEN (OLD.reviewed_at IS NULL AND NEW.reviewed_at IS NOT NULL)
+  EXECUTE FUNCTION public.review_needs_confirmation();
+
+-- The confirmation of a reviewed session stays, when a DELETE and a review
+-- cross. The DELETE policy judges the session as the athlete's statement saw
+-- it when it STARTED; a review that commits while that statement is on its
+-- way is not seen by it. So the row of the session is read again here, with
+-- FOR SHARE: the read waits for a review that is being written (an UPDATE
+-- holds the row) and then sees it. The other order is the trigger above: a
+-- review that arrives while this DELETE holds the row waits, and then finds
+-- no confirmation. The coach never locks a confirmation, so the two cannot
+-- wait for each other.
+--
+-- For a request that carries a user id. A cascade from the session itself is
+-- not concerned either way: the row of the session is gone by the time its
+-- confirmation follows, and a session that is not found refuses nothing.
+-- It RAISES where the policy says nothing: this is the request that lost a
+-- race.
+-- KNOWN residual: an UPDATE of the confirmation is not read again. A note or
+-- a date written in the same instant as the review breaks nothing; an UPDATE
+-- that MOVES the confirmation to another session in that instant — the app
+-- sends none; session_id is not held on this table — leaves this session
+-- reviewed without one, which its athlete leaves by confirming.
+CREATE OR REPLACE FUNCTION public.block_confirmation_delete_when_reviewed()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_reviewed_at timestamptz;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN OLD;
+  END IF;
+
+  SELECT s.reviewed_at INTO v_reviewed_at
+    FROM public.sessions s
+   WHERE s.id = OLD.session_id
+     FOR SHARE;
+
+  IF FOUND AND v_reviewed_at IS NOT NULL THEN
+    RAISE EXCEPTION 'session % has been reviewed by the coach — its confirmation cannot be taken back', OLD.session_id
+      USING ERRCODE = '42501',
+            HINT = 'The review was written while this request was on its way.';
+  END IF;
+  RETURN OLD;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS block_confirmation_delete_when_reviewed ON public.session_confirmations;
+CREATE TRIGGER block_confirmation_delete_when_reviewed
+  BEFORE DELETE ON public.session_confirmations
+  FOR EACH ROW
+  EXECUTE FUNCTION public.block_confirmation_delete_when_reviewed();
+
+-- A confirmation that is taken back takes the unread "session completed"
+-- notifications of its session with it. By session and by confirmation: a
+-- session has one confirmation at most, so once it is gone every unread one
+-- of that session is stale — those left by earlier rounds included.
+-- UNREAD ONLY: a notification the coach has read is their history.
+-- SECURITY DEFINER: the statement is the athlete's, the notification is the
+-- coach's, and nobody holds a DELETE policy on notifications. It fires on a
+-- cascade too (a session that is deleted): the line would lead nowhere.
+-- A NEW KIND OF NOTIFICATION about a row that can be taken back gets a
+-- trigger like these two, and names that row in its payload.
+CREATE OR REPLACE FUNCTION public.retract_session_completed_notification()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  DELETE FROM public.notifications n
+   WHERE n.kind = 'session_completed'
+     AND n.read_at IS NULL
+     AND (n.payload->>'confirmation_id' = OLD.id::text
+          OR n.payload->>'session_id' = OLD.session_id::text);
+  RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_retract_session_completed_notification ON public.session_confirmations;
+CREATE TRIGGER trg_retract_session_completed_notification
+  AFTER DELETE ON public.session_confirmations
+  FOR EACH ROW
+  EXECUTE FUNCTION public.retract_session_completed_notification();
+
+-- The same for a swap or a skip (L12): "skipped Dips" (session_deviation,
+-- written when the row is inserted) and "wants to drop Dips going forward"
+-- (promote_requested, written when the athlete asks) both name the exercise
+-- slot in their payload, and a slot holds one deviation at most.
+CREATE OR REPLACE FUNCTION public.retract_slot_deviation_notifications()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  DELETE FROM public.notifications n
+   WHERE n.kind IN ('session_deviation', 'promote_requested')
+     AND n.read_at IS NULL
+     AND n.payload->>'slot_id' = OLD.exercise_slot_id::text;
+  RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_retract_slot_deviation_notifications ON public.slot_deviations;
+CREATE TRIGGER trg_retract_slot_deviation_notifications
+  AFTER DELETE ON public.slot_deviations
+  FOR EACH ROW
+  EXECUTE FUNCTION public.retract_slot_deviation_notifications();
 
 -- Phase 3.1: adopt a student's swap into the standing prescription (forward-
 -- only). Coach-only SECURITY DEFINER RPC (self-authorizes); see
@@ -3640,9 +3872,11 @@ GRANT EXECUTE ON FUNCTION
   public.week_is_own_draft(uuid),
   public.session_is_own_draft(uuid),
   public.is_coach(),
+  public.session_writable(uuid),
   public.session_writable_for_slot(uuid),
   public.slot_for_set_log(uuid),
-  public.set_video_slot(text)
+  public.set_video_slot(text),
+  public.session_is_confirmed(uuid)
 TO authenticated;
 
 -- The RPCs the app calls. The five coach RPCs authorize the caller themselves
@@ -3704,4 +3938,5 @@ INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_11_05_students_role_gate'),
   ('2026_10_11_06_pin_student_writes'),
   ('2026_10_11_07_profile_rules'),
-  ('2026_10_12_08_session_write_gates');
+  ('2026_10_12_08_session_write_gates'),
+  ('2026_10_13_09_review_lifecycle');
