@@ -4,9 +4,9 @@ Regenerate on purpose: npx vitest run --config vitest.db.config.js supabase/test
 Callers
   anon         the public anon key, no session
   athlete A    signed in; coached by "coach". Programs: an active block (session 1 trained,
-               confirmed and reviewed; session 2 archived; 3 to come; 4 in progress, with an
-               extra set, a note, a skip and a video), a past block, a trashed block, and a
-               draft A is writing
+               confirmed and reviewed; session 2 archived; 3 to come; 4 trained and
+               confirmed, not reviewed yet, with an extra set, a note, a skip and a video),
+               a past block, a trashed block, and a draft A is writing
   athlete B    signed in; same coach, one active block
   coach        signed in; coach of A and B
   other coach  signed in; coach of athlete C only (C has one active block)
@@ -16,7 +16,9 @@ Cells
   rows         how many rows the table holds in this world
   select       how many of them the caller sees
   insert       a new row in athlete A's data (in the coach's, for the library);
-               "own draft" = in the draft A is writing
+               "own draft" = in the draft A is writing; "feedback" = the coach's
+               feedback on session 4, which A has confirmed; "feedback early" = on
+               session 3, which A has not
   update       how many rows the caller can write
   delete       how many rows the caller can delete
   yes          the insert went through
@@ -62,13 +64,15 @@ goals                  3     select                   0       1          1      
 messages               6     select                   0       3          2          5            1            6
                              insert (from athlete A)  denied  yes        rls        rls          rls          yes
                              insert (to athlete A)    denied  rls        rls        yes          rls          yes
+                             insert (feedback)        denied  rls        rls        yes          rls          yes
+                             insert (feedback early)  denied  rls        rls        yes          rls          yes
                              update                   0       2          2          1            0            6
                              delete                   0       1          0          2            0            6
 
-notifications          10    select                   0       1          1          5            2            10
+notifications          11    select                   0       1          1          6            2            11
                              insert                   rls     rls        rls        rls          rls          yes
-                             update                   0       1          1          5            2            10
-                             delete                   0       0          0          0            0            10
+                             update                   0       1          1          6            2            11
+                             delete                   0       0          0          0            0            11
 
 profiles               6     select                   0       2          2          3            2            6
                              insert                   rls     rls        rls        rls          rls          yes
@@ -91,10 +95,10 @@ scheduled_pushes       3     select                   0       1          1      
                              update                   0       1          1          0            0            3
                              delete                   0       1          1          0            0            3
 
-session_confirmations  3     select                   denied  1          1          2            1            3
+session_confirmations  4     select                   denied  2          1          3            1            4
                              insert                   denied  yes        rls        rls          rls          yes
-                             update                   denied  1          1          0            0            3
-                             delete                   denied  1          1          0            0            3
+                             update                   denied  2          1          0            0            4
+                             delete                   denied  2          1          0            0            4
 
 sessions               9     select                   denied  7          1          8            1            9
                              insert                   denied  rls        rls        yes          rls          yes

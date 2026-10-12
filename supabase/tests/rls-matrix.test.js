@@ -78,7 +78,7 @@ async function buildWorld() {
       `insert into set_logs (exercise_slot_id, set_number, is_student_added) values ($1, 4, true)`,
       [blockA.slots[0]]);
     // Session 2 is archived by the coach; session 3 is still to come, and
-    // session 4 is in progress (further down).
+    // session 4 is trained and confirmed, not reviewed yet (further down).
     await q(`update sessions set archived_at = now() where id = $1`, [blockA.sessions[1]]);
 
     const perAthlete = async (athlete, program, theirCoach, exerciseId) => {
@@ -113,10 +113,10 @@ async function buildWorld() {
     await perAthlete(B, blockB, coach, exercises.dip);
     await perAthlete(C, blockC, otherCoach, otherLibrary);
 
-    // Athlete A, session 4 of the active block: in progress. An extra set, a
-    // note, a skip and a video with its file — the same kinds of rows as in
-    // session 1, in a session nobody has closed, so that "can write their own
-    // row" and "can write it in this session" are two numbers.
+    // Athlete A, session 4 of the active block: trained, and not reviewed. An
+    // extra set, a note, a skip and a video with its file — the same kinds of
+    // rows as in session 1, in a session nobody has closed, so that "can write
+    // their own row" and "can write it in this session" are two numbers.
     const [inProgress, itsOtherSlot] = blockA.tree[1].sessions[1].slots;
     await row(q, `insert into set_logs (exercise_slot_id, set_number, is_student_added) values ($1, 4, true)`,
       [inProgress.id]);
@@ -128,6 +128,12 @@ async function buildWorld() {
       [inProgress.setLogs[0], `${A.id}/${inProgress.id}/1-clip.mp4`]);
     await q(`insert into storage.objects (bucket_id, name) values ('set-videos', $1)`,
       [`${A.id}/${inProgress.id}/1-clip.mp4`]);
+    // …and A has confirmed it, which the coach has not reviewed yet: a second
+    // confirmation, in a session nobody has closed, next to the one of
+    // session 1 — so that "their own confirmation" and "a confirmation they
+    // can still change or take back" are two numbers too.
+    await row(q, `insert into session_confirmations (session_id, student_id, performed_on) values ($1, $2, current_date)`,
+      [blockA.sessions[3], A.id]);
     await row(q, `insert into client_errors (user_id, role, message) values ($1, 'coach', 'boom')`, [coach.id]);
     await row(q, `insert into push_subscriptions (user_id, endpoint, p256dh, auth) values ($1, $2, 'key', 'auth')`,
       [coach.id, `https://fcm.googleapis.com/fcm/send/${coach.id}`]);
@@ -141,6 +147,8 @@ async function buildWorld() {
     // archived, not confirmed, not reviewed.
     openSession: blockA.sessions[2],
     openSlot: blockA.tree[1].sessions[0].slots[0],
+    // Session 4: confirmed by A, not reviewed. Where the coach's feedback lands.
+    confirmedSession: blockA.sessions[3],
   };
 }
 
@@ -246,6 +254,16 @@ const insertProbes = () => ({
     label: 'to athlete A',
     sql: `insert into messages (sender_id, recipient_id, body) values ($1, $2, 'Probe')`,
     params: [w.coach.id, w.A.id],
+  }, {
+    // The coach's feedback on a session, which is also its review: on the
+    // session A has confirmed, and on the one A has not.
+    label: 'feedback',
+    sql: `insert into messages (sender_id, recipient_id, body, session_id) values ($1, $2, 'Probe', $3)`,
+    params: [w.coach.id, w.A.id, w.confirmedSession],
+  }, {
+    label: 'feedback early',
+    sql: `insert into messages (sender_id, recipient_id, body, session_id) values ($1, $2, 'Probe', $3)`,
+    params: [w.coach.id, w.A.id, w.openSession],
   }],
   notifications: [{
     sql: `insert into notifications (recipient_id, kind) values ($1, 'probe')`,
@@ -343,9 +361,9 @@ Regenerate on purpose: npx vitest run --config vitest.db.config.js supabase/test
 Callers
   anon         the public anon key, no session
   athlete A    signed in; coached by "coach". Programs: an active block (session 1 trained,
-               confirmed and reviewed; session 2 archived; 3 to come; 4 in progress, with an
-               extra set, a note, a skip and a video), a past block, a trashed block, and a
-               draft A is writing
+               confirmed and reviewed; session 2 archived; 3 to come; 4 trained and
+               confirmed, not reviewed yet, with an extra set, a note, a skip and a video),
+               a past block, a trashed block, and a draft A is writing
   athlete B    signed in; same coach, one active block
   coach        signed in; coach of A and B
   other coach  signed in; coach of athlete C only (C has one active block)
@@ -355,7 +373,9 @@ Cells
   rows         how many rows the table holds in this world
   select       how many of them the caller sees
   insert       a new row in athlete A's data (in the coach's, for the library);
-               "own draft" = in the draft A is writing
+               "own draft" = in the draft A is writing; "feedback" = the coach's
+               feedback on session 4, which A has confirmed; "feedback early" = on
+               session 3, which A has not
   update       how many rows the caller can write
   delete       how many rows the caller can delete
   yes          the insert went through
