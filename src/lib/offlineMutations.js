@@ -20,9 +20,12 @@
 // write waits. All three rest on every function here being idempotent — a
 // retry re-sends a request whose first copy may have reached the database.
 //
-// WHEN a set was done is decided here too, and not in the hooks: the moment of
-// the tap, not of the request (`tapTime`). A write restored from IndexedDB
-// after a relaunch has no hook around it — only this file.
+// Two more things are decided here and not in the hooks, because a write
+// restored from IndexedDB after a relaunch has no hook around it — only the
+// defaults registered at the bottom of this file:
+//   - WHEN a set was done: the moment of the tap, not of the request
+//     (`tapTime`);
+//   - which caches a settled write refreshes (`refreshAfter`).
 
 import { supabase } from './supabase';
 import { pushToast } from './toast';
@@ -50,6 +53,11 @@ export const MUTATION_KEYS = {
   saveDraftTree: ['draft-tree', 'save'],
   discardDraft: ['draft-tree', 'discard'],
 };
+
+// Authoring writes ride a DEDICATED FIFO scope so a hung draft sync can't
+// head-of-line-block a workout set_log replay (or vice-versa). Every other
+// write of the queue is a write of the workout.
+const DRAFT_MUTATIONS = new Set(['saveDraftTree', 'discardDraft']);
 
 // --- when the set was done ------------------------------------------------------
 //
@@ -417,10 +425,6 @@ export const MUTATION_FNS = {
   discardDraft: queuedWrite(discardDraftFn),
 };
 
-// Authoring writes ride a DEDICATED FIFO scope so a hung draft sync can't
-// head-of-line-block a workout set_log replay (or vice-versa).
-const DRAFT_MUTATIONS = new Set(['saveDraftTree', 'discardDraft']);
-
 /**
  * Error handling for a draft-tree snapshot save, applied via mutation DEFAULTS
  * so a LIVE save and a HYDRATED (post-cold-reload) save behave identically —
@@ -498,16 +502,101 @@ export async function resumeMutationsAndReconcileDrafts(queryClient) {
   queryClient.invalidateQueries({ queryKey: ['draft-tree'] });
 }
 
+// --- what a settled write refreshes ----------------------------------------------
+//
+// The reads a write makes stale, refreshed when the write settles — accepted
+// or not: after a failure the read is what shows the row as it really is.
+//
+// This list used to live in each hook's `onSettled`. A hook only exists while
+// its page does. A workout logged without signal is usually sent after the app
+// was killed and opened again; the mutations restored from IndexedDB then have
+// nothing but the defaults of their key, so nothing refreshed anything: the
+// training list kept "Next" on a session whose confirmation had just reached
+// the database (or kept it "Done" after a refused one), until a stale timer
+// happened to fire. Registered as the `onSettled` of each key, the same list
+// serves the write made live and the one replayed after a relaunch.
+//
+// The consequence for a hook: it adds the optimistic update and its rollback
+// (`onMutate`, `onError`) and NO `onSettled` — an option set by the hook
+// replaces the default of the same name, it does not run next to it.
+//
+// The refresh is started and not waited for: `onSettled` holds its mutation
+// in `pending` for as long as the promise it returns, and the next write of a
+// FIFO scope with it. A write is settled when the database has answered, not
+// when the reads it triggers have come back.
+
+// Everything that reads "is this session confirmed", and the three roll-ups a
+// confirmation moves: adherence, tonnage and lifetime totals are reduced over
+// set_logs inside their query functions, so nothing about their keys changes
+// when a session is confirmed. Confirmation is the right moment for those —
+// set-log and deviation writes fire on every tap of a workout and would
+// re-run the same heavy scans each time.
+const CONFIRMATION_READS = [
+  'session-confirmation',
+  'my-confirmed-session-ids',
+  'week-confirmed-session-ids',
+  'program-confirmed-session-ids',
+  'student-progress-stats',
+  'student-records',
+  'student-lifetime-stats',
+];
+
+// The set-log writes whose `onSettled` has run: settled in all but name, since
+// React Query only moves a mutation out of `pending` after that handler.
+const settling = new WeakSet();
+
+function refreshAfter(name, queryClient, variables) {
+  const refresh = (queryKey) => {
+    queryClient.invalidateQueries({ queryKey });
+  };
+  // The caches of notes and deviations are keyed by session. A write that
+  // does not name its session refreshes the whole root: `[root, undefined]`
+  // would match nothing.
+  const ofSession = (root) => (variables?.sessionId ? [root, variables.sessionId] : [root]);
+
+  switch (name) {
+    case 'confirmSession':
+    case 'unconfirmSession':
+      CONFIRMATION_READS.forEach((root) => refresh([root]));
+      return;
+    case 'saveSlotComment':
+      refresh(ofSession('slot-comments'));
+      return;
+    case 'saveSlotDeviation':
+      refresh(ofSession('slot-deviations'));
+      return;
+    default: {
+      // A set-log write. One read for a queue of sets, when the last of them
+      // settles: a read made between two queued writes comes back without the
+      // second and takes its tick off the screen until that one lands.
+      //
+      // "The last" is not "the only one still pending". Sets restored after a
+      // relaunch keep the per-row scope of their hook and leave together; when
+      // two answers arrive in the same turn each write still sees the other as
+      // pending, and neither would refresh. So the ones already in this
+      // handler are counted out.
+      const mine = mutationOf(queryClient, variables);
+      if (mine) settling.add(mine);
+      const unsettled = queryClient
+        .getMutationCache()
+        .findAll({ mutationKey: ['set-log'], status: 'pending' })
+        .some((mutation) => !settling.has(mutation));
+      if (unsettled) return;
+      refresh(['set-logs']);
+    }
+  }
+}
+
 /**
  * Register each offline-safe mutation under a stable key so resumed-after-
  * reload mutations (whose closure-bound mutationFn didn't survive JSON
- * persistence) can still execute. The optimistic onMutate / invalidation
- * handlers stay in the hooks — for a hydrated mutation the optimistic patch
- * was already applied pre-reload, so the in-flight resume only needs the fn.
+ * persistence) can still execute. A hook keeps the optimistic `onMutate` and
+ * its rollback — for a hydrated mutation the optimistic patch was already
+ * applied pre-reload — and everything else comes from here.
  *
  * A hook that names one of these keys inherits everything it does not set
  * itself, live as well: the retry policy below is the one a tick made in the
- * gym gets, not only a replay.
+ * gym gets, not only a replay, and so is the refresh of `refreshAfter`.
  */
 export function registerOfflineMutationDefaults(queryClient) {
   // From here on this client's writes wait for a session (see the gate).
@@ -530,15 +619,25 @@ export function registerOfflineMutationDefaults(queryClient) {
       retryDelay: mutationRetryDelay,
       // Shared scope serializes queued writes into FIFO order on replay.
       // Without it resumePausedMutations() is a parallel Promise.all, so two
-      // opposite writes to the same row (done → un-done queued offline) could
-      // settle in whichever order the network finishes them. This global
-      // scope is the fallback for mutations HYDRATED after a reload (their
-      // options come from these defaults); live set-log hooks override it
-      // with a per-row scope (see useSetLogs.rowScope) so unrelated rows
-      // don't head-of-line-block each other while online. Authoring rides its
-      // OWN scope so a stuck draft sync and a stuck workout write stay isolated.
+      // opposite writes (confirm → undo queued offline) could settle in
+      // whichever order the network finishes them. This global scope is what
+      // a write gets whose hook sets none: the confirmation, a note, a
+      // deviation. The set-log hooks set a per-row scope instead (see
+      // useSetLogs.rowScope), so unrelated rows don't head-of-line-block each
+      // other — and React Query stores a mutation's scope with it, so a set
+      // restored after a reload is back in its row's scope, not in this one:
+      // after a relaunch the sets of different rows leave in parallel.
+      // Authoring rides its OWN scope so a stuck draft sync and a stuck
+      // workout write stay isolated.
       scope: { id: DRAFT_MUTATIONS.has(name) ? 'draft-tree' : 'offline-writes' },
     };
+    if (!DRAFT_MUTATIONS.has(name)) {
+      // A write of the workout: the reads it makes stale are refreshed when it
+      // settles, live or replayed — see `refreshAfter`.
+      defaults.onSettled = (_data, _error, variables) => {
+        refreshAfter(name, queryClient, variables);
+      };
+    }
     if (name === 'saveDraftTree') {
       // The authoring snapshot save carries its reconcile/toast onError, the
       // my-draft invalidation onSuccess, and skipErrorToast HERE (in defaults)

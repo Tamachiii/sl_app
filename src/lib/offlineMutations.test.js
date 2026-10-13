@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { QueryClient, MutationObserver, dehydrate, hydrate, onlineManager } from '@tanstack/react-query';
+import {
+  QueryClient,
+  QueryObserver,
+  MutationObserver,
+  dehydrate,
+  hydrate,
+  onlineManager,
+} from '@tanstack/react-query';
 import { createClient } from '@supabase/supabase-js';
 
 vi.mock('./supabase', () => ({
@@ -1281,6 +1288,332 @@ describe('a set is dated at the tap, whenever it is sent', () => {
     await MUTATION_FNS.toggleDone({ logId: 'l-1', done: true });
 
     expect(api.table.get('l-1').logged_at).toBe(new Date(Date.parse(TAP) + TWO_DAYS).toISOString());
+  });
+});
+
+// --- PostgREST, for a whole workout ---------------------------------------------
+// The sets (PATCH, read back with `.single()`), the confirmation, a note and a
+// swap (POST with on_conflict), the undo (DELETE). `closed` is the session as
+// the coach left it while the phone was offline — the next block activated,
+// the session reviewed or archived: an UPDATE then matches no row the athlete
+// may write (406 PGRST116) and an INSERT is turned down by its policy (403
+// 42501). `refuse` answers every write with that body instead.
+function fakeWorkoutApi({ sets = ['l-1'] } = {}) {
+  const api = {
+    sets: new Map(sets.map((id) => [id, { id, done: false, failed: false, logged_at: null }])),
+    requests: [],
+    closed: false,
+    refuse: null,
+  };
+  answer = async (input, init = {}) => {
+    const url = new URL(String(input));
+    const table = url.pathname.replace('/rest/v1/', '');
+    const body = init.body ? JSON.parse(init.body) : null;
+    api.requests.push({ method: init.method, table, body });
+    if (api.refuse) return reply(400, api.refuse);
+    if (table === 'set_logs') {
+      const id = (url.searchParams.get('id') || '').replace(/^eq\./, '');
+      const row = api.closed ? undefined : api.sets.get(id);
+      if (!row) return reply(406, NO_ROW);
+      Object.assign(row, body);
+      return reply(200, row);
+    }
+    if (api.closed) {
+      return reply(403, {
+        code: '42501',
+        details: null,
+        hint: null,
+        message: `new row violates row-level security policy for table "${table}"`,
+      });
+    }
+    if (init.method === 'DELETE') return new Response(null, { status: 204 });
+    return reply(201, { id: `${table}-1`, ...body });
+  };
+  supabase.from.mockImplementation((name) => wire.from(name));
+  return api;
+}
+
+const CONFIRM = { sessionId: 's-1', studentId: 'u-1', notes: 'felt good', performedOn: '2026-10-09' };
+
+// Every read a page of the athlete may hold while a workout is replayed.
+const CONFIRMATION_READS = [
+  ['session-confirmation', 's-1'],
+  ['my-confirmed-session-ids', 'u-1'],
+  ['week-confirmed-session-ids', 'w-1'],
+  ['program-confirmed-session-ids', 'p-1'],
+  ['student-progress-stats', 'u-1', 'active'],
+  ['student-records', 'u-1'],
+  ['student-lifetime-stats', 'u-1'],
+];
+const OTHER_READS = [
+  ['session', 's-1'],
+  ['set-logs', 's-1', ['slot-1']],
+  ['slot-comments', 's-1'],
+  ['slot-comments', 's-2'],
+  ['slot-deviations', 's-1'],
+  ['slot-deviations', 's-2'],
+  ['student-program-details', 'u-1', 'active'],
+  ['last-performance', 'self', 's-1', ['ex-1']],
+];
+
+function seedReads(qc) {
+  for (const key of [...CONFIRMATION_READS, ...OTHER_READS]) qc.setQueryData(key, []);
+}
+
+// The reads the client now holds as out of date.
+function staleReads(qc) {
+  return qc
+    .getQueryCache()
+    .getAll()
+    .filter((query) => query.state.isInvalidated)
+    .map((query) => query.queryKey);
+}
+
+// A workout written without signal, the app killed, opened again with a
+// network: the writes restored from storage, about to be replayed.
+async function workoutRestored(writes) {
+  goOffline();
+  const phone = offlineQueue();
+  for (const [key, variables, extra] of writes) enqueue(phone, key, variables, extra);
+  await pass();
+  const qc = relaunch(phone);
+  seedReads(qc);
+  comeBackOnline();
+  return qc;
+}
+
+// P25 and contract 2 of wave 2. The refresh after a write lived in the hooks'
+// `onSettled`, and a write replayed after a relaunch has no hook: the list
+// kept "Next" on a session whose confirmation had just reached the database.
+describe('a settled write refreshes the reads it made stale, with or without a hook around it', () => {
+  useFakeClock();
+
+  it('a confirmation replayed after a relaunch refreshes every read of "is it confirmed", and the roll-ups it moves', async () => {
+    const api = fakeWorkoutApi();
+    const qc = await workoutRestored([[MUTATION_KEYS.confirmSession, CONFIRM]]);
+    expect(staleReads(qc)).toEqual([]);
+
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(api.requests).toHaveLength(1);
+    expect(staleReads(qc)).toEqual(CONFIRMATION_READS);
+  });
+
+  it('a page that is open gets the answer of the database, not the guess it was restored with', async () => {
+    fakeWorkoutApi();
+    const qc = await workoutRestored([[MUTATION_KEYS.confirmSession, CONFIRM]]);
+    const read = vi.fn().mockResolvedValue(['s-1']);
+    const list = new QueryObserver(qc, {
+      queryKey: ['my-confirmed-session-ids', 'u-1'],
+      queryFn: read,
+      staleTime: Infinity,
+    });
+    const stop = list.subscribe(() => {});
+    await pass();
+    expect(read).not.toHaveBeenCalled();
+
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(list.getCurrentResult().data).toEqual(['s-1']);
+    stop();
+  });
+
+  it('so does an undo', async () => {
+    fakeWorkoutApi();
+    const qc = await workoutRestored([[MUTATION_KEYS.unconfirmSession, { sessionId: 's-1' }]]);
+
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(staleReads(qc)).toEqual(CONFIRMATION_READS);
+  });
+
+  it('a note refreshes the notes of its session, and of no other', async () => {
+    fakeWorkoutApi();
+    const qc = await workoutRestored([
+      [MUTATION_KEYS.saveSlotComment, { sessionId: 's-1', slotId: 'slot-1', studentId: 'u-1', body: 'elbow' }],
+    ]);
+
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(staleReads(qc)).toEqual([['slot-comments', 's-1']]);
+  });
+
+  it('a swap refreshes the deviations of its session', async () => {
+    fakeWorkoutApi();
+    const qc = await workoutRestored([
+      [
+        MUTATION_KEYS.saveSlotDeviation,
+        { sessionId: 's-1', slotId: 'slot-1', studentId: 'u-1', kind: 'swap', substituteExerciseId: 'ex-2' },
+      ],
+    ]);
+
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(staleReads(qc)).toEqual([['slot-deviations', 's-1']]);
+  });
+
+  it('a write that does not name its session refreshes them all: "of session undefined" would match none', async () => {
+    fakeWorkoutApi();
+    const qc = await workoutRestored([
+      [MUTATION_KEYS.saveSlotComment, { slotId: 'slot-1', studentId: 'u-1', body: 'elbow' }],
+      [MUTATION_KEYS.saveSlotDeviation, { slotId: 'slot-1', studentId: 'u-1', kind: 'skip' }],
+    ]);
+
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(staleReads(qc)).toEqual([
+      ['slot-comments', 's-1'],
+      ['slot-comments', 's-2'],
+      ['slot-deviations', 's-1'],
+      ['slot-deviations', 's-2'],
+    ]);
+  });
+
+  it('a queue of sets is followed by ONE read of the sets, made after the last of them', async () => {
+    const api = fakeWorkoutApi({ sets: ['l-1', 'l-2', 'l-3'] });
+    const qc = await workoutRestored([
+      [MUTATION_KEYS.toggleDone, { logId: 'l-1', done: true }],
+      [MUTATION_KEYS.setRpe, { logId: 'l-1', rpe: 8 }],
+      [MUTATION_KEYS.toggleDone, { logId: 'l-2', done: true }],
+      [MUTATION_KEYS.setFailed, { logId: 'l-3', failed: true }],
+    ]);
+    // How many writes had reached the database each time the sets were read.
+    const readAfter = [];
+    const sets = new QueryObserver(qc, {
+      queryKey: ['set-logs', 's-1', ['slot-1']],
+      queryFn: async () => {
+        readAfter.push(api.requests.length);
+        return [...api.sets.values()].map((row) => ({ ...row }));
+      },
+      staleTime: Infinity,
+    });
+    const stop = sets.subscribe(() => {});
+
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(api.requests).toHaveLength(4);
+    expect(readAfter).toEqual([4]);
+    expect(sets.getCurrentResult().data).toEqual([
+      expect.objectContaining({ id: 'l-1', done: true, rpe: 8 }),
+      expect.objectContaining({ id: 'l-2', done: true }),
+      expect.objectContaining({ id: 'l-3', failed: true }),
+    ]);
+    expect(staleReads(qc)).toEqual([]);
+    stop();
+  });
+
+  it('sets restored with the per-row scope of their hook leave together, and are still followed by one read', async () => {
+    const api = fakeWorkoutApi({ sets: ['l-1', 'l-2', 'l-3'] });
+    // What useToggleSetDone adds to the key: a scope per row. React Query
+    // stores it with the mutation, so it is back after the relaunch.
+    const ofRow = (logId) => ({ scope: { id: `set-log-${logId}` } });
+    const qc = await workoutRestored([
+      [MUTATION_KEYS.toggleDone, { logId: 'l-1', done: true }, ofRow('l-1')],
+      [MUTATION_KEYS.toggleDone, { logId: 'l-2', done: true }, ofRow('l-2')],
+      [MUTATION_KEYS.toggleDone, { logId: 'l-3', done: true }, ofRow('l-3')],
+    ]);
+    expect(qc.getMutationCache().getAll().map((m) => m.options.scope.id)).toEqual([
+      'set-log-l-1',
+      'set-log-l-2',
+      'set-log-l-3',
+    ]);
+    const readAfter = [];
+    const sets = new QueryObserver(qc, {
+      queryKey: ['set-logs', 's-1', ['slot-1']],
+      queryFn: async () => {
+        readAfter.push([...api.sets.values()].filter((row) => row.done).length);
+        return [];
+      },
+      staleTime: Infinity,
+    });
+    const stop = sets.subscribe(() => {});
+
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(api.requests).toHaveLength(3);
+    // One read, and it saw the three sets.
+    expect(readAfter).toEqual([3]);
+    stop();
+  });
+
+  it('a write the database turned down refreshes too: the read is what shows the row as it is', async () => {
+    const api = fakeWorkoutApi();
+    api.refuse = {
+      code: '23514',
+      details: null,
+      hint: null,
+      message: 'new row for relation "set_logs" violates check constraint "set_logs_done_xor_failed"',
+    };
+    const qc = offlineQueue();
+    seedReads(qc);
+
+    const tick = enqueue(qc, MUTATION_KEYS.toggleDone, TICK);
+    await pass();
+
+    expect(tick.state.status).toBe('error');
+    expect(staleReads(qc)).toEqual([['set-logs', 's-1', ['slot-1']]]);
+  });
+
+  it('the refresh is not waited for: the next write of the queue leaves while the read is still on its way', async () => {
+    const api = fakeWorkoutApi();
+    const qc = await workoutRestored([
+      [MUTATION_KEYS.confirmSession, CONFIRM],
+      [MUTATION_KEYS.saveSlotComment, { sessionId: 's-1', slotId: 'slot-1', studentId: 'u-1', body: 'elbow' }],
+    ]);
+    // A read that never comes back.
+    const list = new QueryObserver(qc, {
+      queryKey: ['my-confirmed-session-ids', 'u-1'],
+      queryFn: () => new Promise(() => {}),
+      staleTime: Infinity,
+    });
+    const stop = list.subscribe(() => {});
+
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(list.getCurrentResult().fetchStatus).toBe('fetching');
+    expect(api.requests.map((r) => r.table)).toEqual(['session_confirmations', 'slot_comments']);
+    expect(qc.isMutating()).toBe(0);
+    stop();
+  });
+
+  it('a hook that names the key and sets no onSettled gets the same refresh for a write made live', async () => {
+    fakeWorkoutApi();
+    const qc = offlineQueue();
+    seedReads(qc);
+    // What useConfirmSession passes once the refresh is no longer its own:
+    // the key, the function, and its optimistic update.
+    const observer = new MutationObserver(qc, {
+      mutationKey: MUTATION_KEYS.confirmSession,
+      mutationFn: MUTATION_FNS.confirmSession,
+      onMutate: () => ({ previous: null }),
+      onError: () => {},
+    });
+
+    observer.mutate(CONFIRM).catch(() => {});
+    await pass();
+
+    expect(observer.getCurrentResult().status).toBe('success');
+    expect(staleReads(qc)).toEqual(CONFIRMATION_READS);
+  });
+
+  it('the draft writes keep their own handlers', () => {
+    const qc = offlineQueue();
+    // Reconciled by draftSaveErrorHandler and `my-draft`, not by this list.
+    expect(qc.getMutationDefaults(MUTATION_KEYS.saveDraftTree).onSettled).toBeUndefined();
+    for (const [name, key] of Object.entries(MUTATION_KEYS)) {
+      if (name === 'saveDraftTree') continue;
+      expect(typeof qc.getMutationDefaults(key).onSettled).toBe('function');
+    }
   });
 });
 
