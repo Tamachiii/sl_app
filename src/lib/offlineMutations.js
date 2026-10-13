@@ -13,9 +13,22 @@
 // a second confirm writes nothing (see `confirmSessionFn`). Per-set DB CHECKs
 // (`set_logs_done_xor_failed`, `set_logs_no_rpe_when_failed`) are encoded in
 // the patch helpers below — replays remain constraint-safe.
+//
+// Failure policy (`lib/networkErrors.js` has the three cases): a write the
+// database REFUSED fails once; one that got NO ANSWER is sent again, five
+// times at most; and while NOBODY IS SIGNED IN nothing is sent at all, the
+// write waits. All three rest on every function here being idempotent — a
+// retry re-sends a request whose first copy may have reached the database.
 
 import { supabase } from './supabase';
 import { pushToast } from './toast';
+import {
+  AuthNotReadyError,
+  isTransientError,
+  rankTransientFailure,
+  mutationRetry,
+  mutationRetryDelay,
+} from './networkErrors';
 
 export const MUTATION_KEYS = {
   toggleDone: ['set-log', 'toggle-done'],
@@ -255,18 +268,116 @@ async function discardDraftFn({ programId }) {
   return { programId, deleted: true };
 }
 
+// --- the session gate ----------------------------------------------------------
+//
+// supabase-js puts the session's access token on every request — and the
+// ANONYMOUS key when it has no session to take one from. "No session" is not
+// only "signed out": `auth.getSession()` also answers null while the token has
+// expired and cannot be refreshed, which is the state of a phone that comes
+// back to a network that does not answer yet, or is opened offline after a
+// long pause. A queued write sent in that state reaches the database as an
+// anonymous request. RLS hides the row, and the answer is a refusal WITH A
+// CODE (PGRST116 for an update, 42501 for an insert) — indistinguishable from
+// a real one, final, and the set is lost.
+//
+// So a write first requires a session. Without one it throws AuthNotReadyError
+// before anything is sent, and the retry policy treats that as "wait", for as
+// long as it takes: a write is never dropped because nobody is signed in.
+// (supabase-js reads the session once more for the request itself, a few
+// milliseconds later. Only a token crossing its expiry margin in exactly that
+// gap, with a refresh that then fails, gets past — and what gets past is the
+// refusal described above, not a wrong write.)
+//
+// The gate works on the clients `registerOfflineMutationDefaults` ran on — the
+// app's one. That registration is what gives a write the retry policy that
+// turns AuthNotReadyError into a wait; on a bare QueryClient (the hooks' own
+// tests build one, with `retry: false`) the same error would be the permanent
+// failure the gate exists to prevent, so there the write is sent as before.
+// React Query hands its client to the mutation function, live or replayed.
+const queueClients = new WeakSet();
+
+// The session as supabase-js would use it for the next request: null when
+// there is none, or when the token could not be refreshed. `getSession()`
+// waits for the client's own start-up, so it can be asked at any moment. It
+// can also reject (lock time-out, storage refused): "cannot tell" is "not
+// ready".
+//
+// The call itself is outside the `try` on purpose. A client without
+// `auth.getSession` is not a device without a session: it is a test whose
+// mock of lib/supabase builds the app's client (`registerOfflineMutationDefaults`)
+// and forgot auth. That must fail, loudly and at once — taken for "no session"
+// it would be a write that waits for ever and a test that times out.
+async function readSession() {
+  const reading = supabase.auth.getSession();
+  try {
+    const { data } = await reading;
+    return data?.session ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// The mutation a running write belongs to, or undefined when its client no
+// longer holds it. React Query gives the function the variables object of its
+// mutation, the very one the cache entry holds, so identity finds it.
+//
+// "No longer holds it" is `queryClient.clear()` — what the app does when the
+// account changes. It empties the mutation cache but cannot stop a mutation
+// that is asleep between two attempts: that one would wake up and send one
+// account's write with the next account's session.
+function mutationOf(client, variables) {
+  const held = client.getMutationCache().getAll().filter((m) => m.state.variables === variables);
+  // The running one, should a caller have handed the same object to two.
+  return held.find((m) => m.state.status === 'pending') ?? held[0];
+}
+
+// The fate of a write whose queue was cleared: it never settles. No request,
+// and no onError / onSettled either — the hooks' rollbacks would write the
+// previous account's rows back into the cache that was just emptied for the
+// next one.
+const abandoned = () => new Promise(() => {});
+
+// How many attempts of a mutation got no answer. Counted apart from React
+// Query's own failure count, so that waiting for a session does not use up the
+// retries — see `rankTransientFailure` in lib/networkErrors.js.
+const unanswered = new WeakMap();
+
+function queuedWrite(send) {
+  return async function write(variables, context) {
+    const client = context?.client;
+    const gated = !!client && queueClients.has(client);
+    if (gated) {
+      if (!mutationOf(client, variables)) return abandoned();
+      if (!(await readSession())) throw new AuthNotReadyError();
+      // Reading the session can last as long as a token refresh does.
+      if (!mutationOf(client, variables)) return abandoned();
+    }
+    try {
+      return await send(variables);
+    } catch (error) {
+      const mutation = gated && isTransientError(error) ? mutationOf(client, variables) : undefined;
+      if (mutation) {
+        const rank = (unanswered.get(mutation) ?? 0) + 1;
+        unanswered.set(mutation, rank);
+        rankTransientFailure(error, rank);
+      }
+      throw error;
+    }
+  };
+}
+
 export const MUTATION_FNS = {
-  toggleDone: toggleDoneFn,
-  setFailed: setFailedFn,
-  setRpe: setRpeFn,
-  logActual: logActualFn,
-  setSkipped: setSkippedFn,
-  confirmSession: confirmSessionFn,
-  unconfirmSession: unconfirmSessionFn,
-  saveSlotComment: saveSlotCommentFn,
-  saveSlotDeviation: saveSlotDeviationFn,
-  saveDraftTree: saveDraftTreeFn,
-  discardDraft: discardDraftFn,
+  toggleDone: queuedWrite(toggleDoneFn),
+  setFailed: queuedWrite(setFailedFn),
+  setRpe: queuedWrite(setRpeFn),
+  logActual: queuedWrite(logActualFn),
+  setSkipped: queuedWrite(setSkippedFn),
+  confirmSession: queuedWrite(confirmSessionFn),
+  unconfirmSession: queuedWrite(unconfirmSessionFn),
+  saveSlotComment: queuedWrite(saveSlotCommentFn),
+  saveSlotDeviation: queuedWrite(saveSlotDeviationFn),
+  saveDraftTree: queuedWrite(saveDraftTreeFn),
+  discardDraft: queuedWrite(discardDraftFn),
 };
 
 // Authoring writes ride a DEDICATED FIFO scope so a hung draft sync can't
@@ -320,21 +431,34 @@ export function hasUnsyncedDraftSave(queryClient) {
  * the offline window is observed. Client-minted ids echo back, so the
  * reconcile is flicker-free.
  *
+ * Nothing happens without a session. The replay would only start each write's
+ * wait (see the session gate), and the reconcile would read the drafts as an
+ * anonymous request. The queue stays paused, which is the state the persister
+ * keeps; `useAuth` calls this again when a session appears.
+ *
  * The `hasUnsyncedDraftSave` guard is load-bearing, not defensive: refetching
  * while a save is paused, pending or errored would replace the optimistic tree
  * that holds the ONLY copy of the unsynced edits — and for a draft created
  * offline the server row doesn't exist yet, so `my-draft` would refetch to null
  * and the whole session's work would disappear.
  *
- * Called from two places that both need the exact same semantics: the
- * persister's hydration `onSuccess` and the window `online` listener.
+ * Called from three places that need the exact same semantics: the persister's
+ * hydration `onSuccess` and the auth listener (both through
+ * `replayQueuedWrites` in lib/queryClient.js), and the window `online`
+ * listener.
+ *
+ * The promise settles when the replay has: with a write waiting for a retry or
+ * for a session that can be long, or never. Await it in a test; in the app,
+ * never hand it to something that waits (PersistQueryClientProvider holds
+ * every query back until the promise of its `onSuccess` settles) — that is
+ * what `replayQueuedWrites` is for.
  */
-export function resumeMutationsAndReconcileDrafts(queryClient) {
-  return queryClient.resumePausedMutations().then(() => {
-    if (hasUnsyncedDraftSave(queryClient)) return;
-    queryClient.invalidateQueries({ queryKey: ['my-draft'] });
-    queryClient.invalidateQueries({ queryKey: ['draft-tree'] });
-  });
+export async function resumeMutationsAndReconcileDrafts(queryClient) {
+  if (!(await readSession())) return;
+  await queryClient.resumePausedMutations();
+  if (hasUnsyncedDraftSave(queryClient)) return;
+  queryClient.invalidateQueries({ queryKey: ['my-draft'] });
+  queryClient.invalidateQueries({ queryKey: ['draft-tree'] });
 }
 
 /**
@@ -343,44 +467,30 @@ export function resumeMutationsAndReconcileDrafts(queryClient) {
  * persistence) can still execute. The optimistic onMutate / invalidation
  * handlers stay in the hooks — for a hydrated mutation the optimistic patch
  * was already applied pre-reload, so the in-flight resume only needs the fn.
+ *
+ * A hook that names one of these keys inherits everything it does not set
+ * itself, live as well: the retry policy below is the one a tick made in the
+ * gym gets, not only a replay.
  */
 export function registerOfflineMutationDefaults(queryClient) {
+  // From here on this client's writes wait for a session (see the gate).
+  queueClients.add(queryClient);
+
   for (const [name, key] of Object.entries(MUTATION_KEYS)) {
-    if (name === 'saveDraftTree') {
-      // The authoring snapshot save carries its reconcile/toast onError, the
-      // my-draft invalidation onSuccess, and skipErrorToast HERE (in defaults)
-      // so a hydrated resume behaves exactly like a live save — the review
-      // caught that a hydrated failure would otherwise be silent, and that the
-      // hook-only onError didn't cover the resumed path.
-      queryClient.setMutationDefaults(key, {
-        mutationFn: MUTATION_FNS[name],
-        networkMode: 'online',
-        scope: { id: 'draft-tree' },
-        meta: { skipErrorToast: true },
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['my-draft'] }),
-        onError: (error) => draftSaveErrorHandler(queryClient, error),
-      });
-      continue;
-    }
-    if (name === 'discardDraft') {
-      // Same reasoning as the save above: put the cache refresh in the
-      // DEFAULTS so a discard that was queued offline and replayed after a
-      // reload clears 'my-draft' exactly like a live one. It keeps the generic
-      // error toast — a failed discard is worth telling the student about.
-      queryClient.setMutationDefaults(key, {
-        mutationFn: MUTATION_FNS[name],
-        networkMode: 'online',
-        scope: { id: 'draft-tree' },
-        onSettled: () => queryClient.invalidateQueries({ queryKey: ['my-draft'] }),
-      });
-      continue;
-    }
-    queryClient.setMutationDefaults(key, {
+    const defaults = {
       mutationFn: MUTATION_FNS[name],
       // 'online' pauses the mutation while offline so resumePausedMutations
-      // can replay it on reconnect. 'offlineFirst' would try-once-and-fail
-      // with retry: 0 — that would silently drop queued writes.
+      // can replay it on reconnect. 'offlineFirst' would run it once without
+      // a network: a failed attempt and a second of delay before the pause.
       networkMode: 'online',
+      // Wait for a session without limit; re-send up to five times a write
+      // that got no answer; never re-send one the database refused. A retry
+      // that comes due offline pauses the mutation instead of failing it. Set
+      // HERE, per key, and not as the client's default: only these writes are
+      // known to be idempotent, and a bare INSERT re-sent after an answer got
+      // lost on the way back is a duplicate row.
+      retry: mutationRetry,
+      retryDelay: mutationRetryDelay,
       // Shared scope serializes queued writes into FIFO order on replay.
       // Without it resumePausedMutations() is a parallel Promise.all, so two
       // opposite writes to the same row (done → un-done queued offline) could
@@ -391,6 +501,28 @@ export function registerOfflineMutationDefaults(queryClient) {
       // don't head-of-line-block each other while online. Authoring rides its
       // OWN scope so a stuck draft sync and a stuck workout write stay isolated.
       scope: { id: DRAFT_MUTATIONS.has(name) ? 'draft-tree' : 'offline-writes' },
-    });
+    };
+    if (name === 'saveDraftTree') {
+      // The authoring snapshot save carries its reconcile/toast onError, the
+      // my-draft invalidation onSuccess, and skipErrorToast HERE (in defaults)
+      // so a hydrated resume behaves exactly like a live save — the review
+      // caught that a hydrated failure would otherwise be silent, and that the
+      // hook-only onError didn't cover the resumed path.
+      Object.assign(defaults, {
+        meta: { skipErrorToast: true },
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['my-draft'] }),
+        onError: (error) => draftSaveErrorHandler(queryClient, error),
+      });
+    }
+    if (name === 'discardDraft') {
+      // Same reasoning as the save above: put the cache refresh in the
+      // DEFAULTS so a discard that was queued offline and replayed after a
+      // reload clears 'my-draft' exactly like a live one. It keeps the generic
+      // error toast — a failed discard is worth telling the student about.
+      Object.assign(defaults, {
+        onSettled: () => queryClient.invalidateQueries({ queryKey: ['my-draft'] }),
+      });
+    }
+    queryClient.setMutationDefaults(key, defaults);
   }
 }

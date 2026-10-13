@@ -6,8 +6,12 @@ import { AuthProvider, useAuth } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
 import { I18nProvider } from './hooks/useI18n';
 import { usePushAutoHeal } from './hooks/usePushAutoHeal';
-import { queryClient, queryPersister, shouldPersistQuery } from './lib/queryClient';
-import { resumeMutationsAndReconcileDrafts } from './lib/offlineMutations';
+import {
+  queryClient,
+  queryPersister,
+  shouldPersistQuery,
+  replayQueuedWrites,
+} from './lib/queryClient';
 import { routes } from './routes';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import { installGlobalErrorReporting } from './lib/errorReporter';
@@ -66,9 +70,13 @@ function CacheBoundary({ children }) {
         dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery },
       }}
       // Replay mutations queued offline in a previous session, then reconcile
-      // the draft caches. No-op if the queue is empty or we're still offline
-      // (network-mode pauses). See the helper for why the sync guard matters.
-      onSuccess={() => resumeMutationsAndReconcileDrafts(queryClient)}
+      // the draft caches. No-op if the queue is empty, we're still offline
+      // (network-mode pauses) or nobody is signed in. This provider holds
+      // every query back until the promise of its onSuccess settles — so that
+      // no read comes back before the queued writes have landed — and the
+      // helper's promise settles as soon as the replay is done OR has to
+      // wait. Do not hand it the promise of the replay itself.
+      onSuccess={replayQueuedWrites}
     >
       {children}
     </PersistQueryClientProvider>

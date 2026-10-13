@@ -7,7 +7,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-vi.mock('../lib/supabase', () => ({ supabase: { from: vi.fn() } }));
+// `auth.getSession` because this file builds the app's client (the offline
+// mutation defaults are registered on it): on that client a queued write —
+// the confirmation, here — is not sent until a session can be read.
+vi.mock('../lib/supabase', () => ({
+  supabase: {
+    from: vi.fn(),
+    auth: { getSession: async () => ({ data: { session: { user: { id: 'u-1' } } }, error: null }) },
+  },
+}));
 vi.mock('./useAuth', () => ({ useAuth: vi.fn() }));
 
 import { useStudentRecords } from './useStudentRecords';

@@ -1,7 +1,10 @@
 import { QueryClient, MutationCache, onlineManager } from '@tanstack/react-query';
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister';
 import { createStore, get, set, del } from 'idb-keyval';
-import { registerOfflineMutationDefaults } from './offlineMutations';
+import {
+  registerOfflineMutationDefaults,
+  resumeMutationsAndReconcileDrafts,
+} from './offlineMutations';
 import { pushToast } from './toast';
 import { mutationErrorKey } from './mutationErrors';
 
@@ -142,14 +145,69 @@ export const queryClient = new QueryClient({
       networkMode: 'online',
     },
     mutations: {
+      // No blind retry as a default. A write that got no answer may still have
+      // reached the database, and most writes outside the offline queue are
+      // bare INSERTs (a message, a copied session, an extra set): sent twice,
+      // they are two rows. The writes of the queue are idempotent and carry a
+      // retry policy of their own, per mutation key — see
+      // `registerOfflineMutationDefaults` and lib/networkErrors.js.
       retry: 0,
       // 'online' (the default) parks the mutation as paused while offline so
-      // resumePausedMutations() can replay it on reconnect. We tried
-      // 'offlineFirst' first but that runs the fn once even when offline and
-      // simply fails it (since retry=0), which would lose queued writes.
+      // resumePausedMutations() can replay it on reconnect.
       networkMode: 'online',
     },
   },
 });
 
 registerOfflineMutationDefaults(queryClient);
+
+// How long the replay of the queue may make no progress before whoever waits
+// for it stops waiting.
+export const REPLAY_PATIENCE_MS = 5000;
+
+/**
+ * Replay the writes queued on this device, on the app's client. Run when the
+ * cache has been restored from IndexedDB (`App.jsx`) and when a session
+ * appears (`useAuth`); without a session it replays nothing.
+ *
+ * The promise it returns is for PersistQueryClientProvider, which lets no
+ * query fetch until the promise of its `onSuccess` settles. That wait has a
+ * purpose: a read that came back BEFORE the queued writes reached the database
+ * would replace the ticked sets on screen with the rows as they were. And it
+ * needs a limit: the promise of `resumeMutationsAndReconcileDrafts` settles
+ * when the replay has, which is after the retries of a write on a bad network,
+ * and never while one waits for someone to sign in — every page would sit on
+ * its spinner behind one queued set.
+ *
+ * So this promise settles when the queue has been replayed, or as soon as the
+ * replay has to wait: the device is offline, an attempt failed and will be
+ * made again (no answer, no session), or nothing has settled for
+ * REPLAY_PATIENCE_MS (a request that hangs — the token refresh included). It
+ * never rejects for a write that failed.
+ */
+export function replayQueuedWrites() {
+  let stopWaiting;
+  const hasToWait = new Promise((resolve) => {
+    stopWaiting = resolve;
+  });
+  // Offline nothing can move, and reading the session alone may take auth-js
+  // half a minute of refresh attempts.
+  if (!onlineManager.isOnline()) stopWaiting();
+  let patience = setTimeout(stopWaiting, REPLAY_PATIENCE_MS);
+  const unsubscribe = queryClient.getMutationCache().subscribe((event) => {
+    if (event.type !== 'updated') return;
+    const step = event.action.type;
+    if (step === 'failed') {
+      // An attempt failed and a retry is scheduled.
+      stopWaiting();
+    } else if (step === 'success' || step === 'error') {
+      // A write settled: the queue is moving.
+      clearTimeout(patience);
+      patience = setTimeout(stopWaiting, REPLAY_PATIENCE_MS);
+    }
+  });
+  return Promise.race([resumeMutationsAndReconcileDrafts(queryClient), hasToWait]).finally(() => {
+    clearTimeout(patience);
+    unsubscribe();
+  });
+}

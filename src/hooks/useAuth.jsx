@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { setErrorReporterUser } from '../lib/errorReporter';
+import { replayQueuedWrites } from '../lib/queryClient';
 
 const AuthContext = createContext(null);
 
@@ -24,7 +25,11 @@ export function AuthProvider({ children }) {
   }
 
   useEffect(() => {
+    // Whether this device held a session the last time auth said anything.
+    let sessionKnown = false;
+
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) sessionKnown = true;
       const u = session?.user ?? null;
       setUser(u);
       if (u) {
@@ -35,7 +40,22 @@ export function AuthProvider({ children }) {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+      (event, session) => {
+        // A session APPEARS: someone signs in where nobody was, or a token is
+        // refreshed — which is also how a refresh that kept failing on a bad
+        // network finally ends. The writes queued on this device were held
+        // back for exactly that (they are not sent without a session, see
+        // lib/offlineMutations.js), so this is the moment to replay them.
+        // INITIAL_SESSION is left out: at start-up the restored cache runs the
+        // same replay itself. Neither is SIGNED_IN with a session already
+        // known a reason — supabase-js emits that one on every return to the
+        // tab.
+        const appeared =
+          !!session &&
+          event !== 'INITIAL_SESSION' &&
+          (!sessionKnown || event === 'TOKEN_REFRESHED');
+        sessionKnown = !!session;
+
         const u = session?.user ?? null;
         setUser(u);
         if (u) {
@@ -43,6 +63,11 @@ export function AuthProvider({ children }) {
         } else {
           setProfile(null);
         }
+
+        // Not awaited, like the profile read above: supabase-js runs this
+        // callback while it holds its auth lock, and the replay reads the
+        // session, which waits for that lock.
+        if (appeared) replayQueuedWrites();
       }
     );
 

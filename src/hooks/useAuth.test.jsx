@@ -15,8 +15,13 @@ vi.mock('../lib/supabase', () => {
   };
 });
 
+// The replay itself is lib/queryClient.test.js's subject; here only WHEN the
+// provider asks for it. (useAuth.queue.test.jsx runs the two together.)
+vi.mock('../lib/queryClient', () => ({ replayQueuedWrites: vi.fn() }));
+
 import { AuthProvider, useAuth } from './useAuth';
 import { supabase } from '../lib/supabase';
+import { replayQueuedWrites } from '../lib/queryClient';
 
 function makeProfileChain(result) {
   const chain = {
@@ -184,5 +189,82 @@ describe('AuthProvider', () => {
     expect(supabase.auth.signOut).toHaveBeenCalled();
     expect(result.current.user).toBeNull();
     expect(result.current.profile).toBeNull();
+  });
+});
+
+// The writes queued on the device are not sent without a session
+// (lib/offlineMutations.js). They wait paused, so somebody has to say when a
+// session is there again: the auth listener.
+describe('AuthProvider: the queued writes are replayed when a session appears', () => {
+  const SESSION = { access_token: 'jwt', user: { id: 'u-1' } };
+
+  async function mount({ session }) {
+    supabase.auth.getSession.mockResolvedValue({ data: { session } });
+    supabase.from.mockReturnValue(
+      makeProfileChain({ data: { id: 'u-1', role: 'student' }, error: null }),
+    );
+    const view = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(view.result.current.isLoading).toBe(false));
+    return view;
+  }
+
+  const emit = (event, session) =>
+    act(async () => {
+      authChangeCallback(event, session);
+    });
+
+  it('on a sign-in where nobody was signed in', async () => {
+    await mount({ session: null });
+    expect(replayQueuedWrites).not.toHaveBeenCalled();
+
+    await emit('SIGNED_IN', SESSION);
+
+    expect(replayQueuedWrites).toHaveBeenCalledTimes(1);
+  });
+
+  it('on a token refresh — how a refresh that kept failing on a bad network ends', async () => {
+    // The token had expired and could not be refreshed: no session at start-up.
+    await mount({ session: null });
+
+    await emit('TOKEN_REFRESHED', SESSION);
+
+    expect(replayQueuedWrites).toHaveBeenCalledTimes(1);
+  });
+
+  it('on a token refresh with a session already known as well', async () => {
+    // auth says nothing while a refresh fails: the session known here may have
+    // been unusable for the last ten minutes.
+    await mount({ session: SESSION });
+
+    await emit('TOKEN_REFRESHED', SESSION);
+
+    expect(replayQueuedWrites).toHaveBeenCalledTimes(1);
+  });
+
+  it('not at start-up: the restored cache runs that replay itself', async () => {
+    await mount({ session: SESSION });
+
+    await emit('INITIAL_SESSION', SESSION);
+
+    expect(replayQueuedWrites).not.toHaveBeenCalled();
+  });
+
+  it('not on the SIGNED_IN supabase-js emits at every return to the tab', async () => {
+    await mount({ session: SESSION });
+
+    await emit('SIGNED_IN', SESSION);
+    await emit('SIGNED_IN', SESSION);
+
+    expect(replayQueuedWrites).not.toHaveBeenCalled();
+  });
+
+  it('not when the session goes, and again when it is back', async () => {
+    await mount({ session: SESSION });
+
+    await emit('SIGNED_OUT', null);
+    expect(replayQueuedWrites).not.toHaveBeenCalled();
+
+    await emit('SIGNED_IN', SESSION);
+    expect(replayQueuedWrites).toHaveBeenCalledTimes(1);
   });
 });
