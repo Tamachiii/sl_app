@@ -3,6 +3,7 @@
 // Folded into de.js by the integrator; see ./README.md.
 export default {
   uiSharedHelpers: {
+    undo: 'Rückgängig',
     decimalInvalid: 'Gib eine Zahl ein, zum Beispiel 82,5',
     integerInvalid: 'Gib eine ganze Zahl ein',
   },

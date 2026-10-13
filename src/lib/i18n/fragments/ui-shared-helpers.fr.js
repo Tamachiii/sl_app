@@ -3,6 +3,7 @@
 // Folded into fr.js by the integrator; see ./README.md.
 export default {
   uiSharedHelpers: {
+    undo: 'Annuler',
     decimalInvalid: 'Saisis un nombre, par exemple 82,5',
     integerInvalid: 'Saisis un nombre entier',
   },
