@@ -69,6 +69,7 @@ vi.mock('../../hooks/useSessionConfirmation', () => ({
   useSessionConfirmation: () => mockConfirmation,
   useConfirmSession: () => ({ mutate: vi.fn(), isPending: false }),
   useUnconfirmSession: () => ({ mutate: vi.fn(), isPending: false }),
+  useConfirmationWaiting: () => false,
 }));
 
 vi.mock('../../hooks/useMessages', () => ({

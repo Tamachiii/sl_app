@@ -12,6 +12,7 @@ import {
   useSessionConfirmation,
   useConfirmSession,
   useUnconfirmSession,
+  useConfirmationWaiting,
 } from '../../hooks/useSessionConfirmation';
 import { useSessionFeedback, formatMessageStamp } from '../../hooks/useMessages';
 import { useI18n } from '../../hooks/useI18n';
@@ -142,6 +143,16 @@ export default function SessionView() {
   const { data: confirmation, isLoading: confLoading } = useSessionConfirmation(sessionId);
   const confirmSession = useConfirmSession();
   const unconfirmSession = useUnconfirmSession();
+  // The confirmation is on the device and waits for a network — asked of the
+  // queue, so it is also true of one made before the app was last closed.
+  const confirmWaiting = useConfirmationWaiting(sessionId);
+  // A write that is BEING SENT holds its button; one that is parked until the
+  // network returns does not. Parked is still `isPending`, for hours: keyed on
+  // that alone, "Confirm session" stayed off and on "Confirming…" for a
+  // session whose confirmation had been made and taken back in the gym, and
+  // "Undo confirmation" stayed off after an undo followed by a new confirm.
+  const confirmInFlight = confirmSession.isPending && !confirmSession.isPaused;
+  const undoInFlight = unconfirmSession.isPending && !unconfirmSession.isPaused;
 
   // Out-of-band rest-timer side effects (wake lock + audio cue + vibrate +
   // hidden-title countdown). Mounted exactly here so the singleton timer
@@ -334,17 +345,31 @@ export default function SessionView() {
     setOpenKey(wasOpen ? false : group.key);
   }
 
+  function closeConfirmDialog() {
+    setConfirmDialogOpen(false);
+  }
+
   function handleConfirm() {
     // Pin the training date HERE, from the set logs, rather than letting the
     // server's confirmed_at default stand in for it: a confirm queued offline
     // replays whenever connectivity returns, which can be days later.
     const performedOn = performedOnFromLogs(logs);
-    confirmSession.mutate({ sessionId, notes: notes.trim() || null, performedOn }, {
-      onSuccess: () => {
-        setNotes('');
-        setConfirmDialogOpen(false);
-      },
+    const written = notes;
+    confirmSession.mutate({ sessionId, notes: written.trim() || null, performedOn }, {
+      // The note stays in the field until the database has it: after a
+      // confirmation that is refused, the dialog opens on what was written.
+      // And the answer takes out of the field what it carried, nothing else:
+      // it can come hours after the tap, to an athlete who has taken the
+      // confirmation back and is writing the note of the next one.
+      onSuccess: () => setNotes((current) => (current === written ? '' : current)),
     });
+    // The dialog closes at the tap, not on the answer. The page behind it
+    // shows the session as confirmed from this moment (the hook writes it into
+    // the cache), and the answer can be hours away: a confirmation made
+    // without a network is parked, which is not a failure and not a success,
+    // and the dialog used to sit on "Confirming…" with Cancel switched off
+    // until the network came back (P25).
+    closeConfirmDialog();
   }
 
   function handleUnconfirm() {
@@ -472,6 +497,11 @@ export default function SessionView() {
               <p className="sl-mono text-[11px] text-ink-400 mt-0.5">
                 {new Date(confirmation.confirmed_at).toLocaleString()}
               </p>
+              {confirmWaiting && (
+                <p role="status" className="sl-mono text-[11px] text-ink-400 mt-1 leading-relaxed">
+                  {t('sessionConfirm.waiting')}
+                </p>
+              )}
               {confirmation.notes && (
                 <p className="mt-2 text-[13px] text-gray-700 whitespace-pre-wrap">
                   {confirmation.notes}
@@ -497,7 +527,7 @@ export default function SessionView() {
                 // says "reviewed" closes it (see `canUndo` on the dialog).
                 refetchSession({ cancelRefetch: false });
               }}
-              disabled={unconfirmSession.isPending}
+              disabled={undoInFlight}
               className="sl-mono text-[11px] text-ink-400 hover:text-danger underline w-full"
             >
               {t('student.session.undoConfirmation')}
@@ -527,11 +557,11 @@ export default function SessionView() {
           )}
           <button
             onClick={() => setConfirmDialogOpen(true)}
-            disabled={confirmSession.isPending}
+            disabled={confirmInFlight}
             className="sl-btn-primary w-full text-[13px] disabled:opacity-50"
             style={{ padding: '10px 16px' }}
           >
-            {confirmSession.isPending
+            {confirmInFlight
               ? t('student.session.confirming')
               : t('student.session.confirmCta')}
           </button>
@@ -540,9 +570,7 @@ export default function SessionView() {
 
       <Dialog
         open={confirmDialogOpen}
-        onClose={() => {
-          if (!confirmSession.isPending) setConfirmDialogOpen(false);
-        }}
+        onClose={closeConfirmDialog}
         title={t('student.session.confirmDialogTitle')}
       >
         <p className="sl-mono text-[12px] text-ink-400 mb-3 leading-relaxed">
@@ -562,18 +590,14 @@ export default function SessionView() {
         <div className="flex gap-2">
           <button
             onClick={handleConfirm}
-            disabled={confirmSession.isPending}
-            className="flex-1 rounded-lg py-2.5 sl-display text-[13px] text-white disabled:opacity-50"
+            className="flex-1 rounded-lg py-2.5 sl-display text-[13px] text-white"
             style={{ background: 'var(--color-accent)' }}
           >
-            {confirmSession.isPending
-              ? t('student.session.confirming')
-              : t('common.confirm')}
+            {t('common.confirm')}
           </button>
           <button
-            onClick={() => setConfirmDialogOpen(false)}
-            disabled={confirmSession.isPending}
-            className="flex-1 bg-ink-100 text-ink-700 rounded-lg py-2.5 sl-display text-[13px] hover:bg-ink-200 disabled:opacity-50"
+            onClick={closeConfirmDialog}
+            className="flex-1 bg-ink-100 text-ink-700 rounded-lg py-2.5 sl-display text-[13px] hover:bg-ink-200"
           >
             {t('common.cancel')}
           </button>

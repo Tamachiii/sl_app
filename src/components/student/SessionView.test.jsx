@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { IsRestoringProvider } from '@tanstack/react-query';
@@ -80,10 +80,15 @@ vi.mock('../../hooks/useSetVideo', () => ({
   useSetVideoSignedUrl: () => ({ data: null, isLoading: false }),
 }));
 
+// Whether the confirmation of the session is kept on the device until a
+// network returns — read from the queue of writes by the real hook.
+let mockConfirmWaiting = false;
+
 vi.mock('../../hooks/useSessionConfirmation', () => ({
   useSessionConfirmation: () => mockConfirmation,
   useConfirmSession: () => mockConfirm,
   useUnconfirmSession: () => mockUnconfirm,
+  useConfirmationWaiting: () => mockConfirmWaiting,
 }));
 
 let mockFeedback = { data: null };
@@ -107,6 +112,9 @@ function renderSessionView() {
 describe('SessionView', () => {
   beforeEach(() => {
     mockConfirmation = { data: null, isLoading: false };
+    mockConfirmWaiting = false;
+    Object.assign(mockConfirm, { isPending: false, isPaused: false });
+    Object.assign(mockUnconfirm, { isPending: false, isPaused: false });
     mockFeedback = { data: null };
     mockDeviations = { data: [], isLoading: false };
     vi.clearAllMocks();
@@ -227,6 +235,135 @@ describe('SessionView', () => {
 
     await user.click(screen.getByRole('button', { name: /^cancel$/i }));
     expect(mockConfirm.mutate).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText(/notes for your coach/i)).toBeNull();
+  });
+
+  // P25. The answer to a confirmation can be hours away — the write is parked
+  // without a network, which is neither a success nor a failure — and the
+  // page behind the dialog shows the session as confirmed from the tap. The
+  // dialog used to wait for the answer, on "Confirming…" with Cancel off.
+  describe('the confirm dialog closes at the tap', () => {
+    const notesField = () => screen.queryByLabelText(/notes for your coach/i);
+
+    function openDialog(user) {
+      mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
+      mockSetLogsData = { data: [], isLoading: false };
+      renderSessionView();
+      return user.click(screen.getByRole('button', { name: /^confirm session$/i }));
+    }
+
+    it('without waiting for the answer of the write', async () => {
+      const user = userEvent.setup();
+      await openDialog(user);
+      await user.type(notesField(), 'felt strong');
+
+      await user.click(screen.getByRole('button', { name: /^confirm$/i }));
+
+      // `mutate` is a stub: nothing has answered, and nothing will.
+      expect(mockConfirm.mutate).toHaveBeenCalledTimes(1);
+      expect(notesField()).toBeNull();
+    });
+
+    it('the note leaves the field when the database has it, not before', async () => {
+      const user = userEvent.setup();
+      await openDialog(user);
+      await user.type(notesField(), 'felt strong');
+      await user.click(screen.getByRole('button', { name: /^confirm$/i }));
+
+      // The confirmation was refused (the hook put the page back): the dialog
+      // opens on what was written.
+      await user.click(screen.getByRole('button', { name: /^confirm session$/i }));
+      expect(notesField()).toHaveValue('felt strong');
+      await user.click(screen.getByRole('button', { name: /^cancel$/i }));
+
+      // It landed.
+      const { onSuccess } = mockConfirm.mutate.mock.calls[0][1];
+      act(() => onSuccess());
+      await user.click(screen.getByRole('button', { name: /^confirm session$/i }));
+      expect(notesField()).toHaveValue('');
+    });
+
+    it('its buttons are never switched off by a write that is waiting', async () => {
+      const user = userEvent.setup();
+      Object.assign(mockConfirm, { isPending: true, isPaused: true });
+      await openDialog(user);
+
+      expect(screen.getByRole('button', { name: /^confirm$/i })).toBeEnabled();
+      expect(screen.getByRole('button', { name: /^cancel$/i })).toBeEnabled();
+      expect(screen.queryByText(/confirming…/i)).toBeNull();
+    });
+  });
+
+  // A parked write is `isPending` for as long as the device has no network.
+  // Keyed on that alone the buttons stayed off, and "Confirm session" on
+  // "Confirming…", for a session confirmed and un-confirmed in the gym.
+  describe('a write that waits for a network does not hold its button', () => {
+    const CONFIRMED = {
+      id: 'c-1',
+      session_id: 'sess-1',
+      student_id: 'u-1',
+      notes: null,
+      confirmed_at: '2026-04-14T10:00:00Z',
+    };
+
+    beforeEach(() => {
+      mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
+      mockSetLogsData = { data: [], isLoading: false };
+    });
+
+    it('"Confirm session" stays available while a confirmation is parked (confirm, then undo, offline)', () => {
+      Object.assign(mockConfirm, { isPending: true, isPaused: true });
+      renderSessionView();
+      expect(screen.getByRole('button', { name: /^confirm session$/i })).toBeEnabled();
+      expect(screen.queryByText(/confirming…/i)).toBeNull();
+    });
+
+    it('…and is held, as "Confirming…", by one that is being sent', () => {
+      Object.assign(mockConfirm, { isPending: true, isPaused: false });
+      renderSessionView();
+      expect(screen.getByRole('button', { name: /^confirming…$/i })).toBeDisabled();
+    });
+
+    it('"Undo confirmation" stays available while an undo is parked (undo, then confirm again, offline)', () => {
+      mockConfirmation = { data: CONFIRMED, isLoading: false };
+      Object.assign(mockUnconfirm, { isPending: true, isPaused: true });
+      renderSessionView();
+      expect(screen.getByRole('button', { name: /undo confirmation/i })).toBeEnabled();
+    });
+
+    it('…and is held by one that is being sent', () => {
+      mockConfirmation = { data: CONFIRMED, isLoading: false };
+      Object.assign(mockUnconfirm, { isPending: true, isPaused: false });
+      renderSessionView();
+      expect(screen.getByRole('button', { name: /undo confirmation/i })).toBeDisabled();
+    });
+
+    it('the confirmed card says that the confirmation is kept on the device, while it is', () => {
+      mockConfirmation = { data: CONFIRMED, isLoading: false };
+      mockConfirmWaiting = true;
+      const { rerender } = renderSessionView();
+
+      const line = screen.getByText(/saved on this device\. it will be sent as soon as you’re back online/i);
+      expect(line).toHaveAttribute('role', 'status');
+      expect(line.closest('.sl-card')).toHaveTextContent(/session confirmed/i);
+
+      mockConfirmWaiting = false;
+      rerender(
+        <MemoryRouter>
+          <SessionView />
+        </MemoryRouter>,
+      );
+      expect(screen.queryByText(/saved on this device/i)).toBeNull();
+      expect(screen.getByText(/session confirmed/i)).toBeInTheDocument();
+    });
+
+    it('…and nothing of the kind on a session that is not confirmed', () => {
+      // Confirmed and un-confirmed offline: the confirmation is still in the
+      // queue, in front of its undo.
+      mockConfirmWaiting = true;
+      renderSessionView();
+      expect(screen.queryByText(/saved on this device/i)).toBeNull();
+    });
   });
 
   it('displays coach note when slot has notes', () => {
