@@ -188,6 +188,12 @@ function invalidateConfirmationQueries(qc) {
   qc.invalidateQueries({ queryKey: ['student-progress-stats'] });
   qc.invalidateQueries({ queryKey: ['student-records'] });
   qc.invalidateQueries({ queryKey: ['student-lifetime-stats'] });
+  // The athlete's "Last time" hints are held as fresh for hours
+  // (lib/queryClient.js), and a confirmation is what changes them. Flagged,
+  // not read again: deriving one is a read of the whole set history. This is
+  // `flagLastTimeHints` of lib/offlineMutations.js, which does it once these
+  // hooks set no `onSettled` of their own.
+  qc.invalidateQueries({ queryKey: ['last-performance'], refetchType: 'none' });
 }
 
 export function useConfirmSession() {

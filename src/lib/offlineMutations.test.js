@@ -1339,6 +1339,9 @@ const CONFIRMATION_READS = [
   ['student-progress-stats', 'u-1', 'active'],
   ['student-records', 'u-1'],
   ['student-lifetime-stats', 'u-1'],
+  // "Last time" of the NEXT session: the app's client holds the athlete's own
+  // hints as fresh for hours (lib/queryClient.js), on the strength of this.
+  ['last-performance', 'self', 's-2', ['ex-1']],
 ];
 const OTHER_READS = [
   ['session', 's-1'],
@@ -1348,6 +1351,7 @@ const OTHER_READS = [
   ['slot-deviations', 's-1'],
   ['slot-deviations', 's-2'],
   ['student-program-details', 'u-1', 'active'],
+  // "Last time" of the session being confirmed: never about its own sets.
   ['last-performance', 'self', 's-1', ['ex-1']],
 ];
 

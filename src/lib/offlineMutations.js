@@ -788,6 +788,29 @@ const CONFIRMATION_READS = [
   'student-lifetime-stats',
 ];
 
+/**
+ * A confirmation, or its undo, also changes the "Last time" hints — of every
+ * session but its own, which a hint never looks at. The athlete's hints are
+ * held as fresh for hours (`hintStaleTime` in lib/queryClient.js) because on
+ * this device nothing else changes what they are picked from; without this the
+ * hint of the next session would show the workout before the one just
+ * trained until those hours had passed — across relaunches, the entry is
+ * stored.
+ *
+ * They are FLAGGED, not read again: deriving a hint is a read of the athlete's
+ * whole done-set history, and a confirmation must not cost that. A flagged
+ * hint is derived when its session is opened, or on the next return to a page
+ * that shows it.
+ */
+function flagLastTimeHints(queryClient, exceptSessionId) {
+  queryClient.invalidateQueries({
+    queryKey: ['last-performance'],
+    refetchType: 'none',
+    // ['last-performance', <athlete>, sessionId, exerciseIds]
+    predicate: (query) => !exceptSessionId || query.queryKey[2] !== exceptSessionId,
+  });
+}
+
 // The set-log writes whose `onSettled` has run: settled in all but name, since
 // React Query only moves a mutation out of `pending` after that handler.
 const settling = new WeakSet();
@@ -805,6 +828,7 @@ function refreshAfter(name, queryClient, variables) {
     case 'confirmSession':
     case 'unconfirmSession':
       CONFIRMATION_READS.forEach((root) => refresh([root]));
+      flagLastTimeHints(queryClient, variables?.sessionId);
       return;
     case 'saveSlotComment':
       refresh(ofSession('slot-comments'));

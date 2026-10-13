@@ -116,6 +116,11 @@ export function useLastPerformance(
     // A coach has no need of their own auth id here beyond being signed in;
     // the athlete is named by studentRowId.
     enabled: !!user?.id && !!sessionId && exerciseIds.length > 0 && !!deviationsReady,
-    staleTime: 1000 * 60,
+    // No `staleTime` here: how long a hint is served before it is derived
+    // again is a default of this root in lib/queryClient.js (`hintStaleTime`)
+    // — hours for the athlete's own, whose history only moves when a session
+    // is confirmed, which flags the hints of the other sessions; the client's
+    // stale time for the one a coach reads. An option set here would replace
+    // that default for both.
   });
 }

@@ -241,11 +241,14 @@ const mutationCache = new MutationCache({
   },
 });
 
+// How old a read may be before a page that opens on it asks again.
+const DEFAULT_STALE_MS = 2 * MINUTE;
+
 export const queryClient = new QueryClient({
   mutationCache,
   defaultOptions: {
     queries: {
-      staleTime: 2 * MINUTE,
+      staleTime: DEFAULT_STALE_MS,
       retry: 1,
       // 'online': without a network a read is not attempted, it waits
       // (`fetchStatus: 'paused'`) and runs when the device is back — React
@@ -279,13 +282,64 @@ export const queryClient = new QueryClient({
 
 registerOfflineMutationDefaults(queryClient);
 
+// --- what is read again, and when ----------------------------------------------
+//
+// Left to the client's default, a read is out of date after DEFAULT_STALE_MS
+// and is made again each time the app comes back to the front. A rest lasts
+// two to five minutes with the phone locked: every unlock of a workout re-read
+// the whole logging page — the session, the notes, the swaps, the library and
+// the athlete's entire set history behind "Last time" — some 250 requests for
+// twenty sets, on the network of a gym.
+//
+// Five roots are taken out of that. None of them changes on this device other
+// than through a write of the app, and those writes invalidate what they
+// change. What a default cannot know is the OTHER device: the coach rewrites a
+// session the athlete has in cache, the athlete's notes and swaps are what the
+// coach's review shows, and the cache is stored with its timestamps, so
+// closing the app does not make anything older. Hence two rules, not one.
+
+// A return to the app, or to the network, asks again only for what is older
+// than this. Longer than any workout.
+export const QUIET_MS = 4 * HOUR;
+
+// Rule 1 — `session`, `slot-comments`, `slot-deviations`, `exercise-library`:
+// read again when a page that shows them OPENS (the client's stale time, as
+// before — this is how an edit made on another device arrives, and the only
+// way: nothing pushes it), left alone while that page stays open. The two
+// exceptions are a read the app itself flagged — an invalidation that could
+// not be served, a refresh that failed — and a page left open for longer than
+// QUIET_MS: a tab that lived through the night is not shown as it was.
+function dueOnReturn(query) {
+  return query.state.isInvalidated || Date.now() - query.state.dataUpdatedAt > QUIET_MS;
+}
+const QUIET_WHILE_OPEN = { refetchOnWindowFocus: dueOnReturn, refetchOnReconnect: dueOnReturn };
+
+// Rule 2 — the athlete's own "Last time" (`['last-performance', 'self', …]`):
+// good for QUIET_MS, opening the page included. Deriving it is the expensive
+// read — the whole done-set history — and on the athlete's device the only
+// things that change it are a confirmation and its undo, which flag the hints
+// of the other sessions (`flagLastTimeHints` in lib/offlineMutations.js). The
+// hint a COACH reads (the key names the athlete instead of 'self') moves when
+// that athlete trains, on another device: it keeps the client's stale time.
+function hintStaleTime(query) {
+  return query.queryKey[1] === 'self' ? QUIET_MS : DEFAULT_STALE_MS;
+}
+
+const REFETCH_RULES = {
+  session: QUIET_WHILE_OPEN,
+  'slot-comments': QUIET_WHILE_OPEN,
+  'slot-deviations': QUIET_WHILE_OPEN,
+  'exercise-library': QUIET_WHILE_OPEN,
+  'last-performance': { staleTime: hintStaleTime },
+};
+
 // One call per root: defaults registered twice under the same key replace each
 // other. The `gcTime` is for every persisted root — see PERSIST_MAX_AGE_MS; for
 // the two draft roots it is also what keeps the only copy of a draft that is
 // ahead of the server (lib/draftTree.js) in the cache while the athlete is on
 // another page.
 for (const root of PERSISTED_QUERY_ROOTS) {
-  queryClient.setQueryDefaults([root], { gcTime: PERSIST_MAX_AGE_MS });
+  queryClient.setQueryDefaults([root], { gcTime: PERSIST_MAX_AGE_MS, ...REFETCH_RULES[root] });
 }
 
 // The athlete comes back to the app. A draft in sync is read again — that is

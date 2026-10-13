@@ -1,8 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createElement } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, cleanup, renderHook } from '@testing-library/react';
 import {
+  QueryClientProvider,
   QueryObserver,
   dehydrate,
   focusManager,
@@ -10,14 +13,18 @@ import {
   onlineManager,
 } from '@tanstack/react-query';
 
-// What the app's client keeps of what it read: the allow-list of the persisted
-// cache, how long an entry lives, and what is left out of the device.
+// What the app's client keeps of what it read, and when it reads it again:
+// the allow-list of the persisted cache, how long an entry lives, what is left
+// out of the device, and the reads a return to the app no longer makes.
 // (The queue of writes and the drafts are in queryClient.test.js.)
 
 vi.mock('./supabase', () => ({
   supabase: { from: vi.fn(), rpc: vi.fn(), auth: { getSession: vi.fn() } },
 }));
 vi.mock('./toast', () => ({ pushToast: vi.fn() }));
+// For the one test that mounts the real "Last time" hook on the app's client.
+vi.mock('../hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 'u-1' } }) }));
+vi.mock('./doneSetHistory', () => ({ fetchDoneSetHistory: vi.fn(async () => []) }));
 
 import { supabase } from './supabase';
 
@@ -50,6 +57,8 @@ function written(app) {
   return JSON.parse(app.serializeCache({ timestamp: Date.now(), buster: '', clientState: saved(app) }));
 }
 
+const flush = () => vi.advanceTimersByTimeAsync(0);
+
 beforeEach(() => {
   vi.clearAllMocks();
   supabase.auth.getSession.mockResolvedValue({
@@ -60,6 +69,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  cleanup();
   while (mounted.length) {
     const client = mounted.pop();
     client.unmount();
@@ -417,5 +427,366 @@ describe('what is left out of the device', () => {
     expect(shouldPersistQuery(settled(['session', 's-1']))).toBe(true);
     expect(shouldPersistQuery(settled(['students']))).toBe(false);
     expect(shouldPersistQuery({ queryKey: 'session', state: { status: 'success' } })).toBe(false);
+  });
+});
+
+// --- P33: what a return to the app reads again ---------------------------------------
+
+describe('the phone is unlocked after a rest', () => {
+  // The logging page, open on a session: its reads, each counting its requests.
+  const QUIETED = [
+    ['session', 's-1'],
+    ['slot-comments', 's-1'],
+    ['slot-deviations', 's-1'],
+    ['exercise-library'],
+    ['last-performance', 'self', 's-1', ['e-1']],
+  ];
+  // What a tap of the athlete changes row by row, and what says "confirmed":
+  // left to the client's default.
+  const OTHERS = [
+    ['set-logs', 's-1', ['slot-1']],
+    ['session-confirmation', 's-1'],
+  ];
+
+  function openPage(queryClient, keys = [...QUIETED, ...OTHERS]) {
+    const reads = new Map();
+    const closers = [];
+    for (const key of keys) {
+      const read = vi.fn(async () => ({ read: read.mock.calls.length }));
+      reads.set(key[0], read);
+      const observer = new QueryObserver(queryClient, { queryKey: key, queryFn: read });
+      closers.push(observer.subscribe(() => {}));
+    }
+    const counts = () => Object.fromEntries([...reads].map(([root, read]) => [root, read.mock.calls.length]));
+    return { counts, close: () => closers.forEach((stop) => stop()) };
+  }
+
+  // React Query's manager says "focused" when the page becomes visible.
+  async function lockThenUnlockAfter(ms) {
+    focusManager.setFocused(false);
+    await vi.advanceTimersByTimeAsync(ms);
+    focusManager.setFocused(true);
+    await flush();
+  }
+
+  const once = (keys) => Object.fromEntries(keys.map(([root]) => [root, 1]));
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+  });
+
+  it('nothing of the session, its notes, its swaps, the library or "Last time" is read again', async () => {
+    const { queryClient } = await launchApp();
+    const page = openPage(queryClient);
+    await flush();
+    expect(page.counts()).toEqual(once([...QUIETED, ...OTHERS]));
+
+    await lockThenUnlockAfter(3 * MINUTE);
+
+    expect(page.counts()).toEqual({ ...once(QUIETED), 'set-logs': 2, 'session-confirmation': 2 });
+    page.close();
+  });
+
+  it('the hooks of the logging page, as they are: an unlock sends nothing for them', async () => {
+    const { queryClient } = await launchApp();
+    const [{ useSession }, { useSlotComments }, { useSlotDeviations }, { useExerciseLibrary }, { useLastPerformance }] =
+      await Promise.all([
+        import('../hooks/useSession'),
+        import('../hooks/useSlotComments'),
+        import('../hooks/useSlotDeviations'),
+        import('../hooks/useExerciseLibrary'),
+        import('../hooks/useLastPerformance'),
+      ]);
+    const { fetchDoneSetHistory } = await import('./doneSetHistory');
+    const slots = [{ id: 'slot-1', exercise: { id: 'e-1' } }];
+    // Read when the page opened, a moment ago.
+    queryClient.setQueryData(['session', 's-1'], { id: 's-1', exercise_slots: slots });
+    queryClient.setQueryData(['slot-comments', 's-1'], []);
+    queryClient.setQueryData(['slot-deviations', 's-1'], []);
+    queryClient.setQueryData(['exercise-library'], [{ id: 'e-1', name: 'Bench press' }]);
+    queryClient.setQueryData(['last-performance', 'self', 's-1', ['e-1']], {});
+    renderHook(
+      () => {
+        useSession('s-1');
+        useSlotComments('s-1', slots);
+        useSlotDeviations('s-1', slots);
+        useExerciseLibrary();
+        useLastPerformance('s-1', slots, '2026-10-13', [], true);
+      },
+      { wrapper: ({ children }) => createElement(QueryClientProvider, { client: queryClient }, children) },
+    );
+    // A read the rules leave alone, to see that the unlock reached the client.
+    const sets = openPage(queryClient, [['set-logs', 's-1', ['slot-1']]]);
+    await flush();
+    expect(sets.counts()).toEqual({ 'set-logs': 1 });
+
+    await lockThenUnlockAfter(3 * MINUTE);
+
+    expect(sets.counts()).toEqual({ 'set-logs': 2 });
+    // Every one of the five reads the database through this, or the history.
+    expect(supabase.from).not.toHaveBeenCalled();
+    expect(fetchDoneSetHistory).not.toHaveBeenCalled();
+    sets.close();
+  });
+
+  it('twenty rests of a workout: not one request for them', async () => {
+    const { queryClient } = await launchApp();
+    const page = openPage(queryClient);
+    await flush();
+
+    for (let rest = 0; rest < 20; rest += 1) await lockThenUnlockAfter(5 * MINUTE);
+
+    expect(page.counts()).toEqual({ ...once(QUIETED), 'set-logs': 21, 'session-confirmation': 21 });
+    page.close();
+  });
+
+  it('nor when the network comes back in a gym where it comes and goes', async () => {
+    const { queryClient } = await launchApp();
+    const page = openPage(queryClient);
+    await flush();
+
+    for (let drop = 0; drop < 5; drop += 1) {
+      deviceIs(false);
+      window.dispatchEvent(new Event('offline'));
+      await vi.advanceTimersByTimeAsync(3 * MINUTE);
+      deviceIs(true);
+      window.dispatchEvent(new Event('online'));
+      await flush();
+    }
+
+    expect(page.counts()).toEqual({ ...once(QUIETED), 'set-logs': 6, 'session-confirmation': 6 });
+    page.close();
+  });
+
+  it('a page left open past QUIET_MS is read again, once', async () => {
+    const { queryClient, QUIET_MS } = await launchApp();
+    expect(QUIET_MS).toBe(4 * HOUR);
+    const page = openPage(queryClient, QUIETED);
+    await flush();
+
+    await lockThenUnlockAfter(QUIET_MS - MINUTE);
+    expect(page.counts()).toEqual(once(QUIETED));
+
+    // The tab lived through the night.
+    await lockThenUnlockAfter(10 * HOUR);
+    expect(page.counts()).toEqual(Object.fromEntries(QUIETED.map(([root]) => [root, 2])));
+
+    await lockThenUnlockAfter(3 * MINUTE);
+    expect(page.counts()).toEqual(Object.fromEntries(QUIETED.map(([root]) => [root, 2])));
+    page.close();
+  });
+
+  it('a read the app flagged while it could not be served is made on the return', async () => {
+    const { queryClient } = await launchApp();
+    const page = openPage(queryClient, QUIETED);
+    await flush();
+    focusManager.setFocused(false);
+    // Flagged, and not refetched: what an invalidation leaves behind when its
+    // request is lost.
+    await queryClient.invalidateQueries({ queryKey: ['session', 's-1'], refetchType: 'none' });
+    await queryClient.invalidateQueries({ queryKey: ['slot-deviations'], refetchType: 'none' });
+    await vi.advanceTimersByTimeAsync(MINUTE);
+
+    focusManager.setFocused(true);
+    await flush();
+
+    expect(page.counts()).toEqual({ ...once(QUIETED), session: 2, 'slot-deviations': 2 });
+    page.close();
+  });
+
+  it('a write of the app still refreshes what it changed, at once', async () => {
+    const { queryClient } = await launchApp();
+    const page = openPage(queryClient, QUIETED);
+    await flush();
+
+    // What the coach's editor does after a save, the athlete's page after a
+    // note or a swap.
+    await queryClient.invalidateQueries({ queryKey: ['session', 's-1'] });
+    await queryClient.invalidateQueries({ queryKey: ['slot-comments', 's-1'] });
+    await queryClient.invalidateQueries({ queryKey: ['exercise-library'] });
+    await flush();
+
+    expect(page.counts()).toEqual({ ...once(QUIETED), session: 2, 'slot-comments': 2, 'exercise-library': 2 });
+    page.close();
+  });
+});
+
+describe('a page is opened on what the device holds', () => {
+  const SHARED = [
+    ['session', 's-1'],
+    ['slot-comments', 's-1'],
+    ['slot-deviations', 's-1'],
+    ['exercise-library'],
+  ];
+  const OWN_HINT = ['last-performance', 'self', 's-1', ['e-1']];
+  const COACH_HINT = ['last-performance', 'st-4', 's-1', ['e-1']];
+
+  // Opening a page: a reader that was not there before.
+  function open(queryClient, key) {
+    const read = vi.fn(async () => ({ fresh: true }));
+    const observer = new QueryObserver(queryClient, { queryKey: key, queryFn: read });
+    const close = observer.subscribe(() => {});
+    return { read, close };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+  });
+
+  it('what another device may have changed is read again, as before: the coach edited the session an hour ago', async () => {
+    const { queryClient } = await launchApp();
+    // Stored on the phone when the athlete looked at the session at lunch.
+    for (const key of SHARED) queryClient.setQueryData(key, { fresh: false }, { updatedAt: Date.now() - HOUR });
+
+    const pages = SHARED.map((key) => open(queryClient, key));
+    await flush();
+
+    for (const page of pages) expect(page.read).toHaveBeenCalledTimes(1);
+    for (const key of SHARED) expect(queryClient.getQueryData(key)).toEqual({ fresh: true });
+    pages.forEach((page) => page.close());
+  });
+
+  it('and not when it was read a minute ago: going to the list and back costs nothing', async () => {
+    const { queryClient } = await launchApp();
+    for (const key of SHARED) queryClient.setQueryData(key, { fresh: false }, { updatedAt: Date.now() - MINUTE });
+
+    const pages = SHARED.map((key) => open(queryClient, key));
+    await flush();
+
+    for (const page of pages) expect(page.read).not.toHaveBeenCalled();
+    pages.forEach((page) => page.close());
+  });
+
+  it('the athlete\'s own "Last time" is not derived again for hours: its history is the expensive read', async () => {
+    const { queryClient, QUIET_MS } = await launchApp();
+    queryClient.setQueryData(OWN_HINT, { 'e-1': {} }, { updatedAt: Date.now() - (QUIET_MS - MINUTE) });
+
+    const again = open(queryClient, OWN_HINT);
+    await flush();
+    expect(again.read).not.toHaveBeenCalled();
+    again.close();
+
+    await vi.advanceTimersByTimeAsync(2 * MINUTE);
+    const later = open(queryClient, OWN_HINT);
+    await flush();
+    expect(later.read).toHaveBeenCalledTimes(1);
+    later.close();
+  });
+
+  it('the hook that reads it sets no stale time of its own: an option passed to useQuery replaces the rule', async () => {
+    const { queryClient } = await launchApp();
+    // After the launch: the hook and the history it derives from, as this
+    // launch evaluated them.
+    const { useLastPerformance } = await import('../hooks/useLastPerformance');
+    const { fetchDoneSetHistory } = await import('./doneSetHistory');
+    const hint = { 'e-1': { sets: [{ reps: 5, weight: 100 }] } };
+    queryClient.setQueryData(OWN_HINT, hint, { updatedAt: Date.now() - 3 * MINUTE });
+
+    // The logging page, opened on the session three minutes later.
+    const { result } = renderHook(
+      () => useLastPerformance('s-1', [{ id: 'slot-1', exercise: { id: 'e-1' } }], '2026-10-13', [], true),
+      { wrapper: ({ children }) => createElement(QueryClientProvider, { client: queryClient }, children) },
+    );
+    await flush();
+
+    expect(result.current.data).toEqual(hint);
+    expect(result.current.isStale).toBe(false);
+    expect(fetchDoneSetHistory).not.toHaveBeenCalled();
+  });
+
+  it('the one a coach reads follows the athlete, who trains on another device: the usual two minutes', async () => {
+    const { queryClient } = await launchApp();
+    queryClient.setQueryData(COACH_HINT, { 'e-1': {} }, { updatedAt: Date.now() - 3 * MINUTE });
+
+    const panel = open(queryClient, COACH_HINT);
+    await flush();
+
+    expect(panel.read).toHaveBeenCalledTimes(1);
+    panel.close();
+  });
+
+  // The other half of the long life of the hint: on the athlete's device the
+  // thing that changes it is a session being confirmed, or un-confirmed.
+  it('a confirmation makes the "Last time" of every other session due again, and reads nothing itself', async () => {
+    const { queryClient, MUTATION_KEYS } = await launchApp();
+    supabase.from.mockReturnValue({
+      upsert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { session_id: 's-1' }, error: null }),
+    });
+    const nextSession = ['last-performance', 'self', 's-2', ['e-1']];
+    const laterSession = ['last-performance', 'self', 's-3', ['e-1']];
+    for (const key of [OWN_HINT, nextSession, laterSession]) queryClient.setQueryData(key, { 'e-1': {} });
+    // The session just trained is still on screen — and, on a tablet, another.
+    const onScreen = open(queryClient, OWN_HINT);
+    const alsoOnScreen = open(queryClient, laterSession);
+    await flush();
+
+    // A confirmation as the queue sends it: the defaults of its key, no hook.
+    await queryClient
+      .getMutationCache()
+      .build(queryClient, {
+        mutationKey: MUTATION_KEYS.confirmSession,
+        ...queryClient.getMutationDefaults(MUTATION_KEYS.confirmSession),
+      })
+      .execute({ sessionId: 's-1', studentId: 'u-1', notes: null, performedOn: '2026-10-13' });
+    await flush();
+
+    // Deriving a hint is a read of the whole history: a confirmation costs none.
+    expect(onScreen.read).not.toHaveBeenCalled();
+    expect(alsoOnScreen.read).not.toHaveBeenCalled();
+    // A hint never looks at its own session: that one is not even flagged.
+    expect(queryClient.getQueryState(OWN_HINT).isInvalidated).toBe(false);
+    expect(queryClient.getQueryState(nextSession).isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(laterSession).isInvalidated).toBe(true);
+
+    // The next session is opened a minute later: derived again, not served.
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    const next = open(queryClient, nextSession);
+    await flush();
+    expect(next.read).toHaveBeenCalledTimes(1);
+    // And the one that stayed on screen, when the athlete comes back to it.
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+    await flush();
+    expect(alsoOnScreen.read).toHaveBeenCalledTimes(1);
+    expect(onScreen.read).not.toHaveBeenCalled();
+    onScreen.close();
+    alsoOnScreen.close();
+    next.close();
+  });
+
+  // The same, through the hooks the page calls. A hook that sets an
+  // `onSettled` of its own replaces the default of its key, list included:
+  // this is the test that notices a list without the hints.
+  it.each([
+    ['confirming', 'useConfirmSession', { sessionId: 's-1', notes: null, performedOn: '2026-10-13' }],
+    ['undoing a confirmation', 'useUnconfirmSession', { sessionId: 's-1' }],
+  ])('%s from the page does it too', async (_what, hookName, variables) => {
+    const { queryClient } = await launchApp();
+    const hooks = await import('../hooks/useSessionConfirmation');
+    const answer = { data: { session_id: 's-1' }, error: null };
+    supabase.from.mockReturnValue({
+      upsert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue(answer),
+      delete: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ error: null }),
+    });
+    const nextSession = ['last-performance', 'self', 's-2', ['e-1']];
+    queryClient.setQueryData(nextSession, { 'e-1': {} });
+    const { result } = renderHook(() => hooks[hookName](), {
+      wrapper: ({ children }) => createElement(QueryClientProvider, { client: queryClient }, children),
+    });
+
+    await act(async () => {
+      result.current.mutate(variables);
+      await flush();
+      await flush();
+    });
+
+    expect(supabase.from).toHaveBeenCalledWith('session_confirmations');
+    expect(result.current.isSuccess).toBe(true);
+    expect(queryClient.getQueryState(nextSession).isInvalidated).toBe(true);
   });
 });
