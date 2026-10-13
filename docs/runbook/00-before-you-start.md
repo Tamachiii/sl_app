@@ -1,6 +1,6 @@
 # 00 — Before you start: backup, audits, migrations, the ledger
 
-This page is for the person who applies SQL to the production database. You do that by hand; nothing in the repository, and no agent, ever runs SQL against production.
+This page is for the person who applies SQL to the production database. That is done by hand, at a checkpoint you start: by you, or by Claude when you have asked it to run that checkpoint (`docs/RUNBOOK.md`, "Who runs a checkpoint"). Nothing in the repository runs SQL against production, and no agent does as part of its work on a package.
 
 Every database change of the 2026-09 review is a **migration**: one numbered file in `supabase/migrations/`, listed in `supabase/migrations/manifest.json`, with three companions:
 

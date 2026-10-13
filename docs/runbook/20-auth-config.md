@@ -8,7 +8,7 @@
 | Findings | L5 (medium) |
 | Check | read-only, before and after (section 1) |
 
-This page is for the person who owns the Supabase project. These settings exist in the dashboard only: nothing in the repository, and no agent, changes them or reads them from production. The last section says why the repository holds no copy.
+This page is for the person who owns the Supabase project. These settings exist in the dashboard only: nothing in the repository changes them or reads them from production, and no agent does as part of its work on a package. They were set at Checkpoint A0, by Claude at the owner's request (`docs/RUNBOOK.md`, "Who runs a checkpoint"). The last section says why the repository holds no copy.
 
 ## What is wrong today
 

@@ -17,9 +17,10 @@ A backup is **one file**: `sl_app-<UTC time>.jsonl.gz.enc`. It is written by `sc
 
 Tested, on every run of `npm run test:db` (`supabase/tests/backup-roundtrip.test.js`), against PostgreSQL 17.6, production's version: a database with accounts, logged sets, messages, notifications, goals, a draft, videos' metadata and one row of every awkward type is dumped, verified, restored into a database that only had `supabase/schema.sql`, and compared table by table in SQL. The same file checks that a changed byte, a file cut short and a wrong passphrase fail the verification; that the dump reads one instant while another session writes, and holds every table against a `TRUNCATE` or a rewriting migration until it is done; that it cannot write; that a role which row-level security would filter gets an error instead of a smaller backup; that nothing printed ever holds the connection string, the password or the passphrase; and that the three commands of `docs/runbook/00-before-you-start.md` run as written.
 
-**Never run, because nothing in the repository reaches production:**
+**Run against the real project, by hand:** the dump, its check and the drill, for the first time at Checkpoint A0 on 2026-10-11 — 24 tables, 12,729 rows, every checksum matching, and the 20 tables of `public` identical after the restore (`docs/RUNBOOK.md`, Checkpoint A0). That run is where the script met the session pooler, its TLS, the real `auth.users` (about twice the columns of the test stand-in) and the real size of the tables. A backup is taken again as the first step of every checkpoint. If a dump fails, the message says where; nothing is written unless the whole dump succeeded.
 
-- **The dump against the real project.** The first one is yours. What it meets for the first time: the session pooler, its TLS, the real `auth.users` (about twice the columns of the test stand-in) and the real size of the tables. If it fails, the message says where; nothing is written unless the whole dump succeeded.
+**Never run:**
+
 - **Restoring the accounts into a real Supabase project.** There, `auth.users` belongs to `supabase_auth_admin` and GoTrue has tables this backup does not hold. The restore is tested into plain PostgreSQL with stand-ins for Supabase (`supabase/tests/shim.sql`). [Rebuilding production](#rebuilding-production--an-outline-never-done) is an outline for that reason.
 - **The workflow on GitHub.** Nothing of the review is pushed yet. Its dump and verify steps are the commands tested here; the runner, its network and the artifact upload are not.
 

@@ -14,9 +14,10 @@ import { loadManifest } from '../../supabase/migrations/manifest.js';
 //
 //   - the checkpoint table against supabase/migrations/manifest.json, which is
 //     what the migrations themselves and the deploy rule go by;
-//   - the sequence of a checkpoint that is handed over: every migration of
-//     the manifest, in order, audited before and after, its rollback and its
-//     page named, the ledger read at the end;
+//   - the sequence of a checkpoint that is handed over — marked **ready**, or
+//     **done** once it has been run: every migration of the manifest, in
+//     order, audited before and after, its rollback and its page named, the
+//     ledger read at the end, and a backup before the first statement;
 //   - the commands: the index repeats commands that a page under docs/runbook/
 //     gives — those are read off their page and run by a test — and never
 //     introduces one of its own, in a fence of any language;
@@ -45,9 +46,10 @@ const FORBIDDEN = /\bsupabase\s+(?:db\s+push|config\s+push|migration\s+(?:up|rep
 // A fence that calls the CLI: the word, then a space. Whatever the fence is
 // tagged (`sh`, `console`, nothing: it is pasted just the same) and whatever
 // stands before the word on its line (`npx supabase …`). A path
-// (`supabase/migrations/…`) is not a call. The backup scripts count as well:
-// they connect to production with the database password.
-const CALLS_CLI = /\bsupabase\s|\bscripts\/backup\//;
+// (`supabase/migrations/…`) is not a call. The backup scripts and the check of
+// the ledger count as well: they connect to production with the database
+// password.
+const CALLS_CLI = /\bsupabase\s|\bscripts\/(?:backup\/|check-migrations\.mjs)/;
 
 // ------------------------------------------------------------
 // Reading a page
@@ -149,7 +151,7 @@ function indexProblems(text, { migrations, onPages }) {
   if (!table) return ['no checkpoint table (a header row that starts "| Checkpoint |")'];
   const rows = new Map(table.map((row) => [row.Checkpoint.replace(/\*/g, ''), {
     numbers: numbersIn(row.Migrations ?? ''),
-    ready: /\bready\b/.test(row['Hand-over'] ?? ''),
+    state: /\b(done|ready)\b/.exec(row['Hand-over'] ?? '')?.[1] ?? null,
   }]));
 
   // The table against the manifest.
@@ -159,15 +161,16 @@ function indexProblems(text, { migrations, onPages }) {
     else if (!row.numbers.includes(order)) out.push(`${name}: the row of checkpoint ${checkpoint} does not list migration ${pad(order)}`);
   }
 
-  // A checkpoint is handed over when it is marked ready AND has its sequence.
+  // A checkpoint is handed over when it is marked ready — or done, once it has
+  // been run — AND has its sequence.
   const sections = new Map();
   for (const { title, text: body } of sectionsOf(text)) {
     const id = /^Checkpoint (\w+) — /.exec(title)?.[1];
     if (id) sections.set(id, body);
   }
   for (const [id, row] of rows) {
-    if (row.ready && !sections.has(id)) out.push(`checkpoint ${id} is marked ready and has no "## Checkpoint ${id} — …" section`);
-    if (!row.ready && sections.has(id)) out.push(`checkpoint ${id} has a section and is not marked ready in the table`);
+    if (row.state && !sections.has(id)) out.push(`checkpoint ${id} is marked ${row.state} and has no "## Checkpoint ${id} — …" section`);
+    if (!row.state && sections.has(id)) out.push(`checkpoint ${id} has a section and is marked neither ready nor done in the table`);
   }
   for (const id of sections.keys()) {
     if (!rows.has(id)) out.push(`"## Checkpoint ${id} — …" is not a row of the table`);
@@ -208,6 +211,13 @@ function indexProblems(text, { migrations, onPages }) {
 
     const ledgerRead = commands.findLastIndex((c) => c.includes('from app_private.app_migrations'));
     if (mine.length > 0 && ledgerRead < lastApply) out.push(`checkpoint ${id}: the ledger is not read after the last migration`);
+
+    // A backup, taken and checked, before the first statement that writes.
+    const firstApply = commands.findIndex((c) => mine.some(({ paths }) => c === runsFile(paths.migration)));
+    for (const script of ['dump', 'verify']) {
+      const taken = commands.findIndex((c) => c.includes(`scripts/backup/${script}.mjs`));
+      if (firstApply !== -1 && !(taken !== -1 && taken < firstApply)) out.push(`checkpoint ${id}: no backup (${script}.mjs) before its first migration`);
+    }
   }
 
   // The commands, wherever they stand on the page and in whatever fence.
@@ -267,9 +277,13 @@ describe(`${INDEX}: the checkpoints against the manifest`, () => {
     expect([...numbers].sort((a, b) => a - b)).toEqual(numbers.map((_, i) => i + 1));
   });
 
-  it('hands over Checkpoint A0: marked ready, with the two migrations of wave 0', () => {
+  // Checkpoint A0 was run on 2026-10-11. Its row says so and its section
+  // stays: it is the record of what production has, and the sequences after it
+  // are written against it.
+  it('records Checkpoint A0 as done, with the two migrations of wave 0 and its sequence kept', () => {
     const a0 = tableOf(index, 'Checkpoint').find((row) => row.Checkpoint.includes('A0'));
-    expect(a0['Hand-over']).toContain('ready');
+    expect(a0['Hand-over']).toMatch(/\*\*done\*\* on 2026-10-11/);
+    expect(a0['Hand-over']).not.toMatch(/\bready\b/);
     expect(manifest.migrations.filter((m) => m.checkpoint === 'A0').map((m) => m.name)).toEqual([
       '2026_10_03_01_migration_ledger',
       '2026_10_03_02_rpc_auth_null_guard',
@@ -287,6 +301,158 @@ describe(`${INDEX}: the checkpoints against the manifest`, () => {
       .filter((body) => body.includes('scripts/backup/'));
     expect(backup).toEqual(['dump', 'verify', 'drill'].map((name) => `node --env-file=.env scripts/backup/${name}.mjs`));
     expect(fencesOf(section.text).map((f) => f.body).filter((body) => body.includes('scripts/backup/'))).toEqual(backup);
+  });
+
+  // Wave 1: twelve migrations in three sittings. Which migration goes in
+  // which is the manifest's; what is held here is that the index hands all
+  // three over, in that order, and that each sitting is the sequence the owner
+  // was promised: a backup of the day, then for each migration its audit, the
+  // migration and the audit again — one command per fence, no fence between
+  // the audit and the apply of the same migration — and the ledger at the end.
+  describe('hands over the three checkpoints of wave 1', () => {
+    const WAVE_1 = {
+      A1: [3],
+      A2: [4, 5, 6, 7, 8, 9, 10],
+      A3: [11, 12, 13, 14],
+    };
+    const table = tableOf(index, 'Checkpoint');
+    const state = (id) => table.find((row) => row.Checkpoint.replace(/\*/g, '') === id)['Hand-over'];
+    const sectionOf = (id) => sectionsOf(index).find(({ title }) => title.startsWith(`Checkpoint ${id} — `));
+    const dump = 'node --env-file=.env scripts/backup/dump.mjs';
+    const verify = 'node --env-file=.env scripts/backup/verify.mjs';
+    const ledgerRead = 'supabase db query --linked "select name, applied_at from app_private.app_migrations order by applied_at, name"';
+
+    it('marks A1, A2 and A3 ready — or done with its date, once it was run — and nothing after them', () => {
+      // Ready until the sitting, done from then on: the day a checkpoint is
+      // run its row is rewritten as the row of A0 was, and that record must
+      // not be what turns this file red. What holds either way: a done one
+      // says when, and none is done after one that is still to run.
+      const states = Object.keys(WAVE_1).map((id) => /\*\*(?:ready|done)\*\*/.exec(state(id))?.[0] ?? `${id}: ${state(id)}`);
+      expect(states.join(' ')).toMatch(/^(?:\*\*done\*\* ?)*(?:\*\*ready\*\* ?)*$/);
+      for (const id of Object.keys(WAVE_1)) {
+        if (/\bdone\b/.test(state(id))) expect(state(id), `checkpoint ${id}`).toMatch(/^\*\*done\*\* on \d{4}-\d\d-\d\d\b/);
+      }
+      for (const id of ['B', 'C1', 'C2', 'D', 'E', 'F', 'G', 'Z']) expect(state(id), `checkpoint ${id}`).not.toMatch(/\b(?:ready|done)\b/);
+      // The sections stand in the order they are run.
+      const order = sectionsOf(index).map(({ title }) => /^Checkpoint (\w+) — /.exec(title)?.[1]).filter(Boolean);
+      expect(order).toEqual(['A0', 'A1', 'A2', 'A3']);
+    });
+
+    it.each(Object.entries(WAVE_1))('Checkpoint %s holds the migrations the manifest gives it, each as audit, apply, audit', (id, numbers) => {
+      const mine = manifest.migrations.filter((m) => m.checkpoint === id);
+      expect(mine.map((m) => m.order)).toEqual(numbers);
+      expect(mine.every((m) => m.wave === 1 && m.kind === 'required')).toBe(true);
+
+      const section = sectionOf(id);
+      expect(section, `${INDEX} has no "## Checkpoint ${id} — …" section`).toBeTruthy();
+      const commands = fencesOf(section.text).map((f) => f.body);
+
+      // The backup opens the sitting: taken, then checked, before anything else is run against a file.
+      expect(commands.filter((c) => c.includes('scripts/backup/'))).toEqual([dump, verify]);
+      const firstFile = commands.findIndex((c) => c.includes(' --file '));
+      expect(commands.indexOf(dump)).toBeLessThan(commands.indexOf(verify));
+      expect(commands.indexOf(verify)).toBeLessThan(firstFile);
+
+      // Every file command of the section, in order: nothing else, nothing twice, nothing in between.
+      const files = commands.filter((c) => c.includes(' --file '));
+      expect(files).toEqual(mine.flatMap(({ paths }) => [runsFile(paths.audit), runsFile(paths.migration), runsFile(paths.audit)]));
+      for (const { name, paths } of mine) {
+        const at = commands.indexOf(runsFile(paths.migration));
+        expect(commands[at - 1], `${name}: the fence before its apply`).toBe(runsFile(paths.audit));
+        expect(commands[at + 1], `${name}: the fence after its apply`).toBe(runsFile(paths.audit));
+      }
+
+      // The ledger is read once the last migration is audited, and the step says how many rows it must hold.
+      expect(commands.lastIndexOf(ledgerRead)).toBeGreaterThan(commands.lastIndexOf(runsFile(mine.at(-1).paths.audit)));
+      const rows = ['zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen'][numbers.at(-1)];
+      expect(section.text).toContain(`${rows} rows`);
+      expect(section.text).toContain(`the last one \`${mine.at(-1).name}\``);
+
+      // Every migration of the sitting says what stops it, and no rollback is a step.
+      for (const { order } of mine) {
+        const step = section.text.split(/^### /m).find((part) => new RegExp(`\\bmigration ${pad(order)}\\b`).test(part.split('\n')[0]));
+        expect(step, `checkpoint ${id}: no "### Step … migration ${pad(order)}" heading`).toBeTruthy();
+        expect(step, `migration ${pad(order)}: its step does not say what stops the sequence`).toMatch(/\*\*Stops/);
+      }
+      expect(commands.filter((c) => c.includes('supabase/rollbacks/'))).toEqual([]);
+    });
+
+    // The two migrations that change privileges for every request are looked
+    // at from outside before anything follows them: as a request without a
+    // session, which must be refused, and as a signed-in user, who must not.
+    it.each([
+      ['A1', 3, 'permission denied for function student_profile_for_slot'],
+      ['A3', 14, 'permission denied for table profiles'],
+    ])('Checkpoint %s tries migration %i as anon and as a signed-in user, with the checks of its page', (id, order, refusal) => {
+      const { paths } = manifest.migrations.find((m) => m.order === order);
+      const page = fencesOf(read(paths.runbook)).map((f) => f.body);
+      const asAnon = page.find((c) => c.includes('set local role anon'));
+      const asUser = page.find((c) => c.includes('set local role authenticated'));
+      expect(asAnon).toBeTruthy();
+      expect(asUser).toBeTruthy();
+      const section = sectionOf(id);
+      const commands = fencesOf(section.text).map((f) => f.body);
+      const applied = commands.indexOf(runsFile(paths.migration));
+      expect(commands.indexOf(asAnon)).toBeGreaterThan(applied);
+      expect(commands.indexOf(asUser)).toBeGreaterThan(commands.indexOf(asAnon));
+      expect(section.text).toContain(`\`${refusal}\``);
+      // …and then in the app that is deployed, with both kinds of account.
+      expect(section.text).toMatch(/^### Step \d+ — the app that is deployed, as an athlete and as the coach$/m);
+    });
+
+    it('lets Checkpoint A2 start only after the look at the app that ends A1', () => {
+      expect(sectionOf('A1').text).toContain('Checkpoint A2 starts only then.');
+    });
+
+    // A section of a page that a step sends to by its name: the name is a
+    // heading of a page, so a heading that is reworded is noticed here.
+    it('names sections of the pages by headings they have', () => {
+      const headings = new Set(PAGES.flatMap((file) => sectionsOf(read(file)).map(({ title }) => title)));
+      const scope = [...Object.keys(WAVE_1).map((id) => sectionOf(id).text),
+        sectionsOf(index).find(({ title }) => title === 'By hand in the SQL editor, from these checkpoints on')?.text];
+      expect(scope.every(Boolean)).toBe(true);
+      const quoted = [...new Set(scope.flatMap((text) => [...text.matchAll(/"([A-Z][^"`\n]{7,})"/g)].map(([, name]) => name)))];
+      expect(quoted.length).toBeGreaterThan(15);
+      expect(quoted.filter((name) => !headings.has(name))).toEqual([]);
+    });
+
+    // After A3 the app is published for the first time. Which commit, and the
+    // question the deploy will ask, are part of the sitting.
+    it('says in Checkpoint A3 which app may be published, and asks the deploy gate first', () => {
+      const a3 = sectionOf('A3');
+      const commands = fencesOf(a3.text).map((f) => f.body);
+      const gate = 'node --env-file=.env scripts/check-migrations.mjs --verify';
+      expect(fencesOf(read('docs/runbook/40-deploy.md')).map((f) => f.body)).toContain(gate);
+      expect(commands.indexOf(gate)).toBeGreaterThan(commands.lastIndexOf(ledgerRead));
+      const required = manifest.migrations.filter((m) => m.kind === 'required' && m.wave <= 1).length;
+      expect(a3.text).toContain(`OK: production has all ${required} required migrations of this commit. The deploy can go on.`);
+      expect(a3.text).toMatch(/the head of wave 1, and no later one/);
+      expect(a3.text).toContain('](#first-push-checklist)');
+    });
+  });
+
+  // Who pastes the commands. The owner asked Claude to apply the migrations
+  // of the checkpoints for him; what he did not hand over is asked each time,
+  // and the index is where an agent that runs a checkpoint reads the limit.
+  it('says who runs a checkpoint, and what is asked again every time', () => {
+    const who = sectionsOf(index).find(({ title }) => title === 'Who runs a checkpoint')?.text;
+    expect(who, `${INDEX} has no "## Who runs a checkpoint" section`).toBeTruthy();
+    expect(fencesOf(who)).toEqual([]);
+    const [, notCovered] = who.split('What that answer does not cover');
+    expect(notCovered).toBeTruthy();
+    for (const asked of [/`optional` or a `contract` migration: 19, 31, and 43 to 45/, /pushing to `main`/, /Edge Function/, /pg_cron/, /GitHub secret/]) {
+      expect(notCovered).toMatch(asked);
+    }
+    // A statement of a page that changes rows of the app is not a migration:
+    // the list is read and passed on, and the write waits for the owner.
+    expect(notCovered).toMatch(/writes or deletes rows of the app/);
+    expect(notCovered).toMatch(/writes nothing until you have answered/);
+    // The migrations of wave 1 whose page has such a statement, by number.
+    for (const order of ['05', '07', '08', '10', '11']) expect(notCovered, `migration ${order}`).toContain(`(${order})`);
+    // What it holds to: the conditions of the standing answer.
+    for (const condition of [/fresh backup first/, /audit before and after each migration/, /one migration at a time/, /stops at the first line/, /rollback file/]) {
+      expect(who.split('What that answer does not cover')[0]).toMatch(condition);
+    }
   });
 });
 
@@ -341,50 +507,90 @@ describe(`${INDEX}: what the test would catch`, () => {
   });
 
   it('a migration the manifest adds to a checkpoint that is handed over', () => {
-    const third = {
-      name: '2026_10_04_03_function_grants_lockdown',
-      order: 3,
-      checkpoint: 'A0',
+    // The first migration of wave 2, as a later package will add it.
+    const next = {
+      name: '2026_10_20_15_push_plumbing',
+      order: 15,
+      checkpoint: 'A3',
       paths: {
-        migration: 'supabase/migrations/2026_10_04_03_function_grants_lockdown.sql',
-        audit: 'supabase/audits/2026_10_04_03_function_grants_lockdown.audit.sql',
-        rollback: 'supabase/rollbacks/2026_10_04_03_function_grants_lockdown.down.sql',
-        runbook: 'docs/runbook/migrations/03-function-grants-lockdown.md',
+        migration: 'supabase/migrations/2026_10_20_15_push_plumbing.sql',
+        audit: 'supabase/audits/2026_10_20_15_push_plumbing.audit.sql',
+        rollback: 'supabase/rollbacks/2026_10_20_15_push_plumbing.down.sql',
+        runbook: 'docs/runbook/migrations/15-push-plumbing.md',
       },
     };
-    expect(indexProblems(index, { ...real, migrations: [...manifest.migrations, third] })).toEqual([
-      '2026_10_04_03_function_grants_lockdown: the row of checkpoint A0 does not list migration 03',
-      'checkpoint A0: 2026_10_04_03_function_grants_lockdown is applied 0 times, expected once',
+    expect(indexProblems(index, { ...real, migrations: [...manifest.migrations, next] })).toEqual([
+      '2026_10_20_15_push_plumbing: the row of checkpoint A3 does not list migration 15',
+      'checkpoint A3: 2026_10_20_15_push_plumbing is applied 0 times, expected once',
     ]);
     // At the checkpoint the plan gave it, and not handed over yet: nothing to say.
-    expect(indexProblems(index, { ...real, migrations: [...manifest.migrations, { ...third, checkpoint: 'A1' }] })).toEqual([]);
+    expect(indexProblems(index, { ...real, migrations: [...manifest.migrations, { ...next, checkpoint: 'B' }] })).toEqual([]);
   });
 
   it('a migration the manifest moves to another checkpoint', () => {
-    const moved = [ledger, { ...nullGuard, checkpoint: 'A1' }];
-    expect(indexProblems(index, { ...real, migrations: moved })).toEqual([
-      '2026_10_03_02_rpc_auth_null_guard: the row of checkpoint A1 does not list migration 02',
+    const movedTo = (checkpoint) => manifest.migrations.map((m) => (m === nullGuard ? { ...m, checkpoint } : m));
+    // To one that is not handed over: its row does not list it, and the
+    // sequence it was in runs files that are no longer its own.
+    expect(indexProblems(index, { ...real, migrations: movedTo('B') })).toEqual([
+      '2026_10_03_02_rpc_auth_null_guard: the row of checkpoint B does not list migration 02',
       `checkpoint A0: ${nullGuard.paths.audit} is not a file of a migration the manifest gives this checkpoint`,
       `checkpoint A0: ${nullGuard.paths.migration} is not a file of a migration the manifest gives this checkpoint`,
       `checkpoint A0: ${nullGuard.paths.audit} is not a file of a migration the manifest gives this checkpoint`,
     ]);
-    expect(indexProblems(index, { ...real, migrations: [ledger, { ...nullGuard, checkpoint: 'Q' }] })).toContain(
+    // To one that is: that sequence does not apply it either.
+    expect(indexProblems(index, { ...real, migrations: movedTo('A2') })).toEqual([
+      '2026_10_03_02_rpc_auth_null_guard: the row of checkpoint A2 does not list migration 02',
+      `checkpoint A0: ${nullGuard.paths.audit} is not a file of a migration the manifest gives this checkpoint`,
+      `checkpoint A0: ${nullGuard.paths.migration} is not a file of a migration the manifest gives this checkpoint`,
+      `checkpoint A0: ${nullGuard.paths.audit} is not a file of a migration the manifest gives this checkpoint`,
+      'checkpoint A2: 2026_10_03_02_rpc_auth_null_guard is applied 0 times, expected once',
+    ]);
+    expect(indexProblems(index, { ...real, migrations: movedTo('Q') })).toContain(
       '2026_10_03_02_rpc_auth_null_guard: the table has no row for checkpoint Q',
     );
   });
 
-  it('a checkpoint marked ready without its sequence, and the reverse', () => {
+  it('a sequence that starts without a backup, or takes it after the first migration', () => {
+    const a2 = sectionsOf(index).find(({ title }) => title.startsWith('Checkpoint A2 — ')).text;
+    const dump = fence('node --env-file=.env scripts/backup/dump.mjs');
+    const verify = fence('node --env-file=.env scripts/backup/verify.mjs');
+    expect(indexProblems(index.replace(a2, without(a2, verify)), real)).toEqual([
+      'checkpoint A2: no backup (verify.mjs) before its first migration',
+    ]);
+    // Both moved to the end of the sitting.
+    const late = `${without(without(a2, dump), verify)}\n${dump}\n${verify}`;
+    expect(indexProblems(index.replace(a2, late), real)).toEqual([
+      'checkpoint A2: no backup (dump.mjs) before its first migration',
+      'checkpoint A2: no backup (verify.mjs) before its first migration',
+    ]);
+  });
+
+  it('a checkpoint marked ready or done without its sequence, and the reverse', () => {
     const lines = index.split('\n');
     const row = (id) => lines.findIndex((line) => new RegExp(`^\\| \\**${id}\\** \\|`).test(line));
     const edited = (id, change) => lines.map((line, i) => (i === row(id) ? change(line) : line)).join('\n');
-    expect(indexProblems(edited('A1', (line) => line.replace('with wave 1', '**ready**')), real)).toEqual([
-      'checkpoint A1 is marked ready and has no "## Checkpoint A1 — …" section',
+    const changed = (id, from, to) => {
+      if (!lines[row(id)]?.includes(from)) throw new Error(`the row of checkpoint ${id} no longer contains: ${from}`);
+      return edited(id, (line) => line.replace(from, to));
+    };
+    // The last cell of a row is its hand-over, whatever it reads today: A1 is
+    // ready until it is run and done afterwards, and these cases hold for both.
+    const handedOver = (id, to) => {
+      if (!/\|[^|]*\|\s*$/.test(lines[row(id)] ?? '')) throw new Error(`the table no longer has a row for checkpoint ${id}`);
+      return edited(id, (line) => line.replace(/\|[^|]*\|\s*$/, `| ${to} |`));
+    };
+    expect(indexProblems(changed('B', 'with wave 2', '**ready**'), real)).toEqual([
+      'checkpoint B is marked ready and has no "## Checkpoint B — …" section',
     ]);
-    expect(indexProblems(edited('A0', (line) => line.replace('**ready**', 'with wave 0')), real)).toEqual([
-      'checkpoint A0 has a section and is not marked ready in the table',
+    expect(indexProblems(handedOver('A1', 'with wave 1'), real)).toEqual([
+      'checkpoint A1 has a section and is marked neither ready nor done in the table',
+    ]);
+    // Done is not a way out of the sequence: the record stays on the page.
+    expect(indexProblems(handedOver('A1', '**done** on 2026-10-14').replace('## Checkpoint A1 — ', '## Sitting A1 — '), real)).toEqual([
+      'checkpoint A1 is marked done and has no "## Checkpoint A1 — …" section',
     ]);
     expect(indexProblems(index.replace('## Checkpoint A0 — ', '## Checkpoint A9 — '), real)).toEqual([
-      'checkpoint A0 is marked ready and has no "## Checkpoint A0 — …" section',
+      'checkpoint A0 is marked done and has no "## Checkpoint A0 — …" section',
       '"## Checkpoint A9 — …" is not a row of the table',
     ]);
     expect(indexProblems(index.replace('| Checkpoint |', '| Sitting |'), real)).toEqual([
@@ -406,6 +612,15 @@ describe(`${INDEX}: what the test would catch`, () => {
     const restore = 'node --env-file=.env scripts/backup/restore.mjs --db-url "$SUPABASE_DB_URL"';
     expect(indexProblems(`${index}\n${fence(restore)}`, real)).toEqual([
       `"${restore}": not a command of a page under docs/runbook/`,
+    ]);
+    // The check of the ledger connects to production as well: as its page
+    // gives it, wherever the index asks for it, and in no other form.
+    const gate = 'node --env-file=.env scripts/check-migrations.mjs --verify';
+    expect(onPages.has(gate)).toBe(true);
+    expect(indexProblems(`${index}\n${fence(gate)}`, real)).toEqual([]);
+    const gateWithUrl = `SUPABASE_DB_URL="$PRODUCTION_URL" ${gate.replace(' --env-file=.env', '')}`;
+    expect(indexProblems(`${index}\n${fence(gateWithUrl)}`, real)).toEqual([
+      `"${gateWithUrl}": not a command of a page under docs/runbook/`,
     ]);
     for (const command of ['supabase db push', 'supabase config push', 'supabase migration repair --status applied 01']) {
       expect(indexProblems(`${index}\n${fence(command)}`, real)).toContain(`"${command}": a command the runbook forbids`);
@@ -542,6 +757,40 @@ describe(`${INDEX}: what it points at`, () => {
     const page = read('docs/runbook/00-before-you-start.md');
     expect(page).toContain('*The nightly run on GitHub*');
     expect(page).toContain('first-push checklist');
+  });
+
+  // Nothing of the review is pushed before Checkpoint A3, so no job of the
+  // gate has run on GitHub when the first publication depends on all of them.
+  // The checklist says what each must show on that first run. The database
+  // suite is the one whose green meant nothing for a while (its process ended
+  // with status 0 whatever the tests said — src/test/dbSuiteExitCode.test.js),
+  // so its item says what the log reads, not only the colour.
+  it('asks, on the first run after the push, for each job of the gate', () => {
+    const checklist = sectionsOf(index).find(({ title }) => title === 'First-push checklist')?.text;
+    const jobsOf = (file) => [...read(file).split(/^jobs:$/m)[1].matchAll(/^ {2}([a-z][\w-]*):$/gm)].map(([, name]) => name);
+    expect(jobsOf('.github/workflows/test.yml')).toEqual(['test', 'db', 'functions']);
+    expect(jobsOf('.github/workflows/deploy.yml')).toContain('migrations');
+    for (const name of ['migrations', 'test', 'db', 'functions']) {
+      expect(checklist, `the first-push checklist has no item for the job ${name}`).toMatch(new RegExp(`^\\d+\\. Job \`${name}\``, 'm'));
+    }
+    const db = checklist.split('\n').find((line) => /^\d+\. Job `db`/.test(line));
+    expect(db).toContain('`npm run test:db`');
+    expect(db).toMatch(/`Test Files {2}\d+ passed \(\d+\)`/);
+  });
+
+  // The publication of Checkpoint A3 names one commit by the subject it was
+  // written under. `git log --grep` returns the newest match, so the subject
+  // is given whole and closed with `$`: a later commit that begins with the
+  // same words — the one that records the checkpoints as done — cannot take
+  // its place. And the deploy's question is asked with that commit checked
+  // out: the script reads the migrations of the checkout it runs in.
+  it('finds the commit to publish by its whole subject, and asks the deploy gate on that commit', () => {
+    const a3 = sectionsOf(index).find(({ title }) => title.startsWith('Checkpoint A3 — ')).text;
+    const find = fencesOf(a3).map((f) => f.body).filter((body) => body.startsWith('git log '));
+    expect(find).toHaveLength(1);
+    expect(find[0]).toMatch(/^git log -1 --format='%H %s' --grep='\^docs\(runbook\): [^']+\$'$/);
+    expect(a3).toMatch(/With that commit checked out, ask the question the deploy will ask/);
+    expect(a3).toMatch(/reports them `MISSING`/);
   });
 
   // The four Auth values are written on the page of the step, in
