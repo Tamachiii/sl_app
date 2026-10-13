@@ -45,6 +45,7 @@ const {
   enablePush,
   disablePush,
   isPushEnabled,
+  releasePushSubscription,
   pushErrorKey,
   PUSH_ERROR_KEYS,
 } = await import('./pushNotifications');
@@ -85,7 +86,7 @@ function setEnv({ permission = 'granted', sub = makeSub(), fresh = makeSub('http
   };
   const registration = { pushManager };
   Object.defineProperty(global.navigator, 'serviceWorker', {
-    value: { ready: Promise.resolve(registration) },
+    value: { ready: Promise.resolve(registration), getRegistration: vi.fn(async () => registration) },
     configurable: true,
   });
   return pushManager;
@@ -481,6 +482,104 @@ describe('disablePush', () => {
 
     expect(db.requests).toEqual([]);
     expect(sub.unsubscribe).toHaveBeenCalledTimes(1);
+  });
+});
+
+// P15: what a sign-out does first (hooks/useAuth.push.test.jsx holds the
+// order, on the provider).
+describe('releasePushSubscription', () => {
+  it('removes the row of this device and the browser gives its subscription up', async () => {
+    const sub = makeSub();
+    setEnv({ sub });
+
+    await releasePushSubscription();
+
+    expect(requestsOf('delete')).toEqual([
+      expect.objectContaining({ table: 'push_subscriptions', filters: { endpoint: ENDPOINT } }),
+    ]);
+    expect(sub.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(pushManager.held).toBeNull();
+  });
+
+  it('asks nothing on a device that holds no subscription', async () => {
+    setEnv({ sub: null });
+
+    await releasePushSubscription();
+
+    expect(db.requests).toEqual([]);
+  });
+
+  it('needs neither the permission nor the VAPID key of this build: a subscription that is there is released', async () => {
+    const sub = makeSub();
+    setEnv({ sub, permission: 'default' });
+    delete global.window.PushManager;
+
+    await releasePushSubscription();
+
+    expect(sub.unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not wait for a service worker to be ready: in a browser where none took control, that never comes', async () => {
+    const sub = makeSub();
+    setEnv({ sub });
+    const registration = await navigator.serviceWorker.getRegistration();
+    Object.defineProperty(global.navigator, 'serviceWorker', {
+      value: { ready: new Promise(() => {}), getRegistration: async () => registration },
+      configurable: true,
+    });
+
+    await releasePushSubscription();
+
+    expect(sub.unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('without a network the row is not asked for; the browser still gives the subscription up', async () => {
+    const sub = makeSub();
+    setEnv({ sub });
+    deviceIs(false);
+
+    await releasePushSubscription();
+
+    expect(db.requests).toEqual([]);
+    expect(sub.unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('a row that is not removed does not keep the browser from giving the subscription up, and the other way round', async () => {
+    const sub = makeSub();
+    setEnv({ sub });
+    db.answer = () => {
+      throw new Error('client gone');
+    };
+    await expect(releasePushSubscription()).resolves.toBeUndefined();
+    expect(sub.unsubscribe).toHaveBeenCalledTimes(1);
+
+    const stuck = makeSub();
+    stuck.unsubscribe.mockRejectedValue(new Error('push service unreachable'));
+    setEnv({ sub: stuck });
+    db.requests.length = 0;
+    db.answer = () => ({ data: null, error: null });
+    await expect(releasePushSubscription()).resolves.toBeUndefined();
+    expect(requestsOf('delete')).toHaveLength(1);
+  });
+
+  it('gives up after the time it is given, and says nothing', async () => {
+    const sub = makeSub();
+    sub.unsubscribe.mockImplementation(() => new Promise(() => {}));
+    setEnv({ sub });
+    db.answer = () => new Promise(() => {});
+
+    await expect(releasePushSubscription({ timeoutMs: 20 })).resolves.toBeUndefined();
+  });
+
+  it('never throws: a browser whose registration cannot be read', async () => {
+    Object.defineProperty(global.navigator, 'serviceWorker', {
+      value: { getRegistration: () => Promise.reject(new Error('SecurityError')) },
+      configurable: true,
+    });
+    await expect(releasePushSubscription()).resolves.toBeUndefined();
+
+    Object.defineProperty(global.navigator, 'serviceWorker', { value: {}, configurable: true });
+    await expect(releasePushSubscription()).resolves.toBeUndefined();
   });
 });
 

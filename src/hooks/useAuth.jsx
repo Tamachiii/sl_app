@@ -4,6 +4,7 @@ import { setErrorReporterUser } from '../lib/errorReporter';
 import { replayQueuedWrites } from '../lib/queryClient';
 import { readStoredUser, forgetStoredSession, isStoredSessionRemoval } from '../lib/storedSession';
 import { readCachedProfile, writeCachedProfile, forgetCachedProfile } from '../lib/profileCache';
+import { releasePushSubscription } from '../lib/pushNotifications';
 
 const AuthContext = createContext(null);
 
@@ -324,10 +325,26 @@ export function AuthProvider({ children }) {
    *
    * Because it discards, a sign-out can be held back: whoever registered with
    * `guardSignOut` is asked first, and nothing happens when it answers no.
+   *
+   * The notifications of the account leave the device with it. A browser holds
+   * one push subscription for the app, whoever is signed in, and the row that
+   * says whose it is was the account's for good: the phone went on showing its
+   * notifications — the first lines of its messages — to whoever used it next.
+   * So the device is released first (`releasePushSubscription`: the row goes,
+   * the browser gives its subscription up), WHILE THE SESSION IS STILL THERE —
+   * the row is the account's own, and nothing can delete it afterwards. That
+   * step is best-effort and bounded, and the sign-out goes on whatever became
+   * of it: without a network the browser alone gives the subscription up.
    */
   const signOut = useCallback(async () => {
     const mayGoAhead = signOutGuard.current;
     if (mayGoAhead && !(await mayGoAhead())) return;
+
+    try {
+      await releasePushSubscription();
+    } catch {
+      // It does not throw. A sign-out is not what finds out otherwise.
+    }
 
     let serverTold = false;
     if (!isOffline()) {

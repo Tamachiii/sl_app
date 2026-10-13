@@ -323,6 +323,69 @@ export async function disablePush(userId) {
   if (failure && !unsubscribed) throw failure;
 }
 
+// How long a sign-out waits, at most, for this device to be released.
+export const RELEASE_TIMEOUT_MS = 4000;
+
+/**
+ * This device stops receiving for the account that is leaving it: the row of
+ * its subscription goes, and the browser gives the subscription up. Called by
+ * `signOut` (hooks/useAuth.jsx) BEFORE the session ends — the row is the
+ * account's own, and only its session can delete it.
+ *
+ * Without it the subscription stayed with whoever had signed out: the device
+ * went on showing that account's notifications — the first lines of its
+ * messages on the lock screen — to the next person who used it (review P15).
+ *
+ * Best-effort, bounded, and it never throws: a sign-out is not held up, and
+ * never stopped, by this.
+ *   - Either half is enough. Without the row nothing is sent to this device;
+ *     without the subscription the push service refuses what is sent (410),
+ *     and send-push then drops the row. So the two go at the same time, and
+ *     one that fails or hangs does not keep the other from happening.
+ *   - Without a network the row is not asked for: the request cannot leave,
+ *     and supabase-js would first wait for a token refresh that cannot be made
+ *     either. The browser still gives its subscription up.
+ *   - What is left after `timeoutMs` is left. A subscription that survived —
+ *     with its row — is taken over by the next account that signs in on this
+ *     device (`reconcilePushSubscription`), on its first look.
+ *
+ * Only THIS device: the row is found by the address of the browser's own
+ * subscription. The account's other phones and browsers keep theirs.
+ */
+export async function releasePushSubscription({ timeoutMs = RELEASE_TIMEOUT_MS } = {}) {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+  let timer;
+  const gaveUp = new Promise((resolve) => {
+    timer = setTimeout(resolve, timeoutMs);
+  });
+  try {
+    await Promise.race([releaseDevice(), gaveUp]);
+  } catch {
+    // Best-effort: see above.
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function releaseDevice() {
+  // `getRegistration()`, not `ready`: `ready` never settles in a browser where
+  // no worker was registered, and the sign-out would wait for it.
+  const reg = await navigator.serviceWorker.getRegistration();
+  const sub = await reg?.pushManager?.getSubscription();
+  if (!sub) return;
+  const { endpoint } = sub;
+  const removeRow = async () => {
+    if (isOffline()) return;
+    // Row-level security narrows this to the rows of the account whose session
+    // sends it: the one that is signing out.
+    await supabase.from('push_subscriptions').delete().eq('endpoint', endpoint);
+  };
+  const giveUp = async () => {
+    await sub.unsubscribe();
+  };
+  await Promise.allSettled([removeRow(), giveUp()]);
+}
+
 /**
  * True if (a) the browser has an active subscription, AND (b) the matching
  * row exists in push_subscriptions for this user. Both must be in sync.
