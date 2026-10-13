@@ -1,9 +1,38 @@
-import { QueryClient, MutationCache } from '@tanstack/react-query';
+import { QueryClient, MutationCache, onlineManager } from '@tanstack/react-query';
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister';
 import { createStore, get, set, del } from 'idb-keyval';
 import { registerOfflineMutationDefaults } from './offlineMutations';
 import { pushToast } from './toast';
 import { mutationErrorKey } from './mutationErrors';
+
+// React Query's idea of "online" is `onlineManager`, and left alone it is wrong
+// in the one situation the offline layer exists for. It starts at `true` and
+// only moves on a window `online` / `offline` EVENT: no event fires at launch,
+// so an app opened without signal believed it was online. The queue restored
+// from IndexedDB was then replayed at once, every request failed, and a failed
+// mutation is not persisted again — the sets and the confirmation logged in
+// the basement were gone on the next launch.
+//
+// So the state is READ from `navigator.onLine`: once here, before anything can
+// run, and again whenever the page is shown — iOS resumes a suspended PWA
+// without firing either event, and a manager stuck on "offline" would hold
+// every request back. `online` / `offline` are listened to here as well, as
+// React Query only listens while a client is mounted.
+//
+// `navigator.onLine === false` is the reliable half of that property (no
+// network interface at all). `true` promises nothing: a request can still fail,
+// which is what the retry policy of the queued writes is for.
+function syncOnlineManager() {
+  onlineManager.setOnline(typeof navigator === 'undefined' ? true : navigator.onLine !== false);
+}
+
+syncOnlineManager();
+if (typeof window !== 'undefined') {
+  for (const type of ['online', 'offline', 'pageshow']) {
+    window.addEventListener(type, syncOnlineManager);
+  }
+  document.addEventListener('visibilitychange', syncOnlineManager);
+}
 
 // Only persist the query subtrees the student needs offline. Keeping the
 // allow-list narrow avoids blowing up IndexedDB with messages/notifications
@@ -97,9 +126,20 @@ export const queryClient = new QueryClient({
     queries: {
       staleTime: 1000 * 60 * 2,
       retry: 1,
-      // offlineFirst lets cached queries resolve while offline (pull from the
-      // persisted IndexedDB blob) and pauses any refetch attempts until online.
-      networkMode: 'offlineFirst',
+      // 'online': without a network a read is not attempted, it waits
+      // (`fetchStatus: 'paused'`) and runs when the device is back — React
+      // Query continues paused reads on the manager's offline → online step.
+      // What the cache holds is rendered either way: data restored from
+      // IndexedDB does not depend on this mode.
+      //
+      // It was 'offlineFirst', which always makes the first attempt. Nothing
+      // can answer it — the service worker caches no API response — and
+      // postgrest-js re-sends a failed GET after 1 s, 2 s and 4 s before it
+      // gives up, so every read of an offline launch held its spinner for
+      // 7 s, twice with `retry: 1`, and then ended as an ERROR. An errored
+      // read is not picked up when the network returns unless the manager was
+      // offline in between, and it never was (see `syncOnlineManager`).
+      networkMode: 'online',
     },
     mutations: {
       retry: 0,
