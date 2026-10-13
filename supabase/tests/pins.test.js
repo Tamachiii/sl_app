@@ -33,8 +33,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  asAdmin, asService, asUser, attempt, createDraftProgram, createProgram, enablePush, httpCalls, repoRoot,
-  scenario, scratchDatabase, seed,
+  asAdmin, asService, asUser, attempt, createDraftProgram, createProgram, enablePush, httpCalls, pastBlock,
+  repoRoot, scenario, scratchDatabase, seed,
 } from './harness.js';
 import { catalogSnapshot, diffCatalogs } from './catalog.js';
 import { LEDGER, loadManifest, REFUSAL } from '../migrations/manifest.js';
@@ -304,7 +304,8 @@ describe('a set: what its athlete\'s own update leaves as it was (P14)', () => {
     const [set] = pullUp(0).setLogs;
     const tick = `update set_logs set done = true, logged_at = now(), set_number = 9 where id = $1`;
     expect((await asUser(ids.studentB, (other) => other(tick, [set]))).rowCount).toBe(0);
-    await q(`update programs set is_active = false where id = $1`, [ids.programA.id]);
+    // … "no longer": switched off more than 72 hours ago (migration 17).
+    await pastBlock(q, ids.programA.id);
     expect((await athlete((a) => a(tick, [set]))).rowCount).toBe(0);
     expect(await q.one(`select done, set_number from set_logs where id = $1`, [set])).toEqual({ done: false, set_number: 1 });
   }));

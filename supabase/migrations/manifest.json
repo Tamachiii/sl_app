@@ -144,6 +144,15 @@
       "covers": ["P10", "B14", "B35", "B38"],
       "reversible": true,
       "summary": "The end of a rest is scheduled in one request: schedule_rest_push(seconds, payload, endpoint) computes the time on the server, closes what the caller still had waiting, deletes the caller's rows older than 7 days and answers { id, fire_at, mode } — mode cron while a pg_cron job named sl-rest-push is active, edge otherwise; cancel_rest_push(id) takes it back. claim_rest_push(id), for the service role, is the one way a row gets sent: pending to sending, once, never for a row that was canceled or is more than a minute late. dispatch_due_rest_pushes(), which nothing calls until the optional job exists, closes the late rows and hands each row due within ten seconds to send-push once. scheduled_pushes has two more statuses (sending, expired) and two more columns (endpoint: the device the push is for; dispatched_at), an account names a device of its own only, and the rows that had been waiting for a time long past are closed — expired, or canceled where their athlete had asked. No row is deleted."
+    },
+    {
+      "name": "2026_10_13_17_replay_grace_window",
+      "kind": "required",
+      "wave": 2,
+      "checkpoint": "B",
+      "covers": ["P55"],
+      "reversible": true,
+      "summary": "A block stays open for its athlete for 72 hours after it is switched off, so that training logged without a connection is saved when the coach has activated the next block in between: programs.deactivated_at is the time is_active last went from true to false — written by the trigger trg_stamp_program_deactivated_at whichever way a block is switched off, cleared when it is switched on, and held against any other write that carries a user id — and program_active_for_session, which every write of an athlete asks, answers yes for a program out of the trash that is the active one or was switched off less than 72 hours ago. A block in the trash, a draft, and a session that is archived or reviewed stay closed. No row is written: a block switched off before the migration has no time, and no window."
     }
   ]
 }

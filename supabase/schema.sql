@@ -59,9 +59,23 @@ CREATE TABLE public.programs (
   status      text NOT NULL DEFAULT 'approved' CHECK (status IN ('draft', 'approved')),
   submitted_at timestamptz,
   approved_at  timestamptz,
+  -- When the block was last switched off: is_active went from true to false
+  -- (2026_10_13_17, review P55). NULL for the block being trained and for one
+  -- that was never active. Written by trg_stamp_program_deactivated_at and by
+  -- nothing else that carries a user id; read by program_active_for_session,
+  -- which keeps the block open for its athlete for 72 hours from that time.
+  deactivated_at timestamptz,
   created_at  timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT programs_draft_not_active CHECK (NOT (status = 'draft' AND is_active))
 );
+
+COMMENT ON COLUMN public.programs.deactivated_at IS
+  'When is_active last went from true to false; NULL while the block is the '
+  'active one, and for a block that never was. Written by '
+  'trg_stamp_program_deactivated_at: a request that carries a user id cannot '
+  'write it. For 72 hours from that time the athlete of the block may still '
+  'write in it (program_active_for_session), so that training logged offline '
+  'is saved after a switch of block (2026_10_13_17).';
 CREATE INDEX IF NOT EXISTS idx_programs_created_by ON public.programs(created_by) WHERE created_by IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS programs_one_draft_per_student
   ON public.programs(student_id) WHERE status = 'draft' AND deleted_at IS NULL;
@@ -243,15 +257,42 @@ RETURNS uuid AS $$
   WHERE es.id = slot_id
 $$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
--- True iff the session's parent program is still the student's active block.
+-- May the athlete of this session still write in its program?
 -- Drives the student-side write gate on past-program sessions: once a coach
--- swaps blocks, history becomes read-only.
+-- swaps blocks, history becomes read-only — 72 hours later (2026_10_13_17,
+-- review P55). Yes while the program is the active block, and for 72 hours
+-- after it was switched off (programs.deactivated_at): the app queues what an
+-- athlete logs without a connection, and a workout trained while the coach
+-- activated the next block is replayed against a block that is no longer the
+-- active one. Without the window every set of it was refused, and lost.
+--
+-- The name says "active" and every caller means "open for its athlete": the
+-- policies of set_logs, slot_comments, slot_deviations, set_log_videos,
+-- session_confirmations and of the files of set-videos, and ensure_set_logs.
+-- The window is theirs through this one function; the app goes on showing a
+-- block that is not active as read-only (programs.is_active).
+--
 -- "Active for writes" folds in deleted_at (2026_07_13): a trashed program is
--- never writable regardless of is_active, so the trash flag and the write
--- gate can't drift apart.
+-- never writable regardless of is_active — and of the window — so the trash
+-- flag and the write gate can't drift apart. A draft is never written in
+-- either: it cannot be active (programs_draft_not_active), and the window is
+-- for an approved program.
+--
+-- true or false for a session that exists, NULL for one that does not — as
+-- before: a caller asks `= true` or `IS NOT TRUE`.
+--
+-- The 72 hours are written here and nowhere else in the database.
 CREATE OR REPLACE FUNCTION public.program_active_for_session(sess_id uuid)
 RETURNS boolean AS $$
-  SELECT p.is_active AND p.deleted_at IS NULL
+  SELECT p.deleted_at IS NULL
+         AND (
+           p.is_active
+           OR (
+             p.status = 'approved'
+             AND p.deactivated_at IS NOT NULL
+             AND p.deactivated_at > now() - interval '72 hours'
+           )
+         )
   FROM public.sessions sess
   JOIN public.weeks w    ON w.id = sess.week_id
   JOIN public.programs p ON p.id = w.program_id
@@ -264,6 +305,63 @@ RETURNS boolean AS $$
   FROM public.exercise_slots es
   WHERE es.id = slot_id
 $$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
+
+-- When a block was switched off (2026_10_13_17). programs.deactivated_at is
+-- the time is_active last went from true to false, and it is the trigger's:
+--   switched off by this statement      now() — whoever writes, and however:
+--                                       the two UPDATEs of the app deployed
+--                                       before wave 2, activate_program(), a
+--                                       block that goes to the trash while it
+--                                       is the active one
+--   active (switched on, inserted       NULL — the block being trained was
+--   active, or active all along)        not switched off
+--   anything else, with a user id       what it was (NULL for a new row): the
+--                                       column is not a signed-in user's.
+--                                       Silently, like the other pins — the
+--                                       rest of the write is saved
+--   anything else, without a user id    what the statement says: the owner of
+--                                       the database closes a window, or
+--                                       opens one again, by hand (page 17 of
+--                                       docs/runbook/migrations/)
+--
+-- Why a signed-in user may not write it. program_active_for_session reads it
+-- as "the athlete may still write here". The author of a draft updates the
+-- row of their draft ("Students update own draft programs"): a time written
+-- there — one far in the future — would stay with the program once the coach
+-- approves it, and keep it open for its athlete for good.
+--
+-- BEFORE triggers fire in the order of their names: on an UPDATE this one
+-- comes after trg_pin_program_authoring_columns. Neither reads a column the
+-- other writes.
+CREATE OR REPLACE FUNCTION public.stamp_program_deactivated_at()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.is_active OR auth.uid() IS NOT NULL THEN
+      NEW.deactivated_at := NULL;
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF OLD.is_active AND NOT NEW.is_active THEN
+    NEW.deactivated_at := now();
+  ELSIF NEW.is_active THEN
+    NEW.deactivated_at := NULL;
+  ELSIF auth.uid() IS NOT NULL THEN
+    NEW.deactivated_at := OLD.deactivated_at;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_stamp_program_deactivated_at ON public.programs;
+CREATE TRIGGER trg_stamp_program_deactivated_at
+  BEFORE INSERT OR UPDATE ON public.programs
+  FOR EACH ROW EXECUTE FUNCTION public.stamp_program_deactivated_at();
 
 -- Is this session open for its athlete? (2026_10_12_08, review P58)
 -- The session's own lock, in ONE place: the coach has not archived it and has
@@ -6040,4 +6138,5 @@ INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_13_13_ensure_claim_rpcs'),
   ('2026_10_13_14_table_grants_lockdown'),
   ('2026_10_13_15_push_plumbing'),
-  ('2026_10_13_16_rest_push_scheduling');
+  ('2026_10_13_16_rest_push_scheduling'),
+  ('2026_10_13_17_replay_grace_window');

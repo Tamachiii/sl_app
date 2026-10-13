@@ -36,7 +36,7 @@ import path from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   asAdmin, asAnon, asService, asUser, attempt, createDraftProgram, createProgram, createUser, enablePush,
-  httpCalls, repoRoot, scenario, scratchDatabase, seed,
+  httpCalls, pastBlock, repoRoot, scenario, scratchDatabase, seed,
 } from './harness.js';
 import { catalogSnapshot, diffCatalogs } from './catalog.js';
 import { LEDGER, loadManifest, REFUSAL } from '../migrations/manifest.js';
@@ -256,7 +256,10 @@ describe('a confirmation is the athlete\'s until the review', () => {
     await coach((c) => c(`update sessions set archived_at = null where id = $1`, [s.id]));
     expect(await outcome(() => athlete((a) => app.undo(dry(a), s.id)))).toBe('1 row');
 
-    await q(`update programs set is_active = false where id = $1`, [ids.programA.id]);
+    // "No longer": switched off more than 72 hours ago. Inside those 72 hours a
+    // confirmation is still made, changed and taken back (migration 17,
+    // replay-grace.test.js).
+    await pastBlock(q, ids.programA.id);
     expect(await outcome(() => athlete((a) => app.undo(a, s.id)))).toBe('0 rows');
     expect(await outcome(() => athlete((a) => app.confirm(a, ids.studentA, session(1).id)))).toBe(`42501: ${RLS('session_confirmations')}`);
     expect((await state(q, s.id)).confirmation.notes).toBe('Done');

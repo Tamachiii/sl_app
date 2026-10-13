@@ -536,6 +536,32 @@ export function createDraftProgram(student, options = {}) {
 }
 
 /**
+ * Make a block a PAST block: not active, and switched off long enough ago
+ * that its athlete no longer writes in it.
+ *
+ *   await pastBlock(q, ids.programA.id);             // switched off 73 hours ago
+ *   await pastBlock(q, ids.programA.id, '1 hour');   // … one hour ago: still open
+ *
+ * Since migration 2026_10_13_17 a block stays open for its athlete for 72
+ * hours after it is switched off (programs.deactivated_at, which a trigger
+ * stamps): `update programs set is_active = false` alone leaves a block that
+ * is still written. A block created with `active: false` never was the active
+ * one, has no such time, and is closed from the start.
+ *
+ * `q` is the owner's — scenario() or asAdmin(): the column is not a signed-in
+ * user's to write. Two statements, because the switch itself always stamps
+ * now(). Inside a scenario() it is undone with the rest.
+ */
+export async function pastBlock(q, program, ago = '73 hours') {
+  const id = idOf(program);
+  await q(`update public.programs set is_active = false where id = $1`, [id]);
+  const moved = await q(
+    `update public.programs set deactivated_at = now() - $2::interval where id = $1`, [id, ago],
+  );
+  if (moved.rowCount !== 1) throw new Error(`pastBlock: no program ${id}`);
+}
+
+/**
  * The baseline world. Call it once per file, in `beforeAll`:
  *
  *   coach      one coach

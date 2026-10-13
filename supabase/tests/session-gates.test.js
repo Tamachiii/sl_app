@@ -32,7 +32,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  asAdmin, asAnon, asService, asUser, attempt, createUser, repoRoot, scenario, scratchDatabase, seed,
+  asAdmin, asAnon, asService, asUser, attempt, createUser, pastBlock, repoRoot, scenario, scratchDatabase, seed,
 } from './harness.js';
 import { catalogSnapshot, diffCatalogs } from './catalog.js';
 import { LEDGER, loadManifest, REFUSAL } from '../migrations/manifest.js';
@@ -295,7 +295,11 @@ describe('session_writable: is this session open for its athlete', () => {
       `select public.session_writable($1) as session, public.program_active_for_slot($2) as program`, [s.id, s.pullUp.id],
     );
     expect(await both()).toEqual({ session: true, program: true });
-    await q(`update programs set is_active = false where id = $1`, [ids.programA.id]);
+    // A past block: switched off more than 72 hours ago. Inside those 72 hours
+    // the program is still open for its athlete (migration 17,
+    // replay-grace.test.js) — the lock of the session says nothing of that
+    // either.
+    await pastBlock(q, ids.programA.id);
     expect(await both()).toEqual({ session: true, program: false });
     await q(`update programs set deleted_at = now() where id = $1`, [ids.programA.id]);
     expect(await both()).toEqual({ session: true, program: false });
@@ -565,14 +569,18 @@ describe('a session the coach reviewed or archived is read-only for its athlete'
 // ============================================================
 // The program
 // ============================================================
+// "No longer" is 72 hours after the block was switched off, since migration
+// 17: what an athlete logged without a connection is replayed against a block
+// the coach has switched off in between (replay-grace.test.js). A past block
+// here is one whose 72 hours are over; the trash closes a block at once.
 describe('a block that is no longer the one being trained', () => {
   for (const [state, change] of [
-    ['a past block', `update programs set is_active = false where id = $1`],
-    ['a block in the trash', `update programs set is_active = false, deleted_at = now() where id = $1`],
+    ['a past block', (q) => pastBlock(q, ids.programA.id)],
+    ['a block in the trash', (q) => q(`update programs set is_active = false, deleted_at = now() where id = $1`, [ids.programA.id])],
   ]) {
     it(`${state}: sets, notes, swaps — and now videos and their files — are refused`, () => scenario(async (q) => {
       const t = await train(0);
-      await q(change, [ids.programA.id]);
+      await change(q);
       const before = await contents(q, t);
       const writes = everyWrite(t);
       expect(await attemptAll(writes)).toEqual(REFUSED(writes));
@@ -754,7 +762,7 @@ describe('the files of the set-videos bucket', () => {
     const open = await train(2);
     expect(await remove(ids.studentA, open.clip)).toBe('1 row');
     await asUser(ids.studentA, (a) => app.upload(a, open.clip));
-    await q(`update programs set is_active = false where id = $1`, [ids.programA.id]);
+    await pastBlock(q, ids.programA.id);
     expect(await remove(ids.studentA, open.clip)).toBe('0 rows');
     expect(await upload(ids.studentA, fileOf(ids.studentA, open.pullUp, '9-late.mp4'))).toBe('refused');
   }));

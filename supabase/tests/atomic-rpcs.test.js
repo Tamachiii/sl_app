@@ -39,8 +39,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  asAdmin, asAnon, asService, asUser, attempt, createDraftProgram, createProgram, createUser, repoRoot,
-  scenario, scratchDatabase, seed,
+  asAdmin, asAnon, asService, asUser, attempt, createDraftProgram, createProgram, createUser, pastBlock,
+  repoRoot, scenario, scratchDatabase, seed,
 } from './harness.js';
 import { catalogSnapshot, diffCatalogs } from './catalog.js';
 import { LEDGER, loadManifest, REFUSAL } from '../migrations/manifest.js';
@@ -224,9 +224,14 @@ describe('activate_program: the others off, this one on, in one statement (P16)'
     expect(await activeOf(q, ids.studentB)).toEqual(['Block B']);
     expect(await activeOf(q, casey)).toEqual(['Block C']);
 
-    // The athlete writes in the block that is being trained, and in no other.
+    // The athlete writes in the block that is being trained — and, for 72
+    // hours, in the one that was switched off for it: what was logged without
+    // a connection is still to arrive (migration 17, replay-grace.test.js).
+    // After that, in no other.
     expect((await alex((a) => app.tick(a, next.setLogs[0]))).rowCount).toBe(1);
-    expect((await alex((a) => app.tick(a, ids.programA.setLogs[0]))).rowCount).toBe(0);
+    expect((await alex((a) => app.tick(a, ids.programA.setLogs[0]))).rowCount).toBe(1);
+    await pastBlock(q, ids.programA.id);
+    expect((await alex((a) => app.tick(a, ids.programA.setLogs[1]))).rowCount).toBe(0);
   }));
 
   it('sent a second time, it says the block is active already and writes nothing', () => scenario(async (q) => {
@@ -241,12 +246,17 @@ describe('activate_program: the others off, this one on, in one statement (P16)'
   }));
 
   // The finding. Each `q()` is one request, as each PostgREST call is.
+  // Since migration 17 the block that was switched off stays open for its
+  // athlete for 72 hours, so the sets are refused once those are over — and
+  // the athlete has no block from the first minute.
   it('the app that is deployed, its second request lost: the athlete has no block and their sets are refused', () => scenario(async (q) => {
     expect((await coach((c) => app.switchOff(c, ids.studentA.studentRowId))).rowCount).toBe(1);
     // … and "switch the chosen one on" never arrives.
     expect(await activeOf(q, ids.studentA)).toEqual([]);
-    expect((await alex((a) => app.tick(a, ids.programA.setLogs[0]))).rowCount).toBe(0);
     expect((await alex((a) => app.tick(a, next.setLogs[0]))).rowCount).toBe(0);
+    expect((await alex((a) => app.tick(a, ids.programA.setLogs[0]))).rowCount).toBe(1);
+    await pastBlock(q, ids.programA.id);
+    expect((await alex((a) => app.tick(a, ids.programA.setLogs[1]))).rowCount).toBe(0);
   }));
 
   it('a write that fails half-way: the function leaves the athlete their block, the two requests of the app do not', () => scenario(async (q) => {

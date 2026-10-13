@@ -37,8 +37,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  asAdmin, asAnon, asService, asUser, attempt, createDraftProgram, createProgram, createUser, repoRoot,
-  scenario, scratchDatabase, seed,
+  asAdmin, asAnon, asService, asUser, attempt, createDraftProgram, createProgram, createUser, pastBlock,
+  repoRoot, scenario, scratchDatabase, seed,
 } from './harness.js';
 import { catalogSnapshot, diffCatalogs } from './catalog.js';
 import { LEDGER, loadManifest, REFUSAL } from '../migrations/manifest.js';
@@ -70,7 +70,7 @@ const WHAT_A_COPY_IS = {
   programs: {
     copied: ['name'],
     left: ['id', 'student_id', 'sort_order', 'is_active', 'deleted_at', 'created_by', 'status', 'submitted_at',
-      'approved_at', 'created_at'],
+      'approved_at', 'deactivated_at', 'created_at'],
   },
   weeks: {
     copied: ['week_number', 'label'],
@@ -550,11 +550,13 @@ describe('a copy is the prescription, and nothing of what was trained', () => {
     const empty = Object.entries(WHAT_A_COPY_IS).flatMap(([table, { copied, left }]) => [...copied, ...left]
       .filter((column) => !rows[table].some(({ r }) => holds(r[column])))
       .map((column) => `${table}.${column}`));
-    // The four that say where a block comes from and whether it is in the
-    // trash: a block the coach wrote and the athlete trains has none of them.
-    // "a draft, a block in the trash, a block its athlete wrote" below copies
-    // the blocks that have.
-    expect(empty).toEqual(['programs.deleted_at', 'programs.created_by', 'programs.submitted_at', 'programs.approved_at']);
+    // The five that say where a block comes from, whether it is in the trash
+    // and when it was switched off: a block the coach wrote and the athlete
+    // trains has none of them. "a draft, a block in the trash, a block its
+    // athlete wrote" below copies the blocks that have.
+    expect(empty).toEqual([
+      'programs.deleted_at', 'programs.created_by', 'programs.submitted_at', 'programs.approved_at', 'programs.deactivated_at',
+    ]);
   }));
 
   it('duplicate_session: the session with its exercises and the targets of its sets, called "(copy)", live, right after it', () => scenario(async (q) => {
@@ -617,6 +619,8 @@ describe('a copy is the prescription, and nothing of what was trained', () => {
       status: 'approved',
       submitted_at: null,
       approved_at: null,
+      // It never was the block being trained.
+      deactivated_at: null,
       weeks: now.weeks.map((phase) => ({
         ...phase, sessions: phase.sessions.map((session) => prescribed(session, { keepArchived: true })),
       })),
@@ -1171,6 +1175,21 @@ describe('a draft, a block in the trash, a block its athlete wrote, the block th
     expect(await q.value(`select approved_at from programs where id = $1`, [ofAuthored.program_id])).toBeNull();
     expect(await state((await duplicateProgram(coach, block.id)).program_id)).toEqual(A_COPY);
     expect(await activeOf(q, ids.studentA)).toEqual(['Block A']);
+
+    // A block that was switched off an hour ago is still open for its athlete
+    // (migration 17). Its copy never was the block being trained: it holds no
+    // such time, and is closed.
+    const stillOpen = (id) => q.one(
+      `select p.deactivated_at is not null as switched_off,
+              (select bool_or(public.program_active_for_session(s.id))
+                 from sessions s join weeks w on w.id = s.week_id where w.program_id = p.id) as open_for_its_athlete
+         from programs p where p.id = $1`, [id],
+    );
+    await pastBlock(q, block.id, '1 hour');
+    expect(await stillOpen(block.id)).toEqual({ switched_off: true, open_for_its_athlete: true });
+    const ofSwitchedOff = await duplicateProgram(coach, block.id);
+    expect(await state(ofSwitchedOff.program_id)).toEqual(A_COPY);
+    expect(await stillOpen(ofSwitchedOff.program_id)).toEqual({ switched_off: false, open_for_its_athlete: false });
   }));
 
   it('into a draft: a session arrives with its sets, as the app copies it, and is not archived there', () => scenario(async (q) => {
