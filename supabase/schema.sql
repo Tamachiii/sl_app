@@ -2995,17 +2995,20 @@ ALTER TABLE public.notifications REPLICA IDENTITY FULL;
 --    into push on. The fields mirror the Web Push spec (endpoint, p256dh,
 --    auth). Owned by the user; CRUD via RLS.
 --
--- 2. scheduled_pushes — one row per pending notification to fire at
---    fire_at. The client inserts a row when a rest timer starts and
---    sets canceled_at when the timer is cleared (set undone, new set
---    started, or session left). The dispatch-rest-push Edge Function
---    reads with the service role, sleeps until fire_at, double-checks
---    canceled_at, and delivers via the web-push protocol.
+-- 2. scheduled_pushes — one row per rest whose end is to ring: when
+--    (fire_at), what the notification shows (payload), for which device
+--    (endpoint), and what became of it (status). Written by
+--    schedule_rest_push and cancel_rest_push; the app from before wave 3
+--    inserts the row itself and sets canceled_at when the timer is cleared
+--    (set undone, new set started, session left). Sent by whoever
+--    claim_rest_push answers the row to — see THE REST PUSH, below the
+--    table.
 --
 -- There are no triggers on these tables. RLS is the client-side guardrail,
--- with one rule on what a row may hold (the endpoint of a subscription is an
--- address at a known push service); the Edge Function uses the service role
--- and bypasses RLS.
+-- with two rules on what a row may hold: the endpoint of a subscription is
+-- an address at a known push service, and the endpoint of a scheduled push
+-- is a device of the account that writes it. The Edge Functions use the
+-- service role and bypass RLS.
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS public.push_subscriptions (
@@ -3176,17 +3179,40 @@ END;
 $$;
 
 
+-- What a row can say (the last two statuses and the last two columns:
+-- 2026_10_13_16_rest_push_scheduling).
+--   status   pending    waiting for its time
+--            sending    a sender has taken it (claim_rest_push) and is
+--                       sending; the sender then writes sent or failed
+--            sent       at least one device got it          (sent_at)
+--            failed     no device got it                    (error)
+--            canceled   its athlete took it back before its time
+--                       (canceled_at)
+--            expired    its time is more than a minute past and nobody had
+--                       sent it: a push that late is worse than none
+--   endpoint       the device the push is for — the endpoint of one of the
+--                  account's push_subscriptions. NULL: every device of the
+--                  account, which is what a row means that the app from
+--                  before wave 3 inserts.
+--   dispatched_at  when dispatch_due_rest_pushes handed the row to
+--                  send-push. It is what makes that happen once. NULL where
+--                  the pg_cron job does not run.
+-- The app from before wave 3 cancels by writing canceled_at on a row it
+-- leaves 'pending': a row is canceled when its status says so OR canceled_at
+-- is set, and every function below reads both.
 CREATE TABLE IF NOT EXISTS public.scheduled_pushes (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id       uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   fire_at       timestamptz NOT NULL,
   payload       jsonb NOT NULL DEFAULT '{}'::jsonb,
   status        text NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending', 'sent', 'canceled', 'failed')),
+    CHECK (status IN ('pending', 'sending', 'sent', 'canceled', 'failed', 'expired')),
   canceled_at   timestamptz,
   sent_at       timestamptz,
   error         text,
-  created_at    timestamptz NOT NULL DEFAULT now()
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  endpoint      text,
+  dispatched_at timestamptz
 );
 
 CREATE INDEX IF NOT EXISTS scheduled_pushes_user_status_idx
@@ -3199,27 +3225,393 @@ CREATE POLICY "Read own scheduled pushes"
   ON public.scheduled_pushes FOR SELECT
   USING (user_id = auth.uid());
 
+-- THE TWO POLICIES AN ACCOUNT WRITES THROUGH are for the app from before
+-- wave 3, which inserts its row and sets canceled_at itself; the next app
+-- goes through schedule_rest_push and cancel_rest_push, and a `contract`
+-- migration drops both policies once no older app is in use.
+--
+-- An account names a device of its own, and no other
+-- (2026_10_13_16_rest_push_scheduling): whoever sends a row reads where to
+-- from it, so without the condition a row is a way to aim a push, with a
+-- text of the writer's choosing, at the device of somebody else whose
+-- endpoint the writer has learnt. The lookup runs with the rights of the
+-- caller, who reads their own subscriptions and no others. The app from
+-- before wave 3 never writes the column: its rows pass as they did.
 DROP POLICY IF EXISTS "Insert own scheduled pushes" ON public.scheduled_pushes;
 CREATE POLICY "Insert own scheduled pushes"
   ON public.scheduled_pushes FOR INSERT
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (
+    user_id = auth.uid()
+    AND (
+      endpoint IS NULL
+      OR EXISTS (
+        SELECT 1 FROM public.push_subscriptions ps
+         WHERE ps.user_id = auth.uid()
+           AND ps.endpoint = scheduled_pushes.endpoint
+      )
+    )
+  );
 
--- Update is intentionally narrow on the client side: only the row's owner
--- can mark it canceled. The Edge Function (service role) is the only
--- writer for sent_at / status='sent'. We don't bother with a column-pin
--- trigger because the worst a malicious client can do to their own row
--- is suppress their own notification.
+-- No column-pin trigger: the worst an account can do to a row of its own is
+-- to lose its own notification, or to send itself one more.
 DROP POLICY IF EXISTS "Cancel own scheduled pushes" ON public.scheduled_pushes;
 CREATE POLICY "Cancel own scheduled pushes"
   ON public.scheduled_pushes FOR UPDATE
   USING (user_id = auth.uid())
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (
+    user_id = auth.uid()
+    AND (
+      endpoint IS NULL
+      OR EXISTS (
+        SELECT 1 FROM public.push_subscriptions ps
+         WHERE ps.user_id = auth.uid()
+           AND ps.endpoint = scheduled_pushes.endpoint
+      )
+    )
+  );
 
 -- Owner may delete their own row (e.g. opportunistic cleanup after expiry).
 DROP POLICY IF EXISTS "Delete own scheduled pushes" ON public.scheduled_pushes;
 CREATE POLICY "Delete own scheduled pushes"
   ON public.scheduled_pushes FOR DELETE
   USING (user_id = auth.uid());
+
+-- ============================================================
+-- THE REST PUSH: SCHEDULED BY THE DATABASE, SENT ONCE
+-- (2026_10_13_16_rest_push_scheduling — review P10, B14, and the database's
+-- half of B35 and B38)
+--
+-- When an athlete ticks a set the app starts a rest timer, and asks for a
+-- notification at its end: the one thing that reaches a locked phone.
+--
+--   schedule_rest_push(p_seconds, p_payload, p_endpoint)   the app, at the
+--       → { id, fire_at, mode }                            start of a rest
+--   cancel_rest_push(p_id) → { canceled }                  the app, when the
+--                                                          rest ends early
+--   claim_rest_push(p_id) → the row, or NULL               whoever SENDS
+--   dispatch_due_rest_pushes() → { handed_over, expired }  the pg_cron job
+--
+-- WHO SENDS. Two ways, and the answer of schedule_rest_push says which:
+--   mode 'cron'   a pg_cron job named sl-rest-push runs
+--                 dispatch_due_rest_pushes() every ten seconds (an optional
+--                 migration makes it). It hands each row due within ten
+--                 seconds to the send-push Edge Function, with the time not
+--                 to send before; send-push waits, then sends. The app has
+--                 nothing more to do.
+--   mode 'edge'   there is no such job: the app calls the dispatch-rest-push
+--                 Edge Function with the id, which waits — in hops, for a
+--                 long rest — and then sends.
+-- The app from before wave 3 knows neither function: it inserts its row
+-- (no endpoint: every device) and calls dispatch-rest-push itself, whatever
+-- the mode.
+--
+-- ONE CLAIM. Whoever sends asks claim_rest_push(id) first, at the time of
+-- the push, and sends only what it is answered. It moves the row from
+-- 'pending' to 'sending' and answers it once: a row both ways picked is one
+-- push, a row that was canceled is none, and so is one more than a minute
+-- late. The sender then writes 'sent' (and sent_at) or 'failed' (and error)
+-- on the row. A row left 'sending' is one whose sender never said.
+--
+-- TO WHOM. The devices of the row's user_id: all of them when endpoint is
+-- NULL, the one with that endpoint otherwise — looked up in
+-- push_subscriptions WITH the user id, never by the endpoint alone.
+--
+-- NOTHING WAITS FOR EVER. A row still 'pending' a minute after its time is
+-- closed — 'expired', or 'canceled' when canceled_at is set — by the job, by
+-- claim_rest_push when it is asked for that row, and by the next rest of its
+-- account. An account's rows older than 7 days are deleted when it next
+-- rests.
+--
+-- dispatch_due_rest_pushes calls send_push_event, which is defined further
+-- down: a function body is read when it runs.
+-- ============================================================
+
+-- The end of a rest, scheduled in one request.
+--   p_seconds    how long the rest is, from now: 1 to 900 — what the Edge
+--                Function can wait for where no job runs; the same rest is
+--                refused in both modes
+--   p_payload    what the notification shows — { "title", "body", "tag",
+--                "data": { "url" } } — handed to the service worker as it is
+--   p_endpoint   the device that asks: the endpoint of its push
+--                subscription. Left out or NULL: every device of the account
+--   returns      { "id", "fire_at", "mode" } — fire_at is now() + p_seconds
+--                on the clock of the database, not of the phone
+--   does      closes every row of the caller that is still waiting (one rest
+--             at a time), deletes the caller's rows older than 7 days,
+--             inserts the new one
+--   refuses   not authorized (42501, no user id), rest_seconds_out_of_range,
+--             payload_invalid (not a JSON object, or over 2000 bytes),
+--             device_not_registered (the endpoint is not a device of the
+--             caller — or, without one, the caller has none)
+-- 'cron' only while cron.job holds an active job named sl-rest-push; no
+-- pg_cron, no job, a job switched off or a table that cannot be read:
+-- 'edge', which costs one call of the Edge Function and never a second push.
+-- Two calls of one account at the same instant are served one after the
+-- other (an advisory lock on the account).
+-- SECURITY DEFINER: it reads the jobs of pg_cron, and it must go on working
+-- once the policies above are dropped. It asks who calls first, and writes
+-- rows of the caller only.
+-- Who may execute it: the FUNCTION PRIVILEGES block at the end of this file.
+CREATE OR REPLACE FUNCTION public.schedule_rest_push(
+  p_seconds  integer,
+  p_payload  jsonb,
+  p_endpoint text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_uid     uuid := auth.uid();
+  v_id      uuid;
+  v_fire_at timestamptz;
+  v_mode    text := 'edge';
+  v_job     boolean;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'not authorized'
+      USING ERRCODE = 'insufficient_privilege',
+            DETAIL = 'The request carries no user id.',
+            HINT = 'The end of a rest is scheduled by the account that rests. Nothing was changed.';
+  END IF;
+  IF p_seconds IS NULL OR p_seconds < 1 OR p_seconds > 900 THEN
+    RAISE EXCEPTION 'rest_seconds_out_of_range'
+      USING DETAIL = 'The end of a rest is scheduled 1 to 900 seconds ahead.',
+            HINT = 'Nothing was changed.';
+  END IF;
+  IF p_payload IS NULL OR jsonb_typeof(p_payload) <> 'object' OR octet_length(p_payload::text) > 2000 THEN
+    RAISE EXCEPTION 'payload_invalid'
+      USING DETAIL = 'The payload is what the notification shows: a JSON object, of 2000 bytes at most.',
+            HINT = 'Nothing was changed.';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.push_subscriptions ps
+     WHERE ps.user_id = v_uid
+       AND (p_endpoint IS NULL OR ps.endpoint = p_endpoint)
+  ) THEN
+    RAISE EXCEPTION 'device_not_registered'
+      USING DETAIL = 'The endpoint sent is not a device this account has switched notifications on for — or none was sent, and the account has no such device.',
+            HINT = 'Nothing was changed.';
+  END IF;
+
+  -- One call at a time for an account: the next statement of a call that
+  -- waited here sees the row of the one before.
+  PERFORM pg_advisory_xact_lock(hashtextextended('sl_app.rest_push.' || v_uid::text, 0));
+
+  UPDATE public.scheduled_pushes sp
+     SET status      = CASE WHEN sp.canceled_at IS NULL AND sp.fire_at <= now() - interval '60 seconds'
+                            THEN 'expired' ELSE 'canceled' END,
+         canceled_at = CASE WHEN sp.canceled_at IS NULL AND sp.fire_at > now() - interval '60 seconds'
+                            THEN now() ELSE sp.canceled_at END
+   WHERE sp.user_id = v_uid
+     AND sp.status = 'pending';
+
+  DELETE FROM public.scheduled_pushes sp
+   WHERE sp.user_id = v_uid
+     AND sp.created_at < now() - interval '7 days';
+
+  INSERT INTO public.scheduled_pushes (user_id, fire_at, payload, endpoint)
+  VALUES (v_uid, now() + make_interval(secs => p_seconds), p_payload, p_endpoint)
+  RETURNING id, fire_at INTO v_id, v_fire_at;
+
+  -- Who will send it. The table is pg_cron's, and is not there without the
+  -- extension: asked by name, and read in a statement of its own. Whatever
+  -- goes wrong with the question, the rest is scheduled, and 'edge' is the
+  -- answer that is always safe.
+  BEGIN
+    IF to_regclass('cron.job') IS NOT NULL THEN
+      EXECUTE 'SELECT EXISTS (SELECT 1 FROM cron.job j WHERE j.jobname = $1 AND j.active)'
+         INTO v_job
+        USING 'sl-rest-push';
+      IF v_job THEN
+        v_mode := 'cron';
+      END IF;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    v_mode := 'edge';
+  END;
+
+  RETURN jsonb_build_object('id', v_id, 'fire_at', v_fire_at, 'mode', v_mode);
+END;
+$$;
+
+-- A rest that ends early: its push is taken back.
+--   returns   { "canceled": true } — the row was waiting, and is closed —
+--             or false: sent or being sent, closed already, not the
+--             caller's, or no row at all. Too late is not an error.
+--   refuses   not authorized (42501) — no user id
+-- SECURITY DEFINER, for the reason schedule_rest_push is.
+-- Who may execute it: the FUNCTION PRIVILEGES block at the end of this file.
+CREATE OR REPLACE FUNCTION public.cancel_rest_push(p_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'not authorized'
+      USING ERRCODE = 'insufficient_privilege',
+            DETAIL = 'The request carries no user id.',
+            HINT = 'A rest is taken back by the account that scheduled it. Nothing was changed.';
+  END IF;
+
+  UPDATE public.scheduled_pushes sp
+     SET status      = 'canceled',
+         canceled_at = COALESCE(sp.canceled_at, now())
+   WHERE sp.id = p_id
+     AND sp.user_id = v_uid
+     AND sp.status = 'pending';
+
+  RETURN jsonb_build_object('canceled', FOUND);
+END;
+$$;
+
+-- The one way a row gets sent.
+--   returns   { "id", "user_id", "payload", "endpoint", "fire_at" } — the
+--             row is the caller's to send, and is 'sending' from now on —
+--             or NULL: somebody else took it, its athlete took it back, its
+--             time is more than a minute past, or there is no such row
+-- The row is locked by the UPDATE that takes it; a second caller that waited
+-- for the lock finds a row that is no longer 'pending'. A row that is asked
+-- for and can no longer be sent is closed here ('canceled' or 'expired').
+-- NOT FOR A SIGNED-IN USER, and SECURITY INVOKER: the service role — the
+-- Edge Functions — holds every row; anybody else would reach their own.
+-- Who may execute it: nobody but its owner and the service role. It is NOT in
+-- the FUNCTION PRIVILEGES block at the end of this file, and must not be.
+CREATE OR REPLACE FUNCTION public.claim_rest_push(p_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_row public.scheduled_pushes;
+BEGIN
+  UPDATE public.scheduled_pushes sp
+     SET status = 'sending'
+   WHERE sp.id = p_id
+     AND sp.status = 'pending'
+     AND sp.canceled_at IS NULL
+     AND sp.fire_at > now() - interval '60 seconds'
+  RETURNING sp.* INTO v_row;
+
+  IF FOUND THEN
+    RETURN jsonb_build_object(
+      'id',       v_row.id,
+      'user_id',  v_row.user_id,
+      'payload',  v_row.payload,
+      'endpoint', v_row.endpoint,
+      'fire_at',  v_row.fire_at
+    );
+  END IF;
+
+  -- Not taken. If it is still 'pending', it is one that can no longer be
+  -- sent: say so on the row.
+  UPDATE public.scheduled_pushes sp
+     SET status = CASE WHEN sp.canceled_at IS NULL THEN 'expired' ELSE 'canceled' END
+   WHERE sp.id = p_id
+     AND sp.status = 'pending'
+     AND (sp.canceled_at IS NOT NULL OR sp.fire_at <= now() - interval '60 seconds');
+
+  RETURN NULL;
+END;
+$$;
+
+-- What the pg_cron job runs — once there is a job. Until then nothing calls
+-- it.
+--   returns     { "handed_over", "expired" }
+--   closes      every row still 'pending' more than a minute after its time
+--   hands over  every row that is waiting, not canceled, not handed over yet
+--               and due within ten seconds, to send_push_event:
+--                 { "user_id", "payload", "schedule_id", "not_before",
+--                   "endpoint", "ttl": 60, "urgency": "high" }
+--               ("endpoint" left out when the row names none), and marks it
+--               (dispatched_at) in the same step — ONCE, whatever becomes of
+--               the request. The row stays 'pending' until send-push takes
+--               it: a rest that ends early in those ten seconds is still
+--               taken back.
+-- Once, because a send-push that does not know "schedule_id" — the one from
+-- before wave 2 — sends what it is handed at once and marks nothing: handed
+-- the same row every ten seconds, it would ring seven times.
+-- The call of send_push_event stands in a net of its own: a row that cannot
+-- be handed over is a warning, its mark is undone with it, and the next run
+-- tries again. Rows another transaction holds are passed over, not waited
+-- for.
+-- SECURITY DEFINER: send_push_event has no right of its own.
+-- Who may execute it: nobody but its owner and the service role. It is NOT in
+-- the FUNCTION PRIVILEGES block at the end of this file, and must not be.
+CREATE OR REPLACE FUNCTION public.dispatch_due_rest_pushes()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_row     record;
+  v_tried   uuid[] := '{}';
+  v_handed  integer;
+  v_expired integer;
+BEGIN
+  WITH late AS (
+    SELECT sp.id
+      FROM public.scheduled_pushes sp
+     WHERE sp.status = 'pending'
+       AND sp.fire_at <= now() - interval '60 seconds'
+     ORDER BY sp.id
+       FOR UPDATE SKIP LOCKED
+  )
+  UPDATE public.scheduled_pushes sp
+     SET status = CASE WHEN sp.canceled_at IS NULL THEN 'expired' ELSE 'canceled' END
+    FROM late
+   WHERE sp.id = late.id;
+  GET DIAGNOSTICS v_expired = ROW_COUNT;
+
+  FOR v_row IN
+    SELECT sp.id, sp.user_id, sp.payload, sp.endpoint, sp.fire_at
+      FROM public.scheduled_pushes sp
+     WHERE sp.status = 'pending'
+       AND sp.canceled_at IS NULL
+       AND sp.dispatched_at IS NULL
+       AND sp.fire_at <= now() + interval '10 seconds'
+       AND jsonb_typeof(sp.payload) = 'object'
+     ORDER BY sp.fire_at, sp.id
+       FOR UPDATE SKIP LOCKED
+  LOOP
+    v_tried := v_tried || v_row.id;
+    BEGIN
+      UPDATE public.scheduled_pushes sp
+         SET dispatched_at = now()
+       WHERE sp.id = v_row.id;
+      PERFORM public.send_push_event(
+        v_row.user_id,
+        v_row.payload,
+        jsonb_strip_nulls(jsonb_build_object(
+          'schedule_id', v_row.id,
+          'not_before',  v_row.fire_at,
+          'endpoint',    v_row.endpoint,
+          'ttl',         60,
+          'urgency',     'high'
+        ))
+      );
+    EXCEPTION WHEN OTHERS THEN
+      RAISE WARNING 'send-push hand-over (rest push) failed: %', SQLERRM;
+    END;
+  END LOOP;
+
+  -- The rows whose mark was not undone.
+  SELECT count(*) INTO v_handed
+    FROM public.scheduled_pushes sp
+   WHERE sp.id = ANY (v_tried)
+     AND sp.dispatched_at IS NOT NULL;
+
+  RETURN jsonb_build_object('handed_over', v_handed, 'expired', v_expired);
+END;
+$$;
+
 -- ============================================================
 -- WEB PUSH FOR AN EVENT: ONE WAY OUT OF THE DATABASE
 -- (2026_10_13_15_push_plumbing — review P35 and B3, the database's half)
@@ -5510,11 +5902,11 @@ TO authenticated;
 
 -- The RPCs the app calls. The five coach RPCs authorize the caller themselves
 -- (auth.uid() IS NULL first, then IS DISTINCT FROM), and so do
--- ensure_set_logs and claim_push_subscription, for the account that calls;
--- save_draft_tree, move_session, activate_program, reorder_sessions,
--- reorder_weeks and the four that copy (duplicate_session, copy_sessions,
--- duplicate_week, duplicate_program) are SECURITY INVOKER and ride the
--- caller's RLS.
+-- ensure_set_logs, claim_push_subscription, schedule_rest_push and
+-- cancel_rest_push, for the account that calls; save_draft_tree,
+-- move_session, activate_program, reorder_sessions, reorder_weeks and the
+-- four that copy (duplicate_session, copy_sessions, duplicate_week,
+-- duplicate_program) are SECURITY INVOKER and ride the caller's RLS.
 GRANT EXECUTE ON FUNCTION
   public.adopt_swap(uuid, uuid, boolean),
   public.adopt_skip(uuid, boolean),
@@ -5531,7 +5923,9 @@ GRANT EXECUTE ON FUNCTION
   public.duplicate_week(uuid, uuid, text),
   public.duplicate_program(uuid, uuid, text),
   public.ensure_set_logs(uuid),
-  public.claim_push_subscription(text, text, text, text)
+  public.claim_push_subscription(text, text, text, text),
+  public.schedule_rest_push(integer, jsonb, text),
+  public.cancel_rest_push(uuid)
 TO authenticated;
 
 -- ============================================================
@@ -5645,4 +6039,5 @@ INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_13_12_copy_rpcs'),
   ('2026_10_13_13_ensure_claim_rpcs'),
   ('2026_10_13_14_table_grants_lockdown'),
-  ('2026_10_13_15_push_plumbing');
+  ('2026_10_13_15_push_plumbing'),
+  ('2026_10_13_16_rest_push_scheduling');

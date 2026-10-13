@@ -33,7 +33,7 @@
 //
 // The first blocks are PERMANENT: they run against schema.sql, so they hold
 // for every function a later migration adds. A NEW FUNCTION THAT SENDS A
-// PUSH joins THE_ELEVEN below — the test names what it must look like.
+// PUSH joins LATER_SENDERS below — the test names what it must look like.
 // Then the migration file itself, on the frozen production baseline: the
 // eleven pushes before and after, the checks of its runbook page read off the
 // page, its refusals, its rollback.
@@ -88,6 +88,18 @@ const THE_ELEVEN = {
   send_back_program: 'send-push fan-out (program sent back) failed: %',
 };
 const ELEVEN_NAMES = Object.keys(THE_ELEVEN).join(', ');
+/**
+ * The functions that send a push and came after migration 15, which
+ * re-created the eleven above and no other: the same block, the same
+ * SECURITY DEFINER, the sentence of its own warning.
+ */
+const LATER_SENDERS = {
+  // 2026_10_13_16_rest_push_scheduling: what the pg_cron job runs — a rest
+  // push that is due is handed to send-push with the time not to send before.
+  dispatch_due_rest_pushes: 'send-push hand-over (rest push) failed: %',
+};
+/** Every function of public that asks send_push_event for a push, by name. */
+const EVERY_SENDER = { ...THE_ELEVEN, ...LATER_SENDERS };
 
 const URL = 'https://functions.sl.test/functions/v1';
 const BEARER = 'test-internal-bearer';
@@ -285,12 +297,12 @@ describe('the functions that send a push', () => {
     expect(body.indexOf(`'app_service_role_key'`)).toBeGreaterThan(body.indexOf(`'app_internal_bearer'`));
   });
 
-  it('the functions that ask it for their push are the eleven, each runs as its owner, and each keeps the call inside its own net', async () => {
+  it('the functions that ask it for their push are the eleven and the ones listed since, each runs as its owner, and each keeps the call inside its own net', async () => {
     const callers = (await bodies()).filter(({ body }) => withoutComments(body).includes('send_push_event('));
     expect(
       callers.map((f) => f.name),
-      'a function that sends a push and is not in THE_ELEVEN of supabase/tests/push-plumbing.test.js (or the reverse)',
-    ).toEqual(Object.keys(THE_ELEVEN));
+      'a function that sends a push and is not in LATER_SENDERS of supabase/tests/push-plumbing.test.js (or the reverse)',
+    ).toEqual(Object.keys(EVERY_SENDER).sort());
 
     // BEGIN … PERFORM public.send_push_event(…); EXCEPTION WHEN OTHERS THEN
     // RAISE WARNING '<sentence>', SQLERRM; END; — nothing between the call and
@@ -303,7 +315,7 @@ describe('the functions that send a push', () => {
       expect(runs_as_owner, `${name} must be SECURITY DEFINER`).toBe(true);
       expect(code.match(/send_push_event\(/g), name).toHaveLength(1);
       expect([...code.matchAll(NET)].map((match) => match[1]), `${name}: the call is not inside a BEGIN … EXCEPTION WHEN OTHERS net of its own`)
-        .toEqual([THE_ELEVEN[name]]);
+        .toEqual([EVERY_SENDER[name]]);
     }
   });
 

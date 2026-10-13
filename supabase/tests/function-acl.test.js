@@ -82,6 +82,7 @@ const RPCS = [
   'adopt_skip(uuid, boolean)',
   'adopt_swap(uuid, uuid, boolean)',
   'approve_program(uuid)',
+  'cancel_rest_push(uuid)',           // 2026_10_13_16_rest_push_scheduling
   'claim_push_subscription(text, text, text, text)',   // 2026_10_13_13_ensure_claim_rpcs
   'copy_sessions(uuid[], uuid)',      // 2026_10_13_12_copy_rpcs
   'decline_promote_request(uuid)',
@@ -93,6 +94,7 @@ const RPCS = [
   'reorder_sessions(uuid, uuid[])',   // 2026_10_13_11_activate_reorder_rpcs
   'reorder_weeks(uuid, uuid[])',      // 2026_10_13_11_activate_reorder_rpcs
   'save_draft_tree(jsonb)',
+  'schedule_rest_push(integer, jsonb, text)',   // 2026_10_13_16_rest_push_scheduling
   'send_back_program(uuid)',
 ];
 const ALLOW_LIST = [...HELPERS, ...RPCS].sort();
@@ -108,6 +110,9 @@ const NOT_FOR_USERS = [
   ['transfer_student(uuid, uuid)', 'moves an athlete and their goals to another coach: called by the owner of the database (the SQL editor) or with the service-role key, never by a signed-in user — it refuses a request that carries a user id'],
   // 2026_10_13_15_push_plumbing
   ['send_push_event(uuid, jsonb, jsonb)', 'hands a push to the send-push Edge Function: whoever may call it sends any text and any link to any account. Called by the eleven SECURITY DEFINER functions that notify somebody, as their owner, and by the service role — never by a signed-in user (push-plumbing.test.js)'],
+  // 2026_10_13_16_rest_push_scheduling
+  ['claim_rest_push(uuid)', 'the one way a rest push gets sent: it hands the row to whoever asks, once. Called by the Edge Functions that send (dispatch-rest-push, send-push) with the service-role key — an account that could call it would stop its own notification, and it is SECURITY INVOKER so that it could do no more (rest-push.test.js)'],
+  ['dispatch_due_rest_pushes()', 'what the optional pg_cron job sl-rest-push runs every ten seconds, as the owner of the database: it closes the rest pushes that are late and hands the due ones to send-push. Never by a signed-in user (rest-push.test.js)'],
 ];
 
 const SEARCH_PATH = 'search_path=public, pg_temp';

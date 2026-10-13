@@ -24,6 +24,11 @@
 // share with the five is tested here: a caller without a user id is refused in
 // the body, by a line that is NULL-safe.
 //
+// Since migration 16 two more of that kind: schedule_rest_push and
+// cancel_rest_push (what each allows is in rest-push.test.js). And one that is
+// SECURITY DEFINER and for no client at all — dispatch_due_rest_pushes, which
+// a job runs: the last block shows that no account can call it.
+//
 // Why the callers without a user id matter beyond `anon`: migration 03 took
 // the EXECUTE of `anon` away, and since then an anonymous call fails on the
 // privilege — "permission denied for function …" — whatever the function body
@@ -104,13 +109,16 @@ const CALLS = [
   ['send_back_program', ({ draft }) => [`select public.send_back_program($1)`, [draft.id]]],
 ];
 
-// The two that act for the account that calls (migration 13). The session is
-// athlete A's, and short of a set: there is something to add, and nobody to
-// add it for.
+// The ones that act for the account that calls (migrations 13 and 16). The
+// session is athlete A's, and short of a set: there is something to add, and
+// nobody to add it for. The rest push is one athlete A has waiting.
 const DEVICE = 'https://fcm.googleapis.com/fcm/send/a-device-nobody-is-signed-in-on';
+const WAITING = '00000000-0000-4000-8000-00000000d00d';
 const CALLS_FOR_THE_CALLER = [
   ['ensure_set_logs', () => [`select public.ensure_set_logs($1)`, [ids.programA.sessions[0]]]],
   ['claim_push_subscription', () => [`select public.claim_push_subscription($1, $2, $3)`, [DEVICE, 'p256dh', 'auth']]],
+  ['schedule_rest_push', () => [`select public.schedule_rest_push($1, $2, $3)`, [60, '{"title": "Rest done"}', DEVICE]]],
+  ['cancel_rest_push', () => [`select public.cancel_rest_push($1)`, [WAITING]]],
 ];
 
 // Everything the five write, as one value: which exercise every slot holds,
@@ -197,14 +205,18 @@ describe('a caller who is not the coach of the athlete', () => {
     }));
   });
 
-  // ensure_set_logs and claim_push_subscription: "for the account that
-  // calls" is nobody when the request names no user.
-  it('without a user id, the two functions that act for the account that calls are refused too, and nothing changes', () => scenario(async (q) => {
+  // ensure_set_logs, claim_push_subscription, schedule_rest_push and
+  // cancel_rest_push: "for the account that calls" is nobody when the request
+  // names no user.
+  it('without a user id, the functions that act for the account that calls are refused too, and nothing changes', () => scenario(async (q) => {
     await q(`delete from set_logs where id = $1`, [ids.programA.setLogs[2]]);
+    await q(`insert into scheduled_pushes (id, user_id, fire_at) values ($1, $2, now() + interval '1 minute')`, [WAITING, ids.studentA.id]);
     const written = () => q.one(
-      `select (select count(*) from set_logs) as set_logs, (select count(*) from push_subscriptions) as devices`,
+      `select (select count(*) from set_logs) as set_logs, (select count(*) from push_subscriptions) as devices,
+              (select string_agg(status, ' ') from scheduled_pushes) as rest_pushes`,
     );
     const before = await written();
+    expect(before.rest_pushes).toBe('pending');
 
     for (const [label, as] of WITHOUT_USER_ID) {
       for (const [name, call] of CALLS_FOR_THE_CALLER) {
@@ -225,6 +237,11 @@ describe('a caller who is not the coach of the athlete', () => {
     // gets the set, and whoever is signed in gets the device.
     expect(await asUser(ids.studentA, (athlete) => athlete.value(...CALLS_FOR_THE_CALLER[0][1]()))).toBe(1);
     expect(await asUser(otherCoach, (olga) => olga.value(...CALLS_FOR_THE_CALLER[1][1]()))).toMatchObject({ outcome: 'created' });
+    // …whoever rests gets the push of that rest, on the device they have just
+    // registered, and takes back the one they had waiting — their own only.
+    expect(await asUser(otherCoach, (olga) => olga.value(...CALLS_FOR_THE_CALLER[2][1]()))).toMatchObject({ mode: 'edge' });
+    expect(await asUser(otherCoach, (olga) => olga.value(...CALLS_FOR_THE_CALLER[3][1]()))).toEqual({ canceled: false });
+    expect(await asUser(ids.studentA, (athlete) => athlete.value(...CALLS_FOR_THE_CALLER[3][1]()))).toEqual({ canceled: true });
   }));
 
   it('another coach is refused even when the substitute is an exercise of her own library', () => scenario(async (q) => {
@@ -455,13 +472,20 @@ describe('in the catalog', () => {
     }
   });
 
-  // The two of migration 13 read auth.uid() once, into v_uid, and judge by it.
+  // The two of migration 13 and the two of migration 16 read auth.uid() once,
+  // into v_uid, and judge by it.
   const FOR_THE_CALLER = {
+    cancel_rest_push: 'IF v_uid IS NULL THEN',
     claim_push_subscription: 'IF v_uid IS NULL THEN',
     ensure_set_logs: 'IF v_uid IS NULL OR public.student_profile_for_session(p_session_id) IS DISTINCT FROM v_uid THEN',
+    schedule_rest_push: 'IF v_uid IS NULL THEN',
+  };
+  // SECURITY DEFINER, and for no client: the name, and why nobody can call it.
+  const NOT_FOR_A_CLIENT = {
+    dispatch_due_rest_pushes: 'what the pg_cron job sl-rest-push runs (migration 16): it takes no argument and acts on no caller\'s word',
   };
 
-  it('each of the two that act for the account that calls refuses a caller without a user id first, with a NULL-safe line', async () => {
+  it('each of those that act for the account that calls refuses a caller without a user id first, with a NULL-safe line', async () => {
     const rows = await asAdmin((q) => q.rows(
       `select p.proname as name, p.prosrc as body
          from pg_proc p
@@ -472,7 +496,7 @@ describe('in the catalog', () => {
     expect(rows.map((row) => row.name)).toEqual(Object.keys(FOR_THE_CALLER));
     for (const { name, body } of rows) {
       const code = body.replace(/--.*$/gm, '');
-      expect(code, name).toContain('v_uid     uuid := auth.uid();');
+      expect(code, name).toMatch(/\bv_uid +uuid := auth\.uid\(\);/);
       // The first IF of the body: nothing is read or written before it.
       expect(code.slice(code.indexOf('BEGIN')).match(/\bIF\b.*\bTHEN\b/)?.[0], name).toBe(FOR_THE_CALLER[name]);
       expect(code, name).not.toMatch(/(?:(?<!:)=|<>)\s*auth\.uid\(\)|auth\.uid\(\)\s*(?:=|<>|!=)/);
@@ -481,11 +505,37 @@ describe('in the catalog', () => {
     }
   });
 
+  // One that runs as its owner and is for a job, not for a client: nobody the
+  // API serves as a user may execute it, and it reads nothing a caller sends.
+  it('the one that is for no client is closed to every account, and takes no argument', async () => {
+    const rows = await asAdmin((q) => q.rows(
+      `select p.proname::text as name, p.pronargs as arguments,
+              has_function_privilege('authenticated', p.oid, 'EXECUTE') as a_signed_in_user,
+              has_function_privilege('anon', p.oid, 'EXECUTE') as nobody,
+              has_function_privilege('service_role', p.oid, 'EXECUTE') as the_service_role
+         from pg_proc p
+        where p.pronamespace = 'public'::regnamespace and p.proname = any($1)
+        order by 1`,
+      [Object.keys(NOT_FOR_A_CLIENT)],
+    ));
+    expect(rows).toEqual(Object.keys(NOT_FOR_A_CLIENT).map((name) => ({
+      name, arguments: 0, a_signed_in_user: false, nobody: false, the_service_role: true,
+    })));
+    for (const [name, why] of Object.entries(NOT_FOR_A_CLIENT)) {
+      expect(why, name).toMatch(/\S{3,}/);
+      for (const [label, as] of [...WITH_ANOTHER_USER_ID, ['a token of role authenticated that names no user', WITHOUT_USER_ID[1][1]], ['anon', asAnon]]) {
+        const tried = await attempt(() => as((caller) => caller.value(`select public.${name}()`)));
+        expect(outcome(tried), `${name}, called by ${label}`).toBe(`permission denied for function ${name}`);
+      }
+    }
+  });
+
   // A SECURITY DEFINER function that writes and that a client can call by name
-  // is a gate of its own. This list is the five, and the two that act for the
-  // account that calls; a function that joins it must be called here as every
-  // caller above before it ships.
-  it('the SECURITY DEFINER functions a client can call to write are these five, and the two that act for the account that calls', async () => {
+  // is a gate of its own. This list is the five, and the ones that act for
+  // the account that calls; a function that joins it must be called here as
+  // every caller above before it ships. One that no client can call is listed
+  // with the reason, and shown to be closed.
+  it('the SECURITY DEFINER functions a client can call to write are these five, and the four that act for the account that calls — and one more is for a job', async () => {
     const callable = await asAdmin((q) => q.rows(
       `select p.proname as name
          from pg_proc p
@@ -500,7 +550,7 @@ describe('in the catalog', () => {
       'a new SECURITY DEFINER function that is neither a trigger nor STABLE: it bypasses RLS, so it must refuse '
       + 'a caller without a user id itself (auth.uid() IS NULL first, then IS DISTINCT FROM) — add it to CALLS '
       + 'in supabase/tests/rpc-auth.test.js, or test here why nobody can call it',
-    ).toEqual([...FIVE, ...Object.keys(FOR_THE_CALLER)].sort());
+    ).toEqual([...FIVE, ...Object.keys(FOR_THE_CALLER), ...Object.keys(NOT_FOR_A_CLIENT)].sort());
   });
 });
 
