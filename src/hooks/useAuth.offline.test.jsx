@@ -26,6 +26,7 @@ vi.mock('../lib/queryClient', () => ({ replayQueuedWrites: vi.fn() }));
 
 import { AuthProvider, useAuth, ROLE_RETRY_MS } from './useAuth';
 import { supabase } from '../lib/supabase';
+import { replayQueuedWrites } from '../lib/queryClient';
 import { PROFILE_CACHE_KEY } from '../lib/profileCache';
 
 const A = { id: 'u-a', email: 'a@example.test' };
@@ -449,6 +450,156 @@ describe('signing out of the device', () => {
     expect(firstRender(next)).toMatchObject({ user: null, role: null });
     await waitFor(() => expect(next.now().isLoading).toBe(false));
     expect(next.now().user).toBeNull();
+  });
+
+  // auth-js attempts the refresh of an expired token for half a minute. One
+  // that was on its way when the device signed out still stores the session
+  // it comes back with, and says TOKEN_REFRESHED.
+  it('a token refresh that was on its way does not sign the device back in', async () => {
+    const app = await openAsA();
+    deviceIs(false);
+    await signOut(app);
+    replayQueuedWrites.mockClear();
+
+    deviceIs(true);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessionOf(A)));
+    await emit('TOKEN_REFRESHED', sessionOf(A));
+
+    expect(app.now()).toMatchObject({ user: null, role: null });
+    expect(sessionOnDevice()).toBeNull();
+    expect(replayQueuedWrites).not.toHaveBeenCalled();
+  });
+
+  it('neither does the answer of a getSession() that was still out', async () => {
+    deviceStores({ user: A, profile: ROW_A });
+    let answer;
+    supabase.auth.getSession.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    const app = openApp();
+    deviceIs(false);
+    await signOut(app);
+
+    await act(async () => answer(sessionAnswer(A)));
+
+    expect(app.now()).toMatchObject({ user: null, role: null, signOuts: 1 });
+  });
+
+  // When the attempt was the one the listener's first event waited for,
+  // auth-js hands the session it came back with to that event as well.
+  it('nor the first event of the listener, when it carries that session', async () => {
+    const app = await openAsA();
+    deviceIs(false);
+    await signOut(app);
+
+    deviceIs(true);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessionOf(A)));
+    await emit('TOKEN_REFRESHED', sessionOf(A));
+    await emit('INITIAL_SESSION', sessionOf(A));
+
+    expect(app.now()).toMatchObject({ user: null, role: null, signOuts: 1 });
+    expect(sessionOnDevice()).toBeNull();
+  });
+
+  it('nor does a sign-in that failed let it through', async () => {
+    supabase.auth.signInWithPassword.mockResolvedValue({ error: { message: 'Invalid login credentials' } });
+    const app = await openAsA();
+    deviceIs(false);
+    await signOut(app);
+    deviceIs(true);
+    replayQueuedWrites.mockClear();
+
+    let answer;
+    await act(async () => {
+      answer = await app.now().signIn('a@example.test', 'not-the-password');
+    });
+    expect(answer.error).toBeTruthy();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessionOf(A)));
+    await emit('TOKEN_REFRESHED', sessionOf(A));
+
+    expect(app.now()).toMatchObject({ user: null, role: null, signOuts: 1 });
+    expect(sessionOnDevice()).toBeNull();
+    expect(replayQueuedWrites).not.toHaveBeenCalled();
+  });
+
+  it('a sign-in does: here, or in another tab of the same browser', async () => {
+    supabase.auth.signInWithPassword.mockResolvedValue({ error: null });
+    const app = await openAsA();
+    deviceIs(false);
+    await signOut(app);
+    deviceIs(true);
+
+    // Another tab signs in: this one hears SIGNED_IN.
+    await emit('SIGNED_IN', sessionOf(B));
+    expect(app.now().user).toEqual(B);
+    // From then on its refreshes are heard like any other.
+    await emit('TOKEN_REFRESHED', sessionOf(B));
+    expect(app.now().user).toEqual(B);
+
+    deviceIs(false);
+    await signOut(app);
+    deviceIs(true);
+    // Here: the form calls signIn, auth-js stores the session and says so.
+    await act(async () => {
+      await app.now().signIn('a@example.test', 'pw');
+    });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessionOf(A)));
+    await emit('SIGNED_IN', sessionOf(A));
+
+    expect(app.now().user).toEqual(A);
+    expect(sessionOnDevice()).not.toBeNull();
+  });
+
+  // The attempt comes back after somebody else has signed in: auth-js has
+  // stored the session of the account that left over theirs.
+  describe('the refresh of the account that left lands after another one signed in', () => {
+    // A signed out without a network, B signed in when it was back, and then
+    // the refresh of A's token got its answer.
+    async function refreshOfALandsOnB(app) {
+      deviceIs(false);
+      await signOut(app);
+      deviceIs(true);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sessionOf(B)));
+      await emit('SIGNED_IN', sessionOf(B));
+      expect(app.now().user).toEqual(B);
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sessionOf(A)));
+      await emit('TOKEN_REFRESHED', sessionOf(A));
+    }
+
+    it('they are not handed that account: nobody is signed in, the device holds no session, and it was not a sign-out of theirs', async () => {
+      const app = await openAsA();
+
+      await refreshOfALandsOnB(app);
+
+      expect(app.now()).toMatchObject({ user: null, profile: null, role: null, isLoading: false, signOuts: 1 });
+      expect(sessionOnDevice()).toBeNull();
+      expect(localStorage.getItem(PROFILE_CACHE_KEY)).toBeNull();
+    });
+
+    it('and what that attempt says next is not heard either: the first event of the listener, the answer of getSession()', async () => {
+      deviceStores({ user: A, profile: ROW_A });
+      let answer;
+      supabase.auth.getSession.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+      const app = openApp();
+
+      await refreshOfALandsOnB(app);
+      await emit('INITIAL_SESSION', sessionOf(A));
+      await act(async () => answer(sessionAnswer(A)));
+
+      expect(app.now()).toMatchObject({ user: null, role: null, signOuts: 1 });
+      expect(sessionOnDevice()).toBeNull();
+    });
+
+    it('they sign in again, and stay', async () => {
+      const app = await openAsA();
+      await refreshOfALandsOnB(app);
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sessionOf(B)));
+      await emit('SIGNED_IN', sessionOf(B));
+      await emit('TOKEN_REFRESHED', sessionOf(B));
+
+      expect(app.now()).toMatchObject({ user: B, signOuts: 1 });
+      expect(sessionOnDevice()).not.toBeNull();
+    });
   });
 
   it('a session that goes away by itself is not a sign-out', async () => {

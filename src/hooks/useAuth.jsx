@@ -78,6 +78,9 @@ export function AuthProvider({ children }) {
   const sessionKnown = useRef(false);
   // What is asked before a sign-out goes ahead — see `guardSignOut`.
   const signOutGuard = useRef(null);
+  // True from a sign-out made here until somebody has signed in — which the
+  // listener hears, and nothing else can say. See there.
+  const signedOutHere = useRef(false);
 
   const ensureProfile = useCallback((userId) => {
     const last = profileRead.current;
@@ -171,6 +174,9 @@ export function AuthProvider({ children }) {
 
     supabase.auth.getSession().then(
       ({ data, error }) => {
+        // An answer that took so long that the user signed out meanwhile is
+        // about a session that is no longer this device's.
+        if (signedOutHere.current) return;
         const session = data?.session ?? null;
         if (session) {
           sessionKnown.current = true;
@@ -183,11 +189,46 @@ export function AuthProvider({ children }) {
         }
       },
       // A lock that timed out, a storage that refused: no answer either.
-      () => asStored(),
+      () => {
+        if (!signedOutHere.current) asStored();
+      },
     );
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
+        // After a sign-out, only a sign-in signs this device in again — the
+        // SIGNED_IN of one that succeeded, here or in another tab. auth-js can
+        // say otherwise. It attempts the refresh of an expired token for half
+        // a minute at a time, again and again for as long as the device has
+        // no network, and an attempt that was on its way when the device
+        // forgot its session (`signOut` below) still stores the session it
+        // comes back with. It says TOKEN_REFRESHED then, and INITIAL_SESSION
+        // as well when the attempt was the one this listener's first event
+        // was waiting for. Nobody asked for that session: it is removed
+        // again, and the event is not heard.
+        //
+        // The same attempt can come back after somebody else has signed in,
+        // and auth-js has then put the session of the account that left in
+        // the place of theirs. A refresh about another account than the one
+        // that is signed in is that and nothing else: a change of account is
+        // a SIGNED_IN first. Their session is gone, so they are signed out,
+        // and the device is where the sign-out left it — whatever else that
+        // attempt goes on to say (the answer of `getSession()` above, the
+        // INITIAL_SESSION) is not heard either.
+        if (session) {
+          if (event === 'TOKEN_REFRESHED' && who.current && session.user?.id !== who.current.id) {
+            signedOutHere.current = true;
+            nobody();
+          }
+          if (signedOutHere.current) {
+            if (event !== 'SIGNED_IN') {
+              forgetStoredSession();
+              return;
+            }
+            signedOutHere.current = false;
+          }
+        }
+
         // A session APPEARS: someone signs in where nobody was, or a token is
         // refreshed — which is also how a refresh that kept failing on a bad
         // network finally ends. The writes queued on this device were held
@@ -240,6 +281,10 @@ export function AuthProvider({ children }) {
     };
   }, [ensureProfile, signedInAs, asStored, nobody]);
 
+  // Nothing else to do: a sign-in that succeeds is announced by auth-js
+  // (SIGNED_IN, before this call returns) and the listener takes it from
+  // there. One that fails must leave no trace — an attempt with a wrong
+  // password is not a reason to hear the next token refresh.
   const signIn = useCallback(async (email, password) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error };
@@ -281,6 +326,7 @@ export function AuthProvider({ children }) {
       }
     }
     if (!serverTold) forgetStoredSession();
+    signedOutHere.current = true;
     nobody();
     setSignOuts((count) => count + 1);
   }, [nobody]);
