@@ -1,4 +1,4 @@
-import { BUILD_ID } from './buildInfo';
+import { BUILD_ID, fetchVersion, isBelowMinimum } from './buildInfo';
 import { SKIP_WAITING } from './swHandlers';
 
 // How a new version of the app reaches a page that is already open.
@@ -34,6 +34,16 @@ import { SKIP_WAITING } from './swHandlers';
 //
 // The state a component reads is `{ pending, applying, offered, failed }`;
 // `pending` stays true for the whole of an attempt.
+//
+// A build that must not go on running. Every question to the server also
+// reads version.json (lib/buildInfo): the build that is published and the
+// oldest one still allowed, `minBuild`. A page below it is `required` to
+// update, which changes two things and only those. It asks for the new worker
+// at every chance until it has one — the gap between two questions is for a
+// question that can wait. And its update goes in AS SOON AS nothing would be
+// lost: the question of promise 2 is put again every REQUIRED_RETRY_MS, where
+// any other update waits for the next moment the page names. The offer, "Later"
+// and the guard against a reload loop are the same.
 
 /** A tab that stays in front asks once an hour. */
 export const CHECK_EVERY_MS = 60 * 60 * 1000;
@@ -41,6 +51,12 @@ export const CHECK_EVERY_MS = 60 * 60 * 1000;
 export const CHECK_MIN_GAP_MS = 15 * 60 * 1000;
 /** An attempt whose worker is not `activated` after this long is over, and nothing is reloaded. */
 export const APPLY_TIMEOUT_MS = 10 * 1000;
+/**
+ * A page below the oldest build still allowed asks itself this often whether
+ * its update can go in now: the end of a rest or a message that was sent is
+ * then followed by the update within seconds, not at the next page.
+ */
+export const REQUIRED_RETRY_MS = 5 * 1000;
 /**
  * sessionStorage: the build that last reloaded ITSELF for an update. A page
  * that finds its own id there is the same build again — the reload brought
@@ -51,7 +67,8 @@ export const AUTO_APPLIED_KEY = 'sl_update_auto_applied';
 
 const IDLE = Object.freeze({ pending: false, applying: false, offered: false, failed: false });
 
-function sessionStore() {
+/** sessionStorage as a `storage` argument: reads and writes that never throw. */
+export function sessionStore() {
   return {
     get(key) {
       try {
@@ -80,6 +97,7 @@ export function createAppUpdater({
   reload = () => window.location.reload(),
   storage = sessionStore(),
   buildId = BUILD_ID,
+  readVersion = fetchVersion,
 } = {}) {
   let state = IDLE;
   const listeners = new Set();
@@ -96,9 +114,11 @@ export function createAppUpdater({
   let failed = false;
   let reloading = false;
   let isBusy = null; // the question of promise 2, while someone is there to answer it
+  let required = false; // version.json says this build is below the oldest one still allowed
   let lastCheckAt = 0;
   let checkTimer = null;
   let applyTimer = null;
+  let requiredTimer = null;
   const followed = new WeakSet();
 
   // An attempt is an update too, from the message to the reload: the worker
@@ -211,15 +231,47 @@ export function createAppUpdater({
   /**
    * A moment at which the update may be applied without anyone asking: it
    * became available, the app came back to the foreground, the page changed.
-   * Safe → applied. Not safe → offered.
+   * Safe → applied. Not safe → offered — unless `offer` is false, which is the
+   * question put again between two moments (`insist`): it brings no card back.
    */
-  function consider() {
+  function consider({ offer = true } = {}) {
     if (!pending() || applying || reloading) return;
     if (!isBusy) return; // nobody to ask (signed out): the update waits for a page that can tell
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
     if (!isBusy() && apply({ auto: true })) return;
+    if (!offer) return;
     offered = true;
     publish();
+  }
+
+  // A page below the minimum does not wait for a moment: it asks again, and
+  // the update goes in the first time nothing would be lost. An offer that was
+  // answered "Later" stays away until the next moment all the same.
+  const insist = () => {
+    if (required) consider({ offer: false });
+  };
+
+  /**
+   * Read what the server publishes and learn whether this build is still
+   * allowed to run. No answer — offline, a file that is not there — changes
+   * nothing: what was known stays known.
+   */
+  async function readMinimum() {
+    let version = null;
+    try {
+      version = await readVersion();
+    } catch {
+      version = null;
+    }
+    if (!started || !version) return;
+    const below = isBelowMinimum(buildId, version);
+    if (below === required) return;
+    required = below;
+    clearInterval(requiredTimer);
+    requiredTimer = null;
+    if (!required) return;
+    requiredTimer = setInterval(insist, REQUIRED_RETRY_MS);
+    consider(); // learning it is a moment: an update that is already there goes in now, or is offered
   }
 
   // Re-read the registration, publish, and treat "an update just appeared" as a moment.
@@ -267,13 +319,20 @@ export function createAppUpdater({
     settle(() => { stale = true; });
   }
 
-  /** Ask the server for a new worker. Quiet when offline or when asked a moment ago. */
+  /**
+   * Ask the server for a new worker, and for the oldest build it still allows.
+   * Quiet when offline or when asked a moment ago — except for a page that
+   * knows it is below the minimum and has no update yet: that one asks at
+   * every chance.
+   */
   async function check() {
     if (!registration) return;
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
     const now = Date.now();
-    if (now - lastCheckAt < CHECK_MIN_GAP_MS) return;
+    const mustAsk = required && !pending();
+    if (!mustAsk && now - lastCheckAt < CHECK_MIN_GAP_MS) return;
     lastCheckAt = now;
+    readMinimum();
     try {
       await registration.update();
     } catch {
@@ -304,13 +363,18 @@ export function createAppUpdater({
     try {
       registration = await container.register(swUrl, { scope });
     } catch {
-      // No worker (private window, blocked storage): the app runs from the
-      // network and there is nothing to update.
+      registration = null;
+    }
+    if (!registration) {
+      // No worker (private window, blocked storage — or a browser driven by a
+      // tool that answers the registration with nothing): the app runs from
+      // the network and there is nothing to update.
       container.removeEventListener('controllerchange', onControllerChange);
       started = false;
       return;
     }
     lastCheckAt = Date.now(); // registering asked the server already
+    readMinimum(); // …for the worker; the minimum is a file of its own
     registration.addEventListener('updatefound', onUpdateFound);
     follow(registration.installing);
     follow(registration.waiting);
@@ -324,6 +388,9 @@ export function createAppUpdater({
     if (!started) return;
     started = false;
     clearInterval(checkTimer);
+    clearInterval(requiredTimer);
+    requiredTimer = null;
+    required = false; // learnt again from the server by whoever starts it again
     clearTimeout(applyTimer);
     container.removeEventListener('controllerchange', onControllerChange);
     if (registration) registration.removeEventListener('updatefound', onUpdateFound);
@@ -353,6 +420,12 @@ export function createAppUpdater({
         if (isBusy === probe) isBusy = null;
       };
     },
+    /**
+     * The answer to the question of promise 2, for whoever else is about to
+     * reload the page (lib/chunkRecovery): `true` — a reload would lose
+     * something right now —, `false`, or `null` while nobody is there to answer.
+     */
+    busy: () => (isBusy ? Boolean(isBusy()) : null),
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

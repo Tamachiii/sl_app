@@ -54,6 +54,13 @@ jobs:
     # in `needs` keeps this one from starting.
     needs: [test, migrations]
     runs-on: ubuntu-latest
+    # This job reads what is published, adds its build to it and publishes the
+    # result. Two of them at once would each publish a tree without the
+    # other's build, so they take turns, and the one that is running is never
+    # cut short by the one that waits.
+    concurrency:
+      group: publish-site
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
@@ -71,12 +78,57 @@ jobs:
           # unset the Profile toggle renders the "not supported" copy
           # gracefully — i.e. the build still succeeds.
           VITE_VAPID_PUBLIC_KEY: ${{ secrets.VITE_VAPID_PUBLIC_KEY }}
+          # The oldest build still allowed to run, written into version.json
+          # (src/lib/buildInfo.js): an open app below it updates as soon as
+          # nothing would be lost, instead of offering the update. Normally
+          # absent. A repository VARIABLE: its value can be read back in the
+          # settings. A value that is not the time of a build (14 digits), or
+          # that is later than this build, fails the build.
+          MIN_CLIENT_BUILD: ${{ vars.MIN_CLIENT_BUILD }}
+      # The build goes out ON TOP of what is published, not instead of it. A
+      # page that was opened before this deploy still asks for the files of
+      # ITS build when a screen is opened for the first time; replaced by
+      # dist/ alone, they were gone and the screen failed (review finding
+      # P65). So: a copy of the published branch, then the script, which
+      # copies dist/ over it, keeps the files of the two builds before this
+      # one and deletes the ones only older builds had. That folder is what
+      # the action publishes. docs/runbook/40-deploy.md says what the script
+      # refuses and what the emergency publish does to all this.
+      #
+      # A branch that does not exist is a first deploy. A branch that could
+      # not be read stops the job: published as if nothing were there, this
+      # build would take every other build's files away.
+      - name: What is published now
+        run: |
+          status=0
+          git ls-remote --exit-code --heads origin gh-pages >/dev/null || status=$?
+          mkdir published
+          case "$status" in
+            0)
+              git fetch --no-tags --depth=1 origin gh-pages
+              git archive --format=tar --output="$RUNNER_TEMP/published.tar" FETCH_HEAD
+              tar -xf "$RUNNER_TEMP/published.tar" -C published
+              ;;
+            2)
+              echo "Nothing is published yet: this build is the first."
+              ;;
+            *)
+              echo "::error title=Deploy stopped::The published branch could not be read (git ls-remote ended with $status)."
+              exit 1
+              ;;
+          esac
+      - name: This build joins the builds that are published
+        run: node scripts/prune-gh-pages.mjs --site published --dist dist
       # Third-party action in a job that holds a write token: pinned to a
       # commit, because a tag can be moved to other code. To update, read the
       # new release's commit with
       #   git ls-remote https://github.com/peaceiris/actions-gh-pages 'refs/tags/v4*'
       # (the `^{}` line of an annotated tag) and keep the version comment.
+      #
+      # No `keep_files`: the action replaces the branch with the folder it is
+      # given, and that folder already holds what stays. With `keep_files`
+      # nothing the script deleted would ever leave the branch.
       - uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./dist
+          publish_dir: ./published

@@ -3,9 +3,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Link } from 'react-router-dom';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
-import UpdatePrompt, { QUEUE_ON_DISK_MS, WRITES_WAIT_MS } from './UpdatePrompt';
+import UpdatePrompt from './UpdatePrompt';
 import { createAppUpdater } from '../../lib/appUpdate';
 import { FIELD_LEFT_MS } from '../../lib/fieldWatch';
+import { QUEUE_ON_DISK_MS, WRITES_WAIT_MS } from '../../lib/pendingWrites';
 import { SKIP_WAITING } from '../../lib/swHandlers';
 import { startRestTimer, resetRestTimer } from '../../hooks/useRestTimer';
 import { fakeBrowser, memoryStorage } from '../../test/fakeServiceWorker';
@@ -135,6 +136,7 @@ beforeEach(() => {
     reload,
     storage: memoryStorage(),
     buildId: 'build-1',
+    readVersion: async () => null, // no version.json: the build is an ordinary one
   });
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },

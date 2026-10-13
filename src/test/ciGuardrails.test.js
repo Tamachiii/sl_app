@@ -1,10 +1,15 @@
 // @vitest-environment node
-import { describe, it, expect } from 'vitest';
+import { afterAll, describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import {
+  existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { OVERRIDE, PAGE, SECRET } from '../../scripts/lib/ledger-gate.mjs';
+import { ASSETS_DIR, PAGE as SITE_PAGE } from '../../scripts/lib/published-builds.mjs';
+import { MIN_BUILD_ENV, VERSION_FILE } from '../lib/buildInfo.js';
 
 // Static guards over the CI definition itself. A workflow only runs after a
 // push, so nothing local notices when a gate is loosened or dropped — the
@@ -44,6 +49,21 @@ function needsOf(jobLines) {
   const line = jobLines.map((l) => l.match(/^ {4}needs:\s+(.+?)\s*$/)).find(Boolean);
   if (!line) return [];
   return line[1].replace(/^\[|\]$/g, '').split(',').map((name) => name.trim()).filter(Boolean);
+}
+
+// The body of a `run: |` block of a workflow, by the name of its step.
+function scriptOf(yaml, name) {
+  const lines = yaml.split('\n');
+  const at = lines.findIndex((l) => l.trim() === `- name: ${name}`);
+  if (at === -1) return null;
+  const start = lines.findIndex((l, i) => i > at && /^\s+run: \|$/.test(l));
+  const indent = lines[start + 1].match(/^\s*/)[0].length;
+  const body = [];
+  for (const line of lines.slice(start + 1)) {
+    if (line.trim() !== '' && line.match(/^\s*/)[0].length < indent) break;
+    body.push(line.slice(indent));
+  }
+  return body.join('\n');
 }
 
 // Every `uses:` of a workflow: the reference and the trailing comment, if any.
@@ -110,9 +130,26 @@ describe('deploy: the database first, the app second', () => {
     for (const file of WORKFLOWS.filter((name) => name !== 'deploy.yml')) {
       expect(live(file).filter((l) => PUBLISHES.test(l)), `${file} publishes`).toEqual([]);
     }
-    // In deploy.yml itself: the one `uses:` line of the job that waits.
+    // In deploy.yml itself the branch is named by the job that waits, and by
+    // no other.
     expect(live('deploy.yml').filter((l) => PUBLISHES.test(l))).toEqual(deploy.filter((l) => PUBLISHES.test(l)));
-    expect(deploy.filter((l) => PUBLISHES.test(l))).toHaveLength(1);
+    // That job WRITES to it in one place, the `uses:` line of the action…
+    const WRITES = /actions-gh-pages|\bnpm run deploy\b|\bgit\b.*\bpush\b|\bgh-pages\s+-/;
+    const writes = deploy.filter((l) => WRITES.test(l));
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toMatch(/^\s+- uses: peaceiris\/actions-gh-pages@/);
+    // …and READS it, so that the builds before this one stay published: these
+    // lines and no other. A new way of naming the branch is added here by
+    // someone who looked at it.
+    expect(deploy.filter((l) => PUBLISHES.test(l) && !WRITES.test(l)).map((l) => l.trim())).toEqual([
+      'git ls-remote --exit-code --heads origin gh-pages >/dev/null || status=$?',
+      'git fetch --no-tags --depth=1 origin gh-pages',
+      'run: node scripts/prune-gh-pages.mjs --site published --dist dist',
+    ]);
+    // No workflow pushes with git itself, to any branch.
+    for (const file of WORKFLOWS) {
+      expect(live(file).filter((l) => /\bgit\b.*\bpush\b/.test(l)), `${file} pushes`).toEqual([]);
+    }
   });
 
   it('cannot be skipped, and a red check cannot be stepped over', () => {
@@ -164,6 +201,186 @@ describe('deploy: the database first, the app second', () => {
     }
     // The comment above the job sends there.
     expect(yaml).toContain(PAGE);
+  });
+});
+
+// The second half of review finding P65. A page that was opened before a
+// deploy asks for the files of ITS build when a screen is opened for the first
+// time, and the deploy used to replace the published tree with the new build
+// alone. The `deploy` job now publishes the new build on top of what is
+// published and keeps the files of the two builds before it. What the script
+// keeps and deletes is held in scripts/prune-gh-pages.test.mjs; what is held
+// here is that the workflow hands it the published tree, publishes what it
+// made, and cannot publish around it.
+describe('deploy: the builds before this one stay published', () => {
+  const yaml = read('.github/workflows/deploy.yml');
+  const deploy = job(yaml, 'deploy');
+  const PRUNE = 'node scripts/prune-gh-pages.mjs --site published --dist dist';
+  const READ_STEP = 'What is published now';
+
+  it('builds, reads what is published, adds the build to it, and publishes that folder', () => {
+    const at = (re) => deploy.findIndex((l) => re.test(l));
+    const order = [
+      at(/^\s+- run: npm run build$/),
+      at(new RegExp(`^\\s+- name: ${READ_STEP}$`)),
+      at(/^\s+run: node scripts\/prune-gh-pages\.mjs /),
+      at(/^\s+- uses: peaceiris\/actions-gh-pages@/),
+    ];
+    expect(order.every((i) => i !== -1)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    // The whole step: nothing behind the command that could swallow its exit
+    // code. A tree the script refused is not published.
+    expect(runs(deploy).filter((step) => step.includes('prune-gh-pages'))).toEqual([PRUNE]);
+    expect(existsSync(resolve(root, 'scripts/prune-gh-pages.mjs'))).toBe(true);
+    // The folder the script wrote is the one that goes out — not dist/, which
+    // holds this build alone.
+    expect(deploy.filter((l) => /^\s+publish_dir:/.test(l)).map((l) => l.trim())).toEqual(['publish_dir: ./published']);
+  });
+
+  it('lets the action replace the branch with that folder: with keep_files nothing would ever be deleted', () => {
+    expect(deploy.filter((l) => /keep_files|force_orphan|destination_dir/.test(l))).toEqual([]);
+  });
+
+  it('runs one publish at a time, and never cuts short the one that is running', () => {
+    // Read, add, write back: two at once would each publish without the
+    // other's build.
+    const header = deploy.slice(0, deploy.findIndex((l) => /^\s+steps:$/.test(l))).join('\n');
+    expect(header).toMatch(/^ {4}concurrency:\n {6}group: \S+\n {6}cancel-in-progress: false$/m);
+  });
+
+  it('sends to the page of the deploy when the script says no', () => {
+    // One page for both refusals of a deploy, and the comment above the steps
+    // names it.
+    expect(SITE_PAGE).toBe(PAGE);
+    expect(yaml.slice(yaml.indexOf('\n  deploy:\n'))).toContain(SITE_PAGE);
+  });
+
+  // The step is run here as the runner runs it (`bash -e`), against a real
+  // repository: a branch that could not be read must not look like a site
+  // nothing was published to — the build would then go out alone, and take
+  // the files of every other build away.
+  describe(`the step "${READ_STEP}"`, () => {
+    const step = scriptOf(yaml, READ_STEP);
+    const tmp = mkdtempSync(join(tmpdir(), 'sl-published-'));
+    afterAll(() => rmSync(tmp, { recursive: true, force: true }));
+
+    const env = {
+      PATH: process.env.PATH,
+      HOME: tmp,
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_AUTHOR_NAME: 'test',
+      GIT_AUTHOR_EMAIL: 'test@example.com',
+      GIT_COMMITTER_NAME: 'test',
+      GIT_COMMITTER_EMAIL: 'test@example.com',
+    };
+    const git = (cwd, ...args) => {
+      const done = spawnSync('git', args, { cwd, env, encoding: 'utf8' });
+      if (done.status !== 0) throw new Error(`git ${args.join(' ')}: ${done.stderr}`);
+      return done.stdout;
+    };
+
+    /** A repository with one commit on `branch`, holding `files`. */
+    function remote(branch, files) {
+      const dir = mkdtempSync(join(tmp, 'origin-'));
+      git(dir, 'init', '-q', '-b', branch);
+      for (const [name, text] of Object.entries(files)) {
+        mkdirSync(dirname(join(dir, name)), { recursive: true });
+        writeFileSync(join(dir, name), text);
+      }
+      git(dir, 'add', '-A');
+      git(dir, 'commit', '-q', '-m', 'published');
+      return `file://${dir}`;
+    }
+
+    /** The checkout of the job, with `origin` at `url`; then the step. */
+    function runStep(url) {
+      const work = mkdtempSync(join(tmp, 'work-'));
+      git(work, 'init', '-q');
+      git(work, 'remote', 'add', 'origin', url);
+      const done = spawnSync('bash', ['--noprofile', '--norc', '-e', '-c', step], {
+        cwd: work,
+        env: { ...env, RUNNER_TEMP: mkdtempSync(join(tmp, 'runner-')) },
+        encoding: 'utf8',
+      });
+      return { ...done, published: join(work, 'published') };
+    }
+
+    it('is a step of the job, with a script', () => {
+      expect(step).toBeTruthy();
+      expect(deploy.join('\n')).toContain(`- name: ${READ_STEP}`);
+    });
+
+    it('copies the published branch into the folder, and no repository with it', () => {
+      const done = runStep(remote('gh-pages', {
+        'index.html': '<!doctype html>',
+        '.nojekyll': '',
+        'assets/index-a1.js': 'a1',
+        'builds/20261012090000.json': '{}',
+      }));
+
+      expect(done.status, done.stderr).toBe(0);
+      expect(readdirSync(done.published).sort()).toEqual(['.nojekyll', 'assets', 'builds', 'index.html']);
+      expect(readFileSync(join(done.published, 'assets/index-a1.js'), 'utf8')).toBe('a1');
+      // A `.git` in the folder the action publishes would be its problem, or the branch's.
+      expect(existsSync(join(done.published, '.git'))).toBe(false);
+    });
+
+    it('hands over an empty folder when nothing was ever published', () => {
+      const done = runStep(remote('main', { 'README.md': 'x' }));
+
+      expect(done.status, done.stderr).toBe(0);
+      expect(readdirSync(done.published)).toEqual([]);
+      expect(done.stdout).toContain('Nothing is published yet');
+    });
+
+    it('stops the job when the branch could not be read', () => {
+      const done = runStep(`file://${join(tmp, 'no-such-repository')}`);
+
+      expect(done.status).toBe(1);
+      expect(done.stdout).toMatch(/^::error title=Deploy stopped::The published branch could not be read/m);
+    });
+  });
+});
+
+// version.json (src/lib/buildInfo.js): the build that is published, and the
+// oldest one still allowed to run. The page reads it to learn that it must
+// update, so it has to be the server's answer — and its minimum is the
+// owner's to set, without a commit.
+describe('deploy: version.json says which build is the oldest allowed', () => {
+  const yaml = read('.github/workflows/deploy.yml');
+  const deploy = job(yaml, 'deploy');
+  const config = read('vite.config.js');
+
+  it('gives the build the minimum under the name it reads, from a variable', () => {
+    const build = deploy.findIndex((l) => /^\s+- run: npm run build$/.test(l));
+    const next = deploy.findIndex((l, i) => i > build && /^\s+- /.test(l));
+    const step = deploy.slice(build, next).join('\n');
+    expect(step).toContain(`          ${MIN_BUILD_ENV}: \${{ vars.${MIN_BUILD_ENV} }}`);
+    // A variable, not a secret: its value can be read back in the settings.
+    expect(yaml).not.toContain(`secrets.${MIN_BUILD_ENV}`);
+    expect(yaml.split('\n').filter((l) => !isComment(l) && l.includes(MIN_BUILD_ENV))).toHaveLength(1);
+  });
+
+  it('is written by the build, by the plugin that writes the id into index.html', () => {
+    expect(config).toMatch(/^\s+buildInfoPlugin\(\{ env: process\.env \}\),$/m);
+    expect(config.match(/buildInfoPlugin\(/g)).toHaveLength(1);
+  });
+
+  it('is never in the precache of the service worker', () => {
+    // A copy in the precache would answer with what THIS worker was built
+    // with — the one thing the page already knows.
+    const patterns = config.match(/^\s+globPatterns: \[(.+)\],$/m);
+    expect(patterns).not.toBeNull();
+    expect(patterns[1]).toBe("'**/*.{js,css,html,svg,woff2}'");
+    expect(VERSION_FILE).toMatch(/\.json$/);
+    expect(config).not.toMatch(/additionalManifestEntries|globIgnores/);
+  });
+
+  it('prunes the folder Vite puts the files of a build in', () => {
+    // scripts/lib/published-builds.mjs deletes under assets/ and nowhere else.
+    expect(ASSETS_DIR).toBe('assets');
+    expect(config).not.toMatch(/assetsDir/);
   });
 });
 
@@ -240,21 +457,7 @@ describe('nightly backup: a night without a backup is a red run', () => {
   const dump = job(yaml, 'dump');
   const steps = runs(dump);
 
-  // The body of a `run: |` block, by the name of its step.
-  function script(name) {
-    const lines = yaml.split('\n');
-    const at = lines.findIndex((l) => l.trim() === `- name: ${name}`);
-    if (at === -1) return null;
-    const start = lines.findIndex((l, i) => i > at && /^\s+run: \|$/.test(l));
-    const indent = lines[start + 1].match(/^\s*/)[0].length;
-    const body = [];
-    for (const line of lines.slice(start + 1)) {
-      if (line.trim() !== '' && line.match(/^\s*/)[0].length < indent) break;
-      body.push(line.slice(indent));
-    }
-    return body.join('\n');
-  }
-  const check = script('The two secrets are set');
+  const check = scriptOf(yaml, 'The two secrets are set');
   // The shell of a `run:` step on a GitHub runner. A secret that is not set
   // arrives as an empty variable.
   const runCheck = (env) => spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', check], {

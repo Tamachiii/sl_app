@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act } from '@testing-library/react';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative, resolve } from 'node:path';
 
 vi.mock('./App', () => ({ default: () => null }));
 vi.mock('./lib/appUpdate', () => ({ appUpdater: { start: vi.fn() } }));
+vi.mock('./lib/chunkRecovery', () => ({ chunkRecovery: { install: vi.fn() } }));
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
@@ -12,7 +14,13 @@ const root = resolve(here, '..');
 async function boot() {
   document.body.innerHTML = '<div id="root"></div>';
   vi.resetModules();
-  await import('./main.jsx');
+  // main.jsx renders the app. Inside act() React finishes that render before
+  // the test goes on; left to its scheduler, the render can still be waiting
+  // when this file's document is taken away, and fails on a `window` that is
+  // gone.
+  await act(async () => {
+    await import('./main.jsx');
+  });
   const { appUpdater } = await import('./lib/appUpdate');
   return appUpdater;
 }
@@ -39,6 +47,25 @@ describe('src/main.jsx — who registers the service worker', () => {
     vi.stubEnv('PROD', false);
     const appUpdater = await boot();
     expect(appUpdater.start).not.toHaveBeenCalled();
+  });
+});
+
+// What the listener does with an error is lib/chunkRecovery.test.js; what is
+// held here is that the app has one, and only where a build made the files.
+describe('src/main.jsx — who listens for a file that did not load', () => {
+  it('installs the recovery once, on window, in a production build', async () => {
+    vi.stubEnv('PROD', true);
+    await boot();
+    const { chunkRecovery } = await import('./lib/chunkRecovery');
+    expect(chunkRecovery.install).toHaveBeenCalledTimes(1);
+    expect(chunkRecovery.install).toHaveBeenCalledWith(); // its default target: window
+  });
+
+  it('installs nothing in dev, where the server has every file', async () => {
+    vi.stubEnv('PROD', false);
+    await boot();
+    const { chunkRecovery } = await import('./lib/chunkRecovery');
+    expect(chunkRecovery.install).not.toHaveBeenCalled();
   });
 });
 

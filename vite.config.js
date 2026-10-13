@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
-import { makeBuildId, buildMetaTag } from './src/lib/buildInfo.js';
+import { buildInfoPlugin } from './src/lib/buildInfo.js';
 
 // Every build writes its id into index.html, as <meta name="sl-build">. The
 // page reads it back as BUILD_ID (src/lib/buildInfo.js, which also says what
@@ -10,20 +10,17 @@ import { makeBuildId, buildMetaTag } from './src/lib/buildInfo.js';
 // changes with every build, inlined into the entry chunk, would rename every
 // chunk that imports the entry, and a deploy that changed nothing would make
 // every device download the whole app again.
-function buildIdInIndexHtml() {
-  const id = makeBuildId({ env: process.env });
-  return {
-    name: 'sl-build-id',
-    transformIndexHtml: () => [buildMetaTag(id)],
-  };
-}
+//
+// The same plugin (`sl-build-id`, buildInfoPlugin) writes version.json next to
+// index.html: the id again, and the oldest build still allowed to run
+// (MIN_CLIENT_BUILD in the environment of the build, null without it).
 
 export default defineConfig({
   base: '/sl_app/',
   plugins: [
     react(),
     tailwindcss(),
-    buildIdInIndexHtml(),
+    buildInfoPlugin({ env: process.env }),
     VitePWA({
       // `injectManifest` so we can ship a custom service worker (src/sw.js)
       // that handles `push` + `notificationclick` for the rest-timer
@@ -79,6 +76,10 @@ export default defineConfig({
         // installs at home and first opens the app in a basement gym has no
         // second chance to fetch a chunk. Narrowing this to per-role chunks
         // would trade a one-time download for an offline dead-end.
+        //
+        // No `json` in the list, on purpose: version.json says what the SERVER
+        // publishes now, and a copy in the precache would answer with what
+        // this worker was built with (src/test/ciGuardrails.test.js).
         globPatterns: ['**/*.{js,css,html,svg,woff2}'],
       },
       devOptions: {

@@ -4,6 +4,7 @@ import {
   AUTO_APPLIED_KEY,
   CHECK_EVERY_MS,
   CHECK_MIN_GAP_MS,
+  REQUIRED_RETRY_MS,
   createAppUpdater,
 } from './appUpdate';
 import { SKIP_WAITING } from './swHandlers';
@@ -30,6 +31,8 @@ async function started(world, options = {}) {
     reload,
     storage,
     buildId: options.buildId ?? 'build-1',
+    // version.json: not there, unless the test publishes one.
+    readVersion: options.readVersion ?? (async () => null),
   });
   updaters.push(updater);
   await updater.start({ swUrl: '/sl_app/sw.js', scope: '/sl_app/' });
@@ -70,6 +73,22 @@ describe('registration', () => {
     expect(updater.apply()).toBe(false);
     expect(updater.getState().pending).toBe(false);
     updater.stop();
+  });
+
+  it('survives a registration that is answered with nothing, as a browser driven by a test tool does', async () => {
+    const world = fakeBrowser();
+    world.container.register = vi.fn(async () => undefined);
+    const read = vi.fn(async () => null);
+    const { updater, reload } = await started(world, { readVersion: read });
+
+    vi.advanceTimersByTime(CHECK_EVERY_MS * 2);
+    setVisibility('visible');
+    world.container.dispatchEvent(new Event('controllerchange'));
+    await flush();
+
+    expect(updater.getState().pending).toBe(false);
+    expect(read).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
   });
 
   it('survives a registration that is refused, and asks nothing afterwards', async () => {
@@ -750,5 +769,341 @@ describe('never a loop', () => {
     world.waitingWorker();
     updater.apply();
     expect(storage.get(AUTO_APPLIED_KEY)).toBeNull();
+  });
+});
+
+describe('the question a reload asks first', () => {
+  it('is answered by the page, and by nobody while no page watches', async () => {
+    const world = fakeBrowser();
+    const { updater } = await started(world);
+    expect(updater.busy()).toBeNull();
+
+    let busy = true;
+    const unwatch = updater.watchForSafeMoment(() => busy);
+    expect(updater.busy()).toBe(true);
+    busy = false;
+    expect(updater.busy()).toBe(false);
+
+    unwatch();
+    expect(updater.busy()).toBeNull();
+  });
+});
+
+// version.json (lib/buildInfo): the build that is published and the oldest one
+// still allowed to run. The page of these tests is THIS_BUILD.
+describe('a build below the oldest one still allowed', () => {
+  const THIS_BUILD = '20261001080000';
+  const PUBLISHED = '20261013142355';
+  const allowed = { build: PUBLISHED, minBuild: null };
+  const tooOld = { build: PUBLISHED, minBuild: '20261010000000' };
+
+  /** A server whose version.json the test can change. */
+  function published(first) {
+    const server = { version: first };
+    server.read = vi.fn(async () => server.version);
+    return server;
+  }
+
+  async function startedBelow(world, options = {}) {
+    const server = options.server ?? published(tooOld);
+    const result = await started(world, { buildId: THIS_BUILD, readVersion: server.read, ...options });
+    await flush();
+    return { ...result, server };
+  }
+
+  /** The phone is locked and unlocked `minutes` later. */
+  async function comeBackAfter(minutes) {
+    setVisibility('hidden');
+    vi.advanceTimersByTime(minutes * 60 * 1000);
+    setVisibility('visible');
+    await flush();
+  }
+
+  it('is read when the page starts, and with every question to the server', async () => {
+    const world = fakeBrowser();
+    const { server } = await startedBelow(world, { server: published(allowed) });
+    expect(server.read).toHaveBeenCalledTimes(1);
+
+    // Inside the gap: neither the worker nor the file is asked for.
+    await comeBackAfter(4);
+    expect(server.read).toHaveBeenCalledTimes(1);
+    expect(world.registration.update).not.toHaveBeenCalled();
+
+    await comeBackAfter(CHECK_MIN_GAP_MS / 60000);
+    expect(server.read).toHaveBeenCalledTimes(2);
+    expect(world.registration.update).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(CHECK_EVERY_MS);
+    await flush();
+    expect(server.read).toHaveBeenCalledTimes(3);
+  });
+
+  it('asks for the new worker at every return until it has one, whatever the gap', async () => {
+    const world = fakeBrowser();
+    const { updater } = await startedBelow(world);
+    expect(world.registration.update).not.toHaveBeenCalled(); // registering asked already
+
+    // One minute, then another: far inside the gap that holds any other page back.
+    await comeBackAfter(1);
+    expect(world.registration.update).toHaveBeenCalledTimes(1);
+    await comeBackAfter(1);
+    expect(world.registration.update).toHaveBeenCalledTimes(2);
+
+    // The update is there: from here on the question can wait like any other.
+    updater.watchForSafeMoment(() => true);
+    world.waitingWorker();
+    expect(updater.getState().pending).toBe(true);
+    await comeBackAfter(1);
+    expect(world.registration.update).toHaveBeenCalledTimes(2);
+  });
+
+  it('a build that is allowed keeps the gap', async () => {
+    const world = fakeBrowser();
+    await startedBelow(world, { server: published(allowed) });
+
+    await comeBackAfter(1);
+    await comeBackAfter(1);
+    expect(world.registration.update).not.toHaveBeenCalled();
+  });
+
+  it('applies its update as soon as nothing would be lost, without waiting for a moment', async () => {
+    const world = fakeBrowser();
+    const { updater } = await startedBelow(world);
+    let busy = true; // a rest timer runs
+    updater.watchForSafeMoment(() => busy);
+
+    const worker = world.waitingWorker();
+    expect(updater.getState()).toEqual({ pending: true, applying: false, offered: true, failed: false });
+    vi.advanceTimersByTime(REQUIRED_RETRY_MS * 3);
+    expect(worker.postMessage).not.toHaveBeenCalled();
+
+    // The rest ends. No return to the app, no change of page.
+    busy = false;
+    vi.advanceTimersByTime(REQUIRED_RETRY_MS - 1);
+    expect(worker.postMessage).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(worker.postMessage).toHaveBeenCalledTimes(1);
+    expect(worker.postMessage).toHaveBeenCalledWith({ type: SKIP_WAITING });
+    expect(updater.getState()).toMatchObject({ pending: true, applying: true });
+  });
+
+  it('…where a build that is allowed waits for the next moment the page names', async () => {
+    const world = fakeBrowser();
+    const { updater } = await startedBelow(world, { server: published(allowed) });
+    let busy = true;
+    updater.watchForSafeMoment(() => busy);
+    const worker = world.waitingWorker();
+
+    busy = false;
+    vi.advanceTimersByTime(REQUIRED_RETRY_MS * 10);
+    expect(worker.postMessage).not.toHaveBeenCalled();
+
+    updater.consider();
+    expect(worker.postMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not bring back an offer that was answered "Later"', async () => {
+    const world = fakeBrowser();
+    const { updater } = await startedBelow(world);
+    updater.watchForSafeMoment(() => true);
+    const worker = world.waitingWorker();
+    expect(updater.getState().offered).toBe(true);
+
+    updater.dismiss();
+    vi.advanceTimersByTime(REQUIRED_RETRY_MS * 10);
+    expect(updater.getState()).toMatchObject({ pending: true, offered: false });
+    expect(worker.postMessage).not.toHaveBeenCalled();
+
+    // The moments still bring it back.
+    setVisibility('hidden');
+    setVisibility('visible');
+    expect(updater.getState().offered).toBe(true);
+  });
+
+  it('applies nothing in a window nobody looks at, nor where nobody can answer', async () => {
+    const world = fakeBrowser();
+    const { updater } = await startedBelow(world);
+    const worker = world.waitingWorker(); // signed out: no page watches
+    vi.advanceTimersByTime(REQUIRED_RETRY_MS * 3);
+    expect(worker.postMessage).not.toHaveBeenCalled();
+
+    setVisibility('hidden');
+    updater.watchForSafeMoment(() => false);
+    vi.advanceTimersByTime(REQUIRED_RETRY_MS * 3);
+    expect(worker.postMessage).not.toHaveBeenCalled();
+    expect(updater.getState().offered).toBe(false);
+
+    visibility = 'visible'; // back in front, and the next asking finds it so
+    vi.advanceTimersByTime(REQUIRED_RETRY_MS);
+    expect(worker.postMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('learning it is a moment: an update that was waiting goes in, or is offered again', async () => {
+    const world = fakeBrowser();
+    const { updater, server } = await startedBelow(world, { server: published(allowed) });
+    let busy = true;
+    updater.watchForSafeMoment(() => busy);
+    const worker = world.waitingWorker();
+    updater.dismiss();
+    expect(updater.getState().offered).toBe(false);
+
+    // The owner raises the minimum. The hourly question reads it, mid-rest:
+    server.version = tooOld;
+    vi.advanceTimersByTime(CHECK_EVERY_MS);
+    await flush();
+    expect(updater.getState().offered).toBe(true);
+    expect(worker.postMessage).not.toHaveBeenCalled();
+
+    busy = false;
+    vi.advanceTimersByTime(REQUIRED_RETRY_MS);
+    expect(worker.postMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('the hourly question alone applies nothing for a build that is allowed', async () => {
+    const world = fakeBrowser();
+    const { updater } = await startedBelow(world, { server: published(allowed) });
+    let busy = true;
+    updater.watchForSafeMoment(() => busy);
+    const worker = world.waitingWorker();
+    busy = false;
+
+    vi.advanceTimersByTime(CHECK_EVERY_MS);
+    await flush();
+    expect(worker.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('puts the question once more when the worker is activated, and comes back for the reload', async () => {
+    const world = fakeBrowser();
+    const { updater, reload } = await startedBelow(world);
+    let busy = false;
+    updater.watchForSafeMoment(() => busy);
+
+    const worker = world.waitingWorker(); // nothing going on: applied at once
+    expect(worker.postMessage).toHaveBeenCalledTimes(1);
+    world.activating(worker);
+    busy = true; // a set is ticked in the second the worker needs
+    world.activated(worker);
+    expect(reload).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(REQUIRED_RETRY_MS * 2);
+    expect(reload).not.toHaveBeenCalled();
+
+    busy = false;
+    vi.advanceTimersByTime(REQUIRED_RETRY_MS);
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(worker.postMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('never a loop: a build that reloaded itself once is not reloaded again, however old it is', async () => {
+    // The reload happened and brought the same build back.
+    const storage = memoryStorage({ [AUTO_APPLIED_KEY]: THIS_BUILD });
+    const world = fakeBrowser();
+    const { updater, reload } = await startedBelow(world, { storage });
+    updater.watchForSafeMoment(() => false);
+
+    const worker = world.waitingWorker();
+    vi.advanceTimersByTime(REQUIRED_RETRY_MS * 20);
+    await comeBackAfter(1);
+    expect(worker.postMessage).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
+    expect(updater.getState()).toMatchObject({ pending: true, applying: false, offered: true });
+
+    // The offer still works.
+    expect(updater.apply()).toBe(true);
+    world.takeOver(worker);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not come back to an attempt that failed: the offer says so', async () => {
+    const world = fakeBrowser();
+    const { updater, reload } = await startedBelow(world);
+    updater.watchForSafeMoment(() => false);
+    const worker = world.waitingWorker();
+    expect(worker.postMessage).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(APPLY_TIMEOUT_MS); // the worker never takes over
+    expect(updater.getState()).toEqual({ pending: true, applying: false, offered: true, failed: true });
+
+    vi.advanceTimersByTime(REQUIRED_RETRY_MS * 5);
+    expect(worker.postMessage).toHaveBeenCalledTimes(1);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('a version that cannot be read changes nothing: what was known stays known', async () => {
+    const world = fakeBrowser();
+    const { updater, server } = await startedBelow(world);
+    let busy = true;
+    updater.watchForSafeMoment(() => busy);
+    const worker = world.waitingWorker();
+
+    // The next question falls into a dead spot: no answer, then an answer that throws.
+    server.version = null;
+    vi.advanceTimersByTime(CHECK_EVERY_MS);
+    await flush();
+    server.read.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    vi.advanceTimersByTime(CHECK_EVERY_MS);
+    await flush();
+
+    busy = false;
+    vi.advanceTimersByTime(REQUIRED_RETRY_MS);
+    expect(worker.postMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('a minimum that was taken back makes the page an ordinary one again', async () => {
+    const world = fakeBrowser();
+    const { updater, server } = await startedBelow(world);
+    let busy = true;
+    updater.watchForSafeMoment(() => busy);
+    const worker = world.waitingWorker();
+
+    server.version = allowed;
+    vi.advanceTimersByTime(CHECK_EVERY_MS);
+    await flush();
+
+    busy = false;
+    vi.advanceTimersByTime(REQUIRED_RETRY_MS * 10);
+    expect(worker.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('a page no build made is never below anything', async () => {
+    const world = fakeBrowser();
+    const { updater } = await startedBelow(world, { buildId: 'dev' });
+
+    await comeBackAfter(1); // inside the gap, which holds for it
+    expect(world.registration.update).not.toHaveBeenCalled();
+
+    let busy = true;
+    updater.watchForSafeMoment(() => busy);
+    const worker = world.waitingWorker();
+    busy = false;
+    vi.advanceTimersByTime(REQUIRED_RETRY_MS * 10);
+    expect(worker.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('stops asking once stopped, and forgets an answer that arrives afterwards', async () => {
+    const world = fakeBrowser();
+    let answer;
+    const read = vi.fn(() => new Promise((resolve) => { answer = resolve; }));
+    const { updater } = await started(world, { buildId: THIS_BUILD, readVersion: read });
+    let busy = true;
+    updater.watchForSafeMoment(() => busy);
+    const worker = world.waitingWorker();
+
+    updater.stop();
+    answer(tooOld);
+    await flush();
+
+    busy = false;
+    vi.advanceTimersByTime(REQUIRED_RETRY_MS * 10);
+    expect(worker.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('reads nothing where there is no worker to update', async () => {
+    const read = vi.fn(async () => tooOld);
+    const updater = createAppUpdater({ container: undefined, reload: vi.fn(), storage: memoryStorage(), readVersion: read });
+    await updater.start({ swUrl: '/sl_app/sw.js', scope: '/sl_app/' });
+    await flush();
+    expect(read).not.toHaveBeenCalled();
+    updater.stop();
   });
 });

@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { isChunkLoadError } from './chunkRecovery';
 
 // Best-effort production error telemetry: the dev-coach's only feedback loop
 // for crashes on students' phones. Every path here swallows its own failure —
@@ -68,6 +69,11 @@ export function installGlobalErrorReporting() {
   });
   window.addEventListener('unhandledrejection', (e) => {
     const reason = e.reason;
+    // A file of the app that did not load — a screen fetched ahead of its use
+    // (lib/preload), on a page older than the files the server keeps — is a
+    // deploy, not a crash: lib/chunkRecovery deals with it, and the boundary
+    // leaves it out of this list for the same reason.
+    if (isChunkLoadError(reason)) return;
     report({
       message: reason?.message || `unhandledrejection: ${String(reason)}`,
       stack: reason?.stack,

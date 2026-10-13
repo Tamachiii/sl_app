@@ -5,57 +5,13 @@ import { useRestTimer } from '../../hooks/useRestTimer';
 import { useI18n } from '../../hooks/useI18n';
 import { appUpdater } from '../../lib/appUpdate';
 import { fieldWatch } from '../../lib/fieldWatch';
-
-/**
- * Longer than the persister's throttle (lib/queryClient: 1000 ms): a write that
- * joined the offline queue this instant is in IndexedDB once this has passed.
- */
-export const QUEUE_ON_DISK_MS = 1500;
-
-/**
- * How long "Update" waits for a write that is on its way. A request can hang
- * for minutes on a network that neither answers nor fails; past this the offer
- * comes back, saying why, instead of a card stuck on "Updating…".
- */
-export const WRITES_WAIT_MS = 10 * 1000;
+import { writesAreSafe } from '../../lib/pendingWrites';
 
 // ui/Dialog keeps its <dialog> mounted and closed; only an open one counts.
 const dialogIsOpen = () =>
   document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]') !== null;
 
 const isResting = (timer) => timer.endsAt != null && timer.endsAt > Date.now();
-
-const onItsWay = (mutation) => !mutation.state.isPaused;
-
-/**
- * Resolves `true` once a reload can no longer drop a write: nothing is on its
- * way to the server, and whatever waits in the offline queue has reached the
- * disk. Resolves `false` when a write is still on its way after WRITES_WAIT_MS
- * — a reload would drop it, so there is none.
- */
-async function writesAreSafe(queryClient) {
-  const sending = () => queryClient.isMutating({ predicate: onItsWay }) > 0;
-  if (sending()) {
-    const arrived = await new Promise((resolve) => {
-      let giveUp = null;
-      const unsubscribe = queryClient.getMutationCache().subscribe(() => {
-        if (sending()) return;
-        clearTimeout(giveUp);
-        unsubscribe();
-        resolve(true);
-      });
-      giveUp = setTimeout(() => {
-        unsubscribe();
-        resolve(false);
-      }, WRITES_WAIT_MS);
-    });
-    if (!arrived) return false;
-  }
-  if (queryClient.isMutating() > 0) {
-    await new Promise((resolve) => setTimeout(resolve, QUEUE_ON_DISK_MS));
-  }
-  return true;
-}
 
 /**
  * The page's half of an app update (lib/appUpdate holds the other half and the
