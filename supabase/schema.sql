@@ -1725,6 +1725,9 @@ ALTER TABLE public.messages REPLICA IDENTITY FULL;
 -- Generic kind+payload shape; new event types are added by writing a
 -- new SECURITY DEFINER trigger that inserts here. INSERT only happens
 -- via those triggers — no client-facing INSERT policy.
+-- A line its recipient read more than 90 days ago is deleted by
+-- public.run_retention() (RETENTION, further down; 2026_10_13_18_retention);
+-- one that was never read stays.
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS public.notifications (
@@ -3418,7 +3421,8 @@ CREATE POLICY "Delete own scheduled pushes"
 -- closed — 'expired', or 'canceled' when canceled_at is set — by the job, by
 -- claim_rest_push when it is asked for that row, and by the next rest of its
 -- account. An account's rows older than 7 days are deleted when it next
--- rests.
+-- rests; those of an account that does not rest any more, or whose app still
+-- inserts its rows itself, by run_retention() (RETENTION, further down).
 --
 -- dispatch_due_rest_pushes calls send_push_event, which is defined further
 -- down: a function body is read when it runs.
@@ -4481,8 +4485,9 @@ $$;
 -- ============================================================
 -- Client error telemetry (2026_07_13)
 -- Insert-only per authenticated user (own errors); coach-only read for
--- in-app triage. No UPDATE/DELETE — append-only. Prune with:
---   DELETE FROM public.client_errors WHERE created_at < now() - interval '90 days';
+-- in-app triage. No UPDATE/DELETE — append-only. Rows older than 90 days are
+-- deleted by public.run_retention() (RETENTION, further down;
+-- 2026_10_13_18_retention).
 -- ============================================================
 CREATE TABLE public.client_errors (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -5930,6 +5935,124 @@ $$;
 -- Who may execute them: the FUNCTION PRIVILEGES block at the end of this file.
 
 -- ============================================================
+-- RETENTION: THE ROWS NOBODY READS ANY MORE
+-- (2026_10_13_18_retention — review L27, and the retention B14 and L20 ask
+-- for)
+--
+-- Three tables hold rows that are of use for a while and of none afterwards:
+-- scheduled_pushes (one row per rest timer), notifications (the lines of the
+-- bell; the app shows the 30 most recent) and client_errors (the coach's
+-- triage list; the 20 most recent). One function deletes what is past its
+-- time in all three:
+--
+--   run_retention()
+--     → { "scheduled_pushes": n, "notifications": n, "client_errors": n }
+--       the rows this run deleted. Keys are added, never renamed.
+--
+--   REST PUSHES   created more than 7 days ago, whatever became of them. The
+--                 age is the one schedule_rest_push deletes the caller's own
+--                 rows at: this is the same broom, for the accounts that do
+--                 not rest any more — and for every account while the app
+--                 from before wave 3 is in use, which never calls that
+--                 function.
+--                 NEVER ONE THAT IS STILL TO BE SENT: a row that is waiting
+--                 for a time still to come, or less than a minute past,
+--                 belongs to a sender. "Waiting" is what it is for every
+--                 function of the rest push: status 'pending' AND
+--                 canceled_at NULL — a row the app from before wave 3 took
+--                 back, by writing canceled_at and leaving the status, waits
+--                 for nobody and goes. A rest lasts 15 minutes at most, so a
+--                 row a week old is not waiting — unless the app from before
+--                 wave 3 wrote it from a phone whose clock is days ahead.
+--                 That row is left until its time has passed.
+--   NOTIFICATIONS read more than 90 days ago — by the time they were READ,
+--                 not written. A line that was never read is never deleted
+--                 here: it is still on its account's bell.
+--   CLIENT ERRORS reported more than 90 days ago.
+--
+-- WHO RUNS IT. The owner of the database, by hand, once a month
+-- (docs/runbook/70-admin-procedures.md) — or, where pg_cron is switched on,
+-- the nightly job of the optional migration 19. Nothing in this file calls
+-- it: no trigger, no other function. Without a run nothing breaks; the rows
+-- wait.
+--
+-- A TABLE THAT GROWS BY ITSELF — one row per event, of no use after a while —
+-- gets its DELETE here, with its age, and its line in DELETED_BY_A_RUN of
+-- supabase/tests/retention.test.js; every other table of public is in
+-- KEPT_FOR_GOOD there, with the reason. Never a table of training: what an
+-- athlete logged is kept for good.
+--
+-- IT WAITS FOR NOBODY. Each DELETE takes its rows through
+-- FOR UPDATE SKIP LOCKED: a row another request holds at that instant is
+-- passed over, and goes with the next run. A run never stands in the way of
+-- the app, and never deadlocks with it.
+--
+-- SECURITY INVOKER, and for no client: the owner and the service role hold
+-- every row; anybody else would reach what their own rights let them delete
+-- — their own rest pushes, and nothing of the two other tables.
+-- Who may execute it: nobody but its owner and the service role. It is NOT in
+-- the FUNCTION PRIVILEGES block at the end of this file, and must not be.
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.run_retention()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_pushes        integer;
+  v_notifications integer;
+  v_errors        integer;
+BEGIN
+  WITH old AS (
+    SELECT sp.id
+      FROM public.scheduled_pushes sp
+     WHERE sp.created_at < now() - interval '7 days'
+       AND NOT (    sp.status = 'pending'
+                AND sp.canceled_at IS NULL
+                AND sp.fire_at > now() - interval '60 seconds')
+     ORDER BY sp.id
+       FOR UPDATE SKIP LOCKED
+  )
+  DELETE FROM public.scheduled_pushes sp
+   USING old
+   WHERE sp.id = old.id;
+  GET DIAGNOSTICS v_pushes = ROW_COUNT;
+
+  WITH old AS (
+    SELECT n.id
+      FROM public.notifications n
+     WHERE n.read_at IS NOT NULL
+       AND n.read_at < now() - interval '90 days'
+     ORDER BY n.id
+       FOR UPDATE SKIP LOCKED
+  )
+  DELETE FROM public.notifications n
+   USING old
+   WHERE n.id = old.id;
+  GET DIAGNOSTICS v_notifications = ROW_COUNT;
+
+  WITH old AS (
+    SELECT ce.id
+      FROM public.client_errors ce
+     WHERE ce.created_at < now() - interval '90 days'
+     ORDER BY ce.id
+       FOR UPDATE SKIP LOCKED
+  )
+  DELETE FROM public.client_errors ce
+   USING old
+   WHERE ce.id = old.id;
+  GET DIAGNOSTICS v_errors = ROW_COUNT;
+
+  RETURN jsonb_build_object(
+    'scheduled_pushes', v_pushes,
+    'notifications',    v_notifications,
+    'client_errors',    v_errors
+  );
+END;
+$$;
+
+-- ============================================================
 -- FUNCTION PRIVILEGES (2026_10_11_03_function_grants_lockdown)
 --
 -- KEEP THIS BLOCK BELOW EVERY FUNCTION OF THIS FILE: nothing after it may
@@ -6139,4 +6262,5 @@ INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_13_14_table_grants_lockdown'),
   ('2026_10_13_15_push_plumbing'),
   ('2026_10_13_16_rest_push_scheduling'),
-  ('2026_10_13_17_replay_grace_window');
+  ('2026_10_13_17_replay_grace_window'),
+  ('2026_10_13_18_retention');

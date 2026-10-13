@@ -113,6 +113,8 @@ const NOT_FOR_USERS = [
   // 2026_10_13_16_rest_push_scheduling
   ['claim_rest_push(uuid)', 'the one way a rest push gets sent: it hands the row to whoever asks, once. Called by the Edge Functions that send (dispatch-rest-push, send-push) with the service-role key — an account that could call it would stop its own notification, and it is SECURITY INVOKER so that it could do no more (rest-push.test.js)'],
   ['dispatch_due_rest_pushes()', 'what the optional pg_cron job sl-rest-push runs every ten seconds, as the owner of the database: it closes the rest pushes that are late and hands the due ones to send-push. Never by a signed-in user (rest-push.test.js)'],
+  // 2026_10_13_18_retention
+  ['run_retention()', 'deletes the rest pushes, the read notifications and the client errors that are past their time, in every account: run by the owner of the database once a month, or by the optional nightly pg_cron job — never by a signed-in user, and SECURITY INVOKER so that one could delete no more than their own rights allow (retention.test.js)'],
 ];
 
 const SEARCH_PATH = 'search_path=public, pg_temp';

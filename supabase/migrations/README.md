@@ -284,6 +284,7 @@ Since migration 14 a request without a session holds no privilege on any table, 
 6. **A numbered column** works with what a signed-in user holds: `USAGE` on the sequence is the next number, for the default of a `serial` column; `GENERATED … AS IDENTITY` asks for nothing. Reading the counter and `setval()` are not given.
 7. **Something that is not about rows is not done with the caller's rights.** A function that must empty or rebuild a table for a user is `SECURITY DEFINER`, asks who calls first (migration 02), and is listed in `function-acl.test.js`. A `SECURITY INVOKER` function that needs `TRUNCATE` fails for every signed-in user.
 8. **The table gets its insert probe in `rls-matrix.test.js`**, and the snapshot is regenerated: the test fails on a table without one. Its `anon` column reads `denied` on every line.
+9. **The table joins a list of `retention.test.js`**: `KEPT_FOR_GOOD` with the reason, or `DELETED_BY_A_RUN` with its age — and then its `DELETE` in `run_retention` ("A migration that deletes rows by their age", below). The test fails on a table that is in neither.
 
 The default privileges of `supabase_admin`, the platform's own role, are untouched — `postgres` cannot change them: a table that role creates in `public` (line 15 of the audit of migration 14) starts open to everyone. Nothing of the app is created by it.
 
@@ -355,6 +356,26 @@ Since migration 17 a block stays open for its athlete for 72 hours after it is s
 - **The trigger fires after `trg_pin_program_authoring_columns`, because of its name**, and neither reads a column the other writes. A trigger on `programs` that changes `is_active` itself must come before it by name, or the time is not written.
 - **In a test, a past block is `pastBlock(q, program)`** of `supabase/tests/harness.js`: `update programs set is_active = false` alone is a block inside its 72 hours, which its athlete still writes. A block created with `active: false` never was the active one and is closed from the start. Inside a `scenario()` the clock is one instant: a block switched off there was switched off exactly now.
 - **A rollback of such a rule closes every open window at once**, and says so first thing in its header: what is waiting on a phone for a block that was switched off is refused when it arrives.
+
+## A migration that deletes rows by their age
+
+Since migration 18 the rows nobody reads any more are deleted by one function, `public.run_retention()`, which the owner runs once a month (`docs/runbook/70-admin-procedures.md`) — or a pg_cron job every night, where the optional migration 19 is applied. It answers `{ "scheduled_pushes": n, "notifications": n, "client_errors": n }`, the rows that run deleted. `supabase/tests/retention.test.js` holds it.
+
+| Table | A row goes | Never |
+|---|---|---|
+| `scheduled_pushes` | 7 days after it was written | one that is still to be sent |
+| `notifications` | 90 days after its recipient read it | one that was not read |
+| `client_errors` | 90 days after it was reported | — |
+
+- **Every table of `public` is in one of two lists of `retention.test.js`**: `DELETED_BY_A_RUN`, with its age, or `KEPT_FOR_GOOD`, with the reason. A migration that creates a table adds it to one of them, and the test fails until it does. A table that fills by itself — one row per event, of no use after a while — is the first kind. A table of training is never: what an athlete logged is kept for good, and nothing deletes it by its age.
+- **A table of the first kind gets its `DELETE` in `run_retention`, and nowhere else.** `CREATE OR REPLACE`, the function copied from `schema.sql`: the three `DELETE`s that are there, the new one in the same shape, and one more key in the answer — keys are added, never renamed: a job or a person reads them. Its `SECURITY INVOKER`, its `SET search_path` and its place in `NOT_FOR_USERS` of `function-acl.test.js` stay. Not a trigger that deletes on every insert, and not a second function with a job of its own: one place says what is deleted and when, and one audit counts it.
+- **Each `DELETE` takes its rows through `FOR UPDATE SKIP LOCKED`.** A row another request holds at that instant is passed over and goes with the next run: a run never waits for the app, and never deadlocks with it. The test holds a row open on a second connection and counts the three clauses.
+- **A migration does not run it.** Applying a file deletes no row for its age: the first run is the owner's, after the backup, with the audit of migration 18 read before and after — it counts what a run deletes with the conditions of the function, so a change of one is a change of both, and of the test.
+- **An age is counted from the moment a row stopped being of use, not from when it was written, where the two differ.** A notification goes 90 days after it was READ: one that was never read is still on its account's bell, however old. A new table says which column that moment is.
+- **"Still to be sent" is `status = 'pending' AND canceled_at IS NULL AND fire_at > now() - interval '60 seconds'`** — what `claim_rest_push` would still hand to a sender ("A migration that schedules, sends or takes back a rest push", above). The 7 days are written twice, here and in `schedule_rest_push`, which deletes the caller's own rows when they next rest; the test holds the two to the same rows.
+- **It is `SECURITY INVOKER`, and for no client.** The owner and the service role hold every row. Given to `authenticated` by mistake it would delete what that user's policies let them delete — their own rest pushes — and nothing else; it is not given.
+- **Nothing calls it.** No trigger, no other function: a run happens when the owner or the job says so, and the test refuses a function of `public` whose text names it. Without a run nothing breaks — the rows wait.
+- **The rollback of such a migration does not bring back what a run deleted**, and says so in its header: those rows are in the backup taken before that run, and nowhere else.
 
 ## A migration that brings a rule the rows already there may break
 

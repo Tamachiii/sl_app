@@ -153,6 +153,15 @@
       "covers": ["P55"],
       "reversible": true,
       "summary": "A block stays open for its athlete for 72 hours after it is switched off, so that training logged without a connection is saved when the coach has activated the next block in between: programs.deactivated_at is the time is_active last went from true to false — written by the trigger trg_stamp_program_deactivated_at whichever way a block is switched off, cleared when it is switched on, and held against any other write that carries a user id — and program_active_for_session, which every write of an athlete asks, answers yes for a program out of the trash that is the active one or was switched off less than 72 hours ago. A block in the trash, a draft, and a session that is archived or reviewed stay closed. No row is written: a block switched off before the migration has no time, and no window."
+    },
+    {
+      "name": "2026_10_13_18_retention",
+      "kind": "required",
+      "wave": 2,
+      "checkpoint": "B",
+      "covers": ["L27", "B14", "L20"],
+      "reversible": true,
+      "summary": "One function, run_retention(), deletes the rows nobody reads any more and answers how many: rest pushes created more than 7 days ago — never one that is still to be sent —, notifications their recipient read more than 90 days ago, client errors older than 90 days. A notification that was never read stays, and no other table is named in it. It is for the owner of the database and the service role only, runs with the rights of its caller, and passes over a row another request holds instead of waiting for it. Nothing calls it: the owner does, once a month, or the nightly job of the optional migration 19. Applying the migration deletes no row."
     }
   ]
 }
