@@ -7,6 +7,11 @@ import {
 } from './offlineMutations';
 import { pushToast } from './toast';
 import { mutationErrorKey, isRefusedReplay } from './mutationErrors';
+import { isUnsyncedDraft } from './draftTree';
+
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
 
 // React Query's idea of "online" is `onlineManager`, and left alone it is wrong
 // in the one situation the offline layer exists for. It starts at `true` and
@@ -37,11 +42,32 @@ if (typeof window !== 'undefined') {
   document.addEventListener('visibilitychange', syncOnlineManager);
 }
 
+// How long this device keeps what it has read. One number, because three
+// things have to agree on it:
+//   - `maxAge` of the persisted cache (App.jsx): a cache that was not written
+//     for that long is thrown away as a whole;
+//   - `gcTime` of the persisted roots (below): how long an entry nobody
+//     observes stays in memory — and what leaves memory is written out of
+//     IndexedDB on the next save;
+//   - the age at which `shouldPersistQuery` stops storing one entry.
+// The second was the client's default, five minutes. A session opened at home
+// was out of the device before the athlete reached the gym, and the list of
+// confirmed sessions — observed by the training list only — was gone five
+// minutes into any workout, which is what makes the list start again from
+// week 1 on the next launch without a network.
+export const PERSIST_MAX_AGE_MS = 14 * DAY;
+
+// The entries of a session that is finished are stored for this long after its
+// confirmation: time to read the coach's feedback without a network. With
+// nothing collected for fourteen days, they would otherwise pile up in what is
+// written to the device on every change of the cache.
+export const CONFIRMED_SESSION_KEPT_MS = 7 * DAY;
+
 // Only persist the query subtrees the student needs offline. Keeping the
 // allow-list narrow avoids blowing up IndexedDB with messages/notifications
 // chatter and prevents leaking coach-only fanout queries (`all-confirmations`,
 // the dashboard programs roll-up) to the persisted blob.
-const PERSISTED_QUERY_ROOTS = new Set([
+export const PERSISTED_QUERY_ROOTS = Object.freeze([
   'session',
   'set-logs',
   'slot-comments',
@@ -70,6 +96,21 @@ const PERSISTED_QUERY_ROOTS = new Set([
   'exercise-library',
 ]);
 
+const PERSISTED = new Set(PERSISTED_QUERY_ROOTS);
+
+// The roots whose entries belong to ONE session, and where its id sits in
+// their key.
+const SESSION_ID_AT = {
+  session: 1,
+  'set-logs': 1,
+  'slot-comments': 1,
+  'slot-deviations': 1,
+  'session-confirmation': 1,
+  'set-videos': 1,
+  // ['last-performance', <athlete>, sessionId, exerciseIds]
+  'last-performance': 2,
+};
+
 const idbStore =
   typeof indexedDB !== 'undefined'
     ? createStore('sl-app-rq-cache', 'queries')
@@ -91,23 +132,94 @@ export const queryPersister = queryStorage
       storage: queryStorage,
       key: 'sl-app-rq-cache',
       throttleTime: 1000,
+      serialize: serializeCache,
     })
   : null;
 
-export function shouldPersistQuery(query) {
-  const root = Array.isArray(query.queryKey) ? query.queryKey[0] : null;
-  if (typeof root !== 'string') return false;
-  if (!PERSISTED_QUERY_ROOTS.has(root)) return false;
+// A draft whose edits the database does not have (lib/draftTree.js): the tree
+// that carries the marker, and the pointer to it — for a draft created without
+// a network the server has no row at all, and without the pointer the builder
+// would say "no draft".
+function holdsUnsyncedDraft(root, data) {
+  if (root === 'draft-tree') return isUnsyncedDraft(data);
+  if (root === 'my-draft') {
+    return !!data?.id && isUnsyncedDraft(queryClient.getQueryData(['draft-tree', data.id]));
+  }
+  return false;
+}
+
+// Read off the confirmation this device holds for the session. A session whose
+// confirmation is not in the cache is not known to be finished: its entries
+// stay until they are too old themselves.
+function confirmedLongAgo(sessionId, now) {
+  if (!sessionId) return false;
+  const confirmation = queryClient.getQueryData(['session-confirmation', sessionId]);
+  const confirmedAt = Date.parse(confirmation?.confirmed_at ?? '');
+  return Number.isFinite(confirmedAt) && now - confirmedAt > CONFIRMED_SESSION_KEPT_MS;
+}
+
+/**
+ * Whether an entry of the cache is written to the device. Asked for every
+ * entry each time the cache is saved (`dehydrateOptions` in App.jsx).
+ *
+ * It is also what takes entries OFF the device. With `gcTime` at
+ * PERSIST_MAX_AGE_MS nothing is collected in an app that is opened every day —
+ * the timers start again at each launch — so an entry that is left out here is
+ * simply not there after the next launch. Two rules do that: an entry that was
+ * not read or written for PERSIST_MAX_AGE_MS, and the entries of a session
+ * confirmed more than CONFIRMED_SESSION_KEPT_MS ago.
+ */
+export function shouldPersistQuery(query, now = Date.now()) {
+  const key = Array.isArray(query.queryKey) ? query.queryKey : [];
+  const root = key[0];
+  if (typeof root !== 'string' || !PERSISTED.has(root)) return false;
   // Only the 'active' program-details variant is persisted: the 'all'
   // variant (Sessions-page history) can run to hundreds of KB, and the
   // persister re-serializes the WHOLE cache blob on every (1s-throttled)
   // cache event — offline cold-start only needs the active block anyway.
-  if (root === 'student-program-details' && query.queryKey[2] !== 'active') {
-    return false;
-  }
-  // Only persist successfully-resolved queries; an errored query has no useful
-  // offline value and would survive reloads as a stale failure.
-  return query.state.status === 'success';
+  if (root === 'student-program-details' && key[2] !== 'active') return false;
+
+  const { status, data, dataUpdatedAt } = query.state;
+  // Whatever holds data, whether or not the last attempt to refresh it worked.
+  // A refresh that fails leaves the data in place and the status on 'error' —
+  // one request lost in a basement — and storing only 'success' took the
+  // session off the device at that moment. A read that never succeeded has
+  // nothing to store.
+  if (status !== 'success' && data === undefined) return false;
+
+  // The only copy of what the athlete wrote: never left out, whatever its age.
+  if (holdsUnsyncedDraft(root, data)) return true;
+
+  if (dataUpdatedAt > 0 && now - dataUpdatedAt > PERSIST_MAX_AGE_MS) return false;
+
+  const sessionIdAt = SESSION_ID_AT[root];
+  if (sessionIdAt !== undefined && confirmedLongAgo(key[sessionIdAt], now)) return false;
+
+  return true;
+}
+
+// An entry as it is stored: what was read, and nothing about the attempt that
+// failed after it. React Query restores a status as it finds it, so an entry
+// stored as 'error' would come back as a failed read at the next launch —
+// which, without a network, it stays: a page that asks `isError` first would
+// show a failure in front of the workout the device holds. `isInvalidated` is
+// kept (a failed fetch sets it): the entry is read again as soon as it can be.
+function asLastRead(dehydratedQuery) {
+  const { state } = dehydratedQuery;
+  if (state.status !== 'error' || state.data === undefined) return dehydratedQuery;
+  return {
+    ...dehydratedQuery,
+    state: { ...state, status: 'success', error: null, fetchFailureCount: 0, fetchFailureReason: null },
+  };
+}
+
+/** What the persister writes to IndexedDB: the saved cache, as a string. */
+export function serializeCache(persistedClient) {
+  const { clientState } = persistedClient;
+  return JSON.stringify({
+    ...persistedClient,
+    clientState: { ...clientState, queries: (clientState?.queries ?? []).map(asLastRead) },
+  });
 }
 
 // Global safety net so no mutation failure is silent. A mutation can opt out
@@ -133,7 +245,7 @@ export const queryClient = new QueryClient({
   mutationCache,
   defaultOptions: {
     queries: {
-      staleTime: 1000 * 60 * 2,
+      staleTime: 2 * MINUTE,
       retry: 1,
       // 'online': without a network a read is not attempted, it waits
       // (`fetchStatus: 'paused'`) and runs when the device is back — React
@@ -167,17 +279,13 @@ export const queryClient = new QueryClient({
 
 registerOfflineMutationDefaults(queryClient);
 
-// A draft the athlete is writing lives in two cache entries, and while it is
-// ahead of the server (the unsynced marker of lib/draftTree.js) they are its
-// only copy. A cache entry nobody observes is collected after five minutes by
-// default, and what is collected is also written out of IndexedDB: a draft
-// whose save had failed was gone once the athlete had spent five minutes on
-// another page, or had opened the app without visiting the builder. So these
-// two roots are kept for as long as the persisted cache itself (`maxAge` in
-// App.jsx).
-export const DRAFT_GC_MS = 1000 * 60 * 60 * 24 * 14;
-for (const root of ['my-draft', 'draft-tree']) {
-  queryClient.setQueryDefaults([root], { gcTime: DRAFT_GC_MS });
+// One call per root: defaults registered twice under the same key replace each
+// other. The `gcTime` is for every persisted root — see PERSIST_MAX_AGE_MS; for
+// the two draft roots it is also what keeps the only copy of a draft that is
+// ahead of the server (lib/draftTree.js) in the cache while the athlete is on
+// another page.
+for (const root of PERSISTED_QUERY_ROOTS) {
+  queryClient.setQueryDefaults([root], { gcTime: PERSIST_MAX_AGE_MS });
 }
 
 // The athlete comes back to the app. A draft in sync is read again — that is

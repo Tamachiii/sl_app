@@ -11,6 +11,7 @@ import {
   queryPersister,
   shouldPersistQuery,
   replayQueuedWrites,
+  PERSIST_MAX_AGE_MS,
 } from './lib/queryClient';
 import { routes } from './routes';
 import ErrorBoundary from './components/ui/ErrorBoundary';
@@ -63,8 +64,10 @@ function CacheBoundary({ children }) {
       persistOptions={{
         persister: queryPersister,
         // 14d is long enough to cover a vacation without internet, short
-        // enough that stale set-log targets eventually get refreshed.
-        maxAge: 1000 * 60 * 60 * 24 * 14,
+        // enough that stale set-log targets eventually get refreshed. The
+        // same number is the `gcTime` of the persisted roots: an entry that
+        // leaves memory earlier leaves the device with it.
+        maxAge: PERSIST_MAX_AGE_MS,
         // Bump this when the persisted shape changes incompatibly.
         buster: 'sl-app-cache-v1',
         dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery },

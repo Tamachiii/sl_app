@@ -661,11 +661,11 @@ describe('a draft nobody is looking at', () => {
   });
 
   it('is kept for as long as the persisted cache itself', async () => {
-    const { queryClient, DRAFT_GC_MS } = await launchApp();
+    const { queryClient, PERSIST_MAX_AGE_MS } = await launchApp();
 
-    expect(DRAFT_GC_MS).toBe(14 * 24 * 60 * 60_000);
-    expect(queryClient.getQueryDefaults(DRAFT_TREE).gcTime).toBe(DRAFT_GC_MS);
-    expect(queryClient.getQueryDefaults(DRAFT_POINTER).gcTime).toBe(DRAFT_GC_MS);
+    expect(PERSIST_MAX_AGE_MS).toBe(14 * 24 * 60 * 60_000);
+    expect(queryClient.getQueryDefaults(DRAFT_TREE).gcTime).toBe(PERSIST_MAX_AGE_MS);
+    expect(queryClient.getQueryDefaults(DRAFT_POINTER).gcTime).toBe(PERSIST_MAX_AGE_MS);
   });
 });
 
