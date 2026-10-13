@@ -4,8 +4,8 @@
 |---|---|
 | Where | the Supabase CLI, from the root of this checkout. No file of `supabase/migrations/`, no dashboard setting |
 | Kind | code published to Supabase's Edge runtime, and one shared secret · no table of the app and no row is touched |
-| Wave / checkpoint | from wave 1. A function deploy is a step of Checkpoint B and of the checkpoints after it; `send-push` as it stands after wave 2 is deployed at Checkpoint B, after migrations 15 and 16 and before migration 19 ("When", below) |
-| Findings | L25 (low), B18 (low), P35 (medium) |
+| Wave / checkpoint | from wave 1. A function deploy is a step of Checkpoint B and of the checkpoints after it; the two functions as they stand after wave 2 are deployed at Checkpoint B, after migrations 15 and 16 and before migration 19 ("When", below) |
+| Findings | L25 (low), B18 (low), P35 (medium), P10 (high) |
 | Check | after every deploy and every rotation (section 3) — it writes nothing and sends no notification |
 
 This page is for the person who owns the Supabase project. Nothing in the repository, no workflow and no agent deploys a function or sets a secret: you do, with the commands below.
@@ -15,9 +15,9 @@ This page is for the person who owns the Supabase project. Nothing in the reposi
 | Function | `verify_jwt` | Called by | How it knows its caller |
 |---|---|---|---|
 | `send-push` | `false` | the database, through pg_net: every notification trigger, and — where pg_cron is switched on — the job that hands over the rest pushes that are due | the `INTERNAL_BEARER` secret, which the function checks itself |
-| `dispatch-rest-push` | `true` | the app, when a rest timer starts | the signed-in athlete's JWT: Supabase's gateway checks it, then the function reads the user from it |
+| `dispatch-rest-push` | `false` | the app, when a rest timer starts — and itself: it waits for the end of a rest a minute at a time, and each minute after the first is a request it makes to its own address | the app by the signed-in athlete's JWT, which the function checks with the auth server; itself by the `INTERNAL_BEARER` secret, in a header of its own (`x-internal-bearer`) |
 
-`verify_jwt` is the check Supabase's gateway makes **in front of** a function: with `true`, a request without a valid user JWT is answered 401 by the gateway and the function never runs. The database has no user JWT. So `send-push` runs with `false`, and its own check is the only one.
+`verify_jwt` is the check Supabase's gateway makes **in front of** a function: with `true`, a request without a valid user JWT is answered 401 by the gateway and the function never runs. The database has no user JWT, and neither has a function that calls itself. So both run with `false`, and their own check is the only one.
 
 The column is not a wish: it is `supabase/config.toml`, which the CLI reads at every deploy. A test fails when a function has no entry in that file (`supabase/functions/deploy.test.js`), and when this table and the file disagree (`supabase/functions/runbook.test.js`).
 
@@ -28,6 +28,8 @@ The column is not a wish: it is `supabase/config.toml`, which the CLI reads at e
 **The function's own check was the weak kind (L25).** It compared the bearer with `!==`, which stops at the first character that differs: the time it takes tells how much of a guess is right. It answered every request, refusals included, with `Access-Control-Allow-Origin: *`, so any web page could call it from a browser. And it read a body of any size. Nothing suggests any of it was ever used, and the function is safe for as long as the secret is. The secret is what most of the rest of this page is about, because whoever has it can send a notification, with any text and any link, to any user.
 
 **A push that failed left no trace (P35).** The function answered `200 {"delivered":0}` whatever had happened, and wrote nothing in its log. When a push service refused a message — a signing key it does not know, a quota, an outage — nothing anywhere said so: a VAPID key changed on one side only would have stopped every notification of the app, in silence. And every message was handed to the push services with the library's own settings: kept for four weeks for a phone that is offline, at ordinary urgency, with no time limit on the connection. "Your rest is over" could arrive an hour later, on a phone that had been saving its battery.
+
+**A rest of two and a half minutes or more never rang (P10).** `dispatch-rest-push` waited, inside the request the app had made, until the rest was over, and only then sent. The platform does not let a function wait that long: on the free plan it ends after 150 seconds. So the notification "your rest is over" arrived for a short rest and never for a long one — the rests after a heavy set, with the phone locked, which are the ones it exists for. The function also sent a row it had merely read: with a second sender, that is two notifications.
 
 ## What this version does
 
@@ -42,7 +44,12 @@ The column is not a wish: it is `supabase/config.toml`, which the CLI reads at e
 - **It sends to the four push services and nowhere else**: Google's, Mozilla's, Apple's and Microsoft's — the list migration 15 puts on the table as a rule ([15](migrations/15-push-plumbing.md)). A device whose address is anywhere else is not called. Its row stays, and the log names the host.
 - **It can send a rest push at its time.** Where pg_cron is switched on, the database hands over each rest push about ten seconds before the rest ends, with the time not to send before. The function answers `202` at once, waits (two minutes at most), asks the database whether the push is still its to send — the athlete may have started the next set, the other function may have sent it — and only then sends, kept for one minute, at high urgency: to the device the rest was started on, or to every device of the athlete where the app that started it names none (every app before wave 3). It then writes on the row what became of it ([16](migrations/16-rest-push-scheduling.md)). Without pg_cron no such request arrives.
 
-For the database that is in production today and for the app, nothing changes: same URL, same header, same body, and the same answer `{"delivered":N}` whenever a device got the message or the user has none.
+- **`dispatch-rest-push` answers at once and waits a minute at a time.** It answers `202`, goes on working after its answer, and waits a minute at most. If the rest is not over by then, it calls itself — a new request, which waits the next minute — and the last request sends. A rest of three minutes is three requests; one of fifteen minutes, the longest the database schedules, is fifteen. Why a minute, when the limit is 150 seconds: the 150 seconds belong to a *worker* of the platform, not to a request. A worker takes every request that arrives during the first 75 seconds of its life, so a request can land on one that is 75 seconds old, and the other 75 are all it is sure of.
+- **It asks before it sends, as `send-push` does.** Its last request asks the database whether the push is still its to send (`claim_rest_push`, migration 16), sends what the database answered, and writes on the row what became of it. Two senders that hold the same rest are one notification. A rest its athlete took back — the next set was started — is not sent, and the request that finds it taken back stops there: nothing calls itself for a rest that is over.
+- **It checks its two callers itself, before it reads anything.** The app shows the athlete's token: the function asks the auth server whose it is, and sends only a rest of that athlete. A request the function makes to itself shows the `INTERNAL_BEARER` secret in the header `x-internal-bearer`, compared in constant time; a request that carries that header is judged on it alone. Anything else is `401 dispatch-rest-push: unauthorized`. A web page can call the function with a token, as the app does, and cannot send that header.
+- **A hand-over that fails is not tried again.** If the request for the next minute is refused or lost, the rest does not ring, and one line of the log says why (section 5). There is no second try and nothing that sweeps up afterwards: that is why pg_cron, where the database does the waiting, stays the way to prefer ([50](50-pg-cron.md)).
+
+For the database that is in production today and for the app, nothing changes in how they call: same URLs, same headers, same bodies, and from `send-push` the same answer `{"delivered":N}` whenever a device got the message or the user has none. The app does not read what `dispatch-rest-push` answers. What changes for an athlete is that a rest of two and a half minutes or more rings.
 
 ## When
 
@@ -52,7 +59,10 @@ For the database that is in production today and for the app, nothing changes: s
   - *After migration 16*, because the function asks the database for `claim_rest_push`, which that migration creates.
   - **Never migration 19 before this deploy.** The job of migration 19 hands a rest push over ten seconds early. The `send-push` from before wave 2 does not know what that request is: it would send it at once, to every device of the athlete, ten seconds early — and the function the app calls would ring them again at the time. Nothing in the database can tell which version is deployed; the third line of the check (section 3) can.
   - It does not need the migrations in order to run: the database that is in production today calls it exactly as it calls the version it replaces, and gets the same answers. If a deploy has to come first for another reason, nothing breaks.
-- **`dispatch-rest-push`**: nothing to deploy before Checkpoint B. Its code has not changed since the version in production (v2, 2026-05-11).
+- **`dispatch-rest-push` as it stands after wave 2**: at Checkpoint B, right after `send-push` — **migration 16, then this deploy, then, if you choose pg_cron, migration 19.**
+  - **Never before migration 16.** Unlike `send-push`, this function cannot do its work without it: its last step asks the database for `claim_rest_push`, which that migration creates. Deployed first, it sends nothing — no rest rings — and its log says `claim_rest_push could not be asked`.
+  - **Never migration 19 before this deploy either.** The version in production (v2, 2026-05-11) sends a row it has merely read. With the job of migration 19 switched on, the job hands the same row to `send-push`, and the two send: every rest of an app from before wave 3 can ring twice.
+  - The app that is deployed calls it exactly as it calls the version it replaces: nothing to publish first.
 
 ## 1. Deploy
 
@@ -84,7 +94,7 @@ Two places hold secrets, and one value is in both.
 
 | Name | Read by | What it is |
 |---|---|---|
-| `INTERNAL_BEARER` | `send-push` | the shared secret: who presents it may send a push to any user |
+| `INTERNAL_BEARER` | both | the shared secret: who presents it to `send-push` may send a push to any user. `dispatch-rest-push` shows it to itself, from one minute of a rest to the next |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | both | the key pair that signs every push. The public half is also built into the app (`VITE_VAPID_PUBLIC_KEY`, a GitHub secret) |
 | `VAPID_SUBJECT` | both | a `mailto:` address the push services may write to |
 
@@ -170,9 +180,30 @@ If it does not print that:
 - **`node: .env: not found`** — this folder has no `.env`. Run the check from the root of the main checkout.
 - **`fetch failed`** — no network, or the URL in `.env` is wrong.
 
-For `dispatch-rest-push` there is nothing to paste: its check is a rest timer started in the app by an athlete who has *Rest end notification* on, with the phone locked.
+**The same for `dispatch-rest-push`**, after every deploy of it. One request that shows nothing: no token, no secret. Nothing is read, nothing is written and no notification is sent.
 
-What the check above cannot see: whether a push reaches a phone. That needs a device whose user switched notifications on — on 2026-10-03 the coach account had none, so every push meant for the coach reached nobody (avatar → **Notifications** → *Enable*, on the coach's phone). The real test is a message from the coach to the test athlete, with the athlete's phone locked.
+```bash
+node --env-file=.env --input-type=module -e '
+const url = new URL("/functions/v1/dispatch-rest-push", process.env.VITE_SUPABASE_URL);
+const body = JSON.stringify({ scheduleId: "00000000-0000-0000-0000-000000000000" });
+const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body });
+const said = `${res.status} ${(await res.text()).replace(/\s+/g, " ").trim().slice(0, 120)}`;
+console.log(`no credentials: ${said}`);
+if (said !== "401 dispatch-rest-push: unauthorized") process.exit(1);
+'
+```
+
+It prints one line, `no credentials: 401 dispatch-rest-push: unauthorized`: the function itself refused. So the gateway let the request through — which is what the requests the function makes to itself need — and the version that answers is the one of this page.
+
+If it does not print that:
+
+- **`no credentials: 401`, then anything else** — JSON, a mention of a JWT or of an authorization header. The gateway answered, not the function. **Before the first deploy from this branch that is expected**: the version in production runs behind the gateway's check. **After a deploy it is a fault that nothing else shows**: the app's own request still gets through, with the athlete's token, and a rest of a minute or less rings — but every request the function makes to itself is refused, so no longer rest does. Deploy again with the command of section 1, from the root of the checkout, and run this again. If the line does not change, the CLI did not take the flag from `supabase/config.toml`: stop and report.
+- **`no credentials: 401 Unauthorized`** — one word. The version from before this page (v2) is deployed without the gateway's check, which is what "Undo" leaves. It checks the athlete's token itself: nothing is open. A rest of two and a half minutes or more does not ring.
+- **`no credentials: 404`, then anything**, **`no credentials: 503`, then anything**, **`no credentials: 200`, then anything** — as for `send-push` above: no such function, a function that does not start (its log, then "Undo"), a function that answers a caller who shows nothing (stop and report).
+
+What the two checks cannot see: whether a push reaches a phone. That needs a device whose user switched notifications on — on 2026-10-03 the coach account had none, so every push meant for the coach reached nobody (avatar → **Notifications** → *Enable*, on the coach's phone). The real test of `send-push` is a message from the coach to the test athlete, with the athlete's phone locked.
+
+**The real test of `dispatch-rest-push` is a long rest, with the phone locked.** As the test athlete, with *Rest end notification* switched on: tick a set whose rest is **three minutes**, lock the phone, and wait. One notification, at the end of the rest. Then the same with a rest of **five minutes**. These are the two rests that never rang before; a rest of a minute proves nothing, because it takes one request and no hand-over. While the phone is locked, the log of the function shows one line a minute (section 5), and that is where to look if nothing arrives.
 
 ## 4. Rotating `INTERNAL_BEARER`
 
@@ -181,6 +212,8 @@ When: once now, if the value in use is the project's service-role key or anythin
 The value is a random string that nobody has to know. It is made in the shell, sent to the two places that hold it, and forgotten.
 
 Between the second and the third command the two places disagree, and a push the database sends in that moment is refused (its bell row is written all the same). Run them one right after the other, at an hour when nobody trains.
+
+That hour matters for `dispatch-rest-push` too. A function reads the secret when one of its workers starts. A rest that is being waited for while the secret changes can be handed from a worker that still holds the old value to one that holds the new: the hand-over is refused, and that rest does not ring. The next one does.
 
 ```bash
 export INTERNAL_BEARER="$(openssl rand -hex 32)"
@@ -243,9 +276,41 @@ One line per device that did not take the message, then one for the request when
 
 A line that says `rest push <id>: not sent — another sender took it, it was taken back, or its time is more than a minute past` is not a failure: the athlete started the next set before the rest was over, or the other function had sent the notification already.
 
+**The end of a rest** is in the log of the other function: Dashboard → Edge Functions → `dispatch-rest-push` → **Logs**. Every request of a rest writes a line when it starts, so a rest of three minutes that rang reads:
+
+```text
+dispatch-rest-push: rest push 7b0e6c52-3a41-4d8f-9c1e-2f5a8d4b6e90: hop 1, hands over in 60 s (180 s before its time)
+dispatch-rest-push: rest push 7b0e6c52-3a41-4d8f-9c1e-2f5a8d4b6e90: hop 2, hands over in 60 s (120 s before its time)
+dispatch-rest-push: rest push 7b0e6c52-3a41-4d8f-9c1e-2f5a8d4b6e90: hop 3, sends in 60 s
+dispatch-rest-push: rest push 7b0e6c52-3a41-4d8f-9c1e-2f5a8d4b6e90: sent to 1 device
+```
+
+And the same rest, where the function is deployed with JWT verification on:
+
+```text
+dispatch-rest-push: rest push 7b0e6c52-3a41-4d8f-9c1e-2f5a8d4b6e90: hop 1, hands over in 60 s (180 s before its time)
+dispatch-rest-push: rest push 7b0e6c52-3a41-4d8f-9c1e-2f5a8d4b6e90: hop 2 did not take over, the rest does not ring: HTTP 401 {"code":401,"message":"Missing authorization header"}
+```
+
+`<id>` is the row of `scheduled_pushes`. A device that did not take the push is a `push failed` line as above, with `dispatch-rest-push` in front.
+
+| The line says | What it means | What to do |
+|---|---|---|
+| `hop N, hands over in … s` | one of the requests of a rest: it waits, then calls the function for the next minute | nothing |
+| `hop N, sends in … s`, then `sent to N device(s)` | the last request of a rest, and the notification | nothing |
+| `no longer waiting after hop N — taken back, or sent by the other sender. Not handed over` | the athlete started the next set, or left the session, before the rest was over | nothing: that rest must not ring |
+| `hop N did not take over, the rest does not ring: HTTP 401`, then JSON | the gateway refused the request the function made to itself: `dispatch-rest-push` is deployed with JWT verification **on**. Every rest longer than a minute is lost | deploy again (section 1), then the check of section 3 |
+| `… did not take over …: HTTP 401 dispatch-rest-push: unauthorized` | the function refused its own request: the two workers do not hold the same secret. Expected in the minute of a rotation | nothing, unless it goes on: then set the secret again (section 4) |
+| `… did not take over …: INTERNAL_BEARER is not set`, or `HTTP 500 dispatch-rest-push: not configured` | the function has no secret to show itself | `supabase secrets list` must show the name; section 4 sets it |
+| `… did not take over …:` anything else — `HTTP 503`, a time limit, `fetch failed` | the platform did not start the next request within ten seconds | nothing, unless it goes on: that rest is lost, and there is no second try. pg_cron does not depend on it ([50](50-pg-cron.md)) |
+| `claim_rest_push could not be asked, nothing is sent` | the database has no such function: migration 16 is not applied | [16](migrations/16-rest-push-scheduling.md), then nothing: the next rest rings |
+| `refused, …` | a request that was not let in, or not understood: no token, a token the auth server does not accept, a row of somebody else | nothing. Many of them from one address is somebody trying |
+
 ## Undo
 
-A function has no rollback file: going back is deploying the old code. The code in production before this page (v4) is `supabase/functions/send-push/index.ts` as commit `a61f0c31f2` has it. That commit is already on GitHub's `main`, so the command finds it whatever happens to the branch this page came with.
+A function has no rollback file: going back is deploying the old code. The code in production before this page is `supabase/functions/send-push/index.ts` (v4) and `supabase/functions/dispatch-rest-push/index.ts` (v2) as commit `a61f0c31f2` has them. That commit is already on GitHub's `main`, so the commands find it whatever happens to the branch this page came with. One function at a time, and only the one that has to go back.
+
+**`send-push`:**
 
 ```bash
 git restore --source=a61f0c31f2 --worktree -- supabase/functions/send-push/index.ts
@@ -261,6 +326,22 @@ git restore -- supabase/functions/send-push/index.ts
 
 The first command changes one file of the working tree, the last puts it back. In between, the check of section 3 prints `no bearer: 401 Unauthorized`. The flag still comes from `supabase/config.toml`, which is right for the old code too. The secret is not part of a deploy: undoing a rotation is rotating again.
 
-When to: the function does not start after a deploy, or the check prints something this page does not explain. Not for a failed rotation — the code is not the problem there.
+**`dispatch-rest-push`:**
 
-**Not while the job `sl-rest-push` is switched on.** The version this goes back to does not know a rest push that is handed over early: it sends it at once, to every device of the athlete, ten seconds before the rest is over, and the function the app calls rings them again at the time — every rest, twice. Switch the job off first ([50](50-pg-cron.md), "Pausing a job, and starting it again"), then go back. Without pg_cron there is no such job and nothing to switch off. What else is lost by going back: the lines of section 5, the `502`, and the one-day limit on a message that waits for a phone.
+```bash
+git restore --source=a61f0c31f2 --worktree -- supabase/functions/dispatch-rest-push/index.ts
+```
+
+```bash
+supabase functions deploy dispatch-rest-push --use-api
+```
+
+```bash
+git restore -- supabase/functions/dispatch-rest-push/index.ts
+```
+
+In between, its check of section 3 prints `no credentials: 401 Unauthorized`. The flag comes from `supabase/config.toml` here too, and says the gateway does not check: the old code asks the auth server about the athlete's token itself, so nothing is open. What is lost is what this page is for: a rest of two and a half minutes or more no longer rings.
+
+When to, for either function: it does not start after a deploy, or its check prints something this page does not explain. Not for a failed rotation — the code is not the problem there. And not because a long rest did not ring once: read the log first (section 5), the line says which request was lost and why.
+
+**Not while the job `sl-rest-push` is switched on.** That holds for both functions. The `send-push` this goes back to does not know a rest push that is handed over early: it sends it at once, to every device of the athlete, ten seconds before the rest is over, and the function the app calls rings them again at the time — every rest, twice. The `dispatch-rest-push` this goes back to does not ask the database before it sends: next to the job, the two send. Switch the job off first ([50](50-pg-cron.md), "Pausing a job, and starting it again"), then go back. Without pg_cron there is no such job and nothing to switch off. What else is lost by going back to the old `send-push`: the lines of section 5, the `502`, and the one-day limit on a message that waits for a phone.

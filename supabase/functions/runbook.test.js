@@ -15,12 +15,13 @@ import {
 //
 //   - what it lists: the functions with the flag supabase/config.toml gives
 //     them, the commands, the secrets the functions read;
-//   - the check it gives for after a deploy, read off the page and run
-//     against send-push/index.ts itself, behind a real port — and against
-//     what the page says a wrong deploy looks like;
-//   - the lines of the function's log it quotes, which send-push/index.ts
+//   - the checks it gives for after a deploy, read off the page and run
+//     against send-push/index.ts and dispatch-rest-push/index.ts themselves,
+//     behind a real port — and against what the page says a wrong deploy
+//     looks like;
+//   - the lines of the functions' logs it quotes, which the two index.ts
 //     must write to the character;
-//   - the way back it gives, to the version before.
+//   - the way back it gives, to the versions before.
 //
 // The SQL statements of the page (the vault) are run by
 // supabase/tests/push-secrets.test.js, in the database suite.
@@ -112,26 +113,39 @@ describe(`${PAGE}: deploying`, () => {
 // the page takes from a commit.
 describe(`${PAGE}: going back`, () => {
   const FILE = 'supabase/functions/send-push/index.ts';
-  const [, sha] = new RegExp(`^git restore --source=([0-9a-f]{7,40}) --worktree -- ${FILE}$`, 'm').exec(page) ?? [];
-  const before = (() => {
+  const DISPATCH_FILE = 'supabase/functions/dispatch-rest-push/index.ts';
+  const shaFor = (file) => new RegExp(`^git restore --source=([0-9a-f]{7,40}) --worktree -- ${file}$`, 'm').exec(page)?.[1];
+  // The file as the commit the page names has it, or null: no such commit in
+  // this clone (a shallow one — CI), or no commit named.
+  const fileAt = (commit, file) => {
     try {
-      return execFileSync('git', ['show', `${sha}:${FILE}`], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      return execFileSync('git', ['show', `${commit}:${file}`], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
     } catch {
       return null;
     }
-  })();
+  };
+  const sha = shaFor(FILE);
+  const before = fileAt(sha, FILE);
+  const dispatchBefore = fileAt(shaFor(DISPATCH_FILE), DISPATCH_FILE);
 
-  it('takes one file from a commit, deploys it like any other version, and puts the file back', () => {
-    expect(sha, `${PAGE} names no commit to restore ${FILE} from`).toBeTruthy();
-    const steps = [
-      `git restore --source=${sha} --worktree -- ${FILE}`,
-      'supabase functions deploy send-push --use-api',
-      `git restore -- ${FILE}`,
-    ].map((command) => commands.lastIndexOf(command));
-    expect(steps.every((at) => at !== -1), 'the undo lacks one of its commands').toBe(true);
-    expect(steps).toEqual([...steps].sort((a, b) => a - b));
+  it('takes one file from a commit, deploys it like any other version, and puts the file back — for each function', () => {
+    for (const [name, file] of [['send-push', FILE], ['dispatch-rest-push', DISPATCH_FILE]]) {
+      const from = shaFor(file);
+      expect(from, `${PAGE} names no commit to restore ${file} from`).toBeTruthy();
+      const steps = [
+        `git restore --source=${from} --worktree -- ${file}`,
+        `supabase functions deploy ${name} --use-api`,
+        `git restore -- ${file}`,
+      ].map((command) => commands.lastIndexOf(command));
+      expect(steps.every((at) => at !== -1), `the undo of ${name} lacks one of its commands`).toBe(true);
+      expect(steps, name).toEqual([...steps].sort((a, b) => a - b));
+      // One after the other, with nothing in between.
+      expect(steps[2] - steps[0], name).toBe(2);
+    }
+    // One commit for both, which the test below holds to the published main.
+    expect(shaFor(DISPATCH_FILE)).toBe(sha);
     // Nothing else of the working tree is touched, and nothing is staged.
-    expect(commands.filter((command) => /^git /.test(command))).toHaveLength(2);
+    expect(commands.filter((command) => /^git /.test(command))).toHaveLength(4);
   });
 
   // The version this goes back to sends a rest push the moment it is handed
@@ -144,6 +158,22 @@ describe(`${PAGE}: going back`, () => {
     const when = page.slice(page.indexOf('\n## When\n'), page.indexOf('\n## 1. Deploy\n'));
     expect(when).toContain('**migrations 15 and 16, then this deploy, then, if you choose pg_cron, migration 19.**');
     expect(when).toContain('**Never migration 19 before this deploy.**');
+  });
+
+  // The other function has the same two rules, for its own reasons: without
+  // migration 16 it has no claim to ask and sends nothing; and the version
+  // before sends a row it has merely read, next to whatever else sends it.
+  it('says the same of dispatch-rest-push, and that it is never deployed before migration 16', () => {
+    const when = page.slice(page.indexOf('\n## When\n'), page.indexOf('\n## 1. Deploy\n'));
+    expect(when).toContain('**migration 16, then this deploy, then, if you choose pg_cron, migration 19.**');
+    expect(when).toContain('**Never before migration 16.**');
+    expect(when).toContain('**Never migration 19 before this deploy either.**');
+    const undo = page.slice(page.indexOf('\n## Undo\n'));
+    expect(undo).toContain('That holds for both functions.');
+    expect(undo).toContain('does not ask the database before it sends');
+    // What the function writes when the claim is not there, as the page has it.
+    expect(when).toContain('`claim_rest_push could not be asked`');
+    expect(read('supabase/functions/_shared/push.js')).toContain('claim_rest_push could not be asked, nothing is sent');
   });
 
   // The way back is needed on the day a deploy went wrong, possibly months
@@ -176,6 +206,22 @@ describe(`${PAGE}: going back`, () => {
     expect(before).toContain("new Response('Unauthorized', { status: 401");
     expect(page).toContain('prints `no bearer: 401 Unauthorized`');
   });
+
+  // The old dispatch-rest-push goes back under the flag of today: the gateway
+  // no longer checks in front of it. That is safe only because it asks the
+  // auth server about the token itself — which is what is looked for here.
+  it.skipIf(dispatchBefore === null)('names a commit that holds dispatch-rest-push as it was before the hops, and which checks its caller itself', () => {
+    expect(dispatchBefore).toContain('await sleep(delay)');
+    expect(dispatchBefore).not.toContain('claim_rest_push');
+    expect(dispatchBefore).not.toContain('_shared');
+    expect(dispatchBefore).toContain('await userClient.auth.getUser()');
+    expect(dispatchBefore).toMatch(/if \(userErr \|\| !userData\?\.user\) \{\s+return new Response\('Unauthorized', \{ status: 401/);
+    expect(dispatchBefore).toContain("if (scheduled.user_id !== userId)");
+    // What its check prints in between, as the page says.
+    expect(dispatchBefore).toMatch(/if \(!auth\) \{\s+return new Response\('Unauthorized', \{ status: 401/);
+    expect(page).toContain('prints `no credentials: 401 Unauthorized`');
+    expect(functionTables(read(CONFIG))['dispatch-rest-push']).toEqual({ verify_jwt: false });
+  });
 });
 
 // ------------------------------------------------------------
@@ -206,11 +252,12 @@ describe(`${PAGE}: the check after a deploy`, () => {
   const servers = [];
   const folders = [];
 
-  // A port that answers /functions/v1/send-push with `handler`, and a folder
-  // standing in for the checkout: it holds the `.env` that points there.
-  async function deployed(handler) {
+  // A port that answers /functions/v1/send-push (or `path`) with `handler`,
+  // and a folder standing in for the checkout: it holds the `.env` that
+  // points there.
+  async function deployed(handler, path = '/functions/v1/send-push') {
     const server = await listen((request) => (
-      new URL(request.url).pathname === '/functions/v1/send-push'
+      new URL(request.url).pathname === path
         ? handler(request)
         : Response.json({ code: 'NOT_FOUND', message: 'Requested function was not found' }, { status: 404 })
     ));
@@ -241,11 +288,12 @@ describe(`${PAGE}: the check after a deploy`, () => {
   // environment is NOT inherited — `node --env-file` never overrides a
   // variable that is already set, and this process may carry the real
   // project's URL — and the shell holds the secret only when `bearer` says so.
-  function paste({ project }, { bearer } = {}) {
+  // `command` is the check of send-push unless another one is given.
+  function paste({ project }, { bearer, command = check } = {}) {
     if (!project || resolve(project).startsWith(root)) throw new Error(`paste: refusing to run in ${project}`);
-    if (typeof check !== 'string' || /https?:\/\//.test(check)) throw new Error('paste: refusing this command');
+    if (typeof command !== 'string' || /https?:\/\//.test(command)) throw new Error('paste: refusing this command');
     return new Promise((done) => {
-      execFile('bash', ['-c', check], {
+      execFile('bash', ['-c', command], {
         cwd: project,
         env: {
           PATH: `${dirname(process.execPath)}:${process.env.PATH}`,
@@ -408,6 +456,111 @@ describe(`${PAGE}: the check after a deploy`, () => {
     expect(ran.stderr).toContain('.env: not found');
     expect(page).toContain('**`node: .env: not found`**');
   });
+
+  // The other function has a check of its own: one request that shows
+  // nothing. The gateway does not guard dispatch-rest-push any more — the
+  // requests it makes to itself carry no user JWT — and a deploy that puts
+  // the gateway's check back loses every rest longer than a minute, with
+  // nothing to show for it but a line in a log. This is the command that
+  // tells, the minute after the deploy.
+  describe('of dispatch-rest-push', () => {
+    const PATH = '/functions/v1/dispatch-rest-push';
+    const GATEWAY = { code: 401, message: 'Missing authorization header' };
+    const command = commands.find((one) => one.includes(PATH));
+    const createClient = vi.fn(() => { throw new Error('the check must not get as far as a client'); });
+
+    const dispatchRestPush = () => loadFunction('dispatch-rest-push', {
+      env: { ...ENV, SUPABASE_ANON_KEY: NEVER_SENT[2] },
+      modules: {
+        'jsr:@supabase/supabase-js@2': { createClient },
+        'npm:web-push@3.6.7': { default: webpush },
+      },
+    });
+
+    it('is on the page, apart from the check of send-push, and says what it prints', () => {
+      expect(command, `${PAGE} has no bash block that calls ${PATH}`).toBeTruthy();
+      expect(command).not.toBe(check);
+      expect(command).not.toContain('/functions/v1/send-push');
+      expect(page).toContain('It prints one line, `no credentials: 401 dispatch-rest-push: unauthorized`');
+    });
+
+    it('prints that line against dispatch-rest-push itself, which makes no client and reads nothing', async () => {
+      const site = await deployed(await dispatchRestPush(), PATH);
+      const ran = await paste(site, { command });
+      expect(ran.stderr).toBe('');
+      expect(ran.failed).toBe(false);
+      expect(ran.stdout).toBe('no credentials: 401 dispatch-rest-push: unauthorized\n');
+      expect(site.requests.map(({ method, path }) => `${method} ${path}`)).toEqual([`POST ${PATH}`]);
+      expect(createClient).not.toHaveBeenCalled();
+      expect(webpush.sendNotification).not.toHaveBeenCalled();
+    });
+
+    // During a rotation the shell holds the secret. This check has no use
+    // for it, and does not send it.
+    it('shows nothing — no token, no secret — even when the shell holds one, and takes nothing else from .env', async () => {
+      const site = await deployed(await dispatchRestPush(), PATH);
+      const ran = await paste(site, { command, bearer: SECRET });
+      expect(ran.stdout).toBe('no credentials: 401 dispatch-rest-push: unauthorized\n');
+      expect(site.requests).toHaveLength(1);
+      expect(site.requests[0].headers.authorization).toBeUndefined();
+      expect(site.requests[0].headers['x-internal-bearer']).toBeUndefined();
+      expect(site.requests[0].headers.apikey).toBeUndefined();
+      for (const secret of [...NEVER_SENT, SECRET]) expect(JSON.stringify(site.requests)).not.toContain(secret);
+    });
+
+    // The fault this check exists for, and also what it prints before the
+    // first deploy from this branch: the page says both.
+    it('tells the gateway\'s refusal from the function\'s: JWT verification is on', async () => {
+      const reached = vi.fn();
+      const site = await deployed((request) => {
+        if (request.headers.has('authorization')) return reached();
+        return Response.json(GATEWAY, { status: 401 });
+      }, PATH);
+      const ran = await paste(site, { command });
+      expect(ran.failed).toBe(true);
+      expect(ran.stdout).toBe('no credentials: 401 {"code":401,"message":"Missing authorization header"}\n');
+      expect(reached).not.toHaveBeenCalled();
+      expect(page).toContain('**`no credentials: 401`, then anything else**');
+      expect(page).toContain('**Before the first deploy from this branch that is expected**');
+      expect(page).toContain('every request the function makes to itself is refused');
+    });
+
+    it('recognises the version from before, deployed without the gateway\'s check', async () => {
+      const site = await deployed(() => new Response('Unauthorized', {
+        status: 401, headers: { 'Access-Control-Allow-Origin': '*' },
+      }), PATH);
+      const ran = await paste(site, { command });
+      expect(ran.failed).toBe(true);
+      expect(ran.stdout).toBe('no credentials: 401 Unauthorized\n');
+      expect(page).toContain('**`no credentials: 401 Unauthorized`**');
+    });
+
+    it('fails on a function that is not there, that does not start, or that answers anyone', async () => {
+      const cases = [
+        [() => Response.json({ code: 'NOT_FOUND', message: 'Requested function was not found' }, { status: 404 }), /^no credentials: 404 /, '**`no credentials: 404`, then anything**'],
+        [() => Response.json({ code: 'BOOT_ERROR', message: 'Function failed to start (please check logs)' }, { status: 503 }), /^no credentials: 503 /, '**`no credentials: 503`, then anything**'],
+        [() => Response.json({ accepted: true }, { status: 202 }), /^no credentials: 202 /, '**`no credentials: 200`, then anything**'],
+        [() => new Response('dispatch-rest-push: already resolved'), /^no credentials: 200 /, '**`no credentials: 200`, then anything**'],
+      ];
+      for (const [handler, line, bullet] of cases) {
+        const site = await deployed(handler, PATH);
+        const ran = await paste(site, { command });
+        expect(ran.failed, bullet).toBe(true);
+        expect(ran.stdout, bullet).toMatch(line);
+        expect(ran.stdout.trimEnd().split('\n'), bullet).toHaveLength(1);
+        expect(page).toContain(bullet);
+      }
+    });
+
+    it('fails by name in a folder that has no .env', async () => {
+      const empty = mkdtempSync(join(tmpdir(), 'sl-edge-check-'));
+      folders.push(empty);
+      const ran = await paste({ project: empty }, { command });
+      expect(ran.failed).toBe(true);
+      expect(ran.stdout).toBe('');
+      expect(ran.stderr).toContain('.env: not found');
+    });
+  });
 });
 
 // ------------------------------------------------------------
@@ -511,5 +664,145 @@ describe(`${PAGE}: the lines of the log`, () => {
   it('names the place where they are read, and the 200 characters', () => {
     expect(page).toContain('Dashboard → Edge Functions → `send-push` → **Logs**');
     expect(page).toContain('cut at 200 characters');
+  });
+});
+
+// ------------------------------------------------------------
+// Section 5, the other function: what a rest writes in the log of
+// dispatch-rest-push, request by request. The page quotes a rest of three
+// minutes that rang, and the same rest where the function is deployed with
+// JWT verification on — the one fault of a deploy that nothing but this log
+// shows. The rest the page describes is run through dispatch-rest-push/index.ts
+// on a clock of the test, with the address the function calls itself at
+// answered by the function, or by a gateway that asks for a user JWT.
+// ------------------------------------------------------------
+describe(`${PAGE}: the lines of the log of dispatch-rest-push`, () => {
+  const USER = '11111111-1111-4111-8111-111111111111';
+  const SECRET = '3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b';
+  const TOKEN = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.c2lnbmF0dXJlLW9mLXRoZS11c2Vy';
+  const NOW = Date.parse('2026-10-13T20:00:00.000Z');
+  const quoted = fences
+    .filter(({ lang, body }) => lang === 'text' && body.startsWith('dispatch-rest-push: rest push '))
+    .map(({ body }) => body.split('\n'));
+  const [rang = [], refused = []] = quoted;
+  const [, id, ahead] = /^dispatch-rest-push: rest push ([0-9a-f-]{36}): hop 1, hands over in \d+ s \((\d+) s before its time\)$/.exec(rang[0] ?? '') ?? [];
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  // The rest of the page, started by the app, to its end. `gateway` stands in
+  // front of the function for the requests it makes to itself.
+  async function rest({ gateway }) {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    vi.setSystemTime(NOW);
+    const tables = {
+      push_subscriptions: [{ id: 's1', user_id: USER, endpoint: 'https://web.push.apple.com/the-address-of-s1', p256dh: 'k', auth: 'a' }],
+      scheduled_pushes: [{
+        id, user_id: USER, status: 'pending', canceled_at: null, fire_at: new Date(NOW + Number(ahead) * 1000).toISOString(),
+        payload: { title: 'Rest done' }, endpoint: null, sent_at: null, error: null,
+      }],
+    };
+    const admin = fakeAdmin(tables, {
+      rpc: {
+        claim_rest_push: ({ p_id }) => {
+          const row = tables.scheduled_pushes.find((one) => one.id === p_id && one.status === 'pending');
+          if (!row) return { data: null };
+          row.status = 'sending';
+          return { data: { id: row.id, user_id: row.user_id, payload: row.payload, endpoint: row.endpoint, fire_at: row.fire_at } };
+        },
+      },
+    });
+    const webpush = { setVapidDetails: vi.fn(), sendNotification: vi.fn(async () => ({ statusCode: 201 })) };
+    const written = [];
+    for (const level of ['info', 'warn', 'error']) {
+      vi.spyOn(console, level).mockImplementation((line) => { written.push({ level, line }); });
+    }
+    const handed = [];
+    vi.stubGlobal('EdgeRuntime', { waitUntil: (work) => { handed.push(work); } });
+    const handler = await loadFunction('dispatch-rest-push', {
+      env: {
+        SUPABASE_URL: 'https://project.invalid',
+        SUPABASE_ANON_KEY: 'anon-key-of-the-test',
+        SUPABASE_SERVICE_ROLE_KEY: 'service-role-key-of-the-test',
+        INTERNAL_BEARER: SECRET,
+        VAPID_PUBLIC_KEY: 'vapid-public',
+        VAPID_PRIVATE_KEY: 'vapid-private',
+      },
+      modules: {
+        'jsr:@supabase/supabase-js@2': {
+          createClient: (url, key) => (key === 'anon-key-of-the-test'
+            ? { auth: { getUser: async () => ({ data: { user: { id: USER } }, error: null }) } }
+            : admin),
+        },
+        'npm:web-push@3.6.7': { default: webpush },
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => (gateway ? gateway(new Request(url, init)) : handler(new Request(url, init)))));
+
+    const response = await handler(new Request('http://functions.invalid/functions/v1/dispatch-rest-push', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ scheduleId: id }),
+    }));
+    expect(response.status).toBe(202);
+    await vi.advanceTimersByTimeAsync(Number(ahead) * 1000);
+    await Promise.all(handed);
+    return { written, webpush, row: tables.scheduled_pushes[0] };
+  }
+
+  it('quotes a rest that rang and one whose hand-over the gateway refused, of the same row', () => {
+    expect(quoted).toHaveLength(2);
+    expect(id, 'the first line names no row').toBeTruthy();
+    expect(Number(ahead)).toBeGreaterThan(120);
+    for (const line of [...rang, ...refused]) expect(line.startsWith(`dispatch-rest-push: rest push ${id}: `), line).toBe(true);
+    expect(rang.at(-1)).toMatch(/: sent to \d+ devices?$/);
+    expect(refused.at(-1)).toMatch(/did not take over, the rest does not ring: HTTP 401 \{/);
+    // Neither block is taken for the lines of send-push.
+    for (const line of [...rang, ...refused]) expect(line).not.toContain('push failed');
+  });
+
+  it('is what dispatch-rest-push writes for that rest, to the character', async () => {
+    const { written, webpush, row } = await rest({});
+    expect(written.map(({ line }) => line)).toEqual(rang);
+    expect(written.every(({ level }) => level === 'info')).toBe(true);
+    expect(webpush.sendNotification).toHaveBeenCalledTimes(1);
+    expect(row.status).toBe('sent');
+  });
+
+  it('is what it writes where the gateway asks its own request for a user JWT, and nothing rings', async () => {
+    const gateway = (request) => (request.headers.has('authorization')
+      ? new Response('the stand-in was shown a token', { status: 500 })
+      : Response.json({ code: 401, message: 'Missing authorization header' }, { status: 401 }));
+    const { written, webpush, row } = await rest({ gateway });
+    expect(written.map(({ line }) => line)).toEqual(refused);
+    expect(written.map(({ level }) => level)).toEqual(['info', 'error']);
+    expect(webpush.sendNotification).not.toHaveBeenCalled();
+    expect(row.status).toBe('pending');
+  });
+
+  it('names the place where they are read, and explains the lines with the words the function writes', () => {
+    expect(page).toContain('Dashboard → Edge Functions → `dispatch-rest-push` → **Logs**');
+    const source = read('supabase/functions/_shared/restPush.js');
+    const rows = tableUnder('| The line says | What it means | What to do |') ?? [];
+    expect(rows.length).toBeGreaterThan(0);
+    // The table of the lines of dispatch-rest-push is the second of that shape.
+    const second = page.slice(page.indexOf('Dashboard → Edge Functions → `dispatch-rest-push` → **Logs**'));
+    for (const words of [
+      'hands over in',
+      'sends in',
+      'no longer waiting after hop',
+      'taken back, or sent by the other sender. Not handed over',
+      'did not take over, the rest does not ring',
+      'INTERNAL_BEARER is not set',
+      'not configured',
+      'refused, ',
+    ]) {
+      expect(second, words).toContain(words);
+      expect(source, words).toContain(words);
+    }
+    expect(second).toContain('`claim_rest_push could not be asked, nothing is sent`');
   });
 });

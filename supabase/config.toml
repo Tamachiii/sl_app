@@ -11,10 +11,13 @@
 # With the file, `supabase functions deploy <name>` is the whole command, and
 # the flag is not passed by hand.
 #
-#   verify_jwt = false   the function checks its caller itself: it opens with
-#                        the gate of functions/_shared/auth.js.
+#   verify_jwt = false   the function checks its caller itself, before
+#                        anything else, with the comparisons of
+#                        functions/_shared/auth.js.
 #   verify_jwt = true    the gateway lets signed-in users through, and the
-#                        function reads who they are from their token.
+#                        function reads who they are from their token. No
+#                        function has it: each of them is also called by the
+#                        project itself, which has no user token to show.
 #
 # A function directory without a table here fails supabase/functions/deploy.test.js;
 # how to deploy and how to check a deploy is docs/runbook/30-edge-functions.md.
@@ -34,6 +37,13 @@ project_id = "sl_app"
 [functions.send-push]
 verify_jwt = false
 
-# Called by the app with the signed-in athlete's JWT.
+# Called by the app with the signed-in athlete's JWT, and by itself — a rest
+# is waited for in hops of a minute, and each hop is a request the function
+# makes to its own address, with the INTERNAL_BEARER secret in the header
+# x-internal-bearer and no user JWT. With `true` the gateway refuses every
+# hop after the first, and a rest longer than a minute stops ringing, with no
+# error anywhere. The function checks both callers itself: the athlete's
+# token with the auth server, the secret in constant time
+# (functions/_shared/restPush.js).
 [functions.dispatch-rest-push]
-verify_jwt = true
+verify_jwt = false
