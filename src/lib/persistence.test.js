@@ -1,12 +1,13 @@
 import { createElement } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, cleanup, renderHook } from '@testing-library/react';
+import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react';
 import {
   MutationObserver,
   QueryClient,
   QueryClientProvider,
   focusManager,
   onlineManager,
+  useIsRestoring,
 } from '@tanstack/react-query';
 import { persistQueryClientRestore, persistQueryClientSave } from '@tanstack/react-query-persist-client';
 
@@ -94,7 +95,19 @@ const db = vi.hoisted(() => {
 });
 vi.mock('./supabase', () => ({ supabase: db.supabase }));
 vi.mock('./toast', () => ({ pushToast: vi.fn() }));
-vi.mock('../hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 'u-1' } }) }));
+vi.mock('../hooks/useAuth', () => ({
+  useAuth: () => ({ user: { id: 'u-1' } }),
+  AuthProvider: ({ children }) => children,
+}));
+// App.jsx is imported for its CacheBoundary alone: not the pages, not what it
+// starts at load.
+vi.mock('../routes', () => ({ routes: [] }));
+vi.mock('../hooks/usePushAutoHeal', () => ({ usePushAutoHeal: () => {} }));
+vi.mock('./errorReporter', () => ({
+  installGlobalErrorReporting: vi.fn(),
+  reportError: vi.fn(),
+  setErrorReporterUser: vi.fn(),
+}));
 
 import { pushToast } from './toast';
 
@@ -104,6 +117,11 @@ const noAnswer = async () => ({
   data: null,
   error: { message: 'TypeError: Failed to fetch', details: '', hint: '', code: '' },
 });
+// Every request waits until the test accepts it: `request.accept()`.
+const held = (request) =>
+  new Promise((resolve) => {
+    request.accept = () => resolve({ data: { id: 'row' }, error: null });
+  });
 // The requests as a list one can read: "update set_logs l-1 done=true".
 const wire = () =>
   db.state.sent.map(({ table, op, fn, payload, where }) => {
@@ -437,6 +455,311 @@ describe('a write that is not paused when the app is killed', () => {
     await next.replayQueuedWrites();
 
     expect(wire()).toEqual(['update set_logs l-1 done=true', 'update set_logs l-1 done=false']);
+  });
+});
+
+// --- B20: the order of a replay, through the store ---------------------------------
+
+describe('a workout logged without signal, the app killed, and opened again with a network', () => {
+  it('two taps on the same set leave in the order they were made: done, then not done', async () => {
+    const { app, toggle } = await tickOffline();
+    act(() => toggle.current.mutate({ logId: 'l-1', done: false }));
+    await vi.waitFor(() => expect(queue(app)).toHaveLength(2));
+    await save(app);
+
+    db.state.answer = held;
+    const next = await relaunch(app);
+    next.replayQueuedWrites();
+
+    await vi.waitFor(() => expect(wire()).toEqual(['update set_logs l-1 done=true']));
+    // The second one waits for the answer to the first, however long it takes.
+    await turn();
+    expect(db.state.sent).toHaveLength(1);
+    db.state.sent[0].accept();
+    await vi.waitFor(() =>
+      expect(wire()).toEqual(['update set_logs l-1 done=true', 'update set_logs l-1 done=false']),
+    );
+    db.state.sent[1].accept();
+    await vi.waitFor(() => expect(queue(next).map((m) => m.state.status)).toEqual(['success', 'success']));
+  });
+
+  it('each restored write is back in the scope it was made in: React Query stores the scope with the mutation', async () => {
+    deviceIs(false);
+    const app = await launchApp();
+    const { useToggleSetDone, useSetRpe, useConfirmSession } = await hooksOf();
+    const first = rendered(app, () => ({ done: useToggleSetDone('l-1'), rpe: useSetRpe('l-1') }));
+    const second = rendered(app, () => useToggleSetDone('l-2'));
+    const confirm = rendered(app, () => useConfirmSession());
+    act(() => first.current.done.mutate({ logId: 'l-1', done: true }));
+    act(() => first.current.rpe.mutate({ logId: 'l-1', rpe: 8 }));
+    act(() => second.current.mutate({ logId: 'l-2', done: true }));
+    act(() => confirm.current.mutate({ sessionId: 's-1', notes: null, performedOn: '2026-10-13' }));
+    await vi.waitFor(() => expect(queue(app).map((m) => m.state.isPaused)).toEqual([true, true, true, true]));
+    const live = queue(app).map((m) => m.options.scope);
+    const keys = queue(app).map((m) => m.options.mutationKey);
+    // Two writes of one row share a scope, another row has its own, and the
+    // confirmation is in the one of the writes that name none.
+    expect(live[0]).toEqual(live[1]);
+    expect(live[2]).not.toEqual(live[0]);
+    expect(live[3]).toEqual({ id: 'offline-writes' });
+    await save(app);
+
+    const next = await relaunch(app);
+
+    expect(queue(next).map((m) => m.options.scope)).toEqual(live);
+    expect(queue(next).map((m) => m.options.mutationKey)).toEqual(keys);
+    expect(queue(next).map((m) => m.state.variables)).toEqual([
+      expect.objectContaining({ logId: 'l-1', done: true }),
+      expect.objectContaining({ logId: 'l-1', rpe: 8 }),
+      expect.objectContaining({ logId: 'l-2', done: true }),
+      expect.objectContaining({ sessionId: 's-1', studentId: 'u-1', performedOn: '2026-10-13' }),
+    ]);
+  });
+
+  it('the sets of two rows do not wait for each other, and the writes of one row do', async () => {
+    deviceIs(false);
+    const app = await launchApp();
+    const { useToggleSetDone, useSetRpe } = await hooksOf();
+    const first = rendered(app, () => ({ done: useToggleSetDone('l-1'), rpe: useSetRpe('l-1') }));
+    const second = rendered(app, () => useToggleSetDone('l-2'));
+    act(() => first.current.done.mutate({ logId: 'l-1', done: true }));
+    act(() => first.current.rpe.mutate({ logId: 'l-1', rpe: 8 }));
+    act(() => second.current.mutate({ logId: 'l-2', done: true }));
+    await vi.waitFor(() => expect(queue(app).map((m) => m.state.isPaused)).toEqual([true, true, true]));
+    await save(app);
+
+    db.state.answer = held;
+    const next = await relaunch(app);
+    next.replayQueuedWrites();
+
+    // Both rows are out before any answer; the RPE of the first row is not.
+    await vi.waitFor(() => expect(db.state.sent).toHaveLength(2));
+    await turn();
+    expect(db.state.sent.map((request) => [request.where.id, Object.keys(request.payload)[0]])).toEqual([
+      ['l-1', 'done'],
+      ['l-2', 'done'],
+    ]);
+    // A row that hangs holds its own next write back, and nobody else's.
+    db.state.sent[1].accept();
+    await turn();
+    expect(db.state.sent).toHaveLength(2);
+    db.state.sent[0].accept();
+    await vi.waitFor(() => expect(db.state.sent).toHaveLength(3));
+    expect(db.state.sent[2]).toMatchObject({ where: { id: 'l-1' }, payload: { rpe: 8 } });
+  });
+
+  it('confirm, then undo: the two reach the database in that order, with the day the athlete trained', async () => {
+    deviceIs(false);
+    const app = await launchApp();
+    const { useConfirmSession, useUnconfirmSession, useSaveSlotComment } = await hooksOf();
+    const confirm = rendered(app, () => useConfirmSession());
+    const undo = rendered(app, () => useUnconfirmSession());
+    const note = rendered(app, () => useSaveSlotComment());
+    act(() => confirm.current.mutate({ sessionId: 's-1', notes: 'felt strong', performedOn: '2026-10-11' }));
+    act(() => undo.current.mutate({ sessionId: 's-1' }));
+    act(() => note.current.mutate({ slotId: 'slot-1', sessionId: 's-1', body: 'left knee' }));
+    await vi.waitFor(() => expect(queue(app).map((m) => m.state.isPaused)).toEqual([true, true, true]));
+    await save(app);
+
+    db.state.answer = held;
+    const next = await relaunch(app);
+    next.replayQueuedWrites();
+
+    await vi.waitFor(() => expect(db.state.sent).toHaveLength(1));
+    await turn();
+    expect(db.state.sent).toHaveLength(1);
+    expect(db.state.sent[0]).toMatchObject({
+      table: 'session_confirmations',
+      op: 'upsert',
+      // Two days after the workout: the day comes from the stored variables.
+      payload: { session_id: 's-1', student_id: 'u-1', notes: 'felt strong', performed_on: '2026-10-11' },
+      options: { onConflict: 'session_id', ignoreDuplicates: true },
+    });
+    db.state.sent[0].accept();
+    await vi.waitFor(() => expect(db.state.sent).toHaveLength(2));
+    await turn();
+    expect(wire()).toEqual(['upsert session_confirmations s-1', 'delete session_confirmations s-1']);
+    db.state.sent[1].accept();
+    await vi.waitFor(() => expect(db.state.sent).toHaveLength(3));
+    expect(db.state.sent[2]).toMatchObject({ table: 'slot_comments', op: 'upsert', payload: { body: 'left knee' } });
+  });
+
+  it('the snapshots of a draft leave in order on a scope of their own: one that hangs holds no set back', async () => {
+    deviceIs(false);
+    const app = await launchApp();
+    const tree = (name) => ({ program: { id: 'p-1', name, submitted_at: null }, weeks: [], sessions: [], slots: [] });
+    enqueue(app, app.MUTATION_KEYS.saveDraftTree, { tree: tree('Block'), rev: 1 });
+    enqueue(app, app.MUTATION_KEYS.saveDraftTree, { tree: tree('Block 4'), rev: 2 });
+    enqueue(app, app.MUTATION_KEYS.toggleDone, { logId: 'l-1', done: true });
+    await vi.waitFor(() => expect(queue(app).map((m) => m.state.isPaused)).toEqual([true, true, true]));
+    await save(app);
+
+    db.state.answer = held;
+    const next = await relaunch(app);
+    next.replayQueuedWrites();
+
+    await vi.waitFor(() => expect(db.state.sent).toHaveLength(2));
+    await turn();
+    expect(wire()).toEqual(['rpc save_draft_tree', 'update set_logs l-1 done=true']);
+    expect(db.state.sent[0].payload.p_tree.program.name).toBe('Block');
+    db.state.sent[0].accept();
+    await vi.waitFor(() => expect(db.state.sent).toHaveLength(3));
+    expect(db.state.sent[2].payload.p_tree.program.name).toBe('Block 4');
+  });
+
+  it('a set is still dated at the tap, not at the launch that sends it', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-11T18:05:00.000Z'));
+    const { app } = await tickOffline();
+    await save(app);
+
+    // Two days in a pocket.
+    vi.setSystemTime(new Date('2026-10-13T07:30:00.000Z'));
+    const next = await relaunch(app);
+    await next.replayQueuedWrites();
+
+    expect(db.state.sent[0].payload.done).toBe(true);
+    // The minute of the tap: the moment travels in what the device stored.
+    expect(db.state.sent[0].payload.logged_at.slice(0, 16)).toBe('2026-10-11T18:05');
+  });
+});
+
+describe('the app as App.jsx mounts it: the provider saves, the provider restores, the provider replays', () => {
+  let tick;
+  function LoggingPage({ useToggleSetDone }) {
+    const restoring = useIsRestoring();
+    tick = useToggleSetDone('l-1').mutate;
+    return createElement('p', null, restoring ? 'restoring' : 'ready');
+  }
+  // The CacheBoundary of App.jsx itself, of the same evaluation as the app.
+  async function mountApp(children) {
+    const { CacheBoundary } = await import('../App');
+    return render(createElement(CacheBoundary, null, children));
+  }
+
+  it('a set ticked without signal is on the device a second later, and in the database after the next launch', async () => {
+    deviceIs(false);
+    const app = await launchApp();
+    await mountApp(createElement(LoggingPage, await hooksOf()));
+    await screen.findByText('ready');
+
+    act(() => tick({ logId: 'l-1', done: true }));
+
+    // The persister writes at most once a second.
+    await waitFor(() => expect(onDevice()?.clientState.mutations).toHaveLength(1), { timeout: 3000 });
+    expect(db.state.sent).toEqual([]);
+    const { submittedAt } = onDevice().clientState.mutations[0].state;
+
+    kill(app);
+    deviceIs(true);
+    await launchApp();
+    await mountApp(createElement(LoggingPage, await hooksOf()));
+
+    await screen.findByText('ready');
+    expect(wire()).toEqual(['update set_logs l-1 done=true']);
+    // Dated at the tap, a second and a relaunch before the request.
+    const loggedAt = Date.parse(db.state.sent[0].payload.logged_at);
+    expect(loggedAt).toBeLessThanOrEqual(submittedAt);
+    expect(submittedAt - loggedAt).toBeLessThan(1000);
+    // Sent, so no longer owed — and the device is told at once, although
+    // nothing else changes in the cache and the provider was not saving yet
+    // when the write settled. Killed now, the app would send it a second time.
+    await waitFor(() => expect(onDevice().clientState.mutations).toEqual([]));
+    expect(pushToast).not.toHaveBeenCalled();
+  });
+
+  it('a set ticked before the provider was saving is on the device the moment it is — and only what is owed', async () => {
+    deviceIs(false);
+    const app = await launchApp();
+    // While the app replays its queue at launch the restored pages are on
+    // screen, and the provider hears nothing of what is done on them.
+    enqueue(app, app.MUTATION_KEYS.toggleDone, { logId: 'l-1', done: true });
+    // A page opened in that time, and its housekeeping write.
+    new MutationObserver(app.queryClient, { mutationFn: async () => 'done' }).mutate({ sessionId: 's-1' }).catch(() => {});
+    await vi.waitFor(() => expect(queue(app).map((m) => m.state.isPaused)).toEqual([true, true]));
+    expect(device.store.has(BLOB)).toBe(false);
+
+    await mountApp(createElement(LoggingPage, await hooksOf()));
+    await screen.findByText('ready');
+
+    // No change of the cache follows: the save is the provider's first act.
+    await waitFor(() => expect(onDevice()?.clientState.mutations).toHaveLength(1));
+    expect(onDevice().clientState.mutations[0].state.variables).toEqual({ logId: 'l-1', done: true });
+  });
+
+  it('so is a write a page makes as it mounts, in the very pass in which the provider starts saving', async () => {
+    // Its request goes out and hangs: after "pending" the mutation says
+    // nothing more, so no later change of the cache would get it saved.
+    db.state.answer = () => new Promise(() => {});
+    const app = await launchApp();
+    const { useEffect } = await import('react');
+    function PageThatWritesAtMount() {
+      const restoring = useIsRestoring();
+      useEffect(() => {
+        if (!restoring) enqueue(app, app.MUTATION_KEYS.saveSlotComment, { slotId: 'slot-1', studentId: 'u-1', body: 'left knee' });
+      }, [restoring]);
+      return createElement('p', null, restoring ? 'restoring' : 'ready');
+    }
+
+    await mountApp(createElement(PageThatWritesAtMount));
+    await screen.findByText('ready');
+
+    await waitFor(() => expect(db.state.sent).toHaveLength(1));
+    await waitFor(() => expect(onDevice()?.clientState.mutations).toHaveLength(1));
+    expect(onDevice().clientState.mutations[0].state).toMatchObject({ isPaused: true, variables: { body: 'left knee' } });
+  });
+
+  it('opened by another account than the one that left the blob: once the provider is ready the device holds nothing of the first', async () => {
+    // What another athlete left on this phone. `useAuth` says 'u-1' here.
+    const { app } = await tickOffline();
+    app.queryClient.setQueryData(['session', 's-1'], { id: 's-1', title: 'Legs' });
+    app.queryPersister.setOwner('u-someone-else');
+    await save(app);
+    expect(onDevice()).toMatchObject({ owner: 'u-someone-else' });
+    kill(app);
+
+    // Without a network: nothing of the queue is replayed in the meantime.
+    deviceIs(false);
+    const next = await launchApp();
+    const { ClearOnUserChange } = await import('../App');
+    await mountApp([
+      createElement(ClearOnUserChange, { key: 'guard' }),
+      createElement(LoggingPage, { key: 'page', ...(await hooksOf()) }),
+    ]);
+    await screen.findByText('ready');
+    await turn();
+
+    // The wipe came before the provider's first save, not after it: what is
+    // on the device is the emptied cache, under the name of who is signed in.
+    expect(queue(next)).toEqual([]);
+    expect(next.queryClient.getQueryCache().getAll()).toEqual([]);
+    expect(onDevice()).toMatchObject({ owner: 'u-1', clientState: { queries: [], mutations: [] } });
+    expect(db.state.sent).toEqual([]);
+  });
+
+  it('and with a network: the set the first account still owed is not sent under the name of the second', async () => {
+    const { app } = await tickOffline();
+    app.queryPersister.setOwner('u-someone-else');
+    await save(app);
+    kill(app);
+
+    deviceIs(true);
+    const next = await launchApp();
+    const { ClearOnUserChange } = await import('../App');
+    await mountApp([
+      createElement(ClearOnUserChange, { key: 'guard' }),
+      createElement(LoggingPage, { key: 'page', ...(await hooksOf()) }),
+    ]);
+    await screen.findByText('ready');
+    await turn();
+
+    expect(queue(next)).toEqual([]);
+    expect(onDevice()).toMatchObject({ owner: 'u-1', clientState: { queries: [], mutations: [] } });
+    // Not at the replay the provider runs before anything can look at the
+    // owner, and not afterwards either.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(db.state.sent).toEqual([]);
+    expect(pushToast).not.toHaveBeenCalled();
   });
 });
 

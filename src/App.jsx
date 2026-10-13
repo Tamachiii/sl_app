@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { HashRouter, useRoutes } from 'react-router-dom';
 import { QueryClientProvider, useIsRestoring } from '@tanstack/react-query';
-import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { PersistQueryClientProvider, persistQueryClientSave } from '@tanstack/react-query-persist-client';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
 import { I18nProvider } from './hooks/useI18n';
@@ -74,7 +74,31 @@ function PushAutoHeal() {
   return null;
 }
 
-function CacheBoundary({ children }) {
+// PersistQueryClientProvider saves the cache at each of its changes — from the
+// moment the restore is over, and the replay of the queue it waits for
+// (`onSuccess` below). Until then it is not listening, and that can last: the
+// replay is waited for while it moves, for seconds on a slow network, with the
+// restored pages on screen. What changes in that time is in memory only: a
+// queued write that reached the database is still stored as owed, and a set
+// ticked meanwhile is not stored at all — until something else happens to
+// change the cache, or the app is killed first.
+//
+// So the cache is saved once, at the moment the provider starts listening.
+// This is the LAST child of the provider, and has to stay it: its effect runs
+// after those of everything else under the provider — a wipe decided by
+// `ClearOnUserChange`, a write a page makes as it mounts — and right before the
+// provider's own, in the same pass. Nothing can happen between this save and
+// the first change the provider hears of.
+function SaveWhenRestored() {
+  const isRestoring = useIsRestoring();
+  useEffect(() => {
+    if (isRestoring) return;
+    persistQueryClientSave({ queryClient, ...persistOptions }).catch(() => {});
+  }, [isRestoring]);
+  return null;
+}
+
+export function CacheBoundary({ children }) {
   // No IndexedDB (older Safari, jsdom test runs): drop straight to a vanilla
   // provider. Persistence becomes a no-op; queries still work in-memory.
   if (!persistOptions) {
@@ -99,6 +123,7 @@ function CacheBoundary({ children }) {
       onSuccess={replayQueuedWrites}
     >
       {children}
+      <SaveWhenRestored />
     </PersistQueryClientProvider>
   );
 }

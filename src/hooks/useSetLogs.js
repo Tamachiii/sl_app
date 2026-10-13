@@ -78,10 +78,10 @@ export function useEnsureSetLogs() {
 // Per-row mutation scope: writes to the SAME set_log run strictly FIFO (a
 // done → un-done pair queued offline can never land out of order), while
 // writes to different rows still run in parallel when online — so one slow
-// or hung request can't head-of-line-block the whole workout. Mutations
-// hydrated after a reload lose this option and fall back to the global
-// 'offline-writes' scope from registerOfflineMutationDefaults, which is
-// strictly serial — conservative and equally correct.
+// or hung request can't head-of-line-block the whole workout. A write
+// restored after a reload KEEPS this scope — React Query stores it with the
+// mutation — so both halves hold after a relaunch too: the sets of different
+// rows leave in parallel (src/lib/persistence.test.js).
 function rowScope(logId) {
   return logId ? { scope: { id: `set-log-${logId}` } } : {};
 }
