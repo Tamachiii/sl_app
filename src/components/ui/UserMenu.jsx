@@ -15,12 +15,12 @@ import NotificationBell from '../notifications/NotificationBell';
  */
 function PushToggleRow() {
   const { t } = useI18n();
-  const { supported, enabled, permission, pending, errorCode, enable, disable } = usePushSubscription();
+  const { supported, enabled, permission, pending, errorKey, enable, disable } = usePushSubscription();
   if (!supported) return null;
 
   const denied = permission === 'denied';
-  const hint = errorCode
-    ? t(`common.pushError.${errorCode}`)
+  const hint = errorKey
+    ? t(errorKey)
     : denied
       ? t('coach.notifications.denied')
       : !enabled

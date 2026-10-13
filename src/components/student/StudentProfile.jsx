@@ -140,12 +140,12 @@ function ChangePasswordDialog({ open, onClose }) {
 
 function RestNotificationToggle() {
   const { t } = useI18n();
-  const { supported, enabled, permission, pending, errorCode, enable, disable } = usePushSubscription();
+  const { supported, enabled, permission, pending, errorKey, enable, disable } = usePushSubscription();
 
   // Always render the section so users know the feature exists. Body
-  // copy adapts to capability + permission state; a live errorCode wins.
-  const hint = errorCode
-    ? t(`common.pushError.${errorCode}`)
+  // copy adapts to capability + permission state; a live error wins.
+  const hint = errorKey
+    ? t(errorKey)
     : !supported
       ? t('student.profile.notifications.unsupported')
       : permission === 'denied'
