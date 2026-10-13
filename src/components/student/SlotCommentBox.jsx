@@ -1,32 +1,44 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useSaveSlotComment } from '../../hooks/useSlotComments';
 
 /**
  * Compact per-slot comment affordance for the student.
  *
  * Collapsed: a single chat-bubble button; shows a dot when a comment exists.
- * Expanded: a small textarea that saves on blur (or cancels if unchanged).
+ * Expanded: a small textarea that saves when it is left (or cancels if
+ * unchanged) and closes at once.
  * Locked: read-only text when the session is archived.
+ *
+ * The field closes when it is left, not when the save is answered. The hook
+ * writes the note into the cache at that moment, so the pill shows it; and the
+ * answer can be hours away — a note written without a network is parked,
+ * which is neither a success nor a failure, and the field used to stay open on
+ * it as if nothing had happened.
  */
 export default function SlotCommentBox({ sessionId, slotId, comment, locked = false }) {
   const body = comment?.body || '';
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(body);
+  // What is being typed. Filled when the field opens — not kept equal to the
+  // note by an effect: the note changes under the field for other reasons
+  // than typing (a save that is taken back, a read that comes in).
+  const [draft, setDraft] = useState('');
+  // What a save that failed was carrying. The note on screen goes back to what
+  // the database has, and this is what the field opens on next: the athlete
+  // does not write it twice.
+  const [unsaved, setUnsaved] = useState(null);
   const save = useSaveSlotComment();
 
-  useEffect(() => {
-    setDraft(body);
-  }, [body]);
+  function openEditor() {
+    setDraft(unsaved ?? body);
+    setOpen(true);
+  }
 
   function handleBlur() {
-    if (draft.trim() === body.trim()) {
-      setOpen(false);
-      return;
-    }
-    save.mutate(
-      { sessionId, slotId, body: draft },
-      { onSuccess: () => setOpen(false) }
-    );
+    setOpen(false);
+    setUnsaved(null);
+    if (draft.trim() === body.trim()) return;
+    const written = draft;
+    save.mutate({ sessionId, slotId, body: written }, { onError: () => setUnsaved(written) });
   }
 
   if (locked) {
@@ -42,7 +54,7 @@ export default function SlotCommentBox({ sessionId, slotId, comment, locked = fa
     return (
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={openEditor}
         aria-label={body ? 'Edit note for coach' : 'Add note for coach'}
         // align-top pairs with the sibling "+ Add set" pill in SlotBody so the
         // two inline-flex pills sit level; the leading icon here throws off
