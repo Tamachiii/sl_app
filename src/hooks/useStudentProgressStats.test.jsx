@@ -973,3 +973,109 @@ describe('useStudentProgressStats — the athlete row id', () => {
     expect(db.requestsTo('students')).toHaveLength(2);
   });
 });
+
+// Confirmations, done sets and swaps are three flat lists that filter through
+// the program join: none needs the rows of another. They used to be awaited
+// one after the other, so the page waited for the sum of the three.
+describe('useStudentProgressStats — the three flat lists go out together', () => {
+  const LISTS = ['session_confirmations', 'set_logs', 'slot_deviations'];
+
+  const program = [
+    {
+      id: 'p-1', name: 'A', sort_order: 0, is_active: true,
+      weeks: [{
+        id: 'w-1', week_number: 1, label: null,
+        sessions: [{
+          id: 's-1', title: 'Push', day_number: 1, sort_order: 0,
+          scheduled_date: null, archived_at: null, performed_at: TRAINED_AT,
+          exercise_slots: [{
+            id: 'sl-1', sets: 2, reps: 5, duration_seconds: null, weight_kg: 100,
+            exercise: { id: 'e-1', name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
+            set_logs: [],
+          }],
+        }],
+      }],
+    },
+  ];
+  const tables = {
+    programsData: program,
+    confirmationsData: [{ id: 'c-1', session_id: 's-1', confirmed_at: TRAINED_AT }],
+    setLogsData: [
+      { id: 'l-1', exercise_slot_id: 'sl-1', done: true, target_reps: 5, target_weight_kg: 100 },
+      { id: 'l-2', exercise_slot_id: 'sl-1', done: true, target_reps: 5, target_weight_kg: 100 },
+    ],
+  };
+
+  // Serves every table from the fake, except that the answer of `heldTable`
+  // waits for `release()`. `asked` lists the tables in the order their
+  // requests were sent, the held one included.
+  function holdAnswerOf(heldTable) {
+    const { db } = setupChains(tables);
+    const asked = [];
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    supabase.from.mockImplementation((table) => {
+      const builder = db.from(table);
+      // A request is sent when it is awaited, or ended with `.single()`.
+      const { then: answer, single } = builder;
+      builder.single = () => {
+        asked.push(table);
+        return single();
+      };
+      builder.then = (resolve, reject) => {
+        asked.push(table);
+        return table === heldTable
+          ? gate.then(() => answer(resolve, reject))
+          : answer(resolve, reject);
+      };
+      return builder;
+    });
+    return { db, asked, release };
+  }
+
+  it.each(LISTS)('%s still unanswered, the two other lists are already asked for', async (held) => {
+    const { asked, release } = holdAnswerOf(held);
+    const { result } = renderHook(() => useStudentProgressStats(), {
+      wrapper: withClient(makeClient()),
+    });
+
+    await waitFor(() => expect(asked).toHaveLength(5));
+    // The row id, then the tree — the lists are only sent for a block that
+    // has sessions — then the three lists, none waiting for another.
+    expect(asked.slice(0, 2)).toEqual(['students', 'programs']);
+    expect([...asked.slice(2)].sort()).toEqual(LISTS);
+    expect(result.current.isSuccess).toBe(false);
+
+    release();
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(asked).toHaveLength(5);
+    expect(result.current.data.totalSetsDone).toBe(2);
+    expect(result.current.data.totalSessionsConfirmed).toBe(1);
+  });
+
+  it.each(LISTS)('a failed read of %s fails the stats — never a page computed without it', async (failing) => {
+    const { db } = setupChains(tables);
+    supabase.from.mockImplementation((table) =>
+      table === failing
+        ? fakePostgrest({ [table]: { error: { message: `${table} is down` } } }).from(table)
+        : db.from(table),
+    );
+    const { result } = renderHook(() => useStudentProgressStats(), {
+      wrapper: withClient(makeClient()),
+    });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error).toEqual({ message: `${failing} is down` });
+    expect(result.current.data).toBeUndefined();
+  });
+
+  it('sends none of the three for an athlete without a session', async () => {
+    const setup = setupChains({ programsData: [] });
+    setup.register();
+    const { result } = renderHook(() => useStudentProgressStats(), {
+      wrapper: withClient(makeClient()),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(setup.db.requests.map((r) => r.table)).toEqual(['students', 'programs']);
+    expect(result.current.data.totalSessions).toBe(0);
+  });
+});

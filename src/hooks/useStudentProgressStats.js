@@ -155,21 +155,66 @@ export function useStudentProgressStats(studentId, scope = 'all') {
       //    stopped training. Each one is therefore read to its end, a page at
       //    a time (lib/supabasePaging) — which also means the rows arrive in
       //    id order, i.e. in no meaningful order.
+      //
+      //    The three do not depend on each other — each one filters through
+      //    the program join, none needs the rows of another — so they go out
+      //    TOGETHER and the page waits for the slowest instead of the sum.
       const hasSessions = allSessions.length > 0;
       const hasSlots = allSlotIds.length > 0;
 
-      const confirmations = hasSessions
-        ? await fetchAllRows(() =>
-            applyProgramScope(
-              supabase
-                .from('session_confirmations')
-                .select(
-                  'id, session_id, confirmed_at, performed_on, notes, sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at)))'
-                ),
-              'sessions.weeks.programs'
+      const [confirmations, setLogs, devRows] = await Promise.all([
+        hasSessions
+          ? fetchAllRows(() =>
+              applyProgramScope(
+                supabase
+                  .from('session_confirmations')
+                  .select(
+                    'id, session_id, confirmed_at, performed_on, notes, sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at)))'
+                  ),
+                'sessions.weeks.programs'
+              )
             )
-          )
-        : [];
+          : [],
+        // DONE sets only. Every figure derived from this list counts done
+        // sets and nothing else (a failed, skipped or still-pending row
+        // contributes zero to volume, tonnage, adherence and RPE alike), and
+        // the prescribed side — which does need every row — is read from the
+        // tree above. The not-done rows were the bulk of the download and
+        // none of the result.
+        hasSlots
+          ? fetchAllRows(() =>
+              applyProgramScope(
+                supabase
+                  .from('set_logs')
+                  .select(
+                    'id, exercise_slot_id, set_number, done, failed, skipped, is_student_added, rpe, logged_at, target_reps, target_weight_kg, actual_reps, actual_weight_kg, exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at))))'
+                  )
+                  .eq('done', true),
+                'exercise_slots.sessions.weeks.programs'
+              )
+            )
+          : [],
+        // 3b. Swap deviations for the in-scope slots, with the substitute
+        //     exercise's metadata. Lets PERFORMED volume/tonnage follow an
+        //     exercise SWAP to what the student actually did, instead of
+        //     crediting the coach's original prescription. slot_deviations
+        //     has a single FK to exercise_library (substitute_exercise_id), so
+        //     the `substitute:exercise_library(...)` embed is unambiguous.
+        hasSlots
+          ? fetchAllRows(() =>
+              applyProgramScope(
+                supabase
+                  .from('slot_deviations')
+                  .select(
+                    'id, exercise_slot_id, kind, substitute:exercise_library(id, name, type, difficulty, volume_weight), exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at))))'
+                  )
+                  .eq('kind', 'swap'),
+                'exercise_slots.sessions.weeks.programs'
+              )
+            )
+          : [],
+      ]);
+
       // Newest first: `recentConfirmations` below is the head of this list.
       const confirmedStamp = (c) => {
         const t = new Date(c.confirmed_at).getTime();
@@ -178,44 +223,6 @@ export function useStudentProgressStats(studentId, scope = 'all') {
       confirmations.sort((a, b) => confirmedStamp(b) - confirmedStamp(a));
       const confirmedIds = new Set(confirmations.map((c) => c.session_id));
 
-      // DONE sets only. Every figure derived from this list counts done sets
-      // and nothing else (a failed, skipped or still-pending row contributes
-      // zero to volume, tonnage, adherence and RPE alike), and the prescribed
-      // side — which does need every row — is read from the tree above. The
-      // not-done rows were the bulk of the download and none of the result.
-      const setLogs = hasSlots
-        ? await fetchAllRows(() =>
-            applyProgramScope(
-              supabase
-                .from('set_logs')
-                .select(
-                  'id, exercise_slot_id, set_number, done, failed, skipped, is_student_added, rpe, logged_at, target_reps, target_weight_kg, actual_reps, actual_weight_kg, exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at))))'
-                )
-                .eq('done', true),
-              'exercise_slots.sessions.weeks.programs'
-            )
-          )
-        : [];
-
-      // 3b. Swap deviations for the in-scope slots, with the substitute
-      //     exercise's metadata. Lets PERFORMED volume/tonnage follow an
-      //     exercise SWAP to what the student actually did, instead of
-      //     crediting the coach's original prescription. slot_deviations has a
-      //     single FK to exercise_library (substitute_exercise_id), so the
-      //     `substitute:exercise_library(...)` embed is unambiguous.
-      const devRows = hasSlots
-        ? await fetchAllRows(() =>
-            applyProgramScope(
-              supabase
-                .from('slot_deviations')
-                .select(
-                  'id, exercise_slot_id, kind, substitute:exercise_library(id, name, type, difficulty, volume_weight), exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at))))'
-                )
-                .eq('kind', 'swap'),
-              'exercise_slots.sessions.weeks.programs'
-            )
-          )
-        : [];
       // slotId → substitute exercise meta ({id, name, type, difficulty,
       // volume_weight}). Only 'swap' rows carry a substitute; a skipped
       // exercise has no done set_logs, hence 0 performed.
