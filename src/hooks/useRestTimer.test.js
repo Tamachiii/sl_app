@@ -17,6 +17,22 @@ function remainingSecondsFor(snapshot, logId) {
   return Math.max(0, Math.ceil((snapshot.endsAt - Date.now()) / 1000));
 }
 
+// The key the store writes under. Spelled out here on purpose: a rename
+// orphans the rest that is running on every phone at the time of the update.
+const STORAGE_KEY = 'sl_rest_timer';
+const stored = () => JSON.parse(localStorage.getItem(STORAGE_KEY));
+
+// The app after a kill: a module registry with nothing in it, and whatever
+// localStorage still holds. The copies are kept so that their tickers are
+// stopped with the test.
+const relaunched = [];
+async function relaunch() {
+  vi.resetModules();
+  const mod = await import('./useRestTimer');
+  relaunched.push(mod);
+  return mod;
+}
+
 beforeEach(() => {
   resetRestTimer();
   vi.useFakeTimers();
@@ -24,6 +40,9 @@ beforeEach(() => {
 
 afterEach(() => {
   resetRestTimer();
+  for (const mod of relaunched.splice(0)) mod.resetRestTimer();
+  vi.restoreAllMocks();
+  localStorage.clear();
   vi.useRealTimers();
 });
 
@@ -129,5 +148,223 @@ describe('useRestTimer', () => {
       vi.advanceTimersByTime(1000);
     });
     expect(result.current.version).toBeGreaterThan(v1);
+  });
+});
+
+describe('useRestTimer: the timer is kept in localStorage', () => {
+  it('writes a started timer with its log and its end time', () => {
+    vi.setSystemTime(new Date('2026-10-13T10:00:00Z'));
+    startRestTimer('log-A', 90);
+    expect(stored()).toEqual({ logId: 'log-A', endsAt: Date.now() + 90_000 });
+  });
+
+  it('writes what the hook returns', () => {
+    const { result } = renderHook(() => useRestTimer());
+    act(() => {
+      startRestTimer('log-A', 90);
+    });
+    expect(stored()).toEqual({ logId: result.current.logId, endsAt: result.current.endsAt });
+  });
+
+  it('replaces the stored timer when a new set starts another rest', () => {
+    vi.setSystemTime(new Date('2026-10-13T10:00:00Z'));
+    startRestTimer('log-A', 90);
+    vi.setSystemTime(new Date('2026-10-13T10:00:30Z'));
+    startRestTimer('log-B', 120);
+    expect(stored()).toEqual({ logId: 'log-B', endsAt: Date.now() + 120_000 });
+  });
+
+  it('removes it when the running timer is cleared', () => {
+    startRestTimer('log-A', 90);
+    clearRestTimer('log-A');
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it('leaves it when the timer of another set is cleared', () => {
+    startRestTimer('log-B', 90);
+    const before = localStorage.getItem(STORAGE_KEY);
+    clearRestTimer('log-A');
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(before);
+  });
+
+  it('removes it on reset', () => {
+    startRestTimer('log-A', 90);
+    resetRestTimer();
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it('stores nothing for a timer that is refused', () => {
+    startRestTimer('log-A', 0);
+    startRestTimer(null, 60);
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it('is not written by the ticker', () => {
+    const { result } = renderHook(() => useRestTimer());
+    act(() => {
+      startRestTimer('log-A', 60);
+    });
+    const setItem = vi.spyOn(Storage.prototype, 'setItem');
+    const removeItem = vi.spyOn(Storage.prototype, 'removeItem');
+    const v1 = result.current.version;
+    // Through the rest, its end, and the five seconds the ticker lives on.
+    act(() => {
+      vi.advanceTimersByTime(70_000);
+    });
+    expect(result.current.version).toBeGreaterThan(v1);
+    expect(setItem).not.toHaveBeenCalled();
+    expect(removeItem).not.toHaveBeenCalled();
+  });
+
+  it('starts the timer when storage refuses the write', () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('The quota has been exceeded', 'QuotaExceededError');
+    });
+    const { result } = renderHook(() => useRestTimer());
+    expect(() => {
+      act(() => {
+        startRestTimer('log-A', 60);
+      });
+    }).not.toThrow();
+    expect(result.current.logId).toBe('log-A');
+    expect(result.current.endsAt).toBeGreaterThan(Date.now());
+  });
+
+  it('clears the timer when storage refuses the removal', () => {
+    const { result } = renderHook(() => useRestTimer());
+    act(() => {
+      startRestTimer('log-A', 60);
+    });
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new DOMException('The operation is insecure', 'SecurityError');
+    });
+    expect(() => {
+      act(() => {
+        clearRestTimer('log-A');
+      });
+    }).not.toThrow();
+    expect(result.current.logId).toBeNull();
+    expect(result.current.endsAt).toBeNull();
+  });
+});
+
+describe('useRestTimer: the app is killed and opened again', () => {
+  const NOW = new Date('2026-10-13T10:00:00Z');
+
+  beforeEach(() => {
+    vi.setSystemTime(NOW);
+  });
+
+  it('finds the rest that was running, with the time it has left', async () => {
+    startRestTimer('log-A', 180);
+    const endsAt = Date.now() + 180_000;
+
+    // Forty seconds in the Camera app, during which iOS drops the PWA.
+    vi.setSystemTime(new Date(NOW.getTime() + 40_000));
+    const app = await relaunch();
+
+    const { result } = renderHook(() => app.useRestTimer());
+    expect(result.current.logId).toBe('log-A');
+    expect(result.current.endsAt).toBe(endsAt);
+    expect(remainingSecondsFor(result.current, 'log-A')).toBe(140);
+    // Still there for the launch after this one.
+    expect(stored()).toEqual({ logId: 'log-A', endsAt });
+  });
+
+  it('counts the restored rest down without a new set being validated', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ logId: 'log-A', endsAt: Date.now() + 60_000 }));
+    const app = await relaunch();
+    const { result } = renderHook(() => app.useRestTimer());
+    const v1 = result.current.version;
+    act(() => {
+      vi.advanceTimersByTime(3_000);
+    });
+    expect(result.current.version).toBeGreaterThanOrEqual(v1 + 3);
+    expect(remainingSecondsFor(result.current, 'log-A')).toBe(57);
+  });
+
+  it('lets the restored rest be cleared by its set and replaced by the next one', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ logId: 'log-A', endsAt: Date.now() + 60_000 }));
+    const app = await relaunch();
+    const { result } = renderHook(() => app.useRestTimer());
+
+    act(() => {
+      app.clearRestTimer('log-B');
+    });
+    expect(result.current.logId).toBe('log-A');
+
+    act(() => {
+      app.startRestTimer('log-B', 90);
+    });
+    expect(result.current.logId).toBe('log-B');
+    expect(stored()).toEqual({ logId: 'log-B', endsAt: Date.now() + 90_000 });
+
+    act(() => {
+      app.clearRestTimer('log-B');
+    });
+    expect(result.current.logId).toBeNull();
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it('starts with no timer when nothing was running', async () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem');
+    const app = await relaunch();
+    const { result } = renderHook(() => app.useRestTimer());
+    expect(result.current).toEqual({ logId: null, endsAt: null, version: 0 });
+    expect(setItem).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a rest that ended while the app was gone', () => JSON.stringify({ logId: 'log-A', endsAt: Date.now() - 1 })],
+    ['a rest that ends this very millisecond', () => JSON.stringify({ logId: 'log-A', endsAt: Date.now() })],
+    ['a rest that ended yesterday', () => JSON.stringify({ logId: 'log-A', endsAt: Date.now() - 86_400_000 })],
+    ['text that is not JSON', () => '{"logId":"log-A","endsAt":'],
+    ['an empty string', () => ''],
+    ['no log', () => JSON.stringify({ endsAt: Date.now() + 60_000 })],
+    ['an empty log id', () => JSON.stringify({ logId: '', endsAt: Date.now() + 60_000 })],
+    ['a log id that is not a string', () => JSON.stringify({ logId: 42, endsAt: Date.now() + 60_000 })],
+    ['no end time', () => JSON.stringify({ logId: 'log-A' })],
+    ['an end time that is a string', () => JSON.stringify({ logId: 'log-A', endsAt: String(Date.now() + 60_000) })],
+    ['an end time that is null', () => JSON.stringify({ logId: 'log-A', endsAt: null })],
+    ['a null', () => 'null'],
+    ['a number', () => String(Date.now() + 60_000)],
+    ['a list', () => JSON.stringify(['log-A', Date.now() + 60_000])],
+  ])('discards %s', async (_what, value) => {
+    localStorage.setItem(STORAGE_KEY, value());
+    const app = await relaunch();
+    const { result } = renderHook(() => app.useRestTimer());
+    expect(result.current).toEqual({ logId: null, endsAt: null, version: 0 });
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    // And nothing ticks for a timer that is not there.
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(result.current.version).toBe(0);
+  });
+
+  it('starts with no timer when storage cannot be read', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ logId: 'log-A', endsAt: Date.now() + 60_000 }));
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('The operation is insecure', 'SecurityError');
+    });
+    const app = await relaunch();
+    const { result } = renderHook(() => app.useRestTimer());
+    expect(result.current.logId).toBeNull();
+    // And the app still runs a timer from there.
+    act(() => {
+      app.startRestTimer('log-B', 30);
+    });
+    expect(result.current.logId).toBe('log-B');
+  });
+
+  it('starts with no timer when a stale one cannot be removed', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ logId: 'log-A', endsAt: Date.now() - 1 }));
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new DOMException('The operation is insecure', 'SecurityError');
+    });
+    const app = await relaunch();
+    const { result } = renderHook(() => app.useRestTimer());
+    expect(result.current.logId).toBeNull();
+    expect(result.current.endsAt).toBeNull();
   });
 });
