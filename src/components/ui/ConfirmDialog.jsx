@@ -12,7 +12,9 @@ export default function ConfirmDialog({ open, onClose, onConfirm, title, message
             onConfirm();
             onClose();
           }}
-          className="flex-1 rounded-lg py-2.5 sl-display text-[13px] text-white"
+          // sl-on-fill, not text-white: white is 3.35:1 on danger and 3.12:1
+          // on accent. Not text-ink-900 either, which `.dark` turns to cream.
+          className="flex-1 rounded-lg py-2.5 sl-display text-[13px] sl-on-fill"
           style={{
             background: isDestructive ? 'var(--color-danger)' : 'var(--color-accent)',
           }}

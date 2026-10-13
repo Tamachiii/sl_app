@@ -75,6 +75,7 @@ describe('reading the stylesheet', () => {
   it('refuses a colour it cannot resolve', () => {
     expect(() => resolveColour('var(--color-ink-123)', dark)).toThrow(/no token --color-ink-123/);
     expect(() => resolveColour('color-mix(in srgb, red 10%, transparent)', dark)).toThrow(/not an opaque hex colour/);
+    expect(() => resolveColour(declared(css, '.no-such-class', 'color'), dark)).toThrow(/no declared value/);
   });
 
   it('finds the scale and the fills in src/index.css', () => {
@@ -130,5 +131,51 @@ describe('dark theme: muted text (ink-400)', () => {
     // reached it would flatten the two levels into one.
     const secondary = resolveColour(declared(css, '.dark .text-ink-500', 'color'), dark);
     expect(relativeLuminance(muted)).toBeLessThan(relativeLuminance(secondary));
+  });
+});
+
+// A button that is a coloured fill — the confirm button of ConfirmDialog, the
+// primary CTA — writes its label in one colour, the same in both themes.
+describe('text on an accent or danger fill', () => {
+  const fills = [
+    ['accent', dark.accent],
+    ['danger', dark.danger],
+  ];
+  // Resolved inside each test: a class that is gone fails the tests about it,
+  // not the whole file.
+  const onFill = () => resolveColour(declared(css, '.sl-on-fill', 'color'), dark);
+
+  it.each(fills)('.sl-on-fill reaches AA on %s (%s)', (_name, fill) => {
+    expect(contrastRatio(onFill(), fill)).toBeGreaterThanOrEqual(AA_TEXT);
+  });
+
+  it('.sl-btn-primary reaches AA on its own background, with the same colour', () => {
+    const text = resolveColour(declared(css, '.sl-btn-primary', 'color'), dark);
+    const fill = resolveColour(declared(css, '.sl-btn-primary', 'background-color', 'background'), dark);
+    expect(fill).toBe(dark.accent);
+    expect(text).toBe(onFill());
+    expect(contrastRatio(text, fill)).toBeGreaterThanOrEqual(AA_TEXT);
+  });
+
+  it('is the same fill and the same label in both themes', () => {
+    expect([dark.accent, dark.danger, dark['ink-900']]).toEqual([light.accent, light.danger, light['ink-900']]);
+  });
+
+  it.each(fills)('is neither white nor what .dark makes of the dark text classes, which fail on %s', (_name, fill) => {
+    // Why the class exists: the two obvious spellings both end up light.
+    expect(contrastRatio('#ffffff', fill)).toBeLessThan(AA_TEXT);
+    for (const selector of ['.dark .text-ink-900', '.dark .text-gray-900']) {
+      const remapped = resolveColour(declared(css, selector, 'color'), dark);
+      expect(contrastRatio(remapped, fill)).toBeLessThan(AA_TEXT);
+    }
+  });
+
+  it('cannot be taken back by a colour class beside it', () => {
+    // `!important` inside `@layer components` outranks the unlayered
+    // `!important` of the `.dark` remaps and any utility, important or not.
+    expect(declared(css, '.sl-on-fill', 'color')).toMatch(/ !important$/);
+    const layer = css.match(/@layer components \{[\s\S]*?\n\}/)?.[0] ?? '';
+    expect(layer).toContain('.sl-on-fill {');
+    expect(layer).toContain('.sl-btn-primary {');
   });
 });

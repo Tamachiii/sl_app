@@ -50,6 +50,48 @@ describe('ConfirmDialog', () => {
     expect(within(dialog).getByRole('button', { name: 'Delete', hidden: true })).toBeInTheDocument();
   });
 
+  // The confirm button is a coloured fill: danger for a destructive question,
+  // accent otherwise. Its label is small (13px), so it needs 4.5:1 on both,
+  // which `sl-on-fill` gives and white does not — the ratios themselves are
+  // recomputed from the stylesheet in src/test/contrast.test.js.
+  describe('confirm button', () => {
+    const confirmButton = (dialog) => within(dialog).getByRole('button', { name: 'Delete', hidden: true });
+    // Every class of the button that sets something about its text.
+    const textClasses = (button) => [...button.classList].filter((name) => name.includes('text-'));
+
+    it('is a danger fill for a destructive question, which is the default', () => {
+      const { dialog } = renderConfirm();
+      expect(confirmButton(dialog).getAttribute('style')).toContain('background: var(--color-danger)');
+    });
+
+    it('is an accent fill otherwise', () => {
+      const { dialog } = renderConfirm({ isDestructive: false });
+      expect(confirmButton(dialog).getAttribute('style')).toContain('background: var(--color-accent)');
+    });
+
+    it.each([
+      ['danger', true],
+      ['accent', false],
+    ])('writes its label in the on-fill colour on %s, and in no other', (_fill, isDestructive) => {
+      const { dialog } = renderConfirm({ isDestructive });
+      const button = confirmButton(dialog);
+
+      expect(button).toHaveClass('sl-on-fill');
+      expect(button).not.toHaveClass('text-white');
+      // Its size, and nothing that could colour it: `text-ink-900` and
+      // `text-gray-900` are cream in the dark theme.
+      expect(textClasses(button)).toEqual(['text-[13px]']);
+      expect(button.getAttribute('style')).not.toMatch(/(?:^|;\s*)color:/);
+    });
+
+    it('leaves Cancel a neutral button', () => {
+      const { dialog } = renderConfirm();
+      const cancel = within(dialog).getByRole('button', { name: 'Cancel', hidden: true });
+      expect(cancel).not.toHaveClass('sl-on-fill');
+      expect(cancel.getAttribute('style')).toBeNull();
+    });
+  });
+
   // SessionView mounts the "confirm session" Dialog and, after it, the "undo
   // confirmation" ConfirmDialog; SessionEditor and ProgramSheet do the same
   // with their own pairs. The second one is the destructive question, and it

@@ -86,9 +86,11 @@ export function readTokens(css) {
 }
 
 // A declared value as a hex colour: `var(--color-ink-850) !important` and
-// `#fff` both resolve; anything else (a `color-mix`, a keyword) throws, so a
-// test never compares against a colour it did not understand.
+// `#fff` both resolve; anything else (a `color-mix`, a keyword, the
+// `undefined` of a rule that is gone) throws, so a test never compares
+// against a colour it did not understand.
 export function resolveColour(value, tokens) {
+  if (typeof value !== 'string') throw new Error('no declared value to resolve: the rule or the property is missing');
   const bare = value.replace(/\s*!important\s*$/, '').trim();
   const token = bare.match(/^var\(--color-([\w-]+)\)$/)?.[1];
   if (token && tokens[token] === undefined) throw new Error(`no token --color-${token}`);

@@ -138,6 +138,16 @@ body {
     justify-content: center;
     gap: 8px;
   }
+  /* Text on an accent or danger fill: ink-900, the colour `.sl-btn-primary`
+     writes — 6.06:1 on accent and 5.64:1 on danger, where white gives 3.12
+     and 3.35. The two classes that look like they say the same do not:
+     `text-ink-900` and `text-gray-900` are remapped to cream by `.dark`,
+     2.94:1 on accent. `!important` inside a layer outranks an `!important`
+     outside every layer, so neither that remap nor a `text-white` left beside
+     this class takes the colour back. */
+  .sl-on-fill {
+    color: var(--color-ink-900) !important;
+  }
   .sl-pill {
     display: inline-flex;
     align-items: center;
