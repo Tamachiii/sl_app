@@ -46,6 +46,19 @@ export function contrastRatio(a, b) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+// `top` at `alpha` painted over `bottom`, as a hex colour: what a tint like
+// `bg-pull/15` — the colour at 15% — ends up as on the surface behind it.
+// Mixed per sRGB channel, which is how a browser paints one layer on another.
+export function mixOver(top, alpha, bottom) {
+  const channels = (hex) => {
+    const n = parseInt(normalizeHex(hex).slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+  const under = channels(bottom);
+  const mixed = channels(top).map((channel, i) => Math.round(alpha * channel + (1 - alpha) * under[i]));
+  return `#${mixed.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
+}
+
 // Every rule that holds declarations: [{ selectors, declarations }]. A rule
 // that is written twice appears twice, in source order.
 export function parseRules(css) {

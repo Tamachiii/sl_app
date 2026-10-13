@@ -4,6 +4,7 @@ import {
   AA_TEXT,
   contrastRatio,
   declared,
+  mixOver,
   parseRules,
   readStylesheet,
   readTokens,
@@ -40,6 +41,16 @@ describe('contrast arithmetic (WCAG 2.x)', () => {
     expect(relativeLuminance('#000000')).toBe(0);
     expect(relativeLuminance('#ffffff')).toBeCloseTo(1, 10);
     expect(relativeLuminance('#807a6e')).toBeLessThan(relativeLuminance('#a8a197'));
+  });
+
+  it('paints a colour at an alpha over a surface, per channel', () => {
+    // What a tint like `bg-pull/15` is on the surface behind it.
+    expect(mixOver('#ff5a1f', 0, '#171716')).toBe('#171716');
+    expect(mixOver('#ff5a1f', 1, '#171716')).toBe('#ff5a1f');
+    expect(mixOver('#ffffff', 0.5, '#000000')).toBe('#808080');
+    expect(mixOver('#fff', 0.15, '#000')).toBe('#262626');
+    // Accent at 15% on a card, as Chromium composites it.
+    expect(mixOver('#ff5a1f', 0.15, '#171716')).toBe('#3a2117');
   });
 });
 
