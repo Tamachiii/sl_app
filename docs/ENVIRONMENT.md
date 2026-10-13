@@ -86,7 +86,7 @@ git worktree remove ../sl_app_wt_featurename
 
 ## Supabase Auth settings (production)
 
-These live in the Supabase dashboard and nowhere else. The project's owner sets them by hand, following [runbook/20-auth-config.md](runbook/20-auth-config.md) — the steps, the read-only check, and what to leave alone; it is the third part of Checkpoint A0 in [RUNBOOK.md](RUNBOOK.md). The repository holds no copy that could be pushed: a `supabase/config.toml`, when the Edge Functions bring one, carries their flags only, and `supabase config push` is never run, because for every setting the file does not give it would put the CLI's default back (sign-up on, site URL on localhost, 6-character passwords).
+These live in the Supabase dashboard and nowhere else. The project's owner sets them by hand, following [runbook/20-auth-config.md](runbook/20-auth-config.md) — the steps, the read-only check, and what to leave alone; it is the third part of Checkpoint A0 in [RUNBOOK.md](RUNBOOK.md). The repository holds no copy that could be pushed: `supabase/config.toml` carries the Edge Functions' flags only, and `supabase config push` is never run, because for every setting the file does not give it would put the CLI's default back (sign-up on, site URL on localhost, 6-character passwords).
 
 The values production must have:
 
@@ -113,6 +113,53 @@ Settings that stay as they are, because the app that is deployed depends on them
 Accounts are created in the dashboard (Authentication → Users → Add user). The app has no sign-up screen.
 
 To read them: the check of the runbook page prints `disable_signup`, `mailer_autoconfirm` and the enabled providers from the public `/auth/v1/settings`. The other values are visible in the dashboard only. `src/test/runbookIndex.test.js` keeps the three values that are written here, on the runbook page and in the index the same.
+
+## Supabase API settings (production)
+
+| Setting | In the dashboard | Value |
+|---|---|---|
+| Max rows (`db-max-rows`) | Project Settings → Data API → Settings → Max rows | `1000` — the default. It may be raised, never lowered below `PAGE_SIZE` in `src/lib/supabasePaging.js` |
+
+The app reads long lists a page of 1000 at a time and takes a page shorter than that for the end. With a lower Max rows every page is short, and stats, records and "Last time" are silently cut again.
+
+## Edge Function secrets (production)
+
+Set by hand by the project's owner, following [runbook/30-edge-functions.md](runbook/30-edge-functions.md). No file of the repository holds a value, and `.env` holds none of them.
+
+The functions' secrets (`supabase secrets set`, read as environment variables):
+
+| Name | Read by | What it is |
+|---|---|---|
+| `INTERNAL_BEARER` | `send-push` | the secret the database presents; a random string (`openssl rand -hex 32`), not the service-role key |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | `send-push`, `dispatch-rest-push` | the pair that signs every push; the public half is also `VITE_VAPID_PUBLIC_KEY` at build time |
+| `VAPID_SUBJECT` | `send-push`, `dispatch-rest-push` | a `mailto:` address |
+
+`SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are provided by Supabase.
+
+The database's vault (read by the notification triggers):
+
+| Name | What it is |
+|---|---|
+| `app_functions_url` | `https://<project ref>.supabase.co/functions/v1` |
+| `app_service_role_key` | the same value as `INTERNAL_BEARER` (the name is historical) |
+
+`INTERNAL_BEARER` and `app_service_role_key` are rotated together (runbook page, section 4). The VAPID pair is not rotated: every device's subscription is tied to the public key.
+
+Which function runs behind the gateway's JWT check is not a secret and not a dashboard setting: it is `supabase/config.toml`.
+
+## GitHub Actions: secrets and variables
+
+Repository settings → Secrets and variables → Actions. A secret cannot be read back; a variable can.
+
+| Name | Kind | Read by | What it is |
+|---|---|---|---|
+| `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | secret | the build of `deploy.yml` | the project URL and its anon key, as in `.env` |
+| `VITE_VAPID_PUBLIC_KEY` | secret | the build of `deploy.yml` | the public Web Push key; without it the push toggles say "not supported" |
+| `SUPABASE_DB_URL` | secret | the `migrations` job of `deploy.yml`, and `backup.yml` | the session-pooler connection string of the project, with the database password — the `postgres` role. `BACKUPS.md`, section *The nightly run on GitHub* |
+| `BACKUP_PASSPHRASE` | secret | `backup.yml` | the passphrase a backup is encrypted with |
+| `ALLOW_DEPLOY_WITHOUT_LEDGER_CHECK` | variable | the `migrations` job of `deploy.yml` | normally absent. `true` lets a deploy go out unchecked while `SUPABASE_DB_URL` is not set: [runbook/40-deploy.md](runbook/40-deploy.md), section 5 |
+
+Without `SUPABASE_DB_URL` a push to `main` publishes nothing: the deploy stops at `migrations`.
 
 ## Migration from Windows-side Claude
 
