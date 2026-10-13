@@ -143,33 +143,81 @@ describe('reconcilePushSubscription', () => {
     clearEnv(); // no Notification / PushManager
     expect(await reconcilePushSubscription('u-1')).toBe(false);
     expect(db.requests).toEqual([]);
+    expect(db.rpc).not.toHaveBeenCalled();
   });
 
   it('returns false (and never writes) when permission is not granted', async () => {
     setEnv({ permission: 'default' });
     expect(await reconcilePushSubscription('u-1')).toBe(false);
     expect(db.requests).toEqual([]);
+    expect(db.rpc).not.toHaveBeenCalled();
   });
 
   it('returns false when there is no active subscription', async () => {
     setEnv({ sub: null });
     expect(await reconcilePushSubscription('u-1')).toBe(false);
     expect(db.requests).toEqual([]);
+    expect(db.rpc).not.toHaveBeenCalled();
   });
 
-  it('upserts the CURRENT endpoint and returns true when granted + subscribed', async () => {
-    setEnv({ sub: makeSub('https://push.example/rotated') });
+  // B37. The worker re-subscribes when the push service rotates the address
+  // (where the browser tells it), and writes nothing: it has no session.
+  it('registers the CURRENT endpoint through claim_push_subscription and returns true when granted + subscribed', async () => {
+    setEnv({ sub: makeSub('https://fcm.googleapis.com/fcm/send/rotated', { p256dh: 'p256-rotated', auth: 'auth-rotated' }) });
+
     const ok = await reconcilePushSubscription('u-1');
+
     expect(ok).toBe(true);
-    const [upsert] = requestsOf('upsert');
-    expect(upsert.table).toBe('push_subscriptions');
-    expect(upsert.row).toMatchObject({
-      user_id: 'u-1',
-      endpoint: 'https://push.example/rotated',
-      p256dh: 'p256',
-      auth: 'authkey',
-    });
-    expect(upsert.opts).toEqual({ onConflict: 'endpoint' });
+    expect(claims()).toEqual([
+      {
+        p_endpoint: 'https://fcm.googleapis.com/fcm/send/rotated',
+        p_p256dh: 'p256-rotated',
+        p_auth: 'auth-rotated',
+        p_user_agent: navigator.userAgent,
+      },
+    ]);
+    expect(requestsOf('upsert')).toEqual([]);
+  });
+
+  // P15. The owner-only upsert was refused here, and the refusal swallowed.
+  it('a subscription the previous account left on this device moves to the one that is signed in', async () => {
+    const device = setEnv();
+    db.rpc.mockResolvedValue({ data: { subscription_id: 'row-1', outcome: 'rehomed' }, error: null });
+
+    await expect(reconcilePushSubscription('u-2')).resolves.toBe(true);
+
+    expect(claims()).toHaveLength(1);
+    expect(device.subscribe).not.toHaveBeenCalled();
+  });
+
+  it('throws what the database answered, with a code — the caller decides what a failed look is', async () => {
+    setEnv();
+    db.rpc.mockResolvedValue(refused(ENDPOINT_REFUSED));
+    await expect(reconcilePushSubscription('u-1')).rejects.toMatchObject({ code: 'endpoint_refused' });
+
+    db.rpc.mockResolvedValue(refused(NO_ANSWER));
+    await expect(reconcilePushSubscription('u-1')).rejects.toMatchObject({ code: 'offline' });
+  });
+
+  it('never renews the subscription: an address held under other keys is a failure here, and the browser is left alone', async () => {
+    const sub = makeSub();
+    const device = setEnv({ sub });
+    db.rpc.mockResolvedValue(refused(KEYS_MISMATCH));
+
+    await expect(reconcilePushSubscription('u-1')).rejects.toMatchObject({ code: 'keys_mismatch' });
+
+    expect(sub.unsubscribe).not.toHaveBeenCalled();
+    expect(device.subscribe).not.toHaveBeenCalled();
+    expect(claims()).toHaveLength(1);
+  });
+
+  it('never subscribes: a device without a subscription is left without one', async () => {
+    const device = setEnv({ sub: null });
+
+    await expect(reconcilePushSubscription('u-1')).resolves.toBe(false);
+
+    expect(device.subscribe).not.toHaveBeenCalled();
+    expect(db.rpc).not.toHaveBeenCalled();
   });
 });
 

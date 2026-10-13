@@ -12,9 +12,12 @@ import { useAuth } from './useAuth';
 export const HEAL_EVERY_MS = 60 * 60 * 1000;
 // How long after an attempt that failed the next one is made.
 export const HEAL_RETRY_MS = 5 * 60 * 1000;
-// localStorage: `{ userId, endpoint, at, ok }` — the last attempt made from
-// this device. Stored, not kept in memory: iOS closes an installed app behind
-// the lock screen, and "once on load" would be once per unlock again.
+// localStorage: `{ userId, endpoint, at, ok, code? }` — the last attempt made
+// from this device: for which account, about which address of the device, when,
+// whether the database took it, and — when it did not — the code of what
+// failed (lib/pushNotifications.js). Stored, not kept in memory: iOS closes an
+// installed app behind the lock screen, and "once on load" would be once per
+// unlock again.
 export const HEAL_STAMP_KEY = 'sl_push_heal';
 
 function readStamp() {
@@ -61,6 +64,37 @@ async function isDue(userId) {
   return endpoint !== null && endpoint !== stamp.endpoint;
 }
 
+/**
+ * What this device last told the database about the subscription it holds
+ * NOW, for this account: `{ ok: true }` when the database took it,
+ * `{ ok: false, code }` when it did not — `code` is the one of
+ * lib/pushNotifications.js. Null when the stamp is about another account or
+ * another address, or the device holds no subscription: nothing was said.
+ *
+ * For the notification toggle (`usePushSubscription`), which is mounted long
+ * after the look was made: a registration the database refuses for good is a
+ * reason it can print, and "registered from here an hour ago" is what is left
+ * to go by when the database cannot be asked.
+ */
+export async function lastHeal(userId) {
+  const stamp = readStamp();
+  if (!userId || !stamp || stamp.userId !== userId) return null;
+  const endpoint = await deviceEndpoint();
+  if (endpoint === null || stamp.endpoint !== endpoint) return null;
+  if (stamp.ok) return { ok: true, code: '' };
+  return { ok: false, code: typeof stamp.code === 'string' && stamp.code !== '' ? stamp.code : 'generic' };
+}
+
+/**
+ * The device was registered for this account by something else than a look of
+ * this file — the toggle. Written down as a look that succeeded: the next one
+ * has nothing to send for an hour, and the device remembers it is registered.
+ */
+export async function noteHealed(userId) {
+  const endpoint = await deviceEndpoint();
+  if (userId && endpoint !== null) writeStamp({ userId, endpoint, at: Date.now(), ok: true });
+}
+
 // The users a heal is under way for: two events in the same moment — the load
 // and the page becoming visible — are one request.
 const healing = new Set();
@@ -77,10 +111,15 @@ async function heal(userId) {
     if (await reconcilePushSubscription(userId)) {
       writeStamp({ userId, endpoint: await deviceEndpoint(), at: Date.now(), ok: true });
     }
-  } catch {
-    // Best-effort. The attempt is noted so that a network that does not answer
-    // is not asked again at every unlock.
-    writeStamp({ userId, endpoint: null, at: Date.now(), ok: false });
+  } catch (error) {
+    // Best-effort: nobody is told now, nothing is thrown. But the attempt is
+    // noted, with what failed. With its time, so that a network that does not
+    // answer is not asked again at every unlock; with its code and the address
+    // it was about, so that the failure is not lost — `lastHeal` hands it to
+    // the toggle. It used to be caught and forgotten, and the toggle of a
+    // device the database refused went on saying "on".
+    const code = typeof error?.code === 'string' && error.code !== '' ? error.code : 'generic';
+    writeStamp({ userId, endpoint: await deviceEndpoint(), at: Date.now(), ok: false, code });
   } finally {
     healing.delete(userId);
   }
@@ -90,7 +129,9 @@ async function heal(userId) {
  * App-wide Web Push self-healing. For any signed-in user (coach or student),
  * reconcile the device's live push subscription with the DB so a rotated
  * endpoint — which silently ends delivery once send-push reaps the stale row —
- * heals without the user having to re-toggle from settings.
+ * heals without the user having to re-toggle from settings, and so a
+ * subscription the previous account left on a shared device moves to the
+ * account that is signed in on it now.
  *
  * It looks on load and whenever the tab regains focus, and it WRITES at most
  * once an hour (HEAL_EVERY_MS): an athlete unlocks the phone after every rest,
@@ -99,9 +140,9 @@ async function heal(userId) {
  * the one last written. A write that failed is tried again after
  * HEAL_RETRY_MS.
  *
- * Role-agnostic and best-effort: reconcilePushSubscription is UPSERT-only and
- * permission-gated, so this never subscribes, prompts, or enables push for a
- * user who didn't already opt in on this device.
+ * Role-agnostic and best-effort: reconcilePushSubscription is permission-gated
+ * and registers only a subscription the browser already holds, so this never
+ * subscribes or prompts.
  */
 export function usePushAutoHeal() {
   const { user } = useAuth();

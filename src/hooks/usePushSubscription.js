@@ -7,7 +7,13 @@ import {
   pushErrorKey,
   pushPermission,
 } from '../lib/pushNotifications';
+import { lastHeal, noteHealed } from './usePushAutoHeal';
 import { useAuth } from './useAuth';
+
+// The failures of a background look (`usePushAutoHeal`) a toggle prints when
+// it opens: the ones that do not go away by themselves. A network that did not
+// answer five minutes ago is not one — the look is made again.
+const LASTING = new Set(['endpoint_refused']);
 
 // State + actions for the notification toggles (the athlete's profile page,
 // the coach's avatar menu). Kept thin: no react-query plumbing because each
@@ -37,23 +43,30 @@ export function usePushSubscription() {
       return undefined;
     }
     setPending(true);
-    isPushEnabled(userId)
-      .then((on) => {
-        if (cancelled) return;
-        setEnabled(on);
-        setErrorCode('');
-        setPermission(pushPermission());
-      })
-      .catch((e) => {
-        if (cancelled) return;
+    (async () => {
+      // What this device last told the database about the subscription it
+      // holds — read first, from the device.
+      const last = await lastHeal(userId).catch(() => null);
+      let on;
+      let code = '';
+      try {
+        on = await isPushEnabled(userId);
+        // The database refuses this device for good: the look that found out
+        // ran in the background, where nobody could be told.
+        if (last && !last.ok && LASTING.has(last.code)) code = last.code;
+      } catch (e) {
         // The database could not be asked whether this device is registered:
-        // the toggle says so, instead of a plain "off".
-        setEnabled(false);
-        setErrorCode(e?.code || 'generic');
-      })
-      .finally(() => {
-        if (!cancelled) setPending(false);
-      });
+        // the toggle says so, and shows what the device itself remembers —
+        // not a plain "off" for a phone that has no signal.
+        on = last?.ok === true;
+        code = e?.code || 'generic';
+      }
+      if (cancelled) return;
+      setEnabled(on);
+      setErrorCode(code);
+      setPermission(pushPermission());
+      setPending(false);
+    })();
     return () => {
       cancelled = true;
     };
@@ -64,6 +77,7 @@ export function usePushSubscription() {
     setPending(true);
     try {
       await enablePush(userId);
+      await noteHealed(userId);
       setEnabled(true);
       setPermission(pushPermission());
     } catch (e) {

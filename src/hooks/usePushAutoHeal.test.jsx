@@ -17,7 +17,14 @@ vi.mock('./useAuth', () => ({
   useAuth: () => ({ user: mockUser }),
 }));
 
-import { usePushAutoHeal, HEAL_EVERY_MS, HEAL_RETRY_MS, HEAL_STAMP_KEY } from './usePushAutoHeal';
+import {
+  usePushAutoHeal,
+  lastHeal,
+  noteHealed,
+  HEAL_EVERY_MS,
+  HEAL_RETRY_MS,
+  HEAL_STAMP_KEY,
+} from './usePushAutoHeal';
 
 const MINUTE = 60_000;
 const NOW = Date.parse('2026-10-13T18:00:00.000Z');
@@ -50,6 +57,13 @@ async function openApp() {
 }
 
 const stamp = () => JSON.parse(localStorage.getItem(HEAL_STAMP_KEY));
+
+// What lib/pushNotifications.js throws: an error with a code of that file.
+function coded(code) {
+  const error = new Error(code);
+  error.code = code;
+  return error;
+}
 
 beforeEach(() => {
   localStorage.removeItem(HEAL_STAMP_KEY);
@@ -171,6 +185,7 @@ describe('what does not wait for the hour', () => {
     expect(reconcile).toHaveBeenCalledTimes(2);
   });
 
+  // P15: this look is what moves the device to the account that is signed in.
   it('another account on this device', async () => {
     const first = await openApp();
     first.unmount();
@@ -182,6 +197,23 @@ describe('what does not wait for the hour', () => {
     expect(reconcile).toHaveBeenCalledTimes(2);
     expect(reconcile).toHaveBeenLastCalledWith('u-2');
     expect(stamp().userId).toBe('u-2');
+  });
+
+  it('the account that comes back to a device somebody else used in between', async () => {
+    const first = await openApp();
+    first.unmount();
+
+    mockUser = { id: 'u-2' };
+    vi.setSystemTime(NOW + MINUTE);
+    const second = await openApp();
+    second.unmount();
+
+    mockUser = { id: 'u-1' };
+    vi.setSystemTime(NOW + 2 * MINUTE);
+    await openApp();
+
+    expect(reconcile).toHaveBeenCalledTimes(3);
+    expect(reconcile).toHaveBeenLastCalledWith('u-1');
   });
 
   it('a note on the device that cannot be read, or that is dated in the future', async () => {
@@ -202,7 +234,13 @@ describe('a write that failed', () => {
     reconcile.mockRejectedValue(new Error('network'));
     await openApp();
     expect(reconcile).toHaveBeenCalledTimes(1);
-    expect(stamp()).toEqual({ userId: 'u-1', endpoint: null, at: NOW, ok: false });
+    expect(stamp()).toEqual({
+      userId: 'u-1',
+      endpoint: 'https://push.example/first',
+      at: NOW,
+      ok: false,
+      code: 'generic',
+    });
 
     await unlockAfter(HEAL_RETRY_MS - MINUTE);
     expect(reconcile).toHaveBeenCalledTimes(1);
@@ -224,6 +262,112 @@ describe('a write that failed', () => {
     deviceIs(true);
     await unlockAfter(MINUTE);
     expect(reconcile).toHaveBeenCalledTimes(1);
+  });
+});
+
+// B37 / P15. The failure was caught and forgotten: nothing could say why a
+// device had stopped receiving.
+describe('a look that failed is written down, with what failed', () => {
+  it('the code of the library, and the address it was about', async () => {
+    reconcile.mockRejectedValue(coded('endpoint_refused'));
+    await openApp();
+
+    expect(stamp()).toEqual({
+      userId: 'u-1',
+      endpoint: 'https://push.example/first',
+      at: NOW,
+      ok: false,
+      code: 'endpoint_refused',
+    });
+    await expect(lastHeal('u-1')).resolves.toEqual({ ok: false, code: 'endpoint_refused' });
+  });
+
+  it('nothing is thrown, and nothing is asked again before the five minutes', async () => {
+    reconcile.mockRejectedValue(coded('keys_mismatch'));
+    await openApp();
+    await unlockAfter(MINUTE);
+
+    expect(reconcile).toHaveBeenCalledTimes(1);
+    expect(stamp()).toMatchObject({ ok: false, code: 'keys_mismatch' });
+  });
+
+  it('the next look that succeeds takes it back', async () => {
+    reconcile.mockRejectedValueOnce(coded('offline'));
+    await openApp();
+    await expect(lastHeal('u-1')).resolves.toEqual({ ok: false, code: 'offline' });
+
+    await unlockAfter(HEAL_RETRY_MS);
+
+    expect(stamp()).toEqual({ userId: 'u-1', endpoint: 'https://push.example/first', at: NOW + HEAL_RETRY_MS, ok: true });
+    await expect(lastHeal('u-1')).resolves.toEqual({ ok: true, code: '' });
+  });
+});
+
+describe('lastHeal: what this device last told the database about the subscription it holds now', () => {
+  it('nothing, before any look', async () => {
+    await expect(lastHeal('u-1')).resolves.toBeNull();
+  });
+
+  it('a look that the database took', async () => {
+    await openApp();
+    await expect(lastHeal('u-1')).resolves.toEqual({ ok: true, code: '' });
+  });
+
+  it('says nothing about another account', async () => {
+    await openApp();
+    await expect(lastHeal('u-2')).resolves.toBeNull();
+    await expect(lastHeal(undefined)).resolves.toBeNull();
+  });
+
+  it('nor about another address: the device has a new one, or none any more', async () => {
+    reconcile.mockRejectedValue(coded('endpoint_refused'));
+    await openApp();
+
+    device.endpoint = 'https://push.example/rotated';
+    await expect(lastHeal('u-1')).resolves.toBeNull();
+
+    // Notifications switched off, or the account signed out of the device.
+    device.endpoint = null;
+    await expect(lastHeal('u-1')).resolves.toBeNull();
+  });
+
+  it('a failure noted by the app as it was before — no code, no address — is not one of this device\'s subscription', async () => {
+    localStorage.setItem(HEAL_STAMP_KEY, JSON.stringify({ userId: 'u-1', endpoint: null, at: NOW, ok: false }));
+    await expect(lastHeal('u-1')).resolves.toBeNull();
+
+    localStorage.setItem(
+      HEAL_STAMP_KEY,
+      JSON.stringify({ userId: 'u-1', endpoint: 'https://push.example/first', at: NOW, ok: false }),
+    );
+    await expect(lastHeal('u-1')).resolves.toEqual({ ok: false, code: 'generic' });
+  });
+});
+
+describe('noteHealed: the toggle registered the device itself', () => {
+  it('is a look that succeeded: the next return to the app sends nothing', async () => {
+    await noteHealed('u-1');
+
+    expect(stamp()).toEqual({ userId: 'u-1', endpoint: 'https://push.example/first', at: NOW, ok: true });
+    await openApp();
+    await unlockAfter(MINUTE);
+    expect(reconcile).not.toHaveBeenCalled();
+  });
+
+  it('takes back a failure that was noted', async () => {
+    reconcile.mockRejectedValue(coded('keys_mismatch'));
+    await openApp();
+
+    // The toggle renewed the subscription: a new address, registered.
+    device.endpoint = 'https://push.example/renewed';
+    await noteHealed('u-1');
+
+    await expect(lastHeal('u-1')).resolves.toEqual({ ok: true, code: '' });
+  });
+
+  it('notes nothing for a device without a subscription', async () => {
+    device.endpoint = null;
+    await noteHealed('u-1');
+    expect(stamp()).toBeNull();
   });
 });
 

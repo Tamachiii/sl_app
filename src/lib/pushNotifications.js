@@ -195,31 +195,6 @@ async function claimSubscription(sub) {
   return data;
 }
 
-// Persist (or refresh) a device subscription for a user. Endpoint is UNIQUE —
-// UPSERT so re-enabling on the same device just refreshes last_seen_at without
-// trying to INSERT a duplicate.
-async function upsertSubscriptionRow(userId, sub) {
-  const row = subscriptionToRow(sub);
-  const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : null;
-  const { data, error } = await supabase
-    .from('push_subscriptions')
-    .upsert(
-      {
-        user_id: userId,
-        endpoint: row.endpoint,
-        p256dh: row.p256dh,
-        auth: row.auth,
-        user_agent: userAgent,
-        last_seen_at: new Date().toISOString(),
-      },
-      { onConflict: 'endpoint' },
-    )
-    .select()
-    .maybeSingle();
-  if (error) throw error;
-  return data;
-}
-
 /**
  * Public entry: ensure permission + subscription, and register the device for
  * the account that is signed in. Returns what `claim_push_subscription`
@@ -274,23 +249,35 @@ async function renewPushSubscription(sub) {
 }
 
 /**
- * Self-heal DB↔device drift for a user who already opted in on THIS device.
- * The push service can rotate a subscription's endpoint; send-push then reaps
- * the old (410) row, silently ending delivery even though the browser holds a
- * fresh, valid subscription. Reconcile re-UPSERTs the CURRENT endpoint so the
- * DB catches up.
+ * Self-heal DB↔device drift: tell the database which subscription this device
+ * holds, for the account that is signed in on it. Two things drift.
  *
- * UPSERT-only and permission-gated: it never subscribes or prompts, so it can
- * NEVER enable push for someone who didn't opt in — an active PushSubscription
- * only exists because enablePush created one on this device. No-ops (returns
- * false) when unsupported, permission isn't granted, or there's no live sub.
+ * The ADDRESS: the push service can rotate a subscription's endpoint. The
+ * service worker re-subscribes (`pushsubscriptionchange`, where the browser
+ * has that event — iOS does not), but it has no session and writes nothing;
+ * send-push then reaps the old (410) row, silently ending delivery even though
+ * the browser holds a fresh, valid subscription. The page is what knows who is
+ * signed in: it registers the CURRENT endpoint, whatever the worker did.
+ *
+ * The ACCOUNT: a subscription the previous user of this device left behind — a
+ * session that went away, a sign-out that could not reach the browser's push
+ * service, an app deployed before a sign-out released the device — moves to
+ * the account that is signed in now. That account's notifications arrive
+ * here, and the other one's stop.
+ *
+ * Both through `claim_push_subscription`, like `enablePush`. Permission-gated,
+ * and it never subscribes, prompts or renews: it registers a subscription the
+ * browser already holds, which only exists because `enablePush` created one on
+ * this device. No-ops (returns false) when unsupported, permission isn't
+ * granted, or there's no live sub. Throws, with a `.code`, when the database
+ * could not be told — `usePushAutoHeal` writes that down.
  */
 export async function reconcilePushSubscription(userId) {
   if (!isPushSupported() || !userId) return false;
   if (pushPermission() !== 'granted') return false;
   const sub = await getActivePushSubscription();
   if (!sub) return false;
-  await upsertSubscriptionRow(userId, sub);
+  await claimSubscription(sub);
   return true;
 }
 
