@@ -245,8 +245,15 @@ describe('the role of a profile: nobody who is signed in writes one', () => {
   }));
 
   // No user id, and not the owner: the pin does not hold the role for such a
-  // caller — row-level security does, which gives it no row.
+  // caller. The privilege does — `anon` holds none on any table since
+  // migration 14 — and row-level security behind it, which gives it no row.
   it('a request without a session reaches no profile at all', () => scenario(async (q) => {
+    const tried = await attempt(() => asAnon((anon) => anon(`update profiles set role = 'coach'`)));
+    expect(tried.error?.message).toBe('permission denied for table profiles');
+    expect(await q.value(`select count(*) from profiles where role = 'coach'`)).toBe(1);
+
+    // Were the privilege given back, the policy would still let it reach nothing.
+    await q(`grant update, select on public.profiles to anon`);
     expect((await asAnon((anon) => anon(`update profiles set role = 'coach'`))).rowCount).toBe(0);
     expect(await q.value(`select count(*) from profiles where role = 'coach'`)).toBe(1);
   }));

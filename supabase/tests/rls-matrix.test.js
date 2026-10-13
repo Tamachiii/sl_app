@@ -295,10 +295,12 @@ const insertProbes = () => ({
 // Measuring
 // ------------------------------------------------------------
 // Why a statement was refused, in a word: `denied` = a privilege is missing (a
-// GRANT) — on the table, or on a function one of its policies calls: since
-// migration 03 `anon` may execute none, and a policy that names a helper fails
-// the whole statement for it — `rls` = a policy's WITH CHECK, otherwise the
-// SQLSTATE (P0001 is a RAISE in a trigger, 23xxx a constraint).
+// GRANT) — on the table: since migration 14 `anon` holds none on any table of
+// public, which is every cell of its column but those of storage — or on a
+// function one of its policies calls (since migration 03 `anon` may execute
+// none; a signed-in user would meet that on a helper left out of the
+// allow-list) — `rls` = a policy's WITH CHECK, otherwise the SQLSTATE (P0001
+// is a RAISE in a trigger, 23xxx a constraint).
 function refusal(error) {
   if (error.code === '42501') return /row-level security/.test(error.message) ? 'rls' : 'denied';
   return error.code ?? 'error';
@@ -380,8 +382,8 @@ Cells
   delete       how many rows the caller can delete
   yes          the insert went through
   rls          refused by a row-level-security policy
-  denied       refused for want of a privilege: on the table, or on a function that one
-               of its policies calls (no function is executable without a session)
+  denied       refused for want of a privilege: on the table (without a session there is
+               none, on any table of the app), or on a function one of its policies calls
   +2 P0001     and 2 rows were refused with that SQLSTATE (P0001: a trigger said no;
                23503: a foreign key)
 `;

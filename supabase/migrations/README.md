@@ -261,6 +261,29 @@ Since migration 13 two functions do for an account what its own rights do not fi
 - **The four policies of `push_subscriptions` and the athlete's `INSERT` policy on `set_logs` stay** while an app from before wave 2 is in use: it registers a device with its own upsert and adds the missing sets with its own `INSERT`. Closing either is a `contract` migration.
 - **The refusals** are `not authorized` (`42501`: no user id, or — for `ensure_set_logs` — not the caller's own session; somebody else's session and no such session are the same answer) and four fixed words with `P0001`: `program_not_active`, `session_not_writable`, `subscription_incomplete`, `endpoint_keys_mismatch`. The answer of `claim_push_subscription` is an object (`subscription_id`, `outcome`: `created`, `refreshed` or `rehomed`): keys and outcomes are added, never renamed.
 
+## A migration that creates a table, a view or a sequence
+
+Since migration 14 a request without a session holds no privilege on any table, view or sequence of `public`; a signed-in user holds `SELECT`, `INSERT`, `UPDATE` and `DELETE` on every table — the four that row-level security judges row by row — and `USAGE` on a sequence; the service role and the owner hold everything; and what `postgres` creates in `public` starts with the same. `supabase/tests/table-acl.test.js` holds each of the rules below against the catalog, for every table there is.
+
+1. **Row-level security in the same file, with the policies.** The four privileges are on a table from the moment it is created: until `ALTER TABLE public.t ENABLE ROW LEVEL SECURITY` has run, every signed-in account reads and writes every row of it. With row-level security and no policy, the table is the service role's alone — which is a fair way to start one that only an Edge Function writes.
+2. **In the migration, the privileges stand next to the table**, so that the result does not depend on the default privileges of the database the file runs in:
+
+   ```sql
+   ALTER TABLE public.t ENABLE ROW LEVEL SECURITY;
+   REVOKE ALL ON TABLE public.t FROM PUBLIC, anon, authenticated;
+   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.t TO authenticated;
+   ```
+
+   All four, also when the policies cover fewer commands: a command without a policy is refused by row-level security (`rls` in the matrix, for an `INSERT`) or reaches no row (`0`). Nothing else — `TRUNCATE` is not subject to row-level security and fires no `DELETE` trigger, `MAINTAIN` locks a table against every reader, `TRIGGER` and `REFERENCES` are for whoever writes migrations.
+3. **In `schema.sql`, the table is defined above the `TABLE PRIVILEGES` block at the end of the file, and carries no `GRANT` of its own.** That block takes back, for every table at once, what Supabase's default privileges gave: nothing below it creates a table, a view or a sequence of `public`. A table on which a signed-in user must hold less than the four says so at the end of that block, and in `LESS_FOR_USERS` of `table-acl.test.js` with the reason.
+4. **Never `anon`, never `PUBLIC`.** Nothing of this app is served without a session, and a grant to `PUBLIC` is a grant to `anon`.
+5. **A view is created `WITH (security_invoker = true)`.** Without it a view reads its tables with the rights of its owner, whom row-level security does not hold: it shows every row to whoever may read the view — and a signed-in user may read a new view, as it may read a new table. A materialized view and a foreign table have no row-level security at all: revoke everything from `authenticated` on one, and reach it through a function.
+6. **A numbered column** works with what a signed-in user holds: `USAGE` on the sequence is the next number, for the default of a `serial` column; `GENERATED … AS IDENTITY` asks for nothing. Reading the counter and `setval()` are not given.
+7. **Something that is not about rows is not done with the caller's rights.** A function that must empty or rebuild a table for a user is `SECURITY DEFINER`, asks who calls first (migration 02), and is listed in `function-acl.test.js`. A `SECURITY INVOKER` function that needs `TRUNCATE` fails for every signed-in user.
+8. **The table gets its insert probe in `rls-matrix.test.js`**, and the snapshot is regenerated: the test fails on a table without one. Its `anon` column reads `denied` on every line.
+
+The default privileges of `supabase_admin`, the platform's own role, are untouched — `postgres` cannot change them: a table that role creates in `public` (line 15 of the audit of migration 14) starts open to everyone. Nothing of the app is created by it.
+
 ## A migration that brings a rule the rows already there may break
 
 A trigger or a policy judges what is written after it. When rows that are already in the database break the rule **and leaving them would leave the hole in use**, the migration refuses to start:

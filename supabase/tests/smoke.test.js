@@ -66,13 +66,12 @@ describe('schema.sql on PostgreSQL 17 + shim.sql', () => {
 
 // ------------------------------------------------------------
 describe('anon — the public anon key, no user JWT', () => {
-  // Refused outright where a privilege is missing (42501), no row elsewhere.
-  // Since migration 03 anon may execute no function, so a table whose policies
-  // call a helper refuses the whole statement; which tables those are is in
-  // snapshots/rls-matrix.txt.
+  // Refused outright, on every table of public: since migration 14 anon holds
+  // no privilege on any (42501, "permission denied for table …"). The tables
+  // of the platform (storage) are not ours: there, row-level security answers.
   const REFUSED = '42501';
 
-  it('reads no row from any public table', async () => {
+  it('reads no table of public', async () => {
     const tables = await publicTables();
     const seen = await asAnon(async (q) => {
       const out = {};
@@ -82,7 +81,7 @@ describe('anon — the public anon key, no user JWT', () => {
       }
       return out;
     });
-    expect(Object.entries(seen).filter(([, n]) => n !== 0 && n !== REFUSED)).toEqual([]);
+    expect(Object.entries(seen).filter(([, n]) => n !== REFUSED)).toEqual([]);
 
     // Not vacuous: the same tables do hold rows.
     const truth = await asAdmin((q) => q.value(`select count(*) from public.set_logs`));
@@ -108,7 +107,7 @@ describe('anon — the public anon key, no user JWT', () => {
     await scenario(async (q) => {
       for (const { name } of tables) {
         const tried = await attempt(() => asAnon((anon) => anon(`delete from public."${name}"`)));
-        expect(tried.ok ? tried.value.rowCount : tried.error.code, name).toBeOneOf([0, REFUSED]);
+        expect(tried.ok ? tried.value.rowCount : tried.error.code, name).toBe(REFUSED);
       }
       expect(await q.value(`select count(*) from public.set_logs`)).toBe(30);
     });
@@ -348,7 +347,8 @@ describe('harness', () => {
 
   // What shim.sql promises: the starting point of a Supabase project. Asked of
   // an EMPTY project, not of schema.sql — which now closes the part about
-  // functions (migration 03; function-acl.test.js holds what it leaves).
+  // functions (migration 03; function-acl.test.js holds what it leaves) and
+  // the part about tables (migration 14; table-acl.test.js).
   it('reproduces the Supabase default privileges on schema public', async () => {
     const db = await scratchDatabase();
     const q = db.query;

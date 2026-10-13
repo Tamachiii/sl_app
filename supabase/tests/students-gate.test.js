@@ -473,7 +473,9 @@ describe('the exercise library is written by a coach', () => {
     expect(await asUser(ids.studentA, (athlete) => athlete.value(`select count(*) from exercise_library`))).toBe(4);
     expect(await asUser(casey, (athlete) => athlete.rows(`select name from exercise_library`))).toEqual([{ name: 'Row' }]);
     expect(await asUser(una, (user) => user.value(`select count(*) from exercise_library`))).toBe(0);
-    expect(await asAnon((anon) => anon.value(`select count(*) from exercise_library`))).toBe(0);
+    // Since migration 14 for want of any privilege on the table; before it, no row.
+    const anonymous = await attempt(() => asAnon((anon) => anon.value(`select count(*) from exercise_library`)));
+    expect(anonymous.error?.message).toBe('permission denied for table exercise_library');
   });
 });
 

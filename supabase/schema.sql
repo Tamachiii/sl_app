@@ -5560,6 +5560,64 @@ GRANT EXECUTE ON FUNCTION
 TO authenticated;
 
 -- ============================================================
+-- TABLE PRIVILEGES (2026_10_13_14_table_grants_lockdown)
+--
+-- KEEP THIS BLOCK BELOW EVERY TABLE, VIEW AND SEQUENCE OF `public` IN THIS
+-- FILE: nothing after it may create one. It is the one place in this file
+-- that says who holds what on a table, and supabase/tests/table-acl.test.js
+-- refuses a GRANT or a REVOKE on a table of `public` anywhere else.
+--
+-- Why a block and not a line per table. Supabase's default privileges give
+-- `anon`, `authenticated` and `service_role` EVERY privilege, by name, on
+-- every table `postgres` creates in `public`: each table above was born
+-- readable, writable and TRUNCATE-able with nothing but the anon key, and
+-- row-level security was the only gate (review L24). TRUNCATE is not subject
+-- to it. Here it is taken back at once, for all of them:
+--
+--   anon, PUBLIC     nothing — on a table, a view or a sequence
+--   authenticated    SELECT, INSERT, UPDATE, DELETE on a table: the four that
+--                    the policies judge row by row. USAGE on a sequence.
+--   service_role     everything (the Edge Functions), and so the owner
+--
+-- A NEW TABLE:
+--   * above this block, with `ALTER TABLE … ENABLE ROW LEVEL SECURITY` and
+--     its policies next to it. The block gives it the privileges of the
+--     others; without row-level security every signed-in user would read and
+--     write all of it.
+--   * a table on which a signed-in user must hold LESS than the four says so
+--     at the end of this block, below the statements for all of them.
+--   * never a GRANT to `anon`: nothing of this app is served without a
+--     session.
+--   * a view is created `WITH (security_invoker = true)`: without it a view
+--     shows every row of its tables to whoever may read the view.
+-- Its MIGRATION carries the same, for that table alone, so that the result
+-- does not depend on the default privileges of the database it runs in:
+--     ALTER TABLE public.t ENABLE ROW LEVEL SECURITY;
+--     REVOKE ALL ON TABLE public.t FROM PUBLIC, anon, authenticated;
+--     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.t TO authenticated;
+-- and supabase/tests/rls-matrix.test.js gets its insert probe.
+-- ============================================================
+
+-- What a table or a sequence created AFTER this file starts with, when
+-- `postgres` creates it in `public` (the SQL editor, a migration): the same.
+-- PostgreSQL itself gives PUBLIC nothing on a new table, so there is no
+-- global default to take back here, unlike for functions.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE ALL ON TABLES FROM anon;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE ALL ON SEQUENCES FROM anon;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON TABLES FROM authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE SELECT, UPDATE ON SEQUENCES FROM authenticated;
+
+-- Every table, view and sequence above. ALL TABLES is tables and views.
+REVOKE ALL ON ALL TABLES    IN SCHEMA public FROM PUBLIC, anon;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC, anon;
+REVOKE TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON ALL TABLES IN SCHEMA public FROM authenticated;
+REVOKE SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public FROM authenticated;
+
+-- ============================================================
 -- MIGRATION LEDGER (2026_10_03_01_migration_ledger)
 --
 -- app_private.app_migrations holds one row per applied migration of
@@ -5610,4 +5668,5 @@ INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_13_10_goals_fk_coach_links'),
   ('2026_10_13_11_activate_reorder_rpcs'),
   ('2026_10_13_12_copy_rpcs'),
-  ('2026_10_13_13_ensure_claim_rpcs');
+  ('2026_10_13_13_ensure_claim_rpcs'),
+  ('2026_10_13_14_table_grants_lockdown');

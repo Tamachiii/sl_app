@@ -117,6 +117,15 @@
       "covers": ["L8", "P22", "P15"],
       "reversible": true,
       "summary": "Two functions a signed-in user calls, which run as their owner and ask who calls first (SECURITY DEFINER): ensure_set_logs(session) adds the prescribed sets that are missing in a session of the caller — read from the exercises as they are in the database, for its athlete only, in the block being trained, in a session neither archived nor reviewed — answers how many it added, and marks its INSERT with the transaction-local setting app.trusted_set_log_insert, which nothing reads yet; claim_push_subscription(endpoint, p256dh, auth, user agent) registers a device for the caller, and takes an endpoint over from another account only when the two keys sent are the ones stored with it. Nothing else: no table, no policy, no row."
+    },
+    {
+      "name": "2026_10_13_14_table_grants_lockdown",
+      "kind": "required",
+      "wave": 1,
+      "checkpoint": "A3",
+      "covers": ["L24"],
+      "reversible": true,
+      "summary": "A request without a session holds no privilege on any table, view or sequence of public; a signed-in user holds SELECT, INSERT, UPDATE and DELETE on a table — what row-level security judges — and no longer TRUNCATE, REFERENCES, TRIGGER or MAINTAIN, and USAGE on a sequence; a table or a sequence postgres creates later in public starts with the same; the service role keeps everything. Nothing else: no table, no policy, no function, no row."
     }
   ]
 }
