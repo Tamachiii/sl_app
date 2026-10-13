@@ -8,8 +8,19 @@ import {
   loggedSetsError,
 } from '../lib/loggedSets';
 
-export function useSession(sessionId) {
-  return useQuery({
+/**
+ * The read of one session, as an options object: `useSession` mounts it, and
+ * the athlete's training list hands the same object to
+ * `queryClient.fetchQuery` to read the next session ahead of the tap that
+ * opens it. One definition, so what was read ahead is found under the key the
+ * page asks for, in the shape it expects.
+ *
+ * No `staleTime`, `gcTime` or `refetchOn…` here: how long a read is trusted and
+ * kept is the client's decision (lib/queryClient.js), and an option given with
+ * the query would override it for one of the two callers only.
+ */
+export function sessionQueryOptions(sessionId) {
+  return {
     queryKey: ['session', sessionId],
     queryFn: async () => {
       // Pull the parent program's is_active so the student SessionView can
@@ -50,7 +61,11 @@ export function useSession(sessionId) {
       return data;
     },
     enabled: !!sessionId,
-  });
+  };
+}
+
+export function useSession(sessionId) {
+  return useQuery(sessionQueryOptions(sessionId));
 }
 
 /**

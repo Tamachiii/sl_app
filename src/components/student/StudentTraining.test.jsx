@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { IsRestoringProvider, QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -17,6 +17,11 @@ vi.mock('../../hooks/useAuth', () => ({
     signOut: vi.fn(),
   }),
 }));
+
+// The session page's two reads are NOT mocked: the list hands their options to
+// the client to read the next session ahead, and the tests of that mount the
+// real hooks on what it cached. Only the database behind them is a double.
+vi.mock('../../lib/supabase', () => ({ supabase: { from: vi.fn() } }));
 
 // A read as a component sees it. `data` alone makes it one that answered.
 const read = (data, over = {}) => ({
@@ -57,6 +62,10 @@ vi.mock('../../hooks/useMessages', () => ({
 vi.mock('../ui/UserMenu', () => ({ default: () => <div data-testid="user-menu" /> }));
 
 import StudentTraining from './StudentTraining';
+import { useSession } from '../../hooks/useSession';
+import { useSetLogs } from '../../hooks/useSetLogs';
+import { supabase } from '../../lib/supabase';
+import { fakePostgrest } from '../../test/fakePostgrest';
 
 const activeProgram = { id: 'p-1', name: 'Bloc Reprise', sort_order: 1, is_active: true };
 
@@ -93,10 +102,12 @@ const pastHeader = (program, session_count, archived_count = 0) => ({
   archived_count,
 });
 
-function makeClient() {
+// A client like the app's where it matters here: a read is trusted for a
+// while, so reading ahead twice in a row is one request.
+function makeClient(queries = {}) {
   return new QueryClient({
     defaultOptions: {
-      queries: { retry: false, gcTime: Infinity },
+      queries: { retry: false, gcTime: Infinity, staleTime: 60_000, ...queries },
       mutations: { retry: false },
     },
   });
@@ -123,12 +134,16 @@ function setOnline(online) {
   });
 }
 
+let db;
 beforeEach(() => {
   vi.clearAllMocks();
   mockConfirmedIds = read(new Set());
   mockList = listOf([]);
   mockPastBlocks = {};
   pastBlockReads.length = 0;
+  // Nothing to read ahead unless a test puts a session there.
+  db = fakePostgrest({ sessions: [], set_logs: [] });
+  supabase.from.mockImplementation(db.from);
 });
 
 afterEach(() => {
@@ -761,6 +776,221 @@ describe('StudentTraining', () => {
         expect(mockList.refetch).not.toHaveBeenCalled();
         expect(mockConfirmedIds.refetch).not.toHaveBeenCalled();
       });
+    });
+  });
+
+  // The list is where an athlete is before a workout, usually on a network;
+  // the session is opened in the gym, often without one. A session that was
+  // never opened on the device had nothing to show there.
+  describe('reading the next session ahead', () => {
+    const slot = (id, over = {}) => ({ id, sort_order: 0, sets: 2, set_logs: [], ...over });
+    // The session row as the session page's read returns it.
+    const sessionRow = (id, slots) => ({
+      id,
+      title: 'Upper 1',
+      weeks: { programs: { is_active: true } },
+      exercise_slots: slots,
+    });
+    const setRow = (id, slotId, n) => ({ id, exercise_slot_id: slotId, set_number: n, done: false });
+
+    const twoSessions = () =>
+      listOf([
+        week('w-1', 1, [
+          session('a', 'Upper 1', { sort_order: 0, exercise_slots: [slot('sl-2'), slot('sl-1')] }),
+          session('b', 'Upper 2', { sort_order: 1, exercise_slots: [slot('sl-9')] }),
+        ]),
+      ]);
+
+    function wire({ slots = [slot('sl-2', { sort_order: 1 }), slot('sl-1')] } = {}) {
+      db = fakePostgrest({
+        sessions: (request) => {
+          const id = request.filters.find(([op, column]) => op === 'eq' && column === 'id')?.[2];
+          return [sessionRow(id, slots)];
+        },
+        set_logs: [setRow('l-1', 'sl-1', 1), setRow('l-2', 'sl-2', 1)],
+      });
+      supabase.from.mockImplementation(db.from);
+      return db;
+    }
+
+    const withClient = (client) => ({ children }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+
+    it('reads the next session and its sets into the cache the session page reads', async () => {
+      wire();
+      mockList = twoSessions();
+      renderTraining();
+
+      await waitFor(() => expect(db.requestsTo('set_logs')).toHaveLength(1));
+      expect(db.requestsTo('sessions')).toHaveLength(1);
+      expect(db.requestsTo('sessions')[0].filters).toContainEqual(['eq', 'id', 'a']);
+      expect(db.requestsTo('set_logs')[0].filters).toContainEqual([
+        'in',
+        'exercise_slot_id',
+        ['sl-1', 'sl-2'],
+      ]);
+
+      // The proof that it was read under the page's keys, in the page's shape:
+      // the page's own hooks, mounted on this cache, have their data at once
+      // and send nothing.
+      const { result } = renderHook(
+        () => {
+          const session = useSession('a');
+          const logs = useSetLogs('a', session.data?.exercise_slots);
+          return { session, logs };
+        },
+        { wrapper: withClient(queryClient) },
+      );
+      expect(result.current.session.data.program_is_active).toBe(true);
+      expect(result.current.session.data.exercise_slots.map((s) => s.id)).toEqual(['sl-1', 'sl-2']);
+      expect(result.current.logs.data.map((l) => l.id)).toEqual(['l-1', 'l-2']);
+      expect(db.requests).toHaveLength(2);
+    });
+
+    it('reads the next session only: the one after it is read when it becomes the next', async () => {
+      wire();
+      mockList = twoSessions();
+      const view = renderTraining();
+      await waitFor(() => expect(db.requestsTo('set_logs')).toHaveLength(1));
+      expect(db.requestsTo('sessions').map((r) => r.filters[0][2])).toEqual(['a']);
+
+      // Confirmed: 'b' is next now.
+      mockConfirmedIds = read(new Set(['a']));
+      view.rerender(page(queryClient));
+      await waitFor(() => expect(db.requestsTo('sessions')).toHaveLength(2));
+      expect(db.requestsTo('sessions')[1].filters).toContainEqual(['eq', 'id', 'b']);
+    });
+
+    // The list can be one coach edit behind the session row. The page builds
+    // the key of its set read from the ROW, so the read-ahead must too — a
+    // key built from the list's slots would be one the page never asks for.
+    it('asks for the sets of the exercises the session row has, not the ones the list has', async () => {
+      wire({ slots: [slot('sl-1'), slot('sl-2', { sort_order: 1 }), slot('sl-new', { sort_order: 2 })] });
+      mockList = twoSessions();
+      renderTraining();
+
+      await waitFor(() => expect(db.requestsTo('set_logs')).toHaveLength(1));
+      const keys = queryClient
+        .getQueryCache()
+        .getAll()
+        .map((q) => q.queryKey);
+      expect(keys).toContainEqual(['set-logs', 'a', ['sl-1', 'sl-2', 'sl-new']]);
+    });
+
+    it('asks for no sets of a session that has no exercise yet', async () => {
+      wire({ slots: [] });
+      mockList = twoSessions();
+      renderTraining();
+      await waitFor(() => expect(queryClient.getQueryData(['session', 'a'])).toBeTruthy());
+      await act(async () => {});
+      expect(db.requestsTo('set_logs')).toEqual([]);
+    });
+
+    it('reads nothing ahead when the block is finished', async () => {
+      wire();
+      mockList = listOf([week('w-1', 1, [session('a', 'Upper 1')])]);
+      mockConfirmedIds = read(new Set(['a']));
+      renderTraining();
+      await act(async () => {});
+      expect(db.requests).toEqual([]);
+    });
+
+    // A wrong "next" would be read: without the confirmations every session
+    // counts as not done.
+    it('reads nothing ahead before the confirmations are known', async () => {
+      wire();
+      mockList = twoSessions();
+      mockConfirmedIds = onItsWay();
+      renderTraining();
+      await act(async () => {});
+      expect(db.requests).toEqual([]);
+    });
+
+    it('reads nothing ahead without a network, and does when it returns', async () => {
+      wire();
+      vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+      mockList = twoSessions();
+      renderTraining();
+      await act(async () => {});
+      expect(db.requests).toEqual([]);
+
+      setOnline(true);
+      await waitFor(() => expect(db.requestsTo('set_logs')).toHaveLength(1));
+    });
+
+    it('answers from the cache while its copy is fresh, however often the list is read', async () => {
+      wire();
+      mockList = twoSessions();
+      const view = renderTraining();
+      await waitFor(() => expect(db.requestsTo('set_logs')).toHaveLength(1));
+
+      // The list was read again: same next session, a newer read.
+      mockList = { ...twoSessions(), dataUpdatedAt: 2 };
+      view.rerender(page(queryClient));
+      await act(async () => {});
+      expect(db.requests).toHaveLength(2);
+    });
+
+    // What a coach rewrote this afternoon must not be kept as it was this
+    // morning: each read of the list is a chance to bring the session up to
+    // date, taken when the copy is no longer fresh.
+    it('reads the session again when the list is read again and the copy is out of date', async () => {
+      wire();
+      mockList = twoSessions();
+      const view = renderTraining(makeClient({ staleTime: 0 }));
+      await waitFor(() => expect(db.requestsTo('set_logs')).toHaveLength(1));
+
+      // Rendered again without a new read of the list: nothing.
+      view.rerender(page(queryClient));
+      await act(async () => {});
+      expect(db.requestsTo('sessions')).toHaveLength(1);
+
+      mockList = { ...twoSessions(), dataUpdatedAt: 2 };
+      view.rerender(page(queryClient));
+      await waitFor(() => expect(db.requestsTo('set_logs')).toHaveLength(2));
+      expect(db.requestsTo('sessions')).toHaveLength(2);
+    });
+
+    // The answer of a read made while a write is on its way can be older than
+    // what the device holds: it would put the ticked sets back as they were.
+    it('waits for the writes of the device to be through', async () => {
+      wire();
+      mockList = twoSessions();
+      const client = makeClient();
+      let finishWrite;
+      const write = client.getMutationCache().build(client, {
+        mutationFn: () => new Promise((resolve) => { finishWrite = resolve; }),
+      });
+      write.execute();
+
+      renderTraining(client);
+      await act(async () => {});
+      expect(db.requests).toEqual([]);
+
+      await act(async () => { finishWrite(); });
+      await waitFor(() => expect(db.requestsTo('set_logs')).toHaveLength(1));
+    });
+
+    it('leaves a failed read-ahead to the page: no error, and the list as it was', async () => {
+      db = fakePostgrest({
+        sessions: { error: { code: '57014', message: 'canceling statement due to statement timeout' } },
+        set_logs: [],
+      });
+      supabase.from.mockImplementation(db.from);
+      const onUnhandled = vi.fn();
+      process.on('unhandledRejection', onUnhandled);
+      try {
+        mockList = twoSessions();
+        renderTraining();
+        await waitFor(() => expect(db.requestsTo('sessions')).toHaveLength(1));
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+      }
+      expect(onUnhandled).not.toHaveBeenCalled();
+      expect(db.requestsTo('set_logs')).toEqual([]);
+      expect(screen.getByText('Upper 1')).toBeInTheDocument();
     });
   });
 });

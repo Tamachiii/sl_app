@@ -8,7 +8,7 @@
 // "No program assigned yet" in the gym was a key, and a stubbed hook has none.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import {
@@ -31,11 +31,13 @@ vi.mock('../../lib/supabase', () => ({ supabase: { from: vi.fn() } }));
 vi.mock('../ui/UserMenu', () => ({ default: () => <div data-testid="user-menu" /> }));
 
 import StudentTraining from './StudentTraining';
+import { useSession } from '../../hooks/useSession';
+import { useSetLogs } from '../../hooks/useSetLogs';
 import {
   studentProgramDetailsKey,
   studentPastProgramKey,
 } from '../../hooks/useStudentProgramDetails';
-import { shouldPersistQuery } from '../../lib/queryClient';
+import { queryClient as appClient, shouldPersistQuery } from '../../lib/queryClient';
 import { supabase } from '../../lib/supabase';
 import { fakePostgrest } from '../../test/fakePostgrest';
 
@@ -107,6 +109,13 @@ const PAST = {
   ],
 };
 
+const SET_LOGS = [
+  { id: 'l-1', exercise_slot_id: 'sl-1', set_number: 1, done: false },
+  { id: 'l-2', exercise_slot_id: 'sl-1', set_number: 2, done: false },
+  { id: 'l-3', exercise_slot_id: 'sl-2', set_number: 1, done: false },
+  { id: 'l-4', exercise_slot_id: 'sl-2', set_number: 2, done: false },
+];
+
 // --- the network --------------------------------------------------------------
 
 // What postgrest-js hands back when `fetch` itself failed: an error object
@@ -141,6 +150,20 @@ function wire() {
     }),
     session_confirmations: answer(() => [{ session_id: 's-1' }]),
     messages: answer(() => []),
+    sessions: answer((request) => {
+      const id = eq(request, 'id');
+      return [
+        {
+          id,
+          title: 'Pull A',
+          reviewed_at: null,
+          archived_at: null,
+          weeks: { programs: { is_active: true } },
+          exercise_slots: NEXT_SLOTS.map((s) => ({ ...s, session_id: id })),
+        },
+      ];
+    }),
+    set_logs: answer(() => SET_LOGS),
   });
   supabase.from.mockImplementation(db.from);
 }
@@ -185,6 +208,10 @@ function makeClient(mode) {
   });
 }
 
+const withClient = (client) => ({ children }) => (
+  <QueryClientProvider client={client}>{children}</QueryClientProvider>
+);
+
 function renderTraining(client) {
   return render(
     <QueryClientProvider client={client}>
@@ -204,11 +231,12 @@ function saveAndRestore(from, into) {
   return saved.queries.map((q) => q.queryKey);
 }
 
-// A first visit with a network: the list.
+// A first visit with a network: the list, and the next session read ahead.
 async function visitOnline(mode) {
   const client = makeClient(mode);
   const view = renderTraining(client);
   await screen.findByText('Pull A');
+  await waitFor(() => expect(db.requestsTo('set_logs')).toHaveLength(1));
   return { client, view };
 }
 
@@ -307,6 +335,37 @@ describe.each(Object.keys(MODES))('a launch without a network (reads %s)', (mode
     expect(await screen.findByText('Session 2 of 3')).toBeInTheDocument();
     watch.disconnect();
     expect(said).toEqual([]);
+  });
+
+  it('opens the next session, which was never opened on this device', async () => {
+    const { client: atHome, view } = await visitOnline(mode);
+    const gym = makeClient(mode);
+    const kept = saveAndRestore(atHome, gym);
+    view.unmount();
+
+    expect(kept).toContainEqual(['session', 's-2']);
+    expect(kept).toContainEqual(['set-logs', 's-2', ['sl-1', 'sl-2']]);
+
+    setNetwork(false, mode);
+    // The session page's two reads — the ones it holds its spinner for.
+    const { result } = renderHook(
+      () => {
+        const session = useSession('s-2');
+        const logs = useSetLogs('s-2', session.data?.exercise_slots);
+        return { session, logs };
+      },
+      { wrapper: withClient(gym) },
+    );
+    expect(result.current.session.data.title).toBe('Pull A');
+    expect(result.current.session.data.program_is_active).toBe(true);
+    expect(result.current.session.data.exercise_slots.map((s) => s.exercise.name)).toEqual([
+      'Bench Press',
+      'Weighted Dip',
+    ]);
+    // Ordered by set number, as the page asks for them.
+    expect(result.current.logs.data.map((l) => l.id)).toEqual(['l-1', 'l-3', 'l-2', 'l-4']);
+    expect(result.current.session.isLoading).toBe(false);
+    expect(result.current.logs.isLoading).toBe(false);
   });
 
   it('keeps the sessions of a past block off the device, and says so when one is opened', async () => {
@@ -424,5 +483,54 @@ describe('on a network', () => {
     network.up = true;
     await user.click(screen.getByRole('button', { name: /try again/i }));
     expect(await screen.findByText('Session 2 of 3')).toBeInTheDocument();
+  });
+});
+
+// Every client above keeps what it has read for ever (`gcTime: Infinity`), so
+// none of them can say how long the app's own client does. And it matters for
+// one read more than for any other: a session read ahead has no observer until
+// it is opened, an entry without an observer leaves memory after the `gcTime`
+// of its root, and what has left memory is written out of the device at the
+// next save. With the default of five minutes, the session is gone before the
+// athlete has reached the gym.
+//
+// The `gcTime` is not this page's to give — `sessionQueryOptions` and
+// `setLogsQueryOptions` carry none on purpose, it is set per root in
+// lib/queryClient.js. So the test below asks the app's client, after the
+// page's own read-ahead, and is an `it.fails` for as long as that client keeps
+// the default: an expected failure is reported as a pass. The day the client
+// keeps its stored roots for as long as the device stores them, the run turns
+// red ("expected to fail") until `.fails` is deleted here — so the marker
+// cannot outlive the hole, and from then on the test holds the two together.
+describe('on the client of the app', () => {
+  // How long the device keeps what it stores: the `maxAge` the cache is
+  // persisted with.
+  const STORED_FOR_MS = 14 * 24 * 60 * 60 * 1000;
+
+  afterEach(() => {
+    appClient.clear();
+  });
+
+  it.fails('the session read ahead stays in memory for as long as the device stores it', async () => {
+    const view = renderTraining(appClient);
+    await screen.findByText('Pull A');
+    const READ_AHEAD = [
+      ['session', 's-2'],
+      ['set-logs', 's-2', ['sl-1', 'sl-2']],
+    ];
+    await waitFor(() => {
+      for (const queryKey of READ_AHEAD) expect(appClient.getQueryData(queryKey)).toBeDefined();
+    });
+    // The athlete leaves the list: nothing observes either read any more.
+    view.unmount();
+
+    const kept = Object.fromEntries(
+      READ_AHEAD.map((queryKey) => [
+        queryKey[0],
+        appClient.getQueryCache().find({ queryKey }).gcTime,
+      ]),
+    );
+    expect(kept.session).toBeGreaterThanOrEqual(STORED_FOR_MS);
+    expect(kept['set-logs']).toBeGreaterThanOrEqual(STORED_FOR_MS);
   });
 });

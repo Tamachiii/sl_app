@@ -8,9 +8,20 @@ import {
   patchForSkipped,
 } from '../lib/offlineMutations';
 
-export function useSetLogs(sessionId, slots) {
+/**
+ * The read of a session's sets, as an options object: `useSetLogs` mounts it,
+ * and the athlete's training list hands the same object to
+ * `queryClient.fetchQuery` to read the next session ahead (see
+ * `sessionQueryOptions` in useSession.js, which this one follows).
+ *
+ * The key carries the ids of the session's exercises, sorted. Whoever reads
+ * ahead must therefore pass the slots of the session row it has just cached
+ * under ['session', sessionId] — the page derives its key from that row, and
+ * a list of slots taken from anywhere else may be one edit behind it.
+ */
+export function setLogsQueryOptions(sessionId, slots) {
   const slotIds = (slots || []).map((s) => s.id).sort();
-  return useQuery({
+  return {
     queryKey: ['set-logs', sessionId, slotIds],
     queryFn: async () => {
       if (slotIds.length === 0) return [];
@@ -24,7 +35,11 @@ export function useSetLogs(sessionId, slots) {
       return data;
     },
     enabled: !!sessionId && slotIds.length > 0,
-  });
+  };
+}
+
+export function useSetLogs(sessionId, slots) {
+  return useQuery(setLogsQueryOptions(sessionId, slots));
 }
 
 // Safety net for legacy slots that pre-date the per-set-targets migration:

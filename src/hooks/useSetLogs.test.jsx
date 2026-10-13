@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
+  setLogsQueryOptions,
   useSetLogs,
   useEnsureSetLogs,
   useToggleSetDone,
@@ -66,6 +67,57 @@ describe('useSetLogs (query)', () => {
     expect(supabase.from).toHaveBeenCalledWith('set_logs');
     expect(chain.in).toHaveBeenCalledWith('exercise_slot_id', ['sl-1']);
     expect(result.current.data).toHaveLength(1);
+  });
+});
+
+// The athlete's training list reads the sets of the next session ahead through
+// these very options, so that the session page finds them in the cache.
+describe('setLogsQueryOptions', () => {
+  it('is the read useSetLogs mounts: what was fetched through it, the hook shows without asking', async () => {
+    const chain = {
+      select: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
+      order: vi.fn().mockResolvedValue({
+        data: [{ id: 'l-1', exercise_slot_id: 'sl-1', set_number: 1, done: false }],
+        error: null,
+      }),
+    };
+    supabase.from.mockReturnValue(chain);
+    // Trusted for a while, as on the app's client.
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: 60_000 } },
+    });
+
+    const ahead = await qc.fetchQuery(setLogsQueryOptions('sess-1', [{ id: 'sl-2' }, { id: 'sl-1' }]));
+    expect(chain.in).toHaveBeenCalledWith('exercise_slot_id', ['sl-1', 'sl-2']);
+
+    // The page hands its slots over in the order of the session; the key does
+    // not depend on it.
+    const { result } = renderHook(
+      () => useSetLogs('sess-1', [{ id: 'sl-1' }, { id: 'sl-2' }]),
+      { wrapper: withClient(qc) },
+    );
+    expect(result.current.data).toBe(ahead);
+    expect(result.current.isLoading).toBe(false);
+    expect(supabase.from).toHaveBeenCalledTimes(1);
+  });
+
+  it('keys the read by the session and its exercises, sorted', () => {
+    expect(setLogsQueryOptions('sess-1', [{ id: 'sl-2' }, { id: 'sl-1' }]).queryKey).toEqual([
+      'set-logs',
+      'sess-1',
+      ['sl-1', 'sl-2'],
+    ]);
+  });
+
+  // See sessionQueryOptions: how long a read is trusted and kept is the
+  // client's decision, per root.
+  it('says what to read and nothing about how long to trust or keep it', () => {
+    const options = setLogsQueryOptions('sess-1', [{ id: 'sl-1' }]);
+    expect(Object.keys(options).sort()).toEqual(['enabled', 'queryFn', 'queryKey']);
+    expect(options.enabled).toBe(true);
+    expect(setLogsQueryOptions('sess-1', []).enabled).toBe(false);
+    expect(setLogsQueryOptions(undefined, [{ id: 'sl-1' }]).enabled).toBe(false);
   });
 });
 

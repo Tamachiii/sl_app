@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useIsRestoring } from '@tanstack/react-query';
+import { useIsMutating, useIsRestoring, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
@@ -8,6 +8,8 @@ import {
   useStudentProgramDetails,
   useStudentPastProgram,
 } from '../../hooks/useStudentProgramDetails';
+import { sessionQueryOptions } from '../../hooks/useSession';
+import { setLogsQueryOptions } from '../../hooks/useSetLogs';
 import { useMyConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 import { useMyFeedbackSessionIds } from '../../hooks/useMessages';
 import { DAY_FULL_LONG, parseISODate, performedDate } from '../../lib/day';
@@ -109,6 +111,29 @@ function readState(queries, { online, restoring }) {
   if (missing.some((q) => q.isError)) return 'failed';
   // Not asked yet (the account is not known): nothing to report.
   return 'loading';
+}
+
+/**
+ * Read a session and its sets into the cache, under the keys and in the shapes
+ * the session page reads — the same options objects its hooks mount.
+ *
+ * The sets are asked for with the slots of the session row this very call
+ * cached, not with the list's: the page builds the key of its set read from
+ * that row, and the list may be one coach edit behind it.
+ *
+ * `fetchQuery` answers from the cache while the copy is fresh, so calling this
+ * again costs nothing until it is not. A failure is nobody's problem here: the
+ * page reads again when it is opened.
+ */
+function readAheadSession(queryClient, sessionId) {
+  return queryClient
+    .fetchQuery(sessionQueryOptions(sessionId))
+    .then((session) => {
+      const slots = session?.exercise_slots || [];
+      if (slots.length === 0) return undefined;
+      return queryClient.prefetchQuery(setLogsQueryOptions(sessionId, slots));
+    })
+    .catch(() => {});
 }
 
 // Stands where content would be when its read got no answer: what happened,
@@ -285,6 +310,7 @@ export default function StudentTraining() {
   const { user, profile, signOut } = useAuth();
   const { t, lang } = useI18n();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const online = useOnlineStatus();
   const restoring = useIsRestoring();
   // The list is made of two reads, and both are among the few the device
@@ -295,6 +321,7 @@ export default function StudentTraining() {
   const details = useStudentProgramDetails(user?.id);
   const confirmations = useMyConfirmedSessionIds();
   const { data: feedbackIds = NO_IDS } = useMyFeedbackSessionIds();
+  const writesWaiting = useIsMutating() > 0;
 
   const [showArchived, setShowArchived] = useState(false);
   // `undefined` = the student hasn't chosen yet, so the next session opens by
@@ -379,6 +406,24 @@ export default function StudentTraining() {
     wasOnline.current = online;
     if (cameBack && !ready) retry();
   }, [online, ready, retry]);
+
+  // Read the NEXT session ahead, into the cache the session page reads from
+  // and the device keeps. The list is where an athlete is before a workout,
+  // usually still on a network; the session is opened in the gym, often
+  // without one — and a session that was never opened on this device had
+  // nothing to show there but a spinner and an empty page.
+  //
+  // It runs again each time the list itself is read again (`dataUpdatedAt`),
+  // so a session the coach rewrote this afternoon is not kept as it was this
+  // morning, and when the network returns. It does not run while a write is
+  // waiting or on its way: the answer could be older than what the device
+  // holds, and would put the ticked sets back as they were.
+  const nextId = ready ? upcoming[0]?.id ?? null : null;
+  const listReadAt = details.dataUpdatedAt ?? 0;
+  useEffect(() => {
+    if (!nextId || !online || writesWaiting) return;
+    readAheadSession(queryClient, nextId);
+  }, [queryClient, nextId, listReadAt, online, writesWaiting]);
 
   if (listState === 'loading') {
     return (

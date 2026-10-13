@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 vi.mock('../lib/supabase', () => ({ supabase: { from: vi.fn() } }));
 
 import {
+  sessionQueryOptions,
   useSession,
   useAddSlot,
   useUpdateSlot,
@@ -159,6 +160,56 @@ describe('useSession', () => {
       expect(columns).toContain(col);
     }
     expect(columns).not.toContain('weight_kg');
+  });
+});
+
+// The athlete's training list reads the next session ahead through these very
+// options (`queryClient.fetchQuery`), so that the session page finds it in the
+// cache. That only works while the hook and the options are one read.
+describe('sessionQueryOptions', () => {
+  const sessionRead = () => ({
+    select: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    single: vi.fn().mockResolvedValue({
+      data: {
+        id: 's-1',
+        weeks: { programs: { is_active: true } },
+        exercise_slots: [
+          { id: 'sl-2', sort_order: 2, set_logs: [] },
+          { id: 'sl-1', sort_order: 1, set_logs: [] },
+        ],
+      },
+      error: null,
+    }),
+  });
+
+  it('is the read useSession mounts: what was fetched through it, the hook shows without asking', async () => {
+    supabase.from.mockReturnValue(sessionRead());
+    // Trusted for a while, as on the app's client.
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: 60_000 } },
+    });
+
+    const ahead = await qc.fetchQuery(sessionQueryOptions('s-1'));
+    expect(ahead.program_is_active).toBe(true);
+    expect(ahead.exercise_slots.map((sl) => sl.id)).toEqual(['sl-1', 'sl-2']);
+    expect(supabase.from).toHaveBeenCalledTimes(1);
+
+    const { result } = renderHook(() => useSession('s-1'), { wrapper: withClient(qc) });
+    expect(result.current.data).toBe(ahead);
+    expect(result.current.isLoading).toBe(false);
+    expect(supabase.from).toHaveBeenCalledTimes(1);
+  });
+
+  // How long a session is trusted and kept is decided per root on the client
+  // (lib/queryClient.js). An option given here would replace that decision —
+  // for the hook and for whoever reads ahead.
+  it('says what to read and nothing about how long to trust or keep it', () => {
+    const options = sessionQueryOptions('s-1');
+    expect(options.queryKey).toEqual(['session', 's-1']);
+    expect(Object.keys(options).sort()).toEqual(['enabled', 'queryFn', 'queryKey']);
+    expect(options.enabled).toBe(true);
+    expect(sessionQueryOptions(undefined).enabled).toBe(false);
   });
 });
 
