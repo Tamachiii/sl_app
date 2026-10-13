@@ -1,7 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { invalidateCoachDashboard } from './useProgram';
+import { useI18n } from './useI18n';
 import { mutationScope, laterWriteQueued } from '../lib/mutationScope';
+import { mutationErrorKey } from '../lib/mutationErrors';
+import { pushToast } from '../lib/toast';
 
 export function useWeek(weekId) {
   return useQuery({
@@ -463,27 +466,54 @@ export function useArchiveSession() {
  *
  * Sequential, not parallel: these are a handful of hand-picked rows, and a
  * partial failure is far easier to reason about when the writes are ordered —
- * `done` says exactly how many landed before the error.
+ * `done` says exactly how many landed before the error. It stops at the first
+ * request that fails, and the error it throws carries that count as
+ * `error.partial`.
+ *
+ * The coach is told ONCE, by this hook: "2 of 5 archived" when some rows
+ * landed — the sheet is about to show two sessions gone and three still
+ * there, and "could not save" alone would be wrong about the two — and the
+ * usual line of `mutationErrorKey` when none did. Hence `skipErrorToast`: the
+ * toast of the mutation cache would be a second one for the same failure.
  */
 export function useArchiveSessions() {
   const qc = useQueryClient();
+  const { t } = useI18n();
 
   return useMutation({
+    meta: { skipErrorToast: true },
     mutationFn: async ({ sessionIds, archived }) => {
       const archived_at = archived ? new Date().toISOString() : null;
       let done = 0;
-      for (const id of sessionIds) {
-        const { error } = await supabase
-          .from('sessions')
-          .update({ archived_at })
-          .eq('id', id);
-        if (error) {
-          error.partial = done;
-          throw error;
+      try {
+        for (const id of sessionIds) {
+          const { error } = await supabase
+            .from('sessions')
+            .update({ archived_at })
+            .eq('id', id);
+          if (error) throw error;
+          done += 1;
         }
-        done += 1;
+      } catch (error) {
+        // Also for a request that throws instead of answering with an error.
+        if (error && typeof error === 'object') error.partial = done;
+        throw error;
       }
       return { done };
+    },
+    onError: (error, { sessionIds, archived }) => {
+      const done = error?.partial ?? 0;
+      if (done === 0) {
+        pushToast(mutationErrorKey(error), { kind: 'error' });
+        return;
+      }
+      const counts = { done, total: sessionIds.length };
+      pushToast(
+        archived
+          ? t('coachDuplicateRpc.archivePartial', counts)
+          : t('coachDuplicateRpc.restorePartial', counts),
+        { kind: 'error' },
+      );
     },
     onSettled: () => {
       // onSettled, not onSuccess: a partial failure still moved rows, so the

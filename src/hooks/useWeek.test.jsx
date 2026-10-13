@@ -9,17 +9,21 @@ import {
   useUpdateWeek,
   useUpdateSession,
   useArchiveSession,
+  useArchiveSessions,
   useDeleteSession,
   useCreateSession,
   useCreateWeek,
 } from './useWeek';
 import { createTestQueryClient } from '../test/utils';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, MutationCache } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { pushToast } from '../lib/toast';
+import { queryClient as appClient } from '../lib/queryClient';
 
 vi.mock('../lib/supabase', () => ({
   supabase: { from: vi.fn(), rpc: vi.fn() },
 }));
+vi.mock('../lib/toast', () => ({ pushToast: vi.fn() }));
 
 function withClient(qc) {
   return ({ children }) => (
@@ -38,6 +42,17 @@ function createWrapper() {
 function createKeepingWrapper() {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
+  });
+  return { qc, wrapper: withClient(qc) };
+}
+
+// A client with the mutation cache of the APP: its `onError` is what turns a
+// failed mutation into a toast, so "the coach is told once" is counted on the
+// handler that runs in production, next to whatever the hook says itself.
+function createToastingWrapper() {
+  const qc = new QueryClient({
+    mutationCache: new MutationCache({ onError: appClient.getMutationCache().config.onError }),
+    defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
   });
   return { qc, wrapper: withClient(qc) };
 }
@@ -231,6 +246,146 @@ describe('useArchiveSession', () => {
     const unarchivePayload =
       mockUpdate.update.mock.calls[mockUpdate.update.mock.calls.length - 1][0];
     expect(unarchivePayload).toEqual({ archived_at: null });
+  });
+});
+
+describe('useArchiveSessions', () => {
+  // The `sessions` table as the hook writes it: one update per session. The
+  // request number `failAt` (from 0) is answered with `error` — or throws it,
+  // with `throws`. Returns the requests that were sent, in order.
+  function sessionsTable({ failAt = -1, error = { code: 'XX000', message: 'connection lost' }, throws = false } = {}) {
+    const sent = [];
+    supabase.from.mockImplementation((table) => {
+      let patch;
+      return {
+        update(values) {
+          patch = values;
+          return this;
+        },
+        eq(column, id) {
+          const n = sent.length;
+          sent.push({ table, column, id, patch });
+          if (n !== failAt) return Promise.resolve({ error: null });
+          return throws ? Promise.reject(error) : Promise.resolve({ error });
+        },
+      };
+    });
+    return sent;
+  }
+
+  const FIVE = ['a', 'b', 'c', 'd', 'e'];
+  const READ_AGAIN = [['program'], ['all-confirmations'], ['student-program-details'], ['coach-dashboard-programs']];
+
+  it('archives each session of the selection, in its order, with one timestamp', async () => {
+    const sent = sessionsTable();
+    const { wrapper } = createToastingWrapper();
+    const { result } = renderHook(() => useArchiveSessions(), { wrapper });
+
+    result.current.mutate({ sessionIds: ['b', 'a', 'c'], archived: true });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(sent.map(({ table, column, id }) => [table, column, id])).toEqual([
+      ['sessions', 'id', 'b'],
+      ['sessions', 'id', 'a'],
+      ['sessions', 'id', 'c'],
+    ]);
+    const stamps = sent.map(({ patch }) => patch.archived_at);
+    expect(Number.isNaN(Date.parse(stamps[0]))).toBe(false);
+    expect(new Set(stamps).size).toBe(1);
+    expect(result.current.data).toEqual({ done: 3 });
+    expect(pushToast).not.toHaveBeenCalled();
+  });
+
+  it('restores with archived_at null', async () => {
+    const sent = sessionsTable();
+    const { wrapper } = createToastingWrapper();
+    const { result } = renderHook(() => useArchiveSessions(), { wrapper });
+
+    result.current.mutate({ sessionIds: ['a', 'b'], archived: false });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(sent.map(({ id, patch }) => [id, patch])).toEqual([
+      ['a', { archived_at: null }],
+      ['b', { archived_at: null }],
+    ]);
+  });
+
+  it('reads the sheet, the feed, the athlete queue and the roster again', async () => {
+    sessionsTable();
+    const { qc, wrapper } = createToastingWrapper();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useArchiveSessions(), { wrapper });
+
+    result.current.mutate({ sessionIds: ['a'], archived: true });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    for (const queryKey of READ_AGAIN) expect(invalidate).toHaveBeenCalledWith({ queryKey });
+  });
+
+  // Two sessions are gone from the sheet and three are still there: "could
+  // not save" alone would be wrong about the two, and two toasts for one
+  // failure would be one too many.
+  it('stops at the first request that fails and says, once, how many were archived', async () => {
+    const sent = sessionsTable({ failAt: 2 });
+    const { qc, wrapper } = createToastingWrapper();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useArchiveSessions(), { wrapper });
+
+    result.current.mutate({ sessionIds: FIVE, archived: true });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    // 'd' and 'e' were never sent.
+    expect(sent.map(({ id }) => id)).toEqual(['a', 'b', 'c']);
+    expect(result.current.error.partial).toBe(2);
+    expect(pushToast.mock.calls).toEqual([
+      ['2 of 5 archived. The rest could not be saved — try again.', { kind: 'error' }],
+    ]);
+    // A partial failure still moved rows: the caches are read again either way.
+    for (const queryKey of READ_AGAIN) expect(invalidate).toHaveBeenCalledWith({ queryKey });
+  });
+
+  it('says "restored" for a restore that stopped half-way', async () => {
+    sessionsTable({ failAt: 1 });
+    const { wrapper } = createToastingWrapper();
+    const { result } = renderHook(() => useArchiveSessions(), { wrapper });
+
+    result.current.mutate({ sessionIds: ['a', 'b', 'c'], archived: false });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(pushToast.mock.calls).toEqual([
+      ['1 of 3 restored. The rest could not be saved — try again.', { kind: 'error' }],
+    ]);
+  });
+
+  // Nothing landed: the line every other failed write gets, and still one.
+  it('says the usual line, once, when not one session was archived', async () => {
+    const sent = sessionsTable({ failAt: 0, error: { code: '42501', message: 'permission denied for table sessions' } });
+    const { qc, wrapper } = createToastingWrapper();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useArchiveSessions(), { wrapper });
+
+    result.current.mutate({ sessionIds: FIVE, archived: true });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(sent.map(({ id }) => id)).toEqual(['a']);
+    expect(result.current.error.partial).toBe(0);
+    expect(pushToast.mock.calls).toEqual([['errors.notAllowed', { kind: 'error' }]]);
+    for (const queryKey of READ_AGAIN) expect(invalidate).toHaveBeenCalledWith({ queryKey });
+  });
+
+  // The network can fail a request by throwing instead of answering.
+  it('counts what landed before a request that throws', async () => {
+    sessionsTable({ failAt: 1, error: new TypeError('Failed to fetch'), throws: true });
+    const { wrapper } = createToastingWrapper();
+    const { result } = renderHook(() => useArchiveSessions(), { wrapper });
+
+    result.current.mutate({ sessionIds: ['a', 'b', 'c'], archived: true });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(result.current.error.partial).toBe(1);
+    expect(pushToast.mock.calls).toEqual([
+      ['1 of 3 archived. The rest could not be saved — try again.', { kind: 'error' }],
+    ]);
   });
 });
 
@@ -576,6 +731,33 @@ describe('useMoveSession', () => {
     expect(result.current.error).toBe(refusal);
     expect(qc.getQueryData(['program', 'p-1'])).toEqual(block());
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['program'] });
+  });
+
+  // `move_session` moved nothing: the hook does not try again, makes no
+  // request of its own to put things right, and the coach is told once.
+  it('sends a refused move once, tells the coach once, and reads again everything that shows the order', async () => {
+    supabase.rpc.mockResolvedValue({ data: null, error: { code: 'P0001', message: 'session_not_found' } });
+    const { qc, wrapper } = createToastingWrapper();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+
+    const { result } = renderHook(() => useMoveSession('p-1'), { wrapper });
+    act(() => {
+      result.current.mutate(move);
+    });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(supabase.rpc).toHaveBeenCalledTimes(1);
+    expect(supabase.rpc).toHaveBeenCalledWith('move_session', {
+      p_session_id: 'b',
+      p_dest_week_id: 'w-2',
+      p_source_ids: ['a', 'old'],
+      p_dest_ids: ['b', 'c'],
+    });
+    expect(supabase.from).not.toHaveBeenCalled();
+    expect(pushToast.mock.calls).toEqual([['errors.generic', { kind: 'error' }]]);
+    for (const queryKey of [['program'], ['week'], ['student-program-details'], ['coach-dashboard-programs']]) {
+      expect(invalidate).toHaveBeenCalledWith({ queryKey });
+    }
   });
 
   it('draws nothing for a session that is in its destination already', async () => {

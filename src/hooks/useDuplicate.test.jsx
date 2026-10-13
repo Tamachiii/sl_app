@@ -1,14 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, MutationCache } from '@tanstack/react-query';
 
-vi.mock('../lib/supabase', () => ({ supabase: { from: vi.fn() } }));
+vi.mock('../lib/supabase', () => ({ supabase: { from: vi.fn(), rpc: vi.fn() } }));
+vi.mock('../lib/toast', () => ({ pushToast: vi.fn() }));
 
-import { useDuplicateWeek, useDuplicateSession, useDuplicateProgram } from './useDuplicate';
+import {
+  useDuplicateWeek,
+  useDuplicateSession,
+  useDuplicateProgram,
+  useCopySessions,
+} from './useDuplicate';
 import { supabase } from '../lib/supabase';
+import { pushToast } from '../lib/toast';
+import { queryClient as appClient } from '../lib/queryClient';
 
+// A client that keeps what a test seeds (the shared test client drops data
+// nothing observes), with the mutation cache of the APP: its `onError` is what
+// turns a failed mutation into a toast, so "the coach is told once" is counted
+// on the handler that runs in production, not on a copy of it.
 function makeClient() {
   return new QueryClient({
+    mutationCache: new MutationCache({ onError: appClient.getMutationCache().config.onError }),
     defaultOptions: {
       queries: { retry: false, gcTime: Infinity },
       mutations: { retry: false },
@@ -20,692 +33,328 @@ function withClient(qc) {
     <QueryClientProvider client={qc}>{children}</QueryClientProvider>
   );
 }
+function setup(useHook) {
+  const qc = makeClient();
+  const invalidate = vi.spyOn(qc, 'invalidateQueries');
+  const { result } = renderHook(() => useHook(), { wrapper: withClient(qc) });
+  return { qc, invalidate, result };
+}
+
+// What each function answers (migration 2026_10_13_12_copy_rpcs).
+const SESSION_ANSWER = {
+  session_id: 's-copy',
+  week_id: 'w-1',
+  sort_order: 2,
+  title: 'Pull (copy)',
+  slots: 4,
+  set_logs: 12,
+  slots_left_out: 0,
+};
+const COPY_ANSWER = {
+  session_ids: ['c-1', 'c-2', 'c-3'],
+  week_id: 'w-dest',
+  slots: 9,
+  set_logs: 27,
+  slots_left_out: 0,
+};
+const WEEK_ANSWER = {
+  week_id: 'w-copy',
+  program_id: 'p-1',
+  week_number: 4,
+  label: 'Base (copy)',
+  sessions: 3,
+  slots: 9,
+  set_logs: 27,
+  slots_left_out: 0,
+};
+const PROGRAM_ANSWER = {
+  program_id: 'p-copy',
+  student_id: 'st-1',
+  name: 'Block 1 (copy)',
+  sort_order: 3,
+  weeks: 2,
+  sessions: 6,
+  slots: 18,
+  set_logs: 54,
+  slots_left_out: 0,
+};
+
+// Everything that shows what a block holds…
+const BLOCKS = [
+  ['program'],
+  ['week'],
+  ['session'],
+  ['set-logs'],
+  ['student-program-details'],
+  ['coach-dashboard-programs'],
+];
+// …and, for a new phase or a new block, the lists of programs: a row of one
+// is a block, and counts its phases.
+const LISTS = [['programs']];
+
+// The four hooks side by side: the call each one makes, and what it answers.
+const HOOKS = [
+  {
+    name: 'useDuplicateSession',
+    useHook: useDuplicateSession,
+    vars: { sessionId: 's-1' },
+    rpc: ['duplicate_session', { p_session_id: 's-1' }],
+    answer: SESSION_ANSWER,
+    readAgain: BLOCKS,
+  },
+  {
+    name: 'useCopySessions',
+    useHook: useCopySessions,
+    vars: { sessionIds: ['s-2', 's-1', 's-2'], weekId: 'w-dest' },
+    rpc: ['copy_sessions', { p_session_ids: ['s-2', 's-1', 's-2'], p_dest_week_id: 'w-dest' }],
+    answer: COPY_ANSWER,
+    readAgain: BLOCKS,
+  },
+  {
+    name: 'useDuplicateWeek',
+    useHook: useDuplicateWeek,
+    vars: { weekId: 'w-1' },
+    rpc: ['duplicate_week', { p_week_id: 'w-1', p_dest_program_id: null }],
+    answer: WEEK_ANSWER,
+    readAgain: [...BLOCKS, ...LISTS],
+  },
+  {
+    name: 'useDuplicateProgram',
+    useHook: useDuplicateProgram,
+    vars: { programId: 'p-1', studentId: 'st-1' },
+    rpc: ['duplicate_program', { p_program_id: 'p-1' }],
+    answer: PROGRAM_ANSWER,
+    readAgain: [...BLOCKS, ...LISTS],
+  },
+];
+
+// The keys a hook invalidated — these and no other, in any order.
+const sorted = (keys) => keys.map((key) => JSON.stringify(key)).sort();
+const keysReadAgain = (invalidate) => sorted(invalidate.mock.calls.map(([filters]) => filters.queryKey));
+
+const answers = (data) => supabase.rpc.mockResolvedValue({ data, error: null });
+const refuses = (error) => supabase.rpc.mockResolvedValue({ data: null, error });
 
 beforeEach(() => {
   vi.clearAllMocks();
+  supabase.rpc.mockReset();
 });
 
-/**
- * Tiny supabase chain factory: returns an object whose terminal call (single,
- * order, insert, etc.) resolves with the given value, and remembers the
- * arguments passed at each step.
- */
-function chain(spec) {
-  const c = {};
-  const calls = [];
-  for (const k of ['select', 'eq', 'in', 'order', 'limit']) {
-    c[k] = vi.fn(function (...args) {
-      calls.push({ method: k, args });
-      return this;
-    });
-  }
-  c.insert = vi.fn(function (rows) {
-    calls.push({ method: 'insert', args: [rows] });
-    return spec.insertChain || this;
-  });
-  c.single = vi.fn().mockResolvedValue(spec.single);
-  if (spec.terminal) {
-    // .order / .limit / .insert().select() may resolve.
-    Object.assign(c, spec.terminal);
-  }
-  c._calls = calls;
-  return c;
-}
+describe.each(HOOKS)('$name', ({ useHook, vars, rpc, answer, readAgain }) => {
+  // One request, so one transaction: the copy is whole or is not there. The
+  // requests this replaced — one per row or per table — left a session without
+  // its exercises when one of them was lost.
+  it('is ONE call of its function, with these arguments and no other', async () => {
+    answers(answer);
+    const { result } = setup(useHook);
 
-describe('useDuplicateWeek', () => {
-  it('copies a week with sessions, slots, and set_log targets', async () => {
-    // Phase 1: fetch source week
-    const srcWeek = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: { id: 'w-src', program_id: 'p-1', label: 'Hyp' },
-        error: null,
-      }),
-    };
-    // Phase 2: pick max(week_number) in destination program
-    const maxWeek = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({
-        data: [{ week_number: 4 }],
-        error: null,
-      }),
-    };
-    // Phase 3: insert new week
-    const newWeek = {
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: { id: 'w-new', week_number: 5 },
-        error: null,
-      }),
-    };
-    // Phase 4: fetch source sessions with slots
-    const srcSessions = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockResolvedValue({
-        data: [
-          {
-            id: 'ss-1',
-            day_number: 1,
-            title: 'Push',
-            sort_order: 0,
-            archived_at: null,
-            exercise_slots: [
-              {
-                id: 'sl-1',
-                exercise_id: 'e-1',
-                sets: 3,
-                reps: 8,
-                weight_kg: 100,
-                sort_order: 0,
-                notes: 'top set',
-                duration_seconds: null,
-                superset_group: null,
-                rest_seconds: 90,
-                record_video_set_numbers: [1, 3],
-              },
-            ],
-          },
-        ],
-        error: null,
-      }),
-    };
-    // Phase 5: insert new sessions
-    const newSessions = {
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockResolvedValue({
-        data: [{ id: 'ss-1-new', sort_order: 0 }],
-        error: null,
-      }),
-    };
-    // Phase 6: insert new slots
-    const newSlots = {
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockResolvedValue({
-        data: [{ id: 'sl-1-new', sort_order: 0 }],
-        error: null,
-      }),
-    };
-    // Phase 7: copySetLogTargets — fetch source set_logs (excludes student-added)
-    const srcLogs = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      in: vi.fn().mockResolvedValue({
-        data: [
-          {
-            exercise_slot_id: 'sl-1',
-            set_number: 1,
-            target_reps: 8,
-            target_duration_seconds: null,
-            target_weight_kg: 100,
-            target_rest_seconds: 90,
-          },
-        ],
-        error: null,
-      }),
-    };
-    // Phase 8: insert new set_logs
-    const newLogs = {
-      insert: vi.fn().mockResolvedValue({ error: null }),
-    };
-
-    const sequence = [srcWeek, maxWeek, newWeek, srcSessions, newSessions, newSlots, srcLogs, newLogs];
-    let i = 0;
-    supabase.from.mockImplementation(() => sequence[i++]);
-
-    const qc = makeClient();
-    const invalidate = vi.spyOn(qc, 'invalidateQueries');
-    const { result } = renderHook(() => useDuplicateWeek(), { wrapper: withClient(qc) });
-
-    result.current.mutate({ weekId: 'w-src' });
+    result.current.mutate(vars);
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    // New week labelled "Hyp (copy)" inserted into source program at week 5.
-    expect(newWeek.insert).toHaveBeenCalledWith({
-      program_id: 'p-1',
-      week_number: 5,
-      label: 'Hyp (copy)',
-    });
-    // Sessions copied with day_number/title/sort_order AND archived_at
-    // (archived sessions must not revive as active in the copy).
-    expect(newSessions.insert.mock.calls[0][0]).toEqual([
-      { week_id: 'w-new', day_number: 1, title: 'Push', sort_order: 0, archived_at: null },
-    ]);
-    // Slots copied with their notes/superset/video-requests preserved —
-    // record_video_set_numbers used to be silently dropped on duplication.
-    expect(newSlots.insert.mock.calls[0][0][0]).toMatchObject({
-      session_id: 'ss-1-new',
-      exercise_id: 'e-1',
-      sets: 3,
-      reps: 8,
-      weight_kg: 100,
-      notes: 'top set',
-      rest_seconds: 90,
-      record_video_set_numbers: [1, 3],
-    });
-    // copySetLogTargets sets done=false and only target_* fields.
-    const insertedLogs = newLogs.insert.mock.calls[0][0];
-    expect(insertedLogs[0].exercise_slot_id).toBe('sl-1-new');
-    expect(insertedLogs[0].done).toBe(false);
-    expect(insertedLogs[0].target_reps).toBe(8);
-    expect(insertedLogs[0]).not.toHaveProperty('rpe');
-    // Student-added extra sets are excluded from the copy — a duplicate is a
-    // clean prescription, not the student's off-plan deviations.
-    expect(srcLogs.eq).toHaveBeenCalledWith('is_student_added', false);
-
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['program'] });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['set-logs'] });
+    // toStrictEqual: an argument sent as `undefined` would not be equal.
+    expect(supabase.rpc.mock.calls).toStrictEqual([rpc]);
+    // No row is read or written by the app itself any more.
+    expect(supabase.from).not.toHaveBeenCalled();
   });
 
-  it('uses the explicit programId + newWeekNumber when both are provided', async () => {
-    const srcWeek = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: { id: 'w-src', program_id: 'p-1', label: null },
-        error: null,
-      }),
-    };
-    const newWeek = {
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: { id: 'w-new', week_number: 7 },
-        error: null,
-      }),
-    };
-    const emptySessions = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockResolvedValue({ data: [], error: null }),
-    };
-    const sequence = [srcWeek, newWeek, emptySessions];
-    let i = 0;
-    supabase.from.mockImplementation(() => sequence[i++]);
+  it('reads again everything that shows what a block holds', async () => {
+    answers(answer);
+    const { result, invalidate } = setup(useHook);
 
-    const qc = makeClient();
-    const { result } = renderHook(() => useDuplicateWeek(), { wrapper: withClient(qc) });
-    result.current.mutate({ weekId: 'w-src', programId: 'p-2', newWeekNumber: 7 });
+    result.current.mutate(vars);
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    // Did not query max(week_number) because newWeekNumber was supplied.
-    expect(newWeek.insert).toHaveBeenCalledWith({
-      program_id: 'p-2',
-      week_number: 7,
-      label: null, // null label stays null (no "(copy)" suffix when null)
-    });
+    expect(keysReadAgain(invalidate)).toEqual(sorted(readAgain));
   });
 
-  it('maps copies by sort_order (unique per the constraint), so slots never cross sessions', async () => {
-    const srcWeek = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: { id: 'w-src', program_id: 'p-1', label: null },
-        error: null,
-      }),
-    };
-    const newWeek = {
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: { id: 'w-new', week_number: 2 },
-        error: null,
-      }),
-    };
-    // Distinct sort_orders (guaranteed by UNIQUE(week_id, sort_order)); the
-    // mapping must pair each copy with its OWN session's slots even when the
-    // DB returns the inserted rows in a different order than requested.
-    const srcSessions = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockResolvedValue({
-        data: [
-          {
-            id: 'ss-a', day_number: 1, title: 'A', sort_order: 0, archived_at: null,
-            exercise_slots: [{ id: 'sl-a', exercise_id: 'e-1', sets: 3, reps: 8, sort_order: 0 }],
-          },
-          {
-            id: 'ss-b', day_number: 2, title: 'B', sort_order: 1, archived_at: null,
-            exercise_slots: [{ id: 'sl-b', exercise_id: 'e-2', sets: 3, reps: 8, sort_order: 0 }],
-          },
-        ],
-        error: null,
-      }),
-    };
-    // Returned in REVERSED order (sort_order 1 first) to prove the mapping
-    // keys on sort_order, not array position.
-    const newSessions = {
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockResolvedValue({
-        data: [{ id: 'ss-b-new', sort_order: 1 }, { id: 'ss-a-new', sort_order: 0 }],
-        error: null,
-      }),
-    };
-    const newSlotsA = {
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockResolvedValue({ data: [{ id: 'sl-a-new' }], error: null }),
-    };
-    const newSlotsB = {
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockResolvedValue({ data: [{ id: 'sl-b-new' }], error: null }),
-    };
-    const srcLogs = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      in: vi.fn().mockResolvedValue({ data: [], error: null }),
-    };
-    const sequence = [srcWeek, newWeek, srcSessions, newSessions, newSlotsA, newSlotsB, srcLogs];
-    let i = 0;
-    supabase.from.mockImplementation(() => sequence[i++]);
+  // What the functions refuse is something the page still shows — a session
+  // deleted in another tab, a phase moved while the call waited — so the
+  // lists are read again after a refusal too. And nothing was written: there
+  // is no second try and nothing to clean up.
+  it('sends a refused copy once, tells the coach once, and reads the block again', async () => {
+    const refusal = { code: 'P0001', message: 'copy_source_changed' };
+    refuses(refusal);
+    const { result, invalidate } = setup(useHook);
 
-    const qc = makeClient();
-    const { result } = renderHook(() => useDuplicateWeek(), { wrapper: withClient(qc) });
-    result.current.mutate({ weekId: 'w-src', newWeekNumber: 2 });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    // Each copy received exactly its own session's slot.
-    expect(newSlotsA.insert.mock.calls[0][0]).toHaveLength(1);
-    expect(newSlotsA.insert.mock.calls[0][0][0]).toMatchObject({
-      session_id: 'ss-a-new',
-      exercise_id: 'e-1',
-    });
-    expect(newSlotsB.insert.mock.calls[0][0]).toHaveLength(1);
-    expect(newSlotsB.insert.mock.calls[0][0][0]).toMatchObject({
-      session_id: 'ss-b-new',
-      exercise_id: 'e-2',
-    });
-  });
-
-  it('returns early when source week has zero sessions', async () => {
-    const srcWeek = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: { id: 'w-src', program_id: 'p-1', label: 'Empty' },
-        error: null,
-      }),
-    };
-    const maxWeek = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({ data: [], error: null }),
-    };
-    const newWeek = {
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: { id: 'w-new', week_number: 1 },
-        error: null,
-      }),
-    };
-    const noSessions = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockResolvedValue({ data: [], error: null }),
-    };
-    const sequence = [srcWeek, maxWeek, newWeek, noSessions];
-    let i = 0;
-    supabase.from.mockImplementation(() => sequence[i++]);
-
-    const qc = makeClient();
-    const { result } = renderHook(() => useDuplicateWeek(), { wrapper: withClient(qc) });
-    result.current.mutate({ weekId: 'w-src' });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    // Only 4 chains used → no inserts past the new week itself.
-    expect(i).toBe(4);
-  });
-});
-
-describe('useDuplicateSession', () => {
-  it('copies a session and its slots with "(copy)" title', async () => {
-    const srcSession = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: {
-          id: 'ss-1',
-          week_id: 'w-1',
-          day_number: 2,
-          title: 'Pull',
-          sort_order: 1,
-          exercise_slots: [
-            {
-              id: 'sl-1',
-              exercise_id: 'e-1',
-              sets: 4,
-              reps: 5,
-              weight_kg: 60,
-              sort_order: 0,
-              notes: null,
-              duration_seconds: null,
-              superset_group: 'A',
-              rest_seconds: 120,
-            },
-          ],
-        },
-        error: null,
-      }),
-    };
-    // No explicit sortOrder → the hook appends at max(sort_order)+1 in the
-    // destination week (src.sort_order+1 could collide under the UNIQUE).
-    const maxSort = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({ data: [{ sort_order: 4 }], error: null }),
-    };
-    const newSession = {
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: { id: 'ss-new' },
-        error: null,
-      }),
-    };
-    const newSlots = {
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockResolvedValue({
-        data: [{ id: 'sl-new', sort_order: 0 }],
-        error: null,
-      }),
-    };
-    const srcLogs = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      in: vi.fn().mockResolvedValue({ data: [], error: null }),
-    };
-    const sequence = [srcSession, maxSort, newSession, newSlots, srcLogs];
-    let i = 0;
-    supabase.from.mockImplementation(() => sequence[i++]);
-
-    const qc = makeClient();
-    const invalidate = vi.spyOn(qc, 'invalidateQueries');
-    const { result } = renderHook(() => useDuplicateSession(), { wrapper: withClient(qc) });
-    result.current.mutate({ sessionId: 'ss-1' });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(newSession.insert).toHaveBeenCalledWith({
-      week_id: 'w-1',
-      day_number: 2,
-      title: 'Pull (copy)',
-      sort_order: 5,
-    });
-    expect(newSlots.insert.mock.calls[0][0][0]).toMatchObject({
-      session_id: 'ss-new',
-      exercise_id: 'e-1',
-      superset_group: 'A',
-      rest_seconds: 120,
-    });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['session'] });
-  });
-
-  it('falls back to "Session (copy)" when title is null', async () => {
-    const srcSession = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: {
-          id: 'ss-1',
-          week_id: 'w-1',
-          day_number: 1,
-          title: null,
-          sort_order: 0,
-          exercise_slots: [],
-        },
-        error: null,
-      }),
-    };
-    const maxSort = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({ data: [], error: null }),
-    };
-    const newSession = {
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: { id: 'ss-new' },
-        error: null,
-      }),
-    };
-    const sequence = [srcSession, maxSort, newSession];
-    let i = 0;
-    supabase.from.mockImplementation(() => sequence[i++]);
-
-    const qc = makeClient();
-    const { result } = renderHook(() => useDuplicateSession(), { wrapper: withClient(qc) });
-    result.current.mutate({ sessionId: 'ss-1' });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(newSession.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Session (copy)', sort_order: 0 }),
-    );
-  });
-});
-
-describe('useDuplicateProgram', () => {
-  it('copies a whole program inactive, "(copy)"-named, preserving week numbers and set targets', async () => {
-    // Phase 1: fetch source program + its weeks
-    const srcProgram = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: {
-          id: 'p-1',
-          student_id: 'st-1',
-          name: 'Block A',
-          weeks: [
-            { id: 'w-2', week_number: 2, label: 'Wk2' },
-            { id: 'w-1', week_number: 1, label: 'Wk1' },
-          ],
-        },
-        error: null,
-      }),
-    };
-    // Phase 2: next sort_order among the student's live programs
-    const maxSort = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      is: vi.fn().mockReturnThis(),
-      order: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({ data: [{ sort_order: 2 }], error: null }),
-    };
-    // Phase 3: insert the copy program
-    const newProgram = {
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: { id: 'p-new', student_id: 'st-1', name: 'Block A (copy)', is_active: false, sort_order: 3 },
-        error: null,
-      }),
-    };
-    // Weeks are copied in ascending week_number order (w-1 then w-2). Each week:
-    // insert week → copyWeekTree (fetch sessions → insert sessions → insert
-    // slots → fetch set_logs → insert set_logs).
-    const makeWeekChains = (newWeekId, srcSlotId) => {
-      const newWeek = {
-        insert: vi.fn().mockReturnThis(),
-        select: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue({ data: { id: newWeekId }, error: null }),
-      };
-      const srcSessions = {
-        select: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockReturnThis(),
-        order: vi.fn().mockResolvedValue({
-          data: [
-            {
-              id: `ss-${newWeekId}`,
-              day_number: 1,
-              title: 'Push',
-              sort_order: 0,
-              archived_at: null,
-              exercise_slots: [
-                {
-                  id: srcSlotId,
-                  exercise_id: 'e-1',
-                  sets: 3,
-                  reps: 8,
-                  weight_kg: 100,
-                  sort_order: 0,
-                  notes: null,
-                  duration_seconds: null,
-                  superset_group: null,
-                  rest_seconds: 90,
-                  record_video_set_numbers: [1],
-                },
-              ],
-            },
-          ],
-          error: null,
-        }),
-      };
-      const newSessions = {
-        insert: vi.fn().mockReturnThis(),
-        select: vi.fn().mockResolvedValue({ data: [{ id: `ss-${newWeekId}-new`, sort_order: 0 }], error: null }),
-      };
-      const newSlots = {
-        insert: vi.fn().mockReturnThis(),
-        select: vi.fn().mockResolvedValue({ data: [{ id: `sl-${newWeekId}-new`, sort_order: 0 }], error: null }),
-      };
-      const srcLogs = {
-        select: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockReturnThis(),
-        in: vi.fn().mockResolvedValue({
-          data: [
-            { exercise_slot_id: srcSlotId, set_number: 1, target_reps: 8, target_duration_seconds: null, target_weight_kg: 100, target_rest_seconds: 90 },
-          ],
-          error: null,
-        }),
-      };
-      const newLogs = { insert: vi.fn().mockResolvedValue({ error: null }) };
-      return { newWeek, chains: [newWeek, srcSessions, newSessions, newSlots, srcLogs, newLogs] };
-    };
-
-    const week1 = makeWeekChains('w-1-new', 'slot-w1');
-    const week2 = makeWeekChains('w-2-new', 'slot-w2');
-
-    const sequence = [srcProgram, maxSort, newProgram, ...week1.chains, ...week2.chains];
-    let i = 0;
-    supabase.from.mockImplementation(() => sequence[i++]);
-
-    const qc = makeClient();
-    const invalidate = vi.spyOn(qc, 'invalidateQueries');
-    const { result } = renderHook(() => useDuplicateProgram(), { wrapper: withClient(qc) });
-
-    result.current.mutate({ programId: 'p-1', studentId: 'st-1' });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    // New program: same student, "(copy)" name, next sort_order, INACTIVE.
-    expect(newProgram.insert).toHaveBeenCalledWith({
-      student_id: 'st-1',
-      name: 'Block A (copy)',
-      sort_order: 3,
-      is_active: false,
-    });
-    // Weeks copied in ascending order with numbers + labels preserved verbatim.
-    expect(week1.newWeek.insert).toHaveBeenCalledWith({ program_id: 'p-new', week_number: 1, label: 'Wk1' });
-    expect(week2.newWeek.insert).toHaveBeenCalledWith({ program_id: 'p-new', week_number: 2, label: 'Wk2' });
-    // Set-log targets copied clean (done:false, no actuals).
-    const insertedLog = week1.chains[5].insert.mock.calls[0][0][0];
-    expect(insertedLog).toMatchObject({ set_number: 1, target_reps: 8, target_weight_kg: 100, done: false });
-    expect(insertedLog).not.toHaveProperty('logged_at');
-    // Every chain consumed — no extra/hanging supabase calls.
-    expect(i).toBe(sequence.length);
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['programs', 'st-1'] });
-  });
-
-  it('copies a program with no weeks (no week/session inserts)', async () => {
-    const srcProgram = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: { id: 'p-1', student_id: 'st-1', name: 'Empty', weeks: [] },
-        error: null,
-      }),
-    };
-    const maxSort = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      is: vi.fn().mockReturnThis(),
-      order: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({ data: [], error: null }),
-    };
-    const newProgram = {
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: { id: 'p-new', student_id: 'st-1', name: 'Empty (copy)' },
-        error: null,
-      }),
-    };
-    const sequence = [srcProgram, maxSort, newProgram];
-    let i = 0;
-    supabase.from.mockImplementation(() => sequence[i++]);
-
-    const qc = makeClient();
-    const { result } = renderHook(() => useDuplicateProgram(), { wrapper: withClient(qc) });
-    result.current.mutate({ programId: 'p-1', studentId: 'st-1' });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    // No live programs → first free sort_order is 0.
-    expect(newProgram.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'Empty (copy)', sort_order: 0, is_active: false }),
-    );
-    // Only 3 chains used — no week/session/slot/log inserts.
-    expect(i).toBe(3);
-  });
-
-  it('best-effort deletes the half-copied program when a week copy fails', async () => {
-    const srcProgram = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: { id: 'p-1', student_id: 'st-1', name: 'Block A', weeks: [{ id: 'w-1', week_number: 1, label: 'Wk1' }] },
-        error: null,
-      }),
-    };
-    const maxSort = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      is: vi.fn().mockReturnThis(),
-      order: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({ data: [{ sort_order: 0 }], error: null }),
-    };
-    const newProgram = {
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: { id: 'p-new', student_id: 'st-1', name: 'Block A (copy)' }, error: null }),
-    };
-    // Week insert fails mid-copy.
-    const failWeek = {
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: null, error: { message: 'boom' } }),
-    };
-    // Cleanup: delete the partial program.
-    const cleanup = {
-      delete: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({ error: null }),
-    };
-
-    const sequence = [srcProgram, maxSort, newProgram, failWeek, cleanup];
-    let i = 0;
-    supabase.from.mockImplementation(() => sequence[i++]);
-
-    const qc = makeClient();
-    const { result } = renderHook(() => useDuplicateProgram(), { wrapper: withClient(qc) });
-    result.current.mutate({ programId: 'p-1', studentId: 'st-1' });
+    result.current.mutate(vars);
     await waitFor(() => expect(result.current.isError).toBe(true));
 
-    // The half-copied (inactive, unlogged) program was cleaned up.
-    expect(cleanup.delete).toHaveBeenCalled();
-    expect(cleanup.eq).toHaveBeenCalledWith('id', 'p-new');
+    expect(supabase.rpc).toHaveBeenCalledTimes(1);
+    expect(supabase.from).not.toHaveBeenCalled();
+    expect(result.current.error).toBe(refusal);
+    // The error is the database's, as it came.
+    expect(refusal).toStrictEqual({ code: 'P0001', message: 'copy_source_changed' });
+    // One toast, from the mutation cache of the app; none from the hook.
+    expect(pushToast.mock.calls).toEqual([['errors.generic', { kind: 'error' }]]);
+    expect(keysReadAgain(invalidate)).toEqual(sorted(readAgain));
+  });
+
+  it('says "not allowed" for a place the caller reads and may not write', async () => {
+    refuses({ code: '42501', message: 'not authorized' });
+    const { result } = setup(useHook);
+
+    result.current.mutate(vars);
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(pushToast.mock.calls).toEqual([['errors.notAllowed', { kind: 'error' }]]);
+  });
+
+  // After a change of coach an athlete's older blocks still name exercises of
+  // the former coach's library. The function copies the rest and counts them:
+  // the copy looks complete and is not, so the coach has to be told.
+  it('says how many exercises the copy left out', async () => {
+    answers({ ...answer, slots_left_out: 2 });
+    const { result } = setup(useHook);
+
+    result.current.mutate(vars);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(pushToast.mock.calls).toEqual([
+      ['Exercises left out of the copy: 2 — not in your library.', { kind: 'info' }],
+    ]);
+  });
+
+  it('says nothing about a copy that is complete', async () => {
+    answers(answer);
+    const { result } = setup(useHook);
+
+    result.current.mutate(vars);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(pushToast).not.toHaveBeenCalled();
+  });
+});
+
+describe('what a copy hook returns', () => {
+  // The answer as it is: a later caller reads the id of what was made in it
+  // (`session_id` for an undo, `week_id` to scroll to the new phase).
+  it.each(HOOKS.filter(({ name }) => name !== 'useDuplicateProgram'))(
+    '$name returns the answer of its function, untouched',
+    async ({ useHook, vars, answer }) => {
+      answers(answer);
+      const { result } = setup(useHook);
+
+      result.current.mutate(vars);
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(result.current.data).toBe(answer);
+    },
+  );
+
+  // "Duplicate program" selects the copy by `id`, as it selects any program.
+  it('useDuplicateProgram returns the answer with the id of the copy as `id`', async () => {
+    answers(PROGRAM_ANSWER);
+    const { result } = setup(useDuplicateProgram);
+
+    result.current.mutate({ programId: 'p-1', studentId: 'st-1' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data).toEqual({ ...PROGRAM_ANSWER, id: 'p-copy' });
+  });
+});
+
+describe('useDuplicateWeek', () => {
+  // "Copy this phase to…": the block picked in the dialog, the coach's own or
+  // another athlete's.
+  it('sends the block the phase is copied to', async () => {
+    answers({ ...WEEK_ANSWER, program_id: 'p-other' });
+    const { result } = setup(useDuplicateWeek);
+
+    result.current.mutate({ weekId: 'w-1', programId: 'p-other' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(supabase.rpc.mock.calls).toStrictEqual([
+      ['duplicate_week', { p_week_id: 'w-1', p_dest_program_id: 'p-other' }],
+    ]);
+  });
+});
+
+describe('useDuplicateProgram and the list of programs', () => {
+  const LIST = [
+    { id: 'p-1', student_id: 'st-1', name: 'Block 1', sort_order: 0, is_active: true, weeks: [{ id: 'w-1' }] },
+    { id: 'p-2', student_id: 'st-1', name: 'Block 2', sort_order: 1, is_active: false, weeks: [] },
+  ];
+  // A row of useProgramsForStudent, as duplicate_program leaves a copy:
+  // approved, inactive, not submitted.
+  const SEEDED = {
+    id: 'p-copy',
+    student_id: 'st-1',
+    name: 'Block 1 (copy)',
+    sort_order: 3,
+    is_active: false,
+    status: 'approved',
+    submitted_at: null,
+    weeks: [],
+  };
+
+  // The caller selects the copy in its own onSuccess, and CoachHome drops a
+  // ?program that is not in the list: the copy has to be in it by then, before
+  // any refetch has answered.
+  it('puts the copy in the list before the caller is told it is made', async () => {
+    answers(PROGRAM_ANSWER);
+    const { qc, result } = setup(useDuplicateProgram);
+    qc.setQueryData(['programs', 'st-1'], LIST);
+
+    let listSeenByCaller;
+    result.current.mutate(
+      { programId: 'p-1', studentId: 'st-1' },
+      {
+        onSuccess: () => {
+          listSeenByCaller = qc.getQueryData(['programs', 'st-1']);
+        },
+      },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(listSeenByCaller).toEqual([...LIST, SEEDED]);
+    // The block that is trained stays the active one.
+    expect(listSeenByCaller.filter((p) => p.is_active).map((p) => p.id)).toEqual(['p-1']);
+  });
+
+  it('makes no list where none was read', async () => {
+    answers(PROGRAM_ANSWER);
+    const { qc, result } = setup(useDuplicateProgram);
+
+    result.current.mutate({ programId: 'p-1', studentId: 'st-1' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(qc.getQueryData(['programs', 'st-1'])).toBeUndefined();
+  });
+
+  // The function names the athlete the copy was made for. That is the list it
+  // belongs in, whatever page the call was made from.
+  it('puts the copy in the list of the athlete the function names', async () => {
+    answers({ ...PROGRAM_ANSWER, student_id: 'st-2' });
+    const { qc, result } = setup(useDuplicateProgram);
+    qc.setQueryData(['programs', 'st-1'], LIST);
+    qc.setQueryData(['programs', 'st-2'], []);
+
+    result.current.mutate({ programId: 'p-1', studentId: 'st-1' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(qc.getQueryData(['programs', 'st-1'])).toEqual(LIST);
+    expect(qc.getQueryData(['programs', 'st-2'])).toEqual([{ ...SEEDED, student_id: 'st-2' }]);
+  });
+
+  it('does not list a copy twice', async () => {
+    answers(PROGRAM_ANSWER);
+    const { qc, result } = setup(useDuplicateProgram);
+    qc.setQueryData(['programs', 'st-1'], [...LIST, SEEDED]);
+
+    result.current.mutate({ programId: 'p-1', studentId: 'st-1' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(qc.getQueryData(['programs', 'st-1'])).toEqual([...LIST, SEEDED]);
+  });
+
+  it('leaves the list as it was when the copy is refused', async () => {
+    refuses({ code: 'P0001', message: 'program_not_found' });
+    const { qc, result } = setup(useDuplicateProgram);
+    qc.setQueryData(['programs', 'st-1'], LIST);
+
+    result.current.mutate({ programId: 'p-gone', studentId: 'st-1' });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(qc.getQueryData(['programs', 'st-1'])).toEqual(LIST);
   });
 });
