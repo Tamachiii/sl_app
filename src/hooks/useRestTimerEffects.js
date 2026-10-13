@@ -9,8 +9,9 @@ import { useRestTimer } from './useRestTimer';
 //
 // What it does, while a timer is active:
 //   1. Acquires `navigator.wakeLock('screen')` so the phone screen doesn't
-//      dim/lock mid-rest. Re-acquires on `visibilitychange → visible`
-//      because the browser auto-releases when the tab is backgrounded.
+//      dim/lock mid-rest. The browser releases the lock by itself when the
+//      page is hidden: the sentinel's `release` event drops the handle, and
+//      `visibilitychange → visible` asks for a new one.
 //   2. Schedules a one-shot WebAudio beep + `navigator.vibrate` at endsAt.
 //      The beep is synthesized (no asset to bundle); the AudioContext is
 //      unlocked on the first user gesture via a module-level listener.
@@ -102,15 +103,30 @@ export function useRestTimerEffects() {
     let titleInterval = null;
     const originalTitle = typeof document !== 'undefined' ? document.title : '';
 
+    // A sentinel the browser has released is a dead object: it keeps nothing
+    // awake and is never revived. Holding on to one is what used to stop the
+    // lock from being taken again after a glance at another app.
+    function holdsWakeLock() {
+      return wakeLock != null && wakeLock.released !== true;
+    }
+
     async function acquireWakeLock() {
       if (typeof navigator === 'undefined' || !navigator.wakeLock?.request) return;
       try {
         const wl = await navigator.wakeLock.request('screen');
-        if (cancelled || Date.now() >= endsAt) {
+        // No longer wanted, or a second request that resolved after the first
+        // (the page was hidden and shown again while one was in flight): a
+        // lock that is not stored would never be released.
+        if (cancelled || Date.now() >= endsAt || holdsWakeLock()) {
           wl.release().catch(() => {});
           return;
         }
         wakeLock = wl;
+        if (typeof wl.addEventListener === 'function') {
+          wl.addEventListener('release', () => {
+            if (wakeLock === wl) wakeLock = null;
+          });
+        }
       } catch {
         // User declined / unsupported / page not visible — silently skip.
       }
@@ -146,7 +162,7 @@ export function useRestTimerEffects() {
         document.visibilityState === 'visible' &&
         !cancelled &&
         Date.now() < endsAt &&
-        !wakeLock
+        !holdsWakeLock()
       ) {
         acquireWakeLock();
       }
