@@ -6,6 +6,8 @@ vi.mock('../lib/supabase', () => ({ supabase: { from: vi.fn() } }));
 vi.mock('./useAuth', () => ({ useAuth: vi.fn() }));
 
 import { useStudentProgressStats } from './useStudentProgressStats';
+import { useStudentHistoricalSessions } from './useStudentHistoricalSessions';
+import { useMyStudentId } from './useStudents';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 import { fakePostgrest } from '../test/fakePostgrest';
@@ -892,5 +894,82 @@ describe('useStudentProgressStats — history longer than one page', () => {
     expect(db.requestsTo('session_confirmations')).toHaveLength(1);
     expect(db.requestsTo('set_logs')).toHaveLength(1);
     expect(db.requestsTo('slot_deviations')).toHaveLength(1);
+  });
+});
+
+// What the Stats page sends, and when. The page mounts three queries that all
+// start from the athlete's `students.id`; each used to read it for itself
+// before doing anything else.
+describe('useStudentProgressStats — the athlete row id', () => {
+  const emptyProgram = [{ id: 'p-1', name: 'A', sort_order: 0, is_active: true, weeks: [] }];
+
+  it('is read once for the three queries of the Stats page', async () => {
+    const setup = setupChains({ programsData: emptyProgram, studentIdLookup: { id: 'st-7' } });
+    setup.register();
+    const { result } = renderHook(
+      () => ({
+        id: useMyStudentId(),
+        stats: useStudentProgressStats(undefined, 'active'),
+        history: useStudentHistoricalSessions(),
+      }),
+      { wrapper: withClient(makeClient()) },
+    );
+    await waitFor(() => {
+      expect(result.current.stats.isSuccess).toBe(true);
+      expect(result.current.history.isSuccess).toBe(true);
+    });
+
+    expect(result.current.id.data).toBe('st-7');
+    expect(setup.db.requestsTo('students')).toHaveLength(1);
+    expect(setup.db.requestsTo('students')[0].filters).toEqual([['eq', 'profile_id', 'u-1']]);
+    // Both queries went on with the id that one request brought back.
+    const programRequests = setup.db.requestsTo('programs');
+    expect(programRequests).toHaveLength(2);
+    for (const request of programRequests) {
+      expect(request.filters).toContainEqual(['eq', 'student_id', 'st-7']);
+    }
+  });
+
+  it('is taken from the cache when another page already read it', async () => {
+    const setup = setupChains({ programsData: emptyProgram });
+    setup.register();
+    const qc = makeClient();
+    qc.setQueryData(['my-student-id', 'u-1'], 'st-cached');
+    const { result } = renderHook(() => useStudentProgressStats(), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(setup.db.requestsTo('students')).toHaveLength(0);
+    expect(setup.db.requestsTo('programs')[0].filters).toContainEqual(['eq', 'student_id', 'st-cached']);
+  });
+
+  it('is read by the query itself when nothing else on the page asked for it', async () => {
+    const setup = setupChains({ programsData: emptyProgram, studentIdLookup: { id: 'st-3' } });
+    setup.register();
+    const qc = makeClient();
+    const { result } = renderHook(() => useStudentProgressStats(), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(setup.db.requestsTo('students')).toHaveLength(1);
+    expect(qc.getQueryData(['my-student-id', 'u-1'])).toBe('st-3');
+  });
+
+  it('fails the stats when the row cannot be read, and reads it again on the next try', async () => {
+    let fail = true;
+    const db = fakePostgrest({
+      students: () => (fail ? { error: { message: 'boom' } } : [{ id: 'st-1' }]),
+      programs: emptyProgram,
+    });
+    supabase.from.mockImplementation(db.from);
+    const { result } = renderHook(() => useStudentProgressStats(), {
+      wrapper: withClient(makeClient()),
+    });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error).toEqual({ message: 'boom' });
+    expect(db.requestsTo('programs')).toHaveLength(0);
+
+    fail = false;
+    result.current.refetch();
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(db.requestsTo('students')).toHaveLength(2);
   });
 });

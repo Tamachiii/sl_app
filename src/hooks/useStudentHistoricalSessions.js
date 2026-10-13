@@ -1,6 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
+import { myStudentIdQueryOptions } from './useStudents';
 import { isoDate } from '../lib/day';
 import { fetchAllRows } from '../lib/supabasePaging';
 
@@ -16,16 +17,14 @@ import { fetchAllRows } from '../lib/supabasePaging';
  */
 export function useStudentHistoricalSessions() {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   return useQuery({
     queryKey: ['student-historical-sessions', user?.id],
     queryFn: async () => {
-      const { data: student, error: stErr } = await supabase
-        .from('students')
-        .select('id')
-        .eq('profile_id', user.id)
-        .single();
-      if (stErr) throw stErr;
+      // The athlete's row id, from the entry the Stats page shares — not a
+      // request of this hook's own (see `myStudentIdQueryOptions`).
+      const studentRowId = await queryClient.ensureQueryData(myStudentIdQueryOptions(user.id));
 
       const { data: programs, error: pErr } = await supabase
         .from('programs')
@@ -35,7 +34,7 @@ export function useStudentHistoricalSessions() {
             sessions(id, title, scheduled_date, archived_at, performed_at)
           )
         `)
-        .eq('student_id', student.id)
+        .eq('student_id', studentRowId)
         .eq('is_active', false)
         .is('deleted_at', null);
       if (pErr) throw pErr;
@@ -72,7 +71,7 @@ export function useStudentHistoricalSessions() {
             supabase
               .from('session_confirmations')
               .select('session_id, sessions!inner(weeks!inner(programs!inner(student_id, is_active, deleted_at)))')
-              .eq('sessions.weeks.programs.student_id', student.id)
+              .eq('sessions.weeks.programs.student_id', studentRowId)
               .eq('sessions.weeks.programs.is_active', false)
               .is('sessions.weeks.programs.deleted_at', null),
           { column: 'session_id' },

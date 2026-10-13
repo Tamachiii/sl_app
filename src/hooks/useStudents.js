@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { queryOptions, useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 
@@ -38,6 +38,40 @@ export function useStudents() {
 }
 
 /**
+ * The `students.id` of an athlete's own row, as query options — the ONE cache
+ * entry every reader of that id shares: `['my-student-id', userId]`.
+ *
+ * A component reads it with `useMyStudentId()`. A `queryFn` that needs the id
+ * before its own reads asks the cache for it:
+ *
+ *   const studentRowId = await queryClient.ensureQueryData(myStudentIdQueryOptions(user.id));
+ *
+ * which answers from the cache, joins the read that is already in flight, or
+ * starts it — so a page whose three queries all need the id sends ONE request
+ * for it, where each of them used to send its own before doing anything else.
+ *
+ * Never stale: the row an account trains under is not re-created by anything
+ * in the app (`students` has no INSERT or DELETE policy, and a change of coach
+ * updates the row in place). The entry is not persisted, so a reload reads it
+ * again.
+ */
+export function myStudentIdQueryOptions(userId) {
+  return queryOptions({
+    queryKey: ['my-student-id', userId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('students')
+        .select('id')
+        .eq('profile_id', userId)
+        .single();
+      if (error) throw error;
+      return data.id;
+    },
+    staleTime: Infinity,
+  });
+}
+
+/**
  * Resolve the signed-in user's `students.id` row id. Lets student-side pages
  * pass it into shared hooks (e.g. `useProgramsForStudent`) that the coach
  * already drives by id. Returns `undefined` while loading.
@@ -46,16 +80,7 @@ export function useMyStudentId() {
   const { user } = useAuth();
 
   return useQuery({
-    queryKey: ['my-student-id', user?.id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('students')
-        .select('id')
-        .eq('profile_id', user.id)
-        .single();
-      if (error) throw error;
-      return data.id;
-    },
+    ...myStudentIdQueryOptions(user?.id),
     enabled: !!user?.id,
   });
 }

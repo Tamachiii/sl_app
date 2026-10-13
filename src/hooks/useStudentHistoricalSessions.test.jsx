@@ -118,4 +118,28 @@ describe('useStudentHistoricalSessions', () => {
     expect(requests[1].filters).toContainEqual(['gt', 'session_id', 's-00999']);
     expect(requests[1].filters).toContainEqual(['eq', 'sessions.weeks.programs.is_active', false]);
   });
+
+  // The athlete's `students.id` is one cache entry for the whole Stats page
+  // (`myStudentIdQueryOptions`), not a request of each query that needs it.
+  it('reads the athlete row once, and leaves the id in the shared cache entry', async () => {
+    const db = wire({});
+    const qc = makeClient();
+    const { result } = renderHook(() => useStudentHistoricalSessions(), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(db.requestsTo('students')).toHaveLength(1);
+    expect(db.requestsTo('students')[0].filters).toEqual([['eq', 'profile_id', 'u-1']]);
+    expect(qc.getQueryData(['my-student-id', 'u-1'])).toBe('st-1');
+  });
+
+  it('sends no students request when the id is already in the cache', async () => {
+    const db = wire({});
+    const qc = makeClient();
+    qc.setQueryData(['my-student-id', 'u-1'], 'st-cached');
+    const { result } = renderHook(() => useStudentHistoricalSessions(), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(db.requestsTo('students')).toHaveLength(0);
+    expect(db.requestsTo('programs')[0].filters).toContainEqual(['eq', 'student_id', 'st-cached']);
+  });
 });

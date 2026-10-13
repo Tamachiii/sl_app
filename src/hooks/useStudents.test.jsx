@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 vi.mock('../lib/supabase', () => ({ supabase: { from: vi.fn() } }));
 vi.mock('./useAuth', () => ({ useAuth: vi.fn() }));
 
-import { useStudents, useMyStudentId } from './useStudents';
+import { useStudents, useMyStudentId, myStudentIdQueryOptions } from './useStudents';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 
@@ -121,5 +121,69 @@ describe('useMyStudentId', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(chain.eq).toHaveBeenCalledWith('profile_id', 'u-1');
     expect(result.current.data).toBe('st-99');
+  });
+
+  it('is disabled without a user', async () => {
+    useAuth.mockReturnValue({ user: null });
+    const { result } = renderHook(() => useMyStudentId(), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.fetchStatus).toBe('idle'));
+    expect(supabase.from).not.toHaveBeenCalled();
+  });
+});
+
+// The options are what lets a `queryFn` share the entry the hook observes:
+// `queryClient.ensureQueryData(myStudentIdQueryOptions(uid))`.
+describe('myStudentIdQueryOptions', () => {
+  function singleChain(result) {
+    const chain = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      single: vi.fn(() => result),
+    };
+    supabase.from.mockReturnValue(chain);
+    return chain;
+  }
+
+  it('keys the entry on the user, under the key the hook observes', () => {
+    expect(myStudentIdQueryOptions('u-1').queryKey).toEqual(['my-student-id', 'u-1']);
+    expect(myStudentIdQueryOptions('u-2').queryKey).toEqual(['my-student-id', 'u-2']);
+  });
+
+  it('lets a queryFn join the read the hook has in flight: one request for both', async () => {
+    let answer;
+    const chain = singleChain(new Promise((resolve) => { answer = resolve; }));
+    const qc = makeClient();
+    const { result } = renderHook(() => useMyStudentId(), { wrapper: withClient(qc) });
+    await waitFor(() => expect(chain.single).toHaveBeenCalledTimes(1));
+
+    const asked = qc.ensureQueryData(myStudentIdQueryOptions('u-1'));
+    answer({ data: { id: 'st-99' }, error: null });
+
+    expect(await asked).toBe('st-99');
+    await waitFor(() => expect(result.current.data).toBe('st-99'));
+    expect(chain.single).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers from the cache afterwards, however long ago the row was read', async () => {
+    const chain = singleChain(Promise.resolve({ data: { id: 'st-99' }, error: null }));
+    const qc = makeClient();
+    expect(await qc.ensureQueryData(myStudentIdQueryOptions('u-1'))).toBe('st-99');
+
+    // A row id does not go stale: a hook that mounts later reads nothing.
+    const { result } = renderHook(() => useMyStudentId(), { wrapper: withClient(qc) });
+    expect(result.current.data).toBe('st-99');
+    expect(result.current.isStale).toBe(false);
+    expect(await qc.ensureQueryData(myStudentIdQueryOptions('u-1'))).toBe('st-99');
+    expect(chain.single).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not keep a failed read: the next caller asks again', async () => {
+    const chain = singleChain(Promise.resolve({ data: null, error: { message: 'no row' } }));
+    const qc = makeClient();
+    await expect(qc.ensureQueryData(myStudentIdQueryOptions('u-1'))).rejects.toEqual({ message: 'no row' });
+
+    chain.single.mockImplementation(() => Promise.resolve({ data: { id: 'st-1' }, error: null }));
+    expect(await qc.ensureQueryData(myStudentIdQueryOptions('u-1'))).toBe('st-1');
+    expect(chain.single).toHaveBeenCalledTimes(2);
   });
 });

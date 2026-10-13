@@ -1,6 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
+import { myStudentIdQueryOptions } from './useStudents';
 import { computeSessionVolume } from '../lib/volume';
 import { addDays, isoDate, parseISODate, startOfWeekMonday } from '../lib/day';
 import { fetchAllRows } from '../lib/supabasePaging';
@@ -38,22 +39,17 @@ import { fetchAllRows } from '../lib/supabasePaging';
  */
 export function useStudentProgressStats(studentId, scope = 'all') {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   return useQuery({
     queryKey: ['student-progress-stats', studentId ?? user?.id, scope],
     queryFn: async () => {
       // 1. Resolve the student row. Coach view passes studentId directly;
-      //    student view looks it up via profile_id.
-      let resolvedStudentId = studentId;
-      if (!resolvedStudentId) {
-        const { data: student, error: stErr } = await supabase
-          .from('students')
-          .select('id')
-          .eq('profile_id', user.id)
-          .single();
-        if (stErr) throw stErr;
-        resolvedStudentId = student.id;
-      }
+      //    student view takes it from the cache entry the whole page shares
+      //    (see `myStudentIdQueryOptions`): the Stats page asks for this id
+      //    three times, and sends one request for it.
+      const resolvedStudentId =
+        studentId || (await queryClient.ensureQueryData(myStudentIdQueryOptions(user.id)));
 
       // 2. Fetch program(s) → weeks → sessions → slots → exercise meta.
       //    The scope parameter swaps the program filter:
