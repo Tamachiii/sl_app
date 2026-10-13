@@ -86,6 +86,11 @@ export default function StudentStatsSection() {
   // A query that is held back is not "loading" for React Query, and the
   // section has nothing to show yet either way.
   const isLoading = !scopeResolved || statsQuery.isLoading;
+  // The coach changed the scope and the new one is on its way: `data` is
+  // still the previous scope's (never another athlete's — the hook sees to
+  // that). The section stays, selector included, which already shows the new
+  // choice, and its figures are marked as outgoing.
+  const isSwitchingScope = !!statsQuery.isPlaceholderData;
 
   const recentWeeklyVolume = useMemo(
     () => (data?.weeklyVolume || []).slice(-4),
@@ -128,19 +133,24 @@ export default function StudentStatsSection() {
         />
       )}
 
-      {/* Coach-voice, and accurate: the athlete may well have a program, they
-          just have not logged anything in the selected scope yet. This used to
-          render the student-side "No program assigned yet". */}
-      {!hasData && <EmptyState message={t('coach.stats.noData')} compact />}
+      <div
+        className={isSwitchingScope ? 'opacity-50' : undefined}
+        aria-busy={isSwitchingScope ? 'true' : undefined}
+      >
+        {/* Coach-voice, and accurate: the athlete may well have a program, they
+            just have not logged anything in the selected scope yet. This used to
+            render the student-side "No program assigned yet". */}
+        {!hasData && <EmptyState message={t('coach.stats.noData')} compact />}
 
-      {hasData && <CoachStatsBody
-        stats={stats}
-        completionPct={completionPct}
-        recentWeeklyVolume={recentWeeklyVolume}
-        maxWeeklyTotal={maxWeeklyTotal}
-        exerciseStorageKey={exerciseKey}
-        t={t}
-      />}
+        {hasData && <CoachStatsBody
+          stats={stats}
+          completionPct={completionPct}
+          recentWeeklyVolume={recentWeeklyVolume}
+          maxWeeklyTotal={maxWeeklyTotal}
+          exerciseStorageKey={exerciseKey}
+          t={t}
+        />}
+      </div>
     </div>
   );
 }

@@ -1133,3 +1133,143 @@ describe('useStudentProgressStats — enabled', () => {
     expect(setup.db.requests).toHaveLength(0);
   });
 });
+
+// A scope that was never read has no data. The page used to answer that with
+// a spinner in place of everything, selector included, on every change.
+describe('useStudentProgressStats — changing the scope keeps what was on screen', () => {
+  const sessions = (n) =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `s-${i}`, title: `S${i}`, day_number: 1, sort_order: i,
+      scheduled_date: null, archived_at: null, exercise_slots: [],
+    }));
+  // How many sessions each read finds: 2 under 'all', 1 in block p-2, 4 in
+  // block p-3 — and 7 for the other athlete, whatever the scope.
+  const SESSIONS = { all: 2, 'p-2': 1, 'p-3': 4 };
+
+  // Serves the tree by athlete and scope; `hold()` makes the next tree
+  // requests wait for the function it returns.
+  function serve() {
+    let gate = null;
+    const filterOf = (request, column) =>
+      request.filters.find(([op, col]) => op === 'eq' && col === column)?.[2];
+    const db = fakePostgrest({
+      students: [{ id: 'st-1' }],
+      programs: (request) => {
+        const count = filterOf(request, 'student_id') === 'st-2'
+          ? 7
+          : SESSIONS[filterOf(request, 'id') ?? 'all'];
+        return [{
+          id: 'p', name: 'Block', sort_order: 0, is_active: true,
+          weeks: [{ id: 'w-1', week_number: 1, label: null, sessions: sessions(count) }],
+        }];
+      },
+    });
+    supabase.from.mockImplementation((table) => {
+      const builder = db.from(table);
+      if (table !== 'programs') return builder;
+      const answer = builder.then;
+      builder.then = (resolve, reject) =>
+        gate ? gate.then(() => answer(resolve, reject)) : answer(resolve, reject);
+      return builder;
+    });
+    return {
+      db,
+      hold() {
+        let open;
+        gate = new Promise((resolve) => { open = resolve; });
+        return () => {
+          gate = null;
+          open();
+        };
+      },
+    };
+  }
+
+  function mount(initialProps) {
+    return renderHook(
+      ({ studentId, scope }) => useStudentProgressStats(studentId, scope),
+      { wrapper: withClient(makeClient()), initialProps },
+    );
+  }
+
+  it('shows the previous scope until the new one is read, and says it is not the new one', async () => {
+    const { hold } = serve();
+    const { result, rerender } = mount({ scope: 'all' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data.totalSessions).toBe(2);
+    expect(result.current.isPlaceholderData).toBe(false);
+
+    const answer = hold();
+    rerender({ scope: 'p-2' });
+    // Nothing of the new scope has arrived: the old figures stand in.
+    expect(result.current.data.totalSessions).toBe(2);
+    expect(result.current.isPlaceholderData).toBe(true);
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.isFetching).toBe(true);
+
+    answer();
+    await waitFor(() => expect(result.current.isPlaceholderData).toBe(false));
+    expect(result.current.data.totalSessions).toBe(1);
+  });
+
+  it('keeps the last scope that was read through two changes in a row', async () => {
+    const { hold } = serve();
+    const { result, rerender } = mount({ scope: 'all' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const answer = hold();
+    rerender({ scope: 'p-2' });
+    rerender({ scope: 'p-3' });
+    expect(result.current.data.totalSessions).toBe(2);
+    expect(result.current.isPlaceholderData).toBe(true);
+
+    answer();
+    await waitFor(() => expect(result.current.isPlaceholderData).toBe(false));
+    expect(result.current.data.totalSessions).toBe(4);
+  });
+
+  it('comes back to a scope that was read without a stand-in', async () => {
+    serve();
+    const { result, rerender } = mount({ scope: 'all' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    rerender({ scope: 'p-2' });
+    await waitFor(() => expect(result.current.data.totalSessions).toBe(1));
+
+    rerender({ scope: 'all' });
+    expect(result.current.data.totalSessions).toBe(2);
+    expect(result.current.isPlaceholderData).toBe(false);
+  });
+
+  // The coach's Stats section stays mounted from one athlete to the next.
+  it('never shows one athlete\'s figures while another athlete\'s load', async () => {
+    const { hold } = serve();
+    const { result, rerender } = mount({ studentId: 'st-1', scope: 'all' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data.totalSessions).toBe(2);
+
+    const answer = hold();
+    rerender({ studentId: 'st-2', scope: 'all' });
+    expect(result.current.data).toBeUndefined();
+    expect(result.current.isPlaceholderData).toBe(false);
+    expect(result.current.isLoading).toBe(true);
+
+    answer();
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data.totalSessions).toBe(7);
+  });
+
+  it('never shows one account\'s figures while another account\'s load', async () => {
+    const { hold } = serve();
+    const { result, rerender } = mount({ scope: 'all' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const answer = hold();
+    useAuth.mockReturnValue({ user: { id: 'u-2' } });
+    rerender({ scope: 'all' });
+    expect(result.current.data).toBeUndefined();
+    expect(result.current.isPlaceholderData).toBe(false);
+
+    answer();
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  });
+});

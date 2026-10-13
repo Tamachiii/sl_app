@@ -41,13 +41,21 @@ import { fetchAllRows } from '../lib/supabasePaging';
  * know its scope yet (`resolveStatsScope` in lib/statsPrefs): every scope is a
  * cache entry of its own and a full read, so a page that started with the
  * default and switched a moment later would compute 'all' for nothing.
+ *
+ * Changing the scope keeps the figures that were on screen until the new ones
+ * arrive: `data` is then the PREVIOUS scope's and `isPlaceholderData` is true
+ * (`isLoading` stays false). Only between scopes of the same athlete — see
+ * `placeholderData` below.
  */
 export function useStudentProgressStats(studentId, scope = 'all', { enabled = true } = {}) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  // Whose stats these are: the athlete's row id in the coach flow, the
+  // signed-in user in the athlete's.
+  const owner = studentId ?? user?.id;
 
   return useQuery({
-    queryKey: ['student-progress-stats', studentId ?? user?.id, scope],
+    queryKey: ['student-progress-stats', owner, scope],
     queryFn: async () => {
       // 1. Resolve the student row. Coach view passes studentId directly;
       //    student view takes it from the cache entry the whole page shares
@@ -560,5 +568,13 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
       };
     },
     enabled: enabled && !!(studentId || user?.id),
+    // A scope that was never read has no data, and a page that swapped its
+    // whole content for a spinner on every change of scope took the selector
+    // away with it. So the scope that was shown stands in until the new one
+    // is read. NOT plain `keepPreviousData`: the coach's section stays
+    // mounted from one athlete to the next, and would show athlete A's
+    // figures under athlete B's name while B loads.
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey?.[1] === owner ? previousData : undefined,
   });
 }

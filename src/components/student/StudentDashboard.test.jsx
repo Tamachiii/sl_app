@@ -398,3 +398,63 @@ describe('StudentDashboard — the scope is known before anything is computed', 
     });
   });
 });
+
+// N4 of the live review: changing the scope replaced the whole page, selector
+// included, with a spinner — 3 s of nothing on the gym's 4G.
+describe('StudentDashboard — changing the scope keeps the page', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    lastScope = null;
+    mockProgramsQuery = null;
+    mockStudentIdQuery = null;
+    statsCalls = [];
+    historyCalls = [];
+    mockPrograms = [
+      { id: 'p-1', name: 'Block A', is_active: true, sort_order: 0 },
+      { id: 'p-2', name: 'Block B', is_active: false, sort_order: 1 },
+    ];
+  });
+
+  // What the hook answers between two scopes: the figures of the scope that
+  // was on screen, flagged as a stand-in.
+  const standIn = { data: sampleData, isLoading: false, isPlaceholderData: true };
+
+  it('keeps the header, the selector and the figures while the new scope loads', () => {
+    mockStats = standIn;
+    renderDashboard('/student/stats?scope=p-2');
+
+    // The page's own header ("Stats."), not the bare one of the loading state.
+    expect(screen.getByRole('heading', { level: 1, name: 'Stats.' })).toBeInTheDocument();
+    // The selector already shows the choice that was just made.
+    expect(screen.getByLabelText(/stats scope/i)).toHaveValue('p-2');
+    expect(screen.getByText('5/12')).toBeInTheDocument();
+  });
+
+  it('marks the outgoing figures as busy, and only them', () => {
+    mockStats = standIn;
+    const { container } = renderDashboard('/student/stats?scope=p-2');
+
+    const busy = container.querySelectorAll('[aria-busy="true"]');
+    expect(busy).toHaveLength(1);
+    expect(busy[0]).toContainElement(screen.getByText('5/12'));
+    expect(busy[0]).toHaveClass('opacity-50');
+    // The control that changes the scope is not dimmed with them.
+    expect(busy[0]).not.toContainElement(screen.getByLabelText(/stats scope/i));
+  });
+
+  it('marks nothing as busy once the figures are the scope\'s own', () => {
+    mockStats = { data: sampleData, isLoading: false, isPlaceholderData: false };
+    const { container } = renderDashboard('/student/stats?scope=p-2');
+    expect(container.querySelector('[aria-busy]')).toBeNull();
+    expect(container.querySelector('.opacity-50')).toBeNull();
+    expect(screen.getByText('5/12')).toBeInTheDocument();
+  });
+
+  it('still opens on a spinner when there is nothing to keep', () => {
+    mockStats = { data: undefined, isLoading: true, isPlaceholderData: false };
+    const { container } = renderDashboard();
+    expect(screen.queryByLabelText(/stats scope/i)).not.toBeInTheDocument();
+    expect(container.querySelector('[aria-busy]')).toBeNull();
+  });
+});

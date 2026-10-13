@@ -210,3 +210,44 @@ describe('StudentStatsSection — the scope is known before anything is computed
     expect(screen.getByText('5/12')).toBeInTheDocument();
   });
 });
+
+// N4 of the live review: changing the scope replaced the section, selector
+// included, with a spinner.
+describe('StudentStatsSection — changing the scope keeps the section', () => {
+  // What the hook answers between two scopes: the figures of the scope that
+  // was on screen, flagged as a stand-in.
+  const standIn = { data: sampleData, isLoading: false, isPlaceholderData: true };
+
+  it('keeps the selector and the figures while the new scope loads', () => {
+    mockStats = standIn;
+    renderSection({ search: '?statsScope=p-2' });
+    // The selector already shows the choice that was just made.
+    expect(screen.getByLabelText(/stats scope/i)).toHaveValue('p-2');
+    expect(screen.getByText('5/12')).toBeInTheDocument();
+  });
+
+  it('marks the outgoing figures as busy, and only them', () => {
+    mockStats = standIn;
+    const { container } = renderSection({ search: '?statsScope=p-2' });
+
+    const busy = container.querySelectorAll('[aria-busy="true"]');
+    expect(busy).toHaveLength(1);
+    expect(busy[0]).toContainElement(screen.getByText('5/12'));
+    expect(busy[0]).toHaveClass('opacity-50');
+    expect(busy[0]).not.toContainElement(screen.getByLabelText(/stats scope/i));
+  });
+
+  it('marks nothing as busy once the figures are the scope\'s own', () => {
+    const { container } = renderSection({ search: '?statsScope=p-2' });
+    expect(container.querySelector('[aria-busy]')).toBeNull();
+    expect(container.querySelector('.opacity-50')).toBeNull();
+    expect(screen.getByText('5/12')).toBeInTheDocument();
+  });
+
+  it('still opens on a spinner when there is nothing to keep', () => {
+    mockStats = { data: undefined, isLoading: true, isPlaceholderData: false };
+    const { container } = renderSection();
+    expect(screen.queryByLabelText(/stats scope/i)).not.toBeInTheDocument();
+    expect(container.querySelector('[aria-busy]')).toBeNull();
+  });
+});

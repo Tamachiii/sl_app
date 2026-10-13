@@ -93,6 +93,10 @@ export default function StudentDashboard() {
   // A query that is held back is not "loading" for React Query, and the page
   // has nothing to show yet either way.
   const isLoading = !scopeResolved || statsQuery.isLoading;
+  // The athlete changed the scope and the new one is on its way: `data` is
+  // still the previous scope's. The page stays — selector included, which
+  // already shows the new choice — and its figures are marked as outgoing.
+  const isSwitchingScope = !!statsQuery.isPlaceholderData;
   // Historical-sessions overlay only adds value when stats are scoped to the
   // active block — in 'all' or specific-program scope, the calendar already
   // includes everything in scope, so the overlay would be redundant noise.
@@ -158,57 +162,63 @@ export default function StudentDashboard() {
         />
       )}
 
-      {!hasProgram && <EmptyState message={t('student.home.noProgram')} />}
+      <div
+        className={`space-y-6${isSwitchingScope ? ' opacity-50' : ''}`}
+        aria-busy={isSwitchingScope ? 'true' : undefined}
+      >
+        {!hasProgram && <EmptyState message={t('student.home.noProgram')} />}
 
-      {hasProgram && (
-        <>
-          <section aria-labelledby="summary-heading">
-            <SectionHeading id="summary-heading">{t('student.stats.summary')}</SectionHeading>
-            <div className="grid grid-cols-3 gap-2">
-              <StatCard
-                label={t('student.stats.sessions')}
-                value={`${stats.totalSessionsConfirmed}/${stats.totalSessions}`}
-                sub={t('student.stats.pctComplete', { n: completionPct })}
+        {hasProgram && (
+          <>
+            <section aria-labelledby="summary-heading">
+              <SectionHeading id="summary-heading">{t('student.stats.summary')}</SectionHeading>
+              <div className="grid grid-cols-3 gap-2">
+                <StatCard
+                  label={t('student.stats.sessions')}
+                  value={`${stats.totalSessionsConfirmed}/${stats.totalSessions}`}
+                  sub={t('student.stats.pctComplete', { n: completionPct })}
+                />
+                <StatCard
+                  label={t('student.stats.setsDone')}
+                  value={stats.totalSetsDone}
+                  sub={t('student.stats.ofPrescribed', { n: stats.totalSets })}
+                />
+                <StatCard
+                  label={t('student.stats.avgRpe')}
+                  value={stats.avgRpe != null ? stats.avgRpe.toFixed(1) : '—'}
+                  sub={stats.avgRpe != null ? t('student.stats.acrossLogged') : t('student.stats.logSetsToSee')}
+                />
+              </div>
+            </section>
+
+            <section aria-labelledby="calendar-heading">
+              <SectionHeading id="calendar-heading">{t('student.stats.calendar')}</SectionHeading>
+              <SessionCalendar
+                sessions={
+                  // Never over the figures of the scope that is leaving.
+                  showHistoricalOverlay && !isSwitchingScope
+                    ? [...(stats.sessionCalendar || []), ...(historicalSessions || [])]
+                    : (stats.sessionCalendar || [])
+                }
               />
-              <StatCard
-                label={t('student.stats.setsDone')}
-                value={stats.totalSetsDone}
-                sub={t('student.stats.ofPrescribed', { n: stats.totalSets })}
+            </section>
+
+            <section aria-labelledby="volume-heading">
+              <SectionHeading id="volume-heading">{t('student.stats.weeklyVolume')}</SectionHeading>
+              <WeeklyVolumePanel weeks={recentWeeklyVolume} maxTotal={maxWeeklyTotal} t={t} />
+            </section>
+
+            <section aria-labelledby="progress-heading">
+              <SectionHeading id="progress-heading">{t('student.stats.exerciseProgression')}</SectionHeading>
+              <ExerciseProgressChart
+                exercises={stats.exerciseProgress?.exercises ?? []}
+                byExercise={stats.exerciseProgress?.byExercise ?? {}}
+                storageKey={EXERCISE_STORAGE_KEY}
               />
-              <StatCard
-                label={t('student.stats.avgRpe')}
-                value={stats.avgRpe != null ? stats.avgRpe.toFixed(1) : '—'}
-                sub={stats.avgRpe != null ? t('student.stats.acrossLogged') : t('student.stats.logSetsToSee')}
-              />
-            </div>
-          </section>
-
-          <section aria-labelledby="calendar-heading">
-            <SectionHeading id="calendar-heading">{t('student.stats.calendar')}</SectionHeading>
-            <SessionCalendar
-              sessions={
-                showHistoricalOverlay
-                  ? [...(stats.sessionCalendar || []), ...(historicalSessions || [])]
-                  : (stats.sessionCalendar || [])
-              }
-            />
-          </section>
-
-          <section aria-labelledby="volume-heading">
-            <SectionHeading id="volume-heading">{t('student.stats.weeklyVolume')}</SectionHeading>
-            <WeeklyVolumePanel weeks={recentWeeklyVolume} maxTotal={maxWeeklyTotal} t={t} />
-          </section>
-
-          <section aria-labelledby="progress-heading">
-            <SectionHeading id="progress-heading">{t('student.stats.exerciseProgression')}</SectionHeading>
-            <ExerciseProgressChart
-              exercises={stats.exerciseProgress?.exercises ?? []}
-              byExercise={stats.exerciseProgress?.byExercise ?? {}}
-              storageKey={EXERCISE_STORAGE_KEY}
-            />
-          </section>
-        </>
-      )}
+            </section>
+          </>
+        )}
+      </div>
     </div>
   );
 }

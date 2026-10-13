@@ -76,11 +76,11 @@ function kindOf(request) {
 }
 
 let db;
-// Opens when a test wants the programs list to answer late.
-let listGate;
+// Kind of request → a promise its answer waits for (see `hold`).
+let gates;
 
 function serve() {
-  listGate = null;
+  gates = {};
   db = fakePostgrest({
     students: [{ id: 'st-1' }],
     programs: (request) => {
@@ -100,26 +100,29 @@ function serve() {
   });
   supabase.from.mockImplementation((table) => {
     const builder = db.from(table);
-    if (table !== 'programs') return builder;
-    // The shallow list — and only it — waits for the gate when one is set.
-    let isList = false;
+    let kind = table;
     const { select, then: answer } = builder;
     builder.select = (columns, options) => {
-      isList = columns.includes('weeks(id)');
+      kind = kindOf({ table, select: columns });
       return select(columns, options);
     };
     builder.then = (resolve, reject) =>
-      listGate && isList
-        ? listGate.then(() => answer(resolve, reject))
+      gates[kind]
+        ? gates[kind].then(() => answer(resolve, reject))
         : answer(resolve, reject);
     return builder;
   });
 }
 
-function holdProgramsList() {
+// Makes the requests of one kind answer late: when the returned function is
+// called.
+function hold(kind) {
   let open;
-  listGate = new Promise((resolve) => { open = resolve; });
-  return open;
+  gates[kind] = new Promise((resolve) => { open = resolve; });
+  return () => {
+    delete gates[kind];
+    open();
+  };
 }
 
 function renderPage(path = '/student/stats') {
@@ -209,7 +212,7 @@ describe('Stats page — what it sends', () => {
 
   it('sends nothing of the stats while the list that knows the saved block is on its way', async () => {
     localStorage.setItem(PREFS_KEY, JSON.stringify({ scope: 'p-2' }));
-    const answerList = holdProgramsList();
+    const answerList = hold('programs:list');
     renderPage();
     await settle();
 
@@ -281,5 +284,52 @@ describe('Stats page — what it sends', () => {
     expect(await screen.findByText('1/2')).toBeInTheDocument();
     await settle();
     expect(db.requests).toHaveLength(afterSwitch);
+  });
+});
+
+// N4 of the live review: on the gym's 4G, changing the scope left the athlete
+// in front of a spinner — no figures, and no selector to change their mind.
+describe('Stats page — changing the scope', () => {
+  it('keeps the selector and the figures on screen until the new block is read', async () => {
+    const { container } = renderPage();
+    await screen.findByText('1/2');
+    const selector = await screen.findByLabelText(/stats scope/i);
+    expect(container.querySelector('[aria-busy]')).toBeNull();
+
+    const answerTree = hold('programs:tree');
+    fireEvent.change(selector, { target: { value: 'p-2' } });
+    await settle();
+
+    // Still the page: its selector, on the new choice, and the old figures,
+    // marked as on their way out.
+    expect(screen.getByLabelText(/stats scope/i)).toHaveValue('p-2');
+    const outgoing = screen.getByText('1/2');
+    expect(container.querySelector('[aria-busy="true"]')).toContainElement(outgoing);
+    expect(screen.getByRole('heading', { level: 1, name: 'Stats.' })).toBeInTheDocument();
+
+    answerTree();
+    expect(await screen.findByText('0/1')).toBeInTheDocument();
+    expect(screen.queryByText('1/2')).not.toBeInTheDocument();
+    expect(container.querySelector('[aria-busy]')).toBeNull();
+    expect(screen.getByLabelText(/stats scope/i)).toHaveValue('p-2');
+  });
+
+  it('lets the athlete change their mind while a block loads', async () => {
+    renderPage();
+    await screen.findByText('1/2');
+    const selector = await screen.findByLabelText(/stats scope/i);
+
+    const answerTree = hold('programs:tree');
+    fireEvent.change(selector, { target: { value: 'p-2' } });
+    await settle();
+    // The selector is there to be used: back to what is already read.
+    fireEvent.change(screen.getByLabelText(/stats scope/i), { target: { value: 'all' } });
+
+    expect(screen.getByLabelText(/stats scope/i)).toHaveValue('all');
+    expect(screen.getByText('1/2')).toBeInTheDocument();
+    answerTree();
+    await settle();
+    expect(screen.getByText('1/2')).toBeInTheDocument();
+    expect(screen.getByLabelText(/stats scope/i)).toHaveValue('all');
   });
 });
