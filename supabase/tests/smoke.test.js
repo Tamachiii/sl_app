@@ -393,6 +393,22 @@ describe('harness', () => {
     expect(await accounts()).toBe(before);
   });
 
+  // A file drops its database as `postgres`, with DROP DATABASE … WITH
+  // (FORCE), which ends the other sessions of that database first. `postgres`
+  // is not a superuser: it may end its own sessions, not an autovacuum
+  // worker. With one in the database the drop is refused ("permission denied
+  // to terminate process") and the file is reported as failed after its last
+  // green test — which happened in about one run out of two once a run was
+  // longer than autovacuum_naptime. postgres.js starts the server without
+  // autovacuum for that reason.
+  it('runs on a server without autovacuum, whose worker a file could not end when it drops its database', async () => {
+    expect(await asAdmin((q) => q.one(
+      `select current_setting('autovacuum') as autovacuum,
+              (select count(*) from pg_stat_activity
+                where backend_type in ('autovacuum launcher', 'autovacuum worker')) as backends`,
+    ))).toEqual({ autovacuum: 'off', backends: 0 });
+  });
+
   it('queues a Web Push through the pg_net stub once the Vault secrets exist', async () => {
     const confirm = (q) => q(
       `insert into session_confirmations (session_id, student_id) values ($1, $2)`,

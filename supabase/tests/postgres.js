@@ -140,6 +140,15 @@ async function bootCluster(port, log) {
       '-c', 'max_connections=60',
       // As on Supabase: the realtime publication needs it to mean anything.
       '-c', 'wal_level=logical',
+      // No autovacuum worker, ever. A test file drops its database as
+      // `postgres`, which is not a superuser, with DROP DATABASE … WITH
+      // (FORCE): that ends the other sessions of the database, and a worker
+      // is one that `postgres` may not end — "permission denied to terminate
+      // process", the file reported as failed with every test green. A run
+      // is longer than autovacuum_naptime (60 s), so a worker did turn up,
+      // in about one run out of two. Nothing here lives long enough to need
+      // one. Held by smoke.test.js.
+      '-c', 'autovacuum=off',
     ],
     onLog,
     onError: onLog,
