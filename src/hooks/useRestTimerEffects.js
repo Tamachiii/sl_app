@@ -15,6 +15,9 @@ import { useRestTimer } from './useRestTimer';
 //   2. Schedules a one-shot WebAudio beep + `navigator.vibrate` at endsAt.
 //      The beep is synthesized (no asset to bundle); the AudioContext is
 //      unlocked on the first user gesture via a module-level listener.
+//      Where the browser has `navigator.audioSession` (iOS Safari), the
+//      session is switched to 'playback' for the length of the beep, which
+//      is what lets it through the ring/silent switch.
 //   3. When the page is hidden, mirrors the remaining time into
 //      `document.title` so an app-switcher / back-of-app glance still
 //      shows the countdown. Restores the original title on expiry/cleanup.
@@ -54,12 +57,65 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
   window.addEventListener('touchstart', unlock, { once: true, passive: true });
 }
 
+// The beep, from its first sample to its last.
+const CUE_MS = 600;
+// What the audio session is given to change category: the beep starts that
+// much later when the category was changed for it, and the category is held
+// that much longer than the beep.
+const SESSION_SWITCH_MS = 250;
+
+// On iOS, Web Audio plays in the "ambient" category: it mixes with whatever
+// else is playing and is muted by the ring/silent switch, which most phones
+// in a gym have on. The Audio Session API (`navigator.audioSession`, in iOS
+// Safari; found by feature detection) lets a page ask for 'playback', the
+// category of a music player, which the switch does not mute.
+//
+// 'playback' is an exclusive type: a page that holds it does not mix, it
+// takes the audio of the phone from the app that was playing. So it is taken
+// for the beep and given back right after — never on the first tap, never
+// for the length of the session — and an athlete who restarts their music
+// plays it next to a page that mixes again.
+//
+// The specification applies a new type in a task of its own, after the
+// assignment returns, and the beep is at its loudest in its first tenth of a
+// second: hence the wait. Returns true when the category was changed, i.e.
+// when the beep has to wait for it.
+//
+// What the phone really does with all this — the switch, the music of
+// another app — shows on an iPhone only. The tests show that the property is
+// written for the beep, put back after it, and left alone everywhere else.
+function takePlaybackSession() {
+  if (typeof navigator === 'undefined') return false;
+  try {
+    const session = navigator.audioSession;
+    if (!session) return false;
+    const before = session.type;
+    // Already 'playback': somebody else's choice, and theirs to undo.
+    if (before === 'playback') return false;
+    session.type = 'playback';
+    // A browser that does not know the value ignores the assignment.
+    if (session.type !== 'playback') return false;
+    setTimeout(() => {
+      try {
+        if (session.type === 'playback') session.type = before;
+      } catch {
+        // Stays what it is.
+      }
+    }, SESSION_SWITCH_MS + CUE_MS + SESSION_SWITCH_MS);
+    return true;
+  } catch {
+    // A session that refuses: the beep plays as it would have without it.
+    return false;
+  }
+}
+
 function playBeep() {
   const ac = getAudioContext();
   if (!ac) return;
+  const lead = takePlaybackSession() ? SESSION_SWITCH_MS / 1000 : 0;
   try {
     if (ac.state === 'suspended') ac.resume().catch(() => {});
-    const t0 = ac.currentTime;
+    const t0 = ac.currentTime + lead;
     const o = ac.createOscillator();
     const g = ac.createGain();
     o.type = 'sine';
@@ -70,7 +126,7 @@ function playBeep() {
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.55);
     o.connect(g).connect(ac.destination);
     o.start(t0);
-    o.stop(t0 + 0.6);
+    o.stop(t0 + CUE_MS / 1000);
   } catch {
     // No-op — audio is a nice-to-have, never throw.
   }

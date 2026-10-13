@@ -7,6 +7,10 @@ import { startRestTimer, resetRestTimer } from './useRestTimer';
 let wakeLockRelease;
 let wakeLockRequestCalls;
 let vibrateCalls;
+// Every oscillator the beep created in the current test. The module keeps
+// the first AudioContext it built for the whole file, so the classes below
+// report here rather than through the instance a test could reach.
+let oscillators;
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -28,12 +32,17 @@ beforeEach(() => {
   });
 
   // Minimal AudioContext mock so playBeep doesn't throw.
+  oscillators = [];
   class FakeOscillator {
     constructor() {
       this.frequency = { setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() };
       this.connect = vi.fn(() => this);
-      this.start = vi.fn();
+      // The category the phone is in at the moment the sound starts.
+      this.start = vi.fn(() => {
+        this.sessionTypeAtStart = navigator.audioSession?.type;
+      });
       this.stop = vi.fn();
+      oscillators.push(this);
     }
   }
   class FakeGain {
@@ -59,6 +68,7 @@ afterEach(() => {
   vi.useRealTimers();
   delete navigator.wakeLock;
   delete navigator.vibrate;
+  delete navigator.audioSession;
   delete window.AudioContext;
   // Restore the document title in case a test left a countdown there.
   document.title = '';
@@ -436,5 +446,204 @@ describe('useRestTimerEffects: the wake lock after the app was in the background
     });
     expect(sentinels[1].released).toBe(true);
     expect(sentinels[1].release).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useRestTimerEffects: the beep and the ring/silent switch (navigator.audioSession)', () => {
+  // The beep lasts 0.6 s and waits 0.25 s for a category it had changed; the
+  // category is held 0.25 s longer than the beep.
+  const HELD_MS = 1_100;
+
+  // A session that counts what is written to it.
+  function countingSession(initial) {
+    let type = initial;
+    const writes = [];
+    return {
+      writes,
+      get type() {
+        return type;
+      },
+      set type(value) {
+        writes.push(value);
+        type = value;
+      },
+    };
+  }
+
+  async function restOf(seconds) {
+    const view = renderHook(() => useRestTimerEffects());
+    await act(async () => {
+      startRestTimer('log-A', seconds);
+      await Promise.resolve();
+    });
+    return view;
+  }
+
+  const advance = (ms) =>
+    act(async () => {
+      vi.advanceTimersByTime(ms);
+      await Promise.resolve();
+    });
+
+  it('plays the beep in the playback category, where the browser has one', async () => {
+    navigator.audioSession = { type: 'auto' };
+    await restOf(30);
+    await advance(30_000);
+    expect(oscillators).toHaveLength(1);
+    expect(oscillators[0].start).toHaveBeenCalledTimes(1);
+    expect(oscillators[0].sessionTypeAtStart).toBe('playback');
+  });
+
+  it('starts the beep a moment later, so the new category is in place', async () => {
+    navigator.audioSession = { type: 'auto' };
+    await restOf(30);
+    await advance(30_000);
+    // The fake context's clock stands at 0.
+    expect(oscillators[0].start).toHaveBeenCalledWith(0.25);
+    expect(oscillators[0].stop).toHaveBeenCalledWith(0.25 + 0.6);
+  });
+
+  it('gives the category back once the beep is over', async () => {
+    navigator.audioSession = countingSession('auto');
+    await restOf(30);
+    await advance(30_000);
+    expect(navigator.audioSession.type).toBe('playback');
+    await advance(HELD_MS - 1);
+    expect(navigator.audioSession.type).toBe('playback');
+    await advance(1);
+    expect(navigator.audioSession.type).toBe('auto');
+    expect(navigator.audioSession.writes).toEqual(['playback', 'auto']);
+  });
+
+  it('gives back the category it found, whatever it was', async () => {
+    navigator.audioSession = { type: 'ambient' };
+    await restOf(30);
+    await advance(30_000);
+    expect(navigator.audioSession.type).toBe('playback');
+    await advance(HELD_MS);
+    expect(navigator.audioSession.type).toBe('ambient');
+  });
+
+  it('gives it back when the session screen was left right after the beep', async () => {
+    const session = { type: 'auto' };
+    navigator.audioSession = session;
+    const { unmount } = await restOf(30);
+    await advance(30_000);
+    unmount();
+    await advance(HELD_MS);
+    expect(session.type).toBe('auto');
+  });
+
+  it('leaves the category alone until the rest ends', async () => {
+    // 'playback' takes the phone's audio from the athlete's music: it is not
+    // taken on a tap, at the start of a rest or during it.
+    navigator.audioSession = countingSession('auto');
+    await act(async () => {
+      window.dispatchEvent(new Event('pointerdown'));
+      window.dispatchEvent(new Event('touchstart'));
+    });
+    await restOf(30);
+    await advance(29_999);
+    expect(navigator.audioSession.writes).toEqual([]);
+    await advance(1);
+    expect(navigator.audioSession.writes).toEqual(['playback']);
+  });
+
+  it('takes it again for the next rest', async () => {
+    navigator.audioSession = countingSession('auto');
+    await restOf(30);
+    await advance(30_000 + HELD_MS);
+    await act(async () => {
+      startRestTimer('log-B', 45);
+      await Promise.resolve();
+    });
+    await advance(45_000);
+    expect(oscillators).toHaveLength(2);
+    expect(oscillators[1].sessionTypeAtStart).toBe('playback');
+    await advance(HELD_MS);
+    expect(navigator.audioSession.writes).toEqual(['playback', 'auto', 'playback', 'auto']);
+  });
+
+  it('writes nothing to a session that is already in playback', async () => {
+    navigator.audioSession = countingSession('playback');
+    await restOf(30);
+    await advance(30_000);
+    expect(oscillators[0].start).toHaveBeenCalledWith(0);
+    await advance(HELD_MS);
+    expect(navigator.audioSession.writes).toEqual([]);
+    expect(navigator.audioSession.type).toBe('playback');
+  });
+
+  it('does not put back a category somebody else chose in the meantime', async () => {
+    navigator.audioSession = { type: 'auto' };
+    await restOf(30);
+    await advance(30_000);
+    navigator.audioSession.type = 'play-and-record';
+    await advance(HELD_MS);
+    expect(navigator.audioSession.type).toBe('play-and-record');
+  });
+
+  it('creates no audioSession where the browser has none', async () => {
+    expect('audioSession' in navigator).toBe(false);
+    await restOf(30);
+    await advance(30_000);
+    expect('audioSession' in navigator).toBe(false);
+    // The beep and the buzz are what they were: at once.
+    expect(oscillators).toHaveLength(1);
+    expect(oscillators[0].start).toHaveBeenCalledWith(0);
+    expect(oscillators[0].stop).toHaveBeenCalledWith(0.6);
+    expect(vibrateCalls.length).toBe(1);
+    await advance(HELD_MS);
+    expect('audioSession' in navigator).toBe(false);
+  });
+
+  it('still beeps and buzzes when the session refuses the category', async () => {
+    navigator.audioSession = {
+      get type() {
+        return 'auto';
+      },
+      set type(_value) {
+        throw new DOMException('Not allowed', 'InvalidStateError');
+      },
+    };
+    await restOf(30);
+    await advance(30_000);
+    expect(oscillators).toHaveLength(1);
+    expect(oscillators[0].start).toHaveBeenCalledWith(0);
+    expect(vibrateCalls.length).toBe(1);
+    await advance(HELD_MS);
+  });
+
+  it('does not wait for a category the browser ignored', async () => {
+    // An enum the browser does not know is dropped without an error.
+    const session = {
+      writes: [],
+      get type() {
+        return 'auto';
+      },
+      set type(value) {
+        session.writes.push(value);
+      },
+    };
+    navigator.audioSession = session;
+    await restOf(30);
+    await advance(30_000);
+    expect(oscillators[0].start).toHaveBeenCalledWith(0);
+    await advance(HELD_MS);
+    expect(session.writes).toEqual(['playback']);
+  });
+
+  it('still beeps and buzzes when reading the session throws', async () => {
+    Object.defineProperty(navigator, 'audioSession', {
+      configurable: true,
+      get() {
+        throw new DOMException('The operation is insecure', 'SecurityError');
+      },
+    });
+    await restOf(30);
+    await advance(30_000);
+    expect(oscillators).toHaveLength(1);
+    expect(oscillators[0].start).toHaveBeenCalledWith(0);
+    expect(vibrateCalls.length).toBe(1);
   });
 });
