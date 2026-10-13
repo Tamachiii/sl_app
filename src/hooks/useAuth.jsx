@@ -76,6 +76,8 @@ export function AuthProvider({ children }) {
   const profileRead = useRef(NOT_READ);
   // Whether auth-js held a usable session the last time it said anything.
   const sessionKnown = useRef(false);
+  // What is asked before a sign-out goes ahead — see `guardSignOut`.
+  const signOutGuard = useRef(null);
 
   const ensureProfile = useCallback((userId) => {
     const last = profileRead.current;
@@ -261,8 +263,14 @@ export function AuthProvider({ children }) {
    * from a session that merely went away (a refresh the server refused, a
    * sign-out on another device): the first discards what the device holds for
    * the account, the second does not — `ClearOnUserChange` in App.jsx.
+   *
+   * Because it discards, a sign-out can be held back: whoever registered with
+   * `guardSignOut` is asked first, and nothing happens when it answers no.
    */
   const signOut = useCallback(async () => {
+    const mayGoAhead = signOutGuard.current;
+    if (mayGoAhead && !(await mayGoAhead())) return;
+
     let serverTold = false;
     if (!isOffline()) {
       try {
@@ -276,6 +284,21 @@ export function AuthProvider({ children }) {
     nobody();
     setSignOuts((count) => count + 1);
   }, [nobody]);
+
+  /**
+   * Register the question a sign-out waits for: `ask()` answers — or resolves
+   * to — true when the sign-out may go ahead. Returns the function that takes
+   * the registration back. One guard at a time: `SignOutGuard`, mounted once
+   * under the provider, which knows what the device still owes the database.
+   * Every "Sign out" of the app calls `signOut` of this context, so none of
+   * them has to know.
+   */
+  const guardSignOut = useCallback((ask) => {
+    signOutGuard.current = ask;
+    return () => {
+      if (signOutGuard.current === ask) signOutGuard.current = null;
+    };
+  }, []);
 
   /**
    * Patch the signed-in user's `profiles` row and refresh the in-memory
@@ -319,8 +342,19 @@ export function AuthProvider({ children }) {
   }, [user, role]);
 
   const value = useMemo(
-    () => ({ user, profile, role, isLoading, signOuts, signIn, signOut, updateProfile, updatePassword }),
-    [user, profile, role, isLoading, signOuts, signIn, signOut, updateProfile, updatePassword]
+    () => ({
+      user,
+      profile,
+      role,
+      isLoading,
+      signOuts,
+      signIn,
+      signOut,
+      guardSignOut,
+      updateProfile,
+      updatePassword,
+    }),
+    [user, profile, role, isLoading, signOuts, signIn, signOut, guardSignOut, updateProfile, updatePassword]
   );
 
   return (

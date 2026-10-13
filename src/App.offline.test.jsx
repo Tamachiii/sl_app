@@ -101,10 +101,11 @@ async function launchApp() {
   // The stand-in first, by itself: imported next to the modules that import it,
   // some of them get the real client.
   const { supabase } = await import('./lib/supabase');
-  const [shell, client, auth] = await Promise.all([
+  const [shell, client, auth, guard] = await Promise.all([
     import('./App'),
     import('./lib/queryClient'),
     import('./hooks/useAuth'),
+    import('./components/auth/SignOutGuard'),
   ]);
 
   // auth-js: the session it can hand out right now, or none — with the error
@@ -138,10 +139,12 @@ async function launchApp() {
     const { user, role, isLoading } = auth.useAuth();
     return <output data-testid="who">{isLoading ? 'loading' : `${user?.id ?? 'nobody'} ${role ?? '-'}`}</output>;
   }
-  let signOut;
   function SignOutButton() {
-    signOut = auth.useAuth().signOut;
-    return null;
+    return (
+      <button type="button" onClick={auth.useAuth().signOut}>
+        Sign out
+      </button>
+    );
   }
   function Cache() {
     return <output data-testid="cache">{useIsRestoring() ? 'restoring' : 'restored'}</output>;
@@ -151,6 +154,7 @@ async function launchApp() {
     <shell.CacheBoundary>
       <auth.AuthProvider>
         <shell.ClearOnUserChange />
+        <guard.default />
         <Who />
         <SignOutButton />
         <Cache />
@@ -163,7 +167,7 @@ async function launchApp() {
     authJs,
     setLogs,
     who: () => screen.getByTestId('who').textContent,
-    signOut: () => act(async () => signOut()),
+    tapSignOut: () => act(async () => screen.getByRole('button', { name: 'Sign out' }).click()),
     // What the client holds: the reads, and the writes it still owes.
     held: () => ({
       reads: client.queryClient.getQueryCache().getAll().length,
@@ -281,10 +285,17 @@ describe('a workout logged without signal, then the app is killed and opened aga
     expect(app.queryPersister.getOwner()).toBe(B.id);
   });
 
-  it('the athlete signs out offline: the device is signed out for good, and what it held is gone with the account', async () => {
+  it('the athlete signs out offline: asked first, then the device is signed out for good and what it held is gone with the account', async () => {
     await launchApp();
 
-    await app.signOut();
+    await app.tapSignOut();
+
+    // One set is at stake: nothing happens until the athlete has said so.
+    expect(screen.getByText(/1 change made on this device has not been sent yet/i)).toBeInTheDocument();
+    expect(app.who()).toBe(`${A.id} student`);
+    expect(app.held()).toEqual({ reads: 1, owed: 1 });
+
+    await act(async () => screen.getByRole('button', { name: 'Sign out anyway', hidden: true }).click());
 
     expect(app.who()).toBe('nobody -');
     expect(localStorage.getItem(SESSION_KEY)).toBeNull();

@@ -9,6 +9,7 @@ import { usePushAutoHeal } from './hooks/usePushAutoHeal';
 import { queryClient, queryPersister, cacheOwner, persistOptions, replayQueuedWrites } from './lib/queryClient';
 import { routes } from './routes';
 import ErrorBoundary from './components/ui/ErrorBoundary';
+import SignOutGuard from './components/auth/SignOutGuard';
 import { installGlobalErrorReporting } from './lib/errorReporter';
 
 // Wire window.onerror / unhandledrejection telemetry once at module load.
@@ -165,6 +166,7 @@ export default function App() {
         <CacheBoundary>
           <AuthProvider>
             <ClearOnUserChange />
+            <SignOutGuard />
             <PushAutoHeal />
             <HashRouter>
               <ErrorBoundary>
