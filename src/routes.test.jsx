@@ -159,6 +159,59 @@ describe('route table', () => {
     });
   });
 
+  // Signed in — the session is on the device — but the profile has not been
+  // read yet, and maybe cannot be: the first launch of a build on a device
+  // without a network. "/" is where an installed app starts.
+  describe('signed in, with a role this device has not read yet', () => {
+    const NO_ROLE_YET = { user: { id: 'student-1' }, role: null, isLoading: false };
+
+    function deviceIs(online) {
+      Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => online });
+    }
+
+    function open(from) {
+      render(
+        <MemoryRouter initialEntries={[from]}>
+          <AppRoutes />
+          <Where />
+        </MemoryRouter>,
+      );
+    }
+
+    beforeEach(() => {
+      mockAuth = NO_ROLE_YET;
+    });
+
+    afterEach(() => {
+      deviceIs(true);
+    });
+
+    it('/ waits for the role: it stays where it is, and does not show the login page', async () => {
+      open('/');
+
+      // (<output> is a status too: the spinner is found by its label.)
+      expect(await screen.findByLabelText('Loading')).toBeInTheDocument();
+      expect(screen.getByTestId('where')).toHaveTextContent('/');
+      expect(screen.queryByTestId('page')).not.toBeInTheDocument();
+      // With a network the role is a moment away: nothing to explain.
+      expect(screen.queryByText(/offline/i)).not.toBeInTheDocument();
+    });
+
+    it('/ without a network says what it is waiting for', async () => {
+      deviceIs(false);
+      open('/');
+
+      expect(await screen.findByText(/your account will open as soon as this device is back online/i)).toBeInTheDocument();
+      expect(screen.getByTestId('where')).toHaveTextContent('/');
+    });
+
+    // (That "/" then opens the role home when the role arrives needs a
+    // provider that changes: routes.offline.test.jsx, on the real one.)
+    it('a link into the app opens its page: only "/" needs the role to know where to go', async () => {
+      expect(await land('/student/session/s1')).toEqual({ path: '/student/session/s1', page: 'SessionView', child: null });
+    });
+  });
+
   // The app ships a HashRouter (GitHub Pages has no server-side rewrites), so
   // one case goes through the real history: a redirect must rewrite the hash.
   describe('through the hash history the app ships', () => {

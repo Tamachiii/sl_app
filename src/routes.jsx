@@ -1,6 +1,8 @@
 import { lazy, Suspense } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
+import { useI18n } from './hooks/useI18n';
+import { useOnlineStatus } from './hooks/useOnlineStatus';
 
 function RedirectToStudentGoals() {
   const { studentId } = useParams();
@@ -25,9 +27,25 @@ function RedirectToSessionEditor() {
 // without a hash route — most commonly an iOS PWA cold launch, which
 // loads the manifest start_url (`/sl_app/`) with no hash. Without this,
 // HashRouter sees pathname `/` and the wildcard renders the 404 page.
+//
+// Whoever gets here is signed in (ProtectedRoute is above). A role that is
+// not known is therefore a role that has not been read yet, and the route
+// WAITS for it. It used to send that user to /login, which shows its form to
+// anyone without a role: an installed app opened without a network ended on a
+// sign-in form that cannot work offline. The provider keeps asking (useAuth),
+// and this route moves on as soon as it has an answer.
 function RedirectToRoleHome() {
   const { role } = useAuth();
-  if (!role) return <Navigate to="/login" replace />;
+  const isOnline = useOnlineStatus();
+  const { t } = useI18n();
+  if (!role) {
+    return (
+      <div className="flex flex-col items-center gap-4 px-6 py-12 text-center">
+        <Spinner />
+        {!isOnline && <p className="sl-mono text-[12px] text-ink-400">{t('authOffline.roleWait')}</p>}
+      </div>
+    );
+  }
   return <Navigate to={`/${role}`} replace />;
 }
 

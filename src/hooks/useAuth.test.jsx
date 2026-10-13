@@ -85,7 +85,7 @@ describe('AuthProvider', () => {
     expect(result.current.role).toBeNull();
   });
 
-  it('keeps user but clears profile when fetchProfile fails', async () => {
+  it('keeps the user, without a profile, when the first read of the profile fails (nothing is known yet)', async () => {
     supabase.auth.getSession.mockResolvedValue({
       data: { session: { user: { id: 'u-1' } } },
     });
