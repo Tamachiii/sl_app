@@ -1,8 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useIsRestoring } from '@tanstack/react-query';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
-import { useStudentProgramDetails } from '../../hooks/useStudentProgramDetails';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import {
+  useStudentProgramDetails,
+  useStudentPastProgram,
+} from '../../hooks/useStudentProgramDetails';
 import { useMyConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 import { useMyFeedbackSessionIds } from '../../hooks/useMessages';
 import { DAY_FULL_LONG, parseISODate, performedDate } from '../../lib/day';
@@ -13,6 +18,11 @@ import UserMenu from '../ui/UserMenu';
 import SessionCard from './SessionCard';
 
 const LOCALE = { en: 'en-US', fr: 'fr-FR', de: 'de-DE' };
+
+// Stable stand-ins for "not read yet", so a memo that depends on them does not
+// run again on every render.
+const NO_WEEKS = [];
+const NO_IDS = new Set();
 
 /**
  * The student's ONE training surface: the block as a single ordered list.
@@ -62,6 +72,67 @@ function upcomingSubtitle(session, lang, t) {
     return t('student.training.recommendedDay', { day: DAY_FULL_LONG[dn - 1] });
   }
   return null;
+}
+
+// Finished work reads newest-first, by the day it was really trained. Sessions
+// with no recorded date (confirmed before the column existed) sink below the
+// dated ones rather than jumping to the top.
+function newestTrainedFirst(a, b) {
+  const da = performedDate(a);
+  const db = performedDate(b);
+  if (da && db) return db - da;
+  if (da) return -1;
+  if (db) return 1;
+  return 0;
+}
+
+/**
+ * What a part of the page can say about the reads it is made of: 'ready' when
+ * each of them holds data, and otherwise why not.
+ *
+ * "No data" is not one state. A read that never got an answer — the device is
+ * offline and waits (`isPaused`), or the request failed — has nothing to say
+ * about the athlete's program, and the page used to print "No program assigned
+ * yet" for it: the empty state of a read that DID answer. Data, however old,
+ * always wins: a refresh that failed leaves `isError` on a read that still
+ * holds the last good answer, and that answer is what is shown.
+ *
+ * `restoring` is the moment at launch when what the device kept is still being
+ * read from IndexedDB: no read has data yet and none has been sent, which on a
+ * device without a network would otherwise pass for "nothing kept".
+ */
+function readState(queries, { online, restoring }) {
+  const missing = queries.filter((q) => q.data == null);
+  if (missing.length === 0) return 'ready';
+  if (restoring || missing.some((q) => q.fetchStatus === 'fetching')) return 'loading';
+  if (!online || missing.some((q) => q.isPaused)) return 'offline';
+  if (missing.some((q) => q.isError)) return 'failed';
+  // Not asked yet (the account is not known): nothing to report.
+  return 'loading';
+}
+
+// Stands where content would be when its read got no answer: what happened,
+// and a way to ask again. `compact` is for one drawer rather than the page.
+function Unavailable({ title, body, onRetry, compact = false }) {
+  const { t } = useI18n();
+  return (
+    <div
+      role="status"
+      className={`flex flex-col items-center text-center gap-3 ${compact ? 'py-6' : 'py-16'}`}
+    >
+      <div>
+        <p className="text-sm text-gray-900">{title}</p>
+        {body && <p className="text-sm text-gray-400 mt-1">{body}</p>}
+      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="sl-pill min-h-11 px-4 bg-ink-100 text-ink-700 hover:bg-ink-200"
+      >
+        {t('trainingListOffline.retry')}
+      </button>
+    </div>
+  );
 }
 
 // Name plus at most ONE short line, and only when it says something. "Trained
@@ -152,6 +223,49 @@ function Drawer({ headingId, title, meta, renderBody }) {
   );
 }
 
+/**
+ * What an open past-block drawer holds: that block's sessions, read when the
+ * drawer opens and not before.
+ *
+ * The list's own read carries a past block as a name and a count, which is all
+ * a closed drawer shows — and is why that read stays small enough to be the
+ * one the device keeps. Because the query lives in this component, and a
+ * closed drawer builds nothing, a block nobody opens is never asked for.
+ */
+function PastBlockSessions({ userId, programId, showArchived, renderCard }) {
+  const { t } = useI18n();
+  const online = useOnlineStatus();
+  const restoring = useIsRestoring();
+  const block = useStudentPastProgram(userId, programId);
+  const { data: weeks, refetch } = block;
+
+  const sessions = useMemo(
+    () =>
+      flattenSessions(weeks)
+        .map(({ session }) => session)
+        .filter((s) => showArchived || !s.archived_at)
+        .sort(newestTrainedFirst),
+    [weeks, showArchived]
+  );
+
+  const state = readState([block], { online, restoring });
+  if (state === 'loading') {
+    return <div className="flex justify-center py-6"><Spinner /></div>;
+  }
+  if (state !== 'ready') {
+    return (
+      <Unavailable
+        compact
+        title={t(
+          state === 'offline' ? 'trainingListOffline.blockOffline' : 'trainingListOffline.blockError'
+        )}
+        onRetry={() => refetch({ cancelRefetch: false })}
+      />
+    );
+  }
+  return sessions.map(renderCard);
+}
+
 function ArchivedToggle({ count, expanded, onToggle, t }) {
   const label = expanded
     ? t(count === 1 ? 'student.sessions.hideArchivedOne' : 'student.sessions.hideArchivedMany', { n: count })
@@ -171,9 +285,16 @@ export default function StudentTraining() {
   const { user, profile, signOut } = useAuth();
   const { t, lang } = useI18n();
   const navigate = useNavigate();
-  const { data: weeks, isLoading } = useStudentProgramDetails(user?.id, { allPrograms: true });
-  const { data: confirmedIds = new Set() } = useMyConfirmedSessionIds();
-  const { data: feedbackIds = new Set() } = useMyFeedbackSessionIds();
+  const online = useOnlineStatus();
+  const restoring = useIsRestoring();
+  // The list is made of two reads, and both are among the few the device
+  // keeps: the block being trained (with the names of the ones before it), and
+  // which sessions are confirmed. It needs BOTH to say anything — the block
+  // alone, with no confirmation known, puts the athlete back on its first
+  // session.
+  const details = useStudentProgramDetails(user?.id);
+  const confirmations = useMyConfirmedSessionIds();
+  const { data: feedbackIds = NO_IDS } = useMyFeedbackSessionIds();
 
   const [showArchived, setShowArchived] = useState(false);
   // `undefined` = the student hasn't chosen yet, so the next session opens by
@@ -182,13 +303,15 @@ export default function StudentTraining() {
   // plain initial value can't express "whatever turns out to be next".
   const [openSessionId, setOpenSessionId] = useState(undefined);
 
-  const activeWeeks = useMemo(
-    () => (weeks || []).filter((w) => w.program?.is_active),
-    [weeks]
-  );
+  const listState = readState([details, confirmations], { online, restoring });
+  const ready = listState === 'ready';
 
-  // The queue is the ACTIVE block only. A past block's unfinished sessions are
-  // history the athlete moved on from, not work that is somehow still due.
+  // The block being trained — the only one this read brings whole. A past
+  // block's unfinished sessions are history the athlete moved on from, not
+  // work that is somehow still due, so the queue is built from these alone.
+  const activeWeeks = details.data?.weeks ?? NO_WEEKS;
+  const confirmedIds = confirmations.data ?? NO_IDS;
+
   const queue = useMemo(() => buildQueue(activeWeeks, confirmedIds), [activeWeeks, confirmedIds]);
 
   const activeProgramName = activeWeeks[0]?.program?.name || null;
@@ -206,61 +329,79 @@ export default function StudentTraining() {
         up.push(session);
       }
     }
-    // Finished work reads newest-first, by the day it was really trained.
-    // Sessions with no recorded date (confirmed before the column existed)
-    // sink below the dated ones rather than jumping to the top.
-    dn.sort((a, b) => {
-      const da = performedDate(a);
-      const db = performedDate(b);
-      if (da && db) return db - da;
-      if (da) return -1;
-      if (db) return 1;
-      return 0;
-    });
+    dn.sort(newestTrainedFirst);
     return { upcoming: up, done: dn };
   }, [activeWeeks, confirmedIds, showArchived]);
 
-  // Past blocks: everything in them is history, newest block first.
-  const pastPrograms = useMemo(() => {
-    const byProgram = new Map();
-    for (const w of weeks || []) {
-      if (w.program?.is_active) continue;
-      const pid = w.program?.id ?? '__none__';
-      if (!byProgram.has(pid)) byProgram.set(pid, { program: w.program, sessions: [] });
-      for (const s of w.sessions || []) {
-        if (s.archived_at && !showArchived) continue;
-        byProgram.get(pid).sessions.push(s);
-      }
-    }
-    const groups = [...byProgram.values()].filter((g) => g.sessions.length > 0);
-    for (const g of groups) {
-      g.sessions.sort((a, b) => {
-        const da = performedDate(a);
-        const db = performedDate(b);
-        if (da && db) return db - da;
-        if (da) return -1;
-        if (db) return 1;
-        return 0;
-      });
-    }
-    groups.sort((a, b) => (b.program?.sort_order ?? 0) - (a.program?.sort_order ?? 0));
-    return groups;
-  }, [weeks, showArchived]);
+  // Past blocks, newest first, as the rows their closed drawers are: a name
+  // and how many sessions the drawer would show. A block with nothing to show
+  // (every session archived, the toggle off) gets no row.
+  const pastHeaders = details.data?.pastPrograms;
+  const pastPrograms = useMemo(
+    () =>
+      (pastHeaders || [])
+        .map((program) => ({
+          program,
+          count: showArchived
+            ? program.session_count
+            : program.session_count - program.archived_count,
+        }))
+        .filter((group) => group.count > 0),
+    [pastHeaders, showArchived]
+  );
 
   const archivedCount = useMemo(
     () =>
-      (weeks || []).reduce(
+      activeWeeks.reduce(
         (n, w) => n + (w.sessions || []).filter((s) => s.archived_at).length,
         0
-      ),
-    [weeks]
+      ) + (pastHeaders || []).reduce((n, program) => n + program.archived_count, 0),
+    [activeWeeks, pastHeaders]
   );
 
-  if (isLoading) {
+  const { refetch: refetchDetails } = details;
+  const { refetch: refetchConfirmations } = confirmations;
+  // `cancelRefetch: false` joins a request that is already on its way — a
+  // read React Query resumes by itself when the network returns — instead of
+  // starting a second one.
+  const retry = useCallback(() => {
+    refetchDetails({ cancelRefetch: false });
+    refetchConfirmations({ cancelRefetch: false });
+  }, [refetchDetails, refetchConfirmations]);
+
+  // The network is back and the list still has nothing to show: ask again,
+  // without waiting for a tap. Only on that step, never in a loop — a read
+  // that keeps failing while the device is online stops at the message and
+  // its button.
+  const wasOnline = useRef(online);
+  useEffect(() => {
+    const cameBack = online && !wasOnline.current;
+    wasOnline.current = online;
+    if (cameBack && !ready) retry();
+  }, [online, ready, retry]);
+
+  if (listState === 'loading') {
     return (
       <div className="p-4">
         <h1 className="sr-only">Training</h1>
         <div className="flex justify-center py-12"><Spinner /></div>
+      </div>
+    );
+  }
+
+  // Nothing to build the list from, and nothing on its way. Said as what it
+  // is — never as "No program assigned yet", which is a statement about the
+  // athlete's program that only an answer can make.
+  if (!ready) {
+    const offline = listState === 'offline';
+    return (
+      <div className="p-4 pb-6 md:p-8 space-y-6">
+        <Greeting fullName={profile?.full_name} queue={queue} onSignOut={signOut} />
+        <Unavailable
+          title={t(offline ? 'trainingListOffline.offlineTitle' : 'trainingListOffline.errorTitle')}
+          body={t(offline ? 'trainingListOffline.offlineBody' : 'trainingListOffline.errorBody')}
+          onRetry={retry}
+        />
       </div>
     );
   }
@@ -291,7 +432,9 @@ export default function StudentTraining() {
     <div className="p-4 pb-6 md:p-8 space-y-6">
       <Greeting fullName={profile?.full_name} queue={queue} onSignOut={signOut} />
 
-      {!weeks?.length && <EmptyState message={t('student.home.noProgram')} />}
+      {activeWeeks.length === 0 && pastPrograms.length === 0 && (
+        <EmptyState message={t('student.home.noProgram')} />
+      )}
 
       {activeWeeks.length > 0 && (
         <section aria-labelledby="active-block-heading" className="space-y-3">
@@ -362,26 +505,29 @@ export default function StudentTraining() {
         />
       )}
 
-      {pastPrograms.map((group) => (
+      {pastPrograms.map(({ program, count }) => (
         <Drawer
-          key={group.program?.id ?? 'no-program'}
-          headingId={`program-${group.program?.id ?? 'none'}-heading`}
-          title={group.program?.name || ''}
+          key={program.id}
+          headingId={`program-${program.id}-heading`}
+          title={program.name || ''}
           meta={`${t('student.sessions.pastProgram')} · ${t(
-            group.sessions.length === 1
-              ? 'student.training.sessionsOne'
-              : 'student.training.sessionsMany',
-            { n: group.sessions.length }
+            count === 1 ? 'student.training.sessionsOne' : 'student.training.sessionsMany',
+            { n: count }
           )}`}
-          renderBody={() =>
-            group.sessions.map((s) => (
-              <SessionCard
-                key={s.id}
-                {...cardProps(s, { readOnly: true })}
-                subtitle={formatDoneDate(s, lang)}
-              />
-            ))
-          }
+          renderBody={() => (
+            <PastBlockSessions
+              userId={user?.id}
+              programId={program.id}
+              showArchived={showArchived}
+              renderCard={(s) => (
+                <SessionCard
+                  key={s.id}
+                  {...cardProps(s, { readOnly: true })}
+                  subtitle={formatDoneDate(s, lang)}
+                />
+              )}
+            />
+          )}
         />
       ))}
 
