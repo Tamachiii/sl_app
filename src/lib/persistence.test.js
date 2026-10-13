@@ -610,3 +610,145 @@ describe('a blob the reads of which are no longer wanted', () => {
     expect(isQueueKey(undefined)).toBe(false);
   });
 });
+
+// --- B19: whose cache it is --------------------------------------------------------
+
+describe('the blob says whose it is', () => {
+  it('nobody\'s until the app says: a blob is not labelled with an account nobody named', async () => {
+    const { app } = await tickOffline();
+    await save(app);
+
+    expect(onDevice().owner).toBeNull();
+    expect(app.queryPersister.getOwner()).toBeNull();
+  });
+
+  it('the account the app names is written with the next save, and read back at the next launch', async () => {
+    const { app } = await tickOffline();
+    app.queryPersister.setOwner('u-1');
+    await save(app);
+    expect(onDevice().owner).toBe('u-1');
+
+    const next = await relaunch(app);
+
+    expect(next.queryPersister.getOwner()).toBe('u-1');
+  });
+
+  it('named after the last change of the cache, it is written all the same', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const app = await launchApp();
+    app.queryClient.setQueryData(['session', 's-1'], { id: 's-1' });
+    await save(app);
+    expect(onDevice().owner).toBeNull();
+
+    // Nothing else happens in the cache; the persister writes once a second.
+    app.queryPersister.setOwner('u-1');
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(onDevice().owner).toBe('u-1');
+    expect(onDevice().clientState.queries).toHaveLength(1);
+  });
+
+  it('a state taken for one account and written after the wipe still says whose it was', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const app = await launchApp();
+    app.queryPersister.setOwner('u-1');
+    app.queryClient.setQueryData(['session', 's-1'], { id: 's-1' });
+    await save(app);
+    // A second save inside the same second waits for the throttle…
+    app.queryClient.setQueryData(['session', 's-2'], { id: 's-2' });
+    const late = save(app);
+    // …the account signs out, the device is wiped, another account signs in…
+    app.queryClient.clear();
+    await app.queryPersister.removeClient();
+    app.queryPersister.setOwner('u-2');
+    // …and the write of the first account's state lands after all.
+    await vi.advanceTimersByTimeAsync(1000);
+    await late;
+
+    // It is on the device under the first account's name, not the second's:
+    // the next launch can tell that it is not the cache of who is signed in.
+    expect(onDevice().clientState.queries).toHaveLength(2);
+    expect(onDevice().owner).toBe('u-1');
+    expect(app.queryPersister.getOwner()).toBe('u-2');
+  });
+
+  it('removeClient forgets the owner with the blob', async () => {
+    const { app } = await tickOffline();
+    app.queryPersister.setOwner('u-1');
+    await save(app);
+
+    await app.queryPersister.removeClient();
+
+    expect(device.store.has(BLOB)).toBe(false);
+    expect(app.queryPersister.getOwner()).toBeNull();
+  });
+
+  it('a blob written before the blobs said whose they were has no owner', async () => {
+    const { app } = await tickOffline();
+    await save(app);
+    const { owner: _unknown, ...legacy } = onDevice();
+    putOnDevice(legacy);
+
+    const next = await relaunch(app);
+
+    expect(next.queryPersister.getOwner()).toBeNull();
+    expect(queue(next)).toHaveLength(1);
+  });
+
+  it('the queue of one account is not replayed under the session of another: it stays as it is, and leaves when its owner is back', async () => {
+    const { app } = await tickOffline();
+    app.queryPersister.setOwner('u-someone-else');
+    await save(app);
+
+    // Opened with a network, by 'u-1'.
+    const next = await relaunch(app);
+    await next.replayQueuedWrites();
+
+    expect(db.state.sent).toEqual([]);
+    expect(queue(next)[0].state).toMatchObject({ status: 'pending', isPaused: true });
+
+    db.state.session = { access_token: 'jwt', user: { id: 'u-someone-else' } };
+    await next.replayQueuedWrites();
+
+    expect(wire()).toEqual(['update set_logs l-1 done=true']);
+  });
+
+  it('nor is a write that is already on its way: asked again at each attempt, it waits like a write without a session', async () => {
+    const app = await launchApp();
+    app.queryPersister.setOwner('u-someone-else');
+    const mutation = enqueue(app, app.MUTATION_KEYS.toggleDone, { logId: 'l-1', done: true });
+
+    await vi.waitFor(() => expect(mutation.state.failureCount).toBe(1));
+    expect(mutation.state.status).toBe('pending');
+    expect(db.state.sent).toEqual([]);
+
+    // The account the queue belongs to signs in: the next attempt goes out.
+    db.state.session = { access_token: 'jwt', user: { id: 'u-someone-else' } };
+    await vi.waitFor(() => expect(mutation.state.status).toBe('success'), { timeout: 3000 });
+    expect(wire()).toEqual(['update set_logs l-1 done=true']);
+  });
+
+  it('a queue whose owner is not known is replayed by whoever is signed in, as before', async () => {
+    const { app } = await tickOffline();
+    await save(app);
+    expect(onDevice().owner).toBeNull();
+
+    const next = await relaunch(app);
+    await next.replayQueuedWrites();
+
+    expect(wire()).toEqual(['update set_logs l-1 done=true']);
+  });
+
+  it('the queue kept through a change of version is still its owner\'s; a blob that gives nothing back is nobody\'s', async () => {
+    const { app } = await tickOffline();
+    app.queryPersister.setOwner('u-1');
+    await save(app);
+    putOnDevice({ ...onDevice(), buster: 'sl-app-cache-v0' });
+    const withQueue = await relaunch(app);
+    expect(withQueue.queryPersister.getOwner()).toBe('u-1');
+
+    putOnDevice({ ...onDevice(), buster: 'sl-app-cache-v0', clientState: { queries: onDevice().clientState.queries, mutations: [] } });
+    const withNothing = await relaunch(withQueue);
+    expect(withNothing.queryPersister.getOwner()).toBeNull();
+  });
+});

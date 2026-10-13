@@ -351,6 +351,27 @@ async function discardDraftFn({ programId }) {
 // React Query hands its client to the mutation function, live or replayed.
 const queueClients = new WeakSet();
 
+// "A session" is not enough: it has to be the session of the account the
+// queue belongs to. The persisted cache says whose it is (lib/persistence.js),
+// and a blob left by one account can be what another account's launch
+// restores — the app was killed between a sign-out elsewhere and its own
+// clean-up. Its queued writes would then leave under the wrong name: refused
+// by the database, taken off the queue, and reported to the wrong person.
+//
+// So a client can be told how to ask for the owner of its queue
+// (`registerOfflineMutationDefaults(client, { queueOwner })`), and while that
+// answers another account than the one signed in, a write waits exactly as it
+// does without a session. It does not wait long: `ClearOnUserChange` in
+// App.jsx wipes a cache that is not the signed-in account's, and a wiped
+// write never runs (`abandoned`). An owner that is not known — null: nothing
+// was restored, or the blob predates the label — holds nothing back.
+const queueOwners = new WeakMap();
+
+function ownsQueue(client, session) {
+  const owner = queueOwners.get(client)?.() ?? null;
+  return owner === null || owner === (session.user?.id ?? null);
+}
+
 // The session as supabase-js would use it for the next request: null when
 // there is none, or when the token could not be refreshed. `getSession()`
 // waits for the client's own start-up, so it can be asked at any moment. It
@@ -496,7 +517,7 @@ function queuedWrite(name, send) {
       // When the athlete made this write — see `tapTime`.
       madeAt = mutation.state.submittedAt;
       const session = await readSession();
-      if (!session) {
+      if (!session || !ownsQueue(client, session)) {
         // 3. Kept waiting for its owner to be signed in.
         waited.add(mutation);
         throw new AuthNotReadyError();
@@ -716,10 +737,12 @@ function sendUnsyncedDrafts(queryClient) {
  * approval or send-back that happened in the meantime is observed. Client-minted
  * ids echo back, so the reconcile is flicker-free.
  *
- * Nothing happens without a session. The replay would only start each write's
- * wait (see the session gate), and the reconcile would read the drafts as an
- * anonymous request. The queue stays paused, which is the state the persister
- * keeps; `useAuth` calls this again when a session appears.
+ * Nothing happens without a session, or with the session of another account
+ * than the one the queue belongs to (`ownsQueue`). The replay would only start
+ * each write's wait (see the session gate), and the reconcile would read the
+ * drafts as an anonymous request — or as the wrong person. The queue stays
+ * paused, which is the state the persister keeps; `useAuth` calls this again
+ * when a session appears.
  *
  * The `hasUnsyncedDraft` guard is load-bearing, not defensive: a read of the
  * server while the device is ahead of it would replace the tree that holds the
@@ -741,7 +764,8 @@ function sendUnsyncedDrafts(queryClient) {
  * what `replayQueuedWrites` is for.
  */
 export async function resumeMutationsAndReconcileDrafts(queryClient) {
-  if (!(await readSession())) return;
+  const session = await readSession();
+  if (!session || !ownsQueue(queryClient, session)) return;
   sendUnsyncedDrafts(queryClient);
   await queryClient.resumePausedMutations();
   if (hasUnsyncedDraft(queryClient)) return;
@@ -869,12 +893,16 @@ function refreshAfter(name, queryClient, variables) {
  * A hook that names one of these keys inherits everything it does not set
  * itself, live as well: the retry policy below is the one a tick made in the
  * gym gets, not only a replay, and so is the refresh of `refreshAfter`.
+ *
+ * `queueOwner`, when given, answers the id of the account the client's queue
+ * belongs to, or null when that is not known — see `ownsQueue`.
  */
-export function registerOfflineMutationDefaults(queryClient) {
+export function registerOfflineMutationDefaults(queryClient, { queueOwner } = {}) {
   // From here on this client's writes wait for a session (see the gate), and
   // its queue is watched for the writes that wait (see `waited`).
   if (!queueClients.has(queryClient)) watchQueue(queryClient);
   queueClients.add(queryClient);
+  if (queueOwner) queueOwners.set(queryClient, queueOwner);
 
   for (const [name, key] of Object.entries(MUTATION_KEYS)) {
     const defaults = {

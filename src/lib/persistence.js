@@ -12,6 +12,9 @@
 //   - HOW a write is stored: as one that waits (`asWaiting`);
 //   - WHAT a stored blob gives back when it is too old or of another version:
 //     no read, and every write (`restoreClient`).
+//
+// The blob also says whose it is (`owner`), so that the app can tell the cache
+// of the account that is signed in from one left by another account.
 
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister';
 import { MUTATION_KEYS } from './offlineMutations';
@@ -121,8 +124,8 @@ function unsyncedDrafts(queries) {
  * PersistQueryClientProvider, as one object so that the persister and the
  * options that go with it cannot be given apart.
  *
- * `persister` is the library's async-storage persister behind the rules of
- * this file.
+ * `persister` is the library's async-storage persister behind the three rules
+ * of this file, plus `getOwner()` / `setOwner(userId)`.
  */
 export function createCachePersistence({
   storage,
@@ -135,15 +138,28 @@ export function createCachePersistence({
 }) {
   const store = createAsyncStoragePersister({ storage, key, throttleTime, serialize });
 
+  // The account whose reads and writes the cache holds, as far as this device
+  // knows: read off the blob at launch, then said by the app once it knows who
+  // is signed in. Null is "nobody's" or "not known" (a blob written before the
+  // blobs said).
+  let owner = null;
+  // The last state handed over for saving. Nothing changes in the cache without
+  // an event, and every event saves, so this is the cache as it is.
+  let lastSaved = null;
+
   const persister = {
     persistClient(persistedClient) {
-      return store.persistClient({
+      lastSaved = {
         ...persistedClient,
+        // Of the moment the state was taken, not of the moment it is written:
+        // the write is throttled, and the owner may change in between.
+        owner,
         clientState: {
           ...persistedClient.clientState,
           mutations: queueOf(persistedClient.clientState?.mutations),
         },
-      });
+      };
+      return store.persistClient(lastSaved);
     },
 
     /**
@@ -171,10 +187,36 @@ export function createCachePersistence({
         queries: current ? queries : unsyncedDrafts(queries),
         mutations: queueOf(state.mutations),
       };
-      return { ...found, buster, timestamp: Date.now(), clientState };
+
+      const holdsSomething = clientState.queries.length > 0 || clientState.mutations.length > 0;
+      owner = holdsSomething && typeof found.owner === 'string' ? found.owner : null;
+      return { ...found, buster, timestamp: Date.now(), owner, clientState };
     },
 
-    removeClient: () => store.removeClient(),
+    removeClient() {
+      owner = null;
+      lastSaved = null;
+      return store.removeClient();
+    },
+
+    /** The account the cache belongs to, or null — see `owner` above. */
+    getOwner: () => owner,
+
+    /**
+     * Say whose cache this is. It only labels: a cache that holds another
+     * account's data is cleared first, by whoever knows that the account
+     * changed (`ClearOnUserChange` in App.jsx).
+     */
+    setOwner(userId) {
+      const next = userId ?? null;
+      if (next === owner) return;
+      owner = next;
+      // Written now, not at the next change of the cache: the label must not
+      // depend on something else happening to be saved.
+      if (!lastSaved) return;
+      lastSaved = { ...lastSaved, owner };
+      store.persistClient(lastSaved);
+    },
   };
 
   return {

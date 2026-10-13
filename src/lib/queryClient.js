@@ -294,7 +294,11 @@ export const queryClient = new QueryClient({
   },
 });
 
-registerOfflineMutationDefaults(queryClient);
+// The queue is replayed for the account it belongs to and for no other: the
+// persisted cache knows whose it is (`owner`, lib/persistence.js).
+registerOfflineMutationDefaults(queryClient, {
+  queueOwner: () => queryPersister?.getOwner() ?? null,
+});
 
 // --- what is read again, and when ----------------------------------------------
 //

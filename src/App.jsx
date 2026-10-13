@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { HashRouter, useRoutes } from 'react-router-dom';
-import { QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider, useIsRestoring } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
@@ -18,24 +18,52 @@ function AppRoutes() {
   return useRoutes(routes);
 }
 
-// Wipe both the in-memory and IndexedDB-persisted query cache whenever the
-// signed-in user changes (logout, login, switch). Without this, a shared
-// device could briefly serve user A's persisted sessions to user B between
-// hydration and the first authenticated refetch. (A change of version of the
-// stored reads is another matter: `CACHE_BUSTER` in lib/persistence.js, which
-// drops the reads of an older blob and keeps its queued writes.)
-function ClearOnUserChange() {
+// The cache belongs to one account: what it read, and the writes it still owes
+// the database. On a shared device the next account must find neither — the
+// reads would be shown to it, the writes sent under its name. So the cache in
+// memory and the blob in IndexedDB are both wiped when the account is not the
+// one they belong to. Two things say so:
+//   - the signed-in user changed while the app was open (sign-out, sign-in,
+//     another account);
+//   - the blob restored at launch names another owner than the account that
+//     is signed in. The persister writes that name with the blob
+//     (lib/persistence.js): what happened while the app was closed left no
+//     other trace.
+// Nothing is decided while the blob is still being read: a wipe would be
+// followed by the restore it was meant to prevent. A change of user seen in
+// that moment is remembered and acted on once the restore is over. (The queue
+// does not go out in the meantime: a write is sent only under the session of
+// the account the cache belongs to — `ownsQueue` in lib/offlineMutations.js.)
+//
+// The version of the stored reads is not handled here: that is `CACHE_BUSTER`
+// in lib/persistence.js, which drops the reads of an older blob and keeps its
+// queued writes.
+export function ClearOnUserChange() {
   const { user, isLoading } = useAuth();
+  const isRestoring = useIsRestoring();
   const prevUserId = useRef(undefined);
+  const wipeDue = useRef(false);
   useEffect(() => {
     if (isLoading) return;
     const currentId = user?.id ?? null;
-    if (prevUserId.current !== undefined && prevUserId.current !== currentId) {
-      queryClient.clear();
-      queryPersister?.removeClient?.();
-    }
+    if (prevUserId.current !== undefined && prevUserId.current !== currentId) wipeDue.current = true;
     prevUserId.current = currentId;
-  }, [user, isLoading]);
+    if (isRestoring) return;
+
+    const owner = queryPersister?.getOwner() ?? null;
+    if (currentId !== null && owner !== null && owner !== currentId) wipeDue.current = true;
+    if (wipeDue.current) {
+      wipeDue.current = false;
+      queryClient.clear();
+      // Also forgets the owner: what is stored from here on is nobody's until
+      // the line below says whose.
+      queryPersister?.removeClient();
+    }
+    // Only a known account is written down. "Nobody signed in" is also what a
+    // token that could not be refreshed looks like, and the cache is still
+    // that account's.
+    if (currentId !== null) queryPersister?.setOwner(currentId);
+  }, [user, isLoading, isRestoring]);
   return null;
 }
 
