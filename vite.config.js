@@ -2,12 +2,28 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { makeBuildId, buildMetaTag } from './src/lib/buildInfo.js';
+
+// Every build writes its id into index.html, as <meta name="sl-build">. The
+// page reads it back as BUILD_ID (src/lib/buildInfo.js, which also says what
+// an id is). It is in the HTML and NOT in a bundle on purpose: a constant that
+// changes with every build, inlined into the entry chunk, would rename every
+// chunk that imports the entry, and a deploy that changed nothing would make
+// every device download the whole app again.
+function buildIdInIndexHtml() {
+  const id = makeBuildId({ env: process.env });
+  return {
+    name: 'sl-build-id',
+    transformIndexHtml: () => [buildMetaTag(id)],
+  };
+}
 
 export default defineConfig({
   base: '/sl_app/',
   plugins: [
     react(),
     tailwindcss(),
+    buildIdInIndexHtml(),
     VitePWA({
       // `injectManifest` so we can ship a custom service worker (src/sw.js)
       // that handles `push` + `notificationclick` for the rest-timer
@@ -15,7 +31,13 @@ export default defineConfig({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.js',
-      registerType: 'autoUpdate',
+      // The page registers the worker itself (src/lib/appUpdate.js, started by
+      // src/main.jsx) and decides when a new one takes over. 'prompt' is the
+      // plugin's name for "a new worker waits to be told"; `injectRegister:
+      // false` keeps the plugin from adding a registration of its own to
+      // index.html now that nothing imports `virtual:pwa-register`.
+      registerType: 'prompt',
+      injectRegister: false,
       includeAssets: [
         'favicon.svg',
         'apple-touch-icon.png',

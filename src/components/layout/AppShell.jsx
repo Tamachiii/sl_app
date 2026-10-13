@@ -5,6 +5,7 @@ import BottomNav from './BottomNav';
 import SideNav from './SideNav';
 import OfflineBanner from '../ui/OfflineBanner';
 import ToastHost from '../ui/ToastHost';
+import UpdatePrompt from '../ui/UpdatePrompt';
 import { useMessagesRealtime } from '../../hooks/useMessages';
 import { useNotificationsRealtime } from '../../hooks/useNotifications';
 import { resumeMutationsAndReconcileDrafts } from '../../lib/offlineMutations';
@@ -151,6 +152,10 @@ export default function AppShell() {
         </div>
       </main>
       <BottomNav />
+      {/* A new version of the app: applied by itself at a safe moment, offered
+          here otherwise. Before ToastHost, so a toast is drawn over the offer
+          and not under it — both sit above the bottom nav. */}
+      <UpdatePrompt />
       <ToastHost />
     </div>
   );

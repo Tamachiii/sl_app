@@ -8,6 +8,8 @@
 //                          delivered by the dispatch-rest-push Edge Function.
 //   • `notificationclick` — focus the existing student session tab if open,
 //                          otherwise open the deep link from the payload.
+//   • `install` / `activate` / `message` — a new worker waits until a page
+//                          tells it to take over (see the end of this file).
 //
 // Precaching, navigateFallback, and Google-Fonts runtime caching are kept
 // identical to the previous generateSW config so offline behavior is
@@ -18,6 +20,7 @@ import { registerRoute, NavigationRoute } from 'workbox-routing';
 import { CacheFirst, StaleWhileRevalidate } from 'workbox-strategies';
 import { ExpirationPlugin } from 'workbox-expiration';
 import { CacheableResponsePlugin } from 'workbox-cacheable-response';
+import { handleInstall, handleActivate, handleMessage } from './lib/swHandlers';
 
 cleanupOutdatedCaches();
 
@@ -164,9 +167,14 @@ self.addEventListener('pushsubscriptionchange', (event) => {
   );
 });
 
-// Lifecycle: ship updates immediately so a fresh deploy never serves
-// a stale SW + stale page bundle pair.
-self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
-});
+// Lifecycle: a new worker installs next to the one serving the app and WAITS.
+// It takes over when a page sends `{ type: 'SKIP_WAITING' }`, which the page
+// does once no write is pending, no rest timer runs and nothing is being typed
+// (src/lib/appUpdate.js + components/ui/UpdatePrompt). Do not put a bare
+// `self.skipWaiting()` back in `install`: the pages reload when the worker
+// changes, and that reload would land in the middle of a set.
+// The handlers — and the one case in which a worker still takes over by
+// itself — are in src/lib/swHandlers.js, where they are tested.
+self.addEventListener('install', (event) => handleInstall(self, event));
+self.addEventListener('activate', (event) => handleActivate(self, event));
+self.addEventListener('message', (event) => handleMessage(self, event));
