@@ -160,6 +160,44 @@ body {
     letter-spacing: 0.1em;
     text-transform: uppercase;
   }
+  /* ---- 44px: the smallest thing a thumb hits (WCAG 2.5.5, Apple HIG) ----
+     Two ways to reach it, for the two kinds of control.
+
+     A pill that is a BUTTON grows: `sl-pill sl-pill-btn`. It stands after
+     `.sl-pill` so that its padding wins over the pill's, and inside this
+     layer so that a utility beside it (`px-2`, `w-full`, `min-w-0`) still
+     wins over it. The label keeps the pill's 10px. */
+  .sl-pill-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    min-width: 44px;
+    padding-inline: 14px;
+    cursor: pointer;
+  }
+  /* A control that must stay as small as it is drawn — a 16px close icon, a
+     ⋯ in a dense row — keeps its box and gets a larger area to hit: `sl-hit`.
+     The area is a pseudo-element centred on the control, 44px at least and
+     never smaller than the control itself, so nothing around it moves. It
+     belongs to the control: a press on it is a press on the control.
+     Two things take it away: an ancestor with `overflow: hidden` closer than
+     the area's edge, and a second `sl-hit` nearer than 44px, whose area lies
+     on top of this one where they meet. */
+  .sl-hit {
+    position: relative;
+  }
+  .sl-hit::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 100%;
+    height: 100%;
+    min-width: 44px;
+    min-height: 44px;
+    transform: translate(-50%, -50%);
+  }
 }
 
 /* ---------- Dark theme ----------
