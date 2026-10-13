@@ -45,7 +45,8 @@ if (typeof window !== 'undefined') {
 // How long this device keeps what it has read. One number, because three
 // things have to agree on it:
 //   - `maxAge` of the persisted cache (`persistOptions` below): a cache that
-//     was not written for that long is thrown away as a whole;
+//     was not written for that long gives back none of its reads — the queued
+//     writes it holds are another matter, see lib/persistence.js;
 //   - `gcTime` of the persisted roots (below): how long an entry nobody
 //     observes stays in memory — and what leaves memory is written out of
 //     IndexedDB on the next save;
@@ -131,15 +132,15 @@ const queryStorage = idbStore
 // What PersistQueryClientProvider is given (App.jsx), whole: the persister,
 // and the options that only mean something together with it. Which reads are
 // stored is decided below (`shouldPersistQuery`, `serializeCache`); which
-// writes, in lib/persistence.js.
+// writes, and what a stored blob gives back at the next launch, in
+// lib/persistence.js.
 export const persistOptions = queryStorage
   ? createCachePersistence({
       storage: queryStorage,
       key: 'sl-app-rq-cache',
-      // 14d is long enough to cover a vacation without internet, short
-      // enough that stale set-log targets eventually get refreshed. The same
-      // number is the `gcTime` of the persisted roots: an entry that leaves
-      // memory earlier leaves the device with it.
+      // A cache that was not written for that long gives back no read. The
+      // same number is the `gcTime` of the persisted roots: an entry that
+      // leaves memory earlier leaves the device with it.
       maxAge: PERSIST_MAX_AGE_MS,
       throttleTime: 1000,
       serialize: serializeCache,

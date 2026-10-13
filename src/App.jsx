@@ -21,9 +21,9 @@ function AppRoutes() {
 // Wipe both the in-memory and IndexedDB-persisted query cache whenever the
 // signed-in user changes (logout, login, switch). Without this, a shared
 // device could briefly serve user A's persisted sessions to user B between
-// hydration and the first authenticated refetch. The `buster` key in
-// PersistQueryClientProvider invalidates the blob cross-version; this effect
-// handles intra-version user swaps.
+// hydration and the first authenticated refetch. (A change of version of the
+// stored reads is another matter: `CACHE_BUSTER` in lib/persistence.js, which
+// drops the reads of an older blob and keeps its queued writes.)
 function ClearOnUserChange() {
   const { user, isLoading } = useAuth();
   const prevUserId = useRef(undefined);

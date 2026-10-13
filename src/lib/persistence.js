@@ -6,15 +6,26 @@
 // module is where they stop being alike: a read can always be made again, a
 // queued write is the only copy of what the athlete did.
 //
-// Two rules follow, each in one place below:
+// Three rules follow, each in one place below:
 //   - WHICH writes are stored: the ones of the queue, all of them that have
 //     not settled, and nothing else (`isQueuedWrite`);
-//   - HOW a write is stored, and taken back: as one that waits (`asWaiting`).
+//   - HOW a write is stored: as one that waits (`asWaiting`);
+//   - WHAT a stored blob gives back when it is too old or of another version:
+//     no read, and every write (`restoreClient`).
 
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister';
 import { MUTATION_KEYS } from './offlineMutations';
+import { isUnsyncedDraft } from './draftTree';
 
-// The version of the stored blob: one written under another value is not read.
+// The version of what is stored of the READS. A blob written under another
+// value gives back no read: change it when the shape of a persisted query
+// changes in a way the pages cannot read (docs/INVARIANTS.md has the rule).
+//
+// It is not the version of the queue. A queued write goes through a change of
+// this value untouched, and is then replayed by the function registered under
+// its key — so a write whose VARIABLES change shape gets a new key in
+// `MUTATION_KEYS`, and the old key stays registered, with its old function, for
+// as long as a device may still hold a write made under it.
 export const CACHE_BUSTER = 'sl-app-cache-v1';
 
 const QUEUE_KEYS = Object.values(MUTATION_KEYS);
@@ -94,6 +105,17 @@ function queueOf(mutations) {
   return Array.isArray(mutations) ? mutations.filter(isStoredWrite).map(asWaiting) : [];
 }
 
+// The reads no request can make again: a draft that is ahead of the server
+// (lib/draftTree.js) and the pointer to it. They are kept wherever the queue
+// is — a save that failed for good leaves no queued write behind, only the
+// marked tree, which is sent again at the next launch.
+function unsyncedDrafts(queries) {
+  const trees = queries.filter((query) => query?.queryKey?.[0] === 'draft-tree' && isUnsyncedDraft(query.state?.data));
+  const ids = new Set(trees.map((query) => query.queryKey[1]));
+  const pointers = queries.filter((query) => query?.queryKey?.[0] === 'my-draft' && ids.has(query.state?.data?.id));
+  return [...pointers, ...trees];
+}
+
 /**
  * The persisted cache of the app: the `persistOptions` of
  * PersistQueryClientProvider, as one object so that the persister and the
@@ -124,16 +146,32 @@ export function createCachePersistence({
       });
     },
 
-    // Only the writes of the queue come back, whatever the blob holds: one
-    // written by a build that stored every paused mutation would hand back
-    // the ones that have no function to run.
+    /**
+     * What the stored blob gives back. The library would throw the WHOLE blob
+     * away when it is older than `maxAge` or was written under another
+     * `buster` — the queue with it: the one documented way to handle a change
+     * of shape deleted the unsynced workout of every device it reached, and so
+     * did two weeks without opening the app.
+     *
+     * So both tests are made here, on the reads alone, and what is handed to
+     * the library always passes its own: a blob that is too old or of another
+     * version gives back no read, and every write it holds. So does one
+     * written by a build that stored more than the queue (a paused mutation
+     * without a key): only the writes of the queue come back.
+     */
     async restoreClient() {
       const found = await store.restoreClient();
       if (!found || typeof found !== 'object') return undefined;
-      return {
-        ...found,
-        clientState: { ...found.clientState, mutations: queueOf(found.clientState?.mutations) },
+
+      const state = found.clientState ?? {};
+      const queries = Array.isArray(state.queries) ? state.queries : [];
+      // No timestamp is "too old": the comparison with NaN is false.
+      const current = found.buster === buster && Date.now() - found.timestamp <= maxAge;
+      const clientState = {
+        queries: current ? queries : unsyncedDrafts(queries),
+        mutations: queueOf(state.mutations),
       };
+      return { ...found, buster, timestamp: Date.now(), clientState };
     },
 
     removeClient: () => store.removeClient(),

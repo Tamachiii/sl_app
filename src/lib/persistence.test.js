@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import {
   MutationObserver,
+  QueryClient,
   QueryClientProvider,
   focusManager,
   onlineManager,
@@ -113,6 +114,8 @@ const wire = () =>
   });
 
 const SESSION = { access_token: 'jwt', user: { id: 'u-1' } };
+const MINUTE = 60_000;
+const DAY = 24 * 60 * MINUTE;
 
 function deviceIs(online) {
   Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => online });
@@ -177,6 +180,7 @@ async function relaunch(app, { online = true } = {}) {
 }
 
 const queue = (app) => app.queryClient.getMutationCache().getAll();
+const turn = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 // A write as a hook makes it, for the keys that have no hook to themselves here.
 function enqueue(app, mutationKey, variables) {
@@ -433,5 +437,176 @@ describe('a write that is not paused when the app is killed', () => {
     await next.replayQueuedWrites();
 
     expect(wire()).toEqual(['update set_logs l-1 done=true', 'update set_logs l-1 done=false']);
+  });
+});
+
+// --- P66: a blob of another version, or too old ------------------------------------
+
+describe('a blob the reads of which are no longer wanted', () => {
+  // The device after a workout without signal: what was read, and what is owed.
+  async function workoutOnDevice() {
+    const { app } = await tickOffline();
+    app.queryClient.setQueryData(['session', 's-1'], { id: 's-1', title: 'Legs' });
+    await save(app);
+    expect(onDevice().clientState.queries.map((query) => query.queryKey[0]).sort()).toEqual(['session', 'set-logs']);
+    return app;
+  }
+
+  it('a change of CACHE_BUSTER drops what was read and keeps what is owed', async () => {
+    const app = await workoutOnDevice();
+    // The blob as an older build left it.
+    putOnDevice({ ...onDevice(), buster: 'sl-app-cache-v0' });
+
+    const next = await relaunch(app);
+
+    expect(next.queryClient.getQueryCache().getAll()).toEqual([]);
+    expect(queue(next).map((m) => m.state.variables)).toEqual([expect.objectContaining({ logId: 'l-1', done: true })]);
+    await next.replayQueuedWrites();
+    expect(wire()).toEqual(['update set_logs l-1 done=true']);
+    // And the blob is not thrown away behind the app's back either.
+    expect(device.store.has(BLOB)).toBe(true);
+  });
+
+  it('the same, said with two builds: one writes under a buster, the next one reads under another', async () => {
+    const { createCachePersistence } = await launchApp();
+    const { registerOfflineMutationDefaults, MUTATION_KEYS } = await import('./offlineMutations');
+    const storage = {
+      getItem: async (key) => device.store.get(key),
+      setItem: async (key, value) => void device.store.set(key, value),
+      removeItem: async (key) => void device.store.delete(key),
+    };
+    const build = (buster) => {
+      const queryClient = new QueryClient();
+      registerOfflineMutationDefaults(queryClient);
+      const persistOptions = createCachePersistence({
+        storage,
+        key: BLOB,
+        maxAge: 14 * DAY,
+        buster,
+        shouldPersistQuery: () => true,
+      });
+      return { queryClient, persistOptions };
+    };
+
+    onlineManager.setOnline(false);
+    const before = build('v1');
+    before.queryClient.setQueryData(['session', 's-1'], { id: 's-1' });
+    before.queryClient
+      .getMutationCache()
+      .build(before.queryClient, { mutationKey: MUTATION_KEYS.confirmSession })
+      .execute({ sessionId: 's-1', studentId: 'u-1', notes: null, performedOn: '2026-10-13' })
+      .catch(() => {});
+    await turn();
+    await save(before);
+    expect(onDevice()).toMatchObject({ buster: 'v1' });
+
+    const same = build('v1');
+    await restore(same);
+    expect(same.queryClient.getQueryData(['session', 's-1'])).toEqual({ id: 's-1' });
+    expect(same.queryClient.getMutationCache().getAll()).toHaveLength(1);
+
+    const bumped = build('v2');
+    await restore(bumped);
+    expect(bumped.queryClient.getQueryData(['session', 's-1'])).toBeUndefined();
+    expect(bumped.queryClient.getMutationCache().getAll().map((m) => m.state.variables.sessionId)).toEqual(['s-1']);
+    before.queryClient.clear();
+    same.queryClient.clear();
+    bumped.queryClient.clear();
+  });
+
+  it('two weeks without opening the app: the reads are gone, the workout is still sent', async () => {
+    const app = await workoutOnDevice();
+    putOnDevice({ ...onDevice(), timestamp: Date.now() - app.PERSIST_MAX_AGE_MS - MINUTE });
+
+    const next = await relaunch(app);
+
+    expect(next.queryClient.getQueryCache().getAll()).toEqual([]);
+    await next.replayQueuedWrites();
+    expect(wire()).toEqual(['update set_logs l-1 done=true']);
+  });
+
+  it('a blob one minute younger than that gives everything back', async () => {
+    const app = await workoutOnDevice();
+    putOnDevice({ ...onDevice(), timestamp: Date.now() - app.PERSIST_MAX_AGE_MS + MINUTE });
+
+    const next = await relaunch(app);
+
+    expect(next.queryClient.getQueryData(['session', 's-1'])).toEqual({ id: 's-1', title: 'Legs' });
+    expect(queue(next)).toHaveLength(1);
+  });
+
+  it('a blob without a date is too old', async () => {
+    const app = await workoutOnDevice();
+    const { timestamp: _none, ...undated } = onDevice();
+    putOnDevice(undated);
+
+    const next = await relaunch(app);
+
+    expect(next.queryClient.getQueryCache().getAll()).toEqual([]);
+    expect(queue(next)).toHaveLength(1);
+  });
+
+  it('a draft that is ahead of the server goes through with the queue, and the pointer to it: it is the only copy', async () => {
+    const app = await launchApp();
+    const ahead = { id: 'p-1', name: 'My block', weeks: [], unsynced: { rev: 7 } };
+    const inSync = { id: 'p-2', name: 'Sent back', weeks: [] };
+    app.queryClient.setQueryData(['draft-tree', 'p-1'], ahead);
+    app.queryClient.setQueryData(['my-draft', 'u-1'], { id: 'p-1', name: 'My block' });
+    app.queryClient.setQueryData(['draft-tree', 'p-2'], inSync);
+    app.queryClient.setQueryData(['session', 's-1'], { id: 's-1' });
+    await save(app);
+    putOnDevice({ ...onDevice(), buster: 'sl-app-cache-v0' });
+
+    const next = await relaunch(app, { online: false });
+
+    expect(next.queryClient.getQueryCache().getAll().map((query) => query.queryKey).sort()).toEqual([
+      ['draft-tree', 'p-1'],
+      ['my-draft', 'u-1'],
+    ]);
+    expect(next.queryClient.getQueryData(['draft-tree', 'p-1'])).toEqual(ahead);
+    expect(next.hasUnsyncedDraft(next.queryClient)).toBe(true);
+  });
+
+  it('what is on the device is not a blob at all: the app starts empty, and says nothing', async () => {
+    const app = await launchApp();
+    device.store.set(BLOB, 'null');
+    await restore(app);
+    device.store.set(BLOB, '42');
+    await restore(app);
+    device.store.set(BLOB, JSON.stringify({ buster: app.CACHE_BUSTER, timestamp: Date.now(), clientState: 'x' }));
+    await restore(app);
+
+    expect(queue(app)).toEqual([]);
+    expect(app.queryClient.getQueryCache().getAll()).toEqual([]);
+  });
+
+  it('the keys a device may hold a write under are the registered ones — a key that is retired takes the writes made under it along', async () => {
+    const { MUTATION_KEYS, isQueueKey } = await launchApp();
+
+    // The queue goes through every change of CACHE_BUSTER, so a write made
+    // under one of these keys by ANY earlier build is replayed by the function
+    // registered under it today. A key that leaves this list is a workout
+    // thrown away at the next launch of a phone that still holds one. So:
+    // never remove or rename a key; a write whose variables change shape gets
+    // a NEW key next to the old one, and the old function stays.
+    expect(Object.values(MUTATION_KEYS).map((key) => key.join(' / ')).sort()).toEqual([
+      'draft-tree / discard',
+      'draft-tree / save',
+      'session-confirmation / confirm',
+      'session-confirmation / unconfirm',
+      'set-log / log-actual',
+      'set-log / set-failed',
+      'set-log / set-rpe',
+      'set-log / set-skipped',
+      'set-log / toggle-done',
+      'slot-comment / save',
+      'slot-deviation / save',
+    ]);
+    // Exactly those: a longer or a shorter key is another mutation.
+    expect(isQueueKey(['set-log', 'toggle-done'])).toBe(true);
+    expect(isQueueKey(['set-log'])).toBe(false);
+    expect(isQueueKey(['set-log', 'toggle-done', 'l-1'])).toBe(false);
+    expect(isQueueKey('set-log')).toBe(false);
+    expect(isQueueKey(undefined)).toBe(false);
   });
 });

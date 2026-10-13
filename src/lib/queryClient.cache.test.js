@@ -158,8 +158,9 @@ describe('what the device read is still there at the gym', () => {
     for (const root of PERSISTED_QUERY_ROOTS) {
       expect(queryClient.getQueryDefaults([root, 'any']).gcTime, root).toBe(PERSIST_MAX_AGE_MS);
     }
-    // The age at which the provider throws the whole cache away is that
-    // number: it is what the persisted cache is built with.
+    // The age at which a stored cache gives back none of its reads is that
+    // number: it is what the persisted cache is built with (the two sides of
+    // that age are in persistence.test.js, on a browser that has a store).
     const client = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'queryClient.js'), 'utf8');
     expect(client).toMatch(/maxAge: PERSIST_MAX_AGE_MS,/);
   });
