@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import { appUpdater } from './lib/appUpdate';
 import { chunkRecovery } from './lib/chunkRecovery';
+import { restNotifications } from './lib/restNotifications';
 import './index.css';
 
 // The service worker is registered here, by hand, and not through
@@ -22,6 +23,11 @@ if (import.meta.env.PROD) {
   // before someone listens. Production builds only — a dev server has every
   // file, and the event this listens for is dispatched by built code alone.
   chunkRecovery.install();
+  // A "Rest done" that is still on the lock screen when the app is opened or
+  // comes back to the front is closed (lib/restNotifications): the worker that
+  // showed it hears of a tap, not of the app being opened from its icon.
+  // Production builds only — in dev no worker shows a notification.
+  restNotifications.install();
 }
 
 createRoot(document.getElementById('root')).render(

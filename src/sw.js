@@ -4,12 +4,19 @@
 // (see vite.config.js: strategies: 'injectManifest', srcDir: 'src'). The
 // generated SW only knew how to precache the app shell; this one adds:
 //
-//   • `push`             — render the rest-timer "Rest done" notification
-//                          delivered by the dispatch-rest-push Edge Function.
-//   • `notificationclick` — focus the existing student session tab if open,
-//                          otherwise open the deep link from the payload.
+//   • `push`             — show the notification of a push: "Rest done" from
+//                          the dispatch-rest-push Edge Function, and the
+//                          events send-push fans out (feedback, chat, …).
+//   • `notificationclick` — bring the app to the front on the page the payload
+//                          names, without moving a window that is there already.
+//   • `pushsubscriptionchange` — subscribe again when the push service retires
+//                          the subscription.
 //   • `install` / `activate` / `message` — a new worker waits until a page
-//                          tells it to take over (see the end of this file).
+//                          tells it to take over.
+//
+// What the worker does on `push`, `notificationclick`, `install`, `activate`
+// and `message` is in src/lib/swHandlers.js, where it is tested; this file
+// only wires those handlers to the events.
 //
 // Precaching, navigateFallback, and Google-Fonts runtime caching are kept
 // identical to the previous generateSW config so offline behavior is
@@ -20,7 +27,13 @@ import { registerRoute, NavigationRoute } from 'workbox-routing';
 import { CacheFirst, StaleWhileRevalidate } from 'workbox-strategies';
 import { ExpirationPlugin } from 'workbox-expiration';
 import { CacheableResponsePlugin } from 'workbox-cacheable-response';
-import { handleInstall, handleActivate, handleMessage } from './lib/swHandlers';
+import {
+  handleInstall,
+  handleActivate,
+  handleMessage,
+  handlePush,
+  handleNotificationClick,
+} from './lib/swHandlers';
 
 cleanupOutdatedCaches();
 
@@ -60,17 +73,6 @@ registerRoute(
   }),
 );
 
-// ============================================================
-// Push notifications (Web Push protocol). Payloads are JSON of the
-// shape produced by the dispatch-rest-push Edge Function:
-//
-//   { title, body, tag?, data?: { url? } }
-//
-// `tag` is used so a second push for the same logical event (e.g. a
-// stale notification still showing when a new rest starts) replaces the
-// first one instead of stacking.
-// ============================================================
-
 // VAPID public key, injected at build time (see deploy.yml passing
 // VITE_VAPID_PUBLIC_KEY into the build). Needed so the SW can re-subscribe
 // itself when the push service rotates the endpoint (pushsubscriptionchange).
@@ -85,63 +87,13 @@ function urlBase64ToUint8Array(base64String) {
   return out;
 }
 
-self.addEventListener('push', (event) => {
-  let data = {};
-  if (event.data) {
-    try {
-      data = event.data.json();
-    } catch {
-      data = { title: 'SL Coach', body: event.data.text() };
-    }
-  }
-  const title = data.title || 'SL Coach';
-  const options = {
-    body: data.body || '',
-    icon: '/sl_app/icon-192.png',
-    badge: '/sl_app/icon-192.png',
-    tag: data.tag || 'sl-coach',
-    data: data.data || {},
-    // Vibrate pattern as a backup for browsers that honor it from SW.
-    vibrate: [200, 100, 200],
-    renotify: true,
-  };
-  event.waitUntil(self.registration.showNotification(title, options));
-});
-
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  // HashRouter URLs include /#/...; the deep link in the payload comes
-  // from the Edge Function fully qualified (e.g. /sl_app/#/student/session/<id>).
-  const target = (event.notification.data && event.notification.data.url) || '/sl_app/';
-  event.waitUntil(
-    (async () => {
-      const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      // If the app is already open in some window, focus it and try to
-      // navigate. A hash-only change doesn't count as a navigation, so an
-      // already-open tab may stay on the page it was on — focus is the part
-      // that's guaranteed.
-      for (const client of allClients) {
-        try {
-          await client.focus();
-          if ('navigate' in client && client.url !== target) {
-            try {
-              await client.navigate(target);
-            } catch {
-              // Cross-origin navigate may throw; the focus above is enough.
-            }
-          }
-          return;
-        } catch {
-          // Try the next one.
-        }
-      }
-      // No window was open — pop one.
-      if (self.clients.openWindow) {
-        await self.clients.openWindow(target);
-      }
-    })(),
-  );
-});
+// A push that arrives and a notification that is tapped: src/lib/swHandlers.js
+// ("Notifications"). The rule the first of these two lines must keep: EVERY
+// PUSH SHOWS A NOTIFICATION. Do not put a condition in front of `handlePush`,
+// and do not make it return early for an app that is open — a push that shows
+// nothing costs the device its subscription.
+self.addEventListener('push', (event) => handlePush(self, event));
+self.addEventListener('notificationclick', (event) => handleNotificationClick(self, event));
 
 // Endpoint rotation self-heal: the push service can retire a subscription and
 // fire this event asking us to re-subscribe. Re-subscribe with the same VAPID

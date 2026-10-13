@@ -7,6 +7,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 vi.mock('./App', () => ({ default: () => null }));
 vi.mock('./lib/appUpdate', () => ({ appUpdater: { start: vi.fn() } }));
 vi.mock('./lib/chunkRecovery', () => ({ chunkRecovery: { install: vi.fn() } }));
+vi.mock('./lib/restNotifications', () => ({ restNotifications: { install: vi.fn() } }));
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
@@ -66,6 +67,26 @@ describe('src/main.jsx — who listens for a file that did not load', () => {
     await boot();
     const { chunkRecovery } = await import('./lib/chunkRecovery');
     expect(chunkRecovery.install).not.toHaveBeenCalled();
+  });
+});
+
+// What the watcher closes, and when, is lib/restNotifications.test.js; what is
+// held here is that the app has one, and only where a worker shows
+// notifications.
+describe('src/main.jsx — who closes a "Rest done" that is over when the app is opened', () => {
+  it('installs the watcher once, on the document and the window, in a production build', async () => {
+    vi.stubEnv('PROD', true);
+    await boot();
+    const { restNotifications } = await import('./lib/restNotifications');
+    expect(restNotifications.install).toHaveBeenCalledTimes(1);
+    expect(restNotifications.install).toHaveBeenCalledWith(); // its default targets
+  });
+
+  it('installs nothing in dev, where there is no worker', async () => {
+    vi.stubEnv('PROD', false);
+    await boot();
+    const { restNotifications } = await import('./lib/restNotifications');
+    expect(restNotifications.install).not.toHaveBeenCalled();
   });
 });
 

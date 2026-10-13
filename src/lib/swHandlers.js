@@ -1,11 +1,16 @@
-// What the service worker does at the steps of its own life — install,
-// activate, a message from a page — written as functions of the worker's scope
-// so that vitest can run them. src/sw.js only wires them to the events.
+// What the service worker does when something happens to it — the steps of its
+// own life (install, activate, a message from a page), a push that arrives, a
+// notification that is tapped — written as functions of the worker's scope so
+// that vitest can run them. src/sw.js only wires them to the events.
 //
-// The rule they hold: A NEW WORKER TAKES OVER WHEN A PAGE ASKS FOR IT. It
-// installs next to the one that is serving the app, waits, and is activated by
-// the message below, which a page sends once nothing would be lost by the
-// reload that follows (src/lib/appUpdate.js, components/ui/UpdatePrompt).
+// The first half is the update flow. The rule it holds: A NEW WORKER TAKES OVER
+// WHEN A PAGE ASKS FOR IT. It installs next to the one that is serving the app,
+// waits, and is activated by the message below, which a page sends once nothing
+// would be lost by the reload that follows (src/lib/appUpdate.js,
+// components/ui/UpdatePrompt).
+//
+// The second half is the notifications. The rule it holds: EVERY PUSH SHOWS A
+// NOTIFICATION — see "Notifications" below.
 
 /** The message a page sends to the waiting worker. */
 export const SKIP_WAITING = 'SKIP_WAITING';
@@ -76,4 +81,270 @@ export function handleMessage(scope, event) {
   if (!event.data || event.data.type !== SKIP_WAITING) return;
   const done = scope.skipWaiting();
   if (typeof event.waitUntil === 'function') event.waitUntil(done);
+}
+
+// ============================================================
+// Notifications: a push that arrives, a notification that is tapped.
+//
+// A payload is what the server sends, forwarded as it is by the Edge Functions
+// (send-push, dispatch-rest-push):
+//
+//   { title, body, tag?, data?: { url? } }
+//
+// `tag` makes a second push for the same thing replace the first instead of
+// stacking. `data.url` is where a tap leads: a path of the app, with the route
+// in the hash ("/sl_app/#/student/session/<id>").
+//
+// EVERY PUSH SHOWS A NOTIFICATION. A push whose handler shows nothing is a
+// silent push, which a subscription made with `userVisibleOnly` does not allow:
+// WebKit counts them and takes the subscription away, and the device then gets
+// no notification at all until its owner turns them on again. So nothing below
+// returns before `showNotification`, nothing is awaited before it without a
+// bound, and the one notification nobody wants — "Rest done" while the athlete
+// is looking at the countdown, which beeps by itself — is shown quietly and
+// taken away a few seconds later. It is never skipped.
+// ============================================================
+
+/** The tag of the "Rest done" push (hooks/useRestTimerPush writes it into the payload). */
+export const REST_TIMER_TAG = 'rest-timer';
+
+/** How long a "Rest done" shown while the app is in front stays before the worker closes it. */
+export const FOCUSED_REST_CLOSE_MS = 4000;
+
+/**
+ * How long the worker waits to learn whether the app is in front. Without an
+ * answer by then the push is shown the usual way: late is better than never.
+ */
+export const IN_FRONT_ANSWER_MS = 1000;
+
+const APP_NAME = 'SL Coach';
+const DEFAULT_TAG = 'sl-coach';
+const ICON = '/sl_app/icon-192.png';
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// `promise`, or `fallback` when it has not answered after `ms`.
+function within(ms, promise, fallback) {
+  let timer;
+  const late = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms);
+  });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * What a push carries, as an object: its JSON, or its text as the body. Never
+ * throws — a payload that cannot be read is still a push that must be shown.
+ */
+export function readPushPayload(message) {
+  if (!message) return {};
+  try {
+    const payload = message.json();
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) return payload;
+    return { body: payload == null ? '' : String(payload) };
+  } catch {
+    // Not JSON: the text is the body.
+  }
+  try {
+    return { body: message.text() };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The notification of a payload: `{ title, options }` for `showNotification`.
+ * `quiet` is the same notification without sound or vibration. `silent` and
+ * `vibrate` cannot go together — `showNotification` throws a TypeError, and a
+ * push that throws has shown nothing — so the quiet one has no `vibrate` key
+ * at all.
+ */
+export function notificationFor(payload, { quiet = false } = {}) {
+  const options = {
+    body: payload.body || '',
+    icon: ICON,
+    badge: ICON,
+    // Never empty: `renotify` without a tag is a TypeError too.
+    tag: payload.tag || DEFAULT_TAG,
+    data: payload.data || {},
+  };
+  if (quiet) {
+    options.silent = true;
+    options.renotify = false;
+  } else {
+    // A backup for the browsers that honour it from a worker.
+    options.vibrate = [200, 100, 200];
+    options.renotify = true;
+  }
+  return { title: payload.title || APP_NAME, options };
+}
+
+// The open windows of THIS app. `includeUncontrolled` is needed for a window
+// that was opened before a worker controlled it, and lists every window of the
+// origin with it — an origin (<account>.github.io) the app shares with whatever
+// else its owner publishes there. The scope of the registration tells them apart.
+async function appWindows(scope) {
+  const all = await scope.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  const base = scope.registration.scope;
+  return all.filter((client) => typeof client.url === 'string' && client.url.startsWith(base));
+}
+
+/** Is a window of the app in front of its user right now? "Cannot tell" counts as no. */
+export async function appIsInFront(scope) {
+  try {
+    const windows = await appWindows(scope);
+    return windows.some((client) => client.focused === true && client.visibilityState !== 'hidden');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Close the notifications of the app that carry `tag`. For the worker and for
+ * a page alike: both hold a registration (lib/restNotifications is the page).
+ * Never throws; answers how many it closed.
+ */
+export async function closeNotifications(registration, tag) {
+  try {
+    const shown = await registration.getNotifications({ tag });
+    shown.forEach((notification) => notification.close());
+    return shown.length;
+  } catch {
+    return 0;
+  }
+}
+
+async function showPush(scope, message) {
+  const payload = readPushPayload(message);
+  const loud = notificationFor(payload);
+
+  // Only "Rest done" asks the question; every other push is shown at once.
+  // The page that runs the rest is the one that beeps at its end
+  // (hooks/useRestTimerEffects) and the one that takes the push back when it is
+  // left (hooks/useRestTimerPush), so the app in front means the athlete has
+  // the cue already.
+  const quietly =
+    payload.tag === REST_TIMER_TAG && (await within(IN_FRONT_ANSWER_MS, appIsInFront(scope), false));
+  if (!quietly) {
+    await scope.registration.showNotification(loud.title, loud.options);
+    return;
+  }
+
+  const quiet = notificationFor(payload, { quiet: true });
+  try {
+    await scope.registration.showNotification(quiet.title, quiet.options);
+  } catch {
+    // A browser that refuses the quiet form still owes this push a notification.
+    await scope.registration.showNotification(loud.title, loud.options);
+    return;
+  }
+  // `silent` is a request a browser may ignore; taking the notification away
+  // is the part that does not depend on it. One tag, one notification: what is
+  // closed is the one shown above.
+  await wait(FOCUSED_REST_CLOSE_MS);
+  await closeNotifications(scope.registration, REST_TIMER_TAG);
+}
+
+/**
+ * `push`: show it. Always — quietly, and then closed, for a "Rest done" that
+ * arrives while the app is in front.
+ */
+export function handlePush(scope, event) {
+  event.waitUntil(showPush(scope, event.data));
+}
+
+// The router keeps the route in the hash. "#/student/" and "#/student" are one
+// route, and so are "#/", "#" and no hash at all.
+const routeOf = (url) => url.hash.replace(/^#/, '').replace(/\/+$/, '');
+
+/**
+ * Do two addresses show the same page of the app? `clientUrl` is what a window
+ * reports — absolute — and `target` what a payload carries — a path. Both are
+ * read against `base`, the scope of the registration: compared as text they
+ * never match, and every tap would move the window it finds.
+ */
+export function isSameRoute(clientUrl, target, base) {
+  try {
+    const a = new URL(clientUrl, base);
+    const b = new URL(target, base);
+    return a.origin === b.origin && a.pathname === b.pathname && routeOf(a) === routeOf(b);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Where a tap on `notification` leads, as an absolute address of the app — or
+ * null when its payload names none (no `data.url`, one that cannot be read, an
+ * address outside the app).
+ */
+export function targetOf(notification, base) {
+  const url = notification && notification.data && notification.data.url;
+  if (typeof url !== 'string' || url === '') return null;
+  try {
+    const target = new URL(url, base).href;
+    return target.startsWith(base) ? target : null;
+  } catch {
+    return null;
+  }
+}
+
+async function bringAppToFront(scope, target) {
+  const base = scope.registration.scope;
+  const isThere = (client) => target !== null && isSameRoute(client.url, target, base);
+
+  let windows = [];
+  try {
+    windows = await appWindows(scope);
+  } catch {
+    // As if none were open.
+  }
+
+  // A window that already shows the page comes first: it needs the focus and
+  // nothing else. Sending it to the address it is at would load the page again
+  // under its user — for a "Rest done", the session in progress.
+  const inOrder = [...windows.filter(isThere), ...windows.filter((client) => !isThere(client))];
+  for (const client of inOrder) {
+    try {
+      await client.focus();
+    } catch {
+      continue; // This one cannot be focused: the next.
+    }
+    if (target !== null && !isThere(client) && typeof client.navigate === 'function') {
+      try {
+        await client.navigate(target);
+      } catch {
+        // The focus is the part that is guaranteed.
+      }
+    }
+    return;
+  }
+
+  if (typeof scope.clients.openWindow !== 'function') return;
+  try {
+    await scope.clients.openWindow(target ?? base);
+  } catch {
+    // Nothing more a worker can do.
+  }
+}
+
+/**
+ * `notificationclick`: the app comes to the front, on the page the payload
+ * names. A window that is on that page already is focused and left as it is,
+ * another one is focused and sent there, and a window is opened when there is
+ * none. A payload without an address focuses a window and moves nothing.
+ */
+export function handleNotificationClick(scope, event) {
+  const { notification } = event;
+  notification.close();
+  event.waitUntil(
+    Promise.all([
+      // Started first: a worker may focus or open a window only for a short
+      // while after the tap, and nothing that is not needed is awaited before.
+      bringAppToFront(scope, targetOf(notification, scope.registration.scope)),
+      // The app is being opened: a "Rest done" left on the lock screen has
+      // nothing more to say, whichever notification was tapped.
+      closeNotifications(scope.registration, REST_TIMER_TAG),
+    ]),
+  );
 }
