@@ -130,10 +130,15 @@ describe('what a deploy uploads', () => {
     }
   });
 
-  it('takes the gate along with send-push, and no test file', () => {
+  // In the order the CLI finds them: the two modules index.ts names, then
+  // the one push.js names. A module of _shared that is missing from the list
+  // is a function that does not start.
+  it('takes the gate, the fan-out and the list of push services along with send-push, and no test file', () => {
     expect(upload('supabase/functions/send-push/index.ts').files).toEqual([
       'supabase/functions/send-push/index.ts',
       'supabase/functions/_shared/auth.js',
+      'supabase/functions/_shared/push.js',
+      'supabase/functions/_shared/pushHosts.js',
     ]);
     const all = functions.flatMap((name) => upload(`supabase/functions/${name}/index.ts`).files);
     expect(all.filter((file) => /\.test\.|\/_test\//.test(file))).toEqual([]);

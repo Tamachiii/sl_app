@@ -97,14 +97,22 @@ export async function loadFunction(name, { env = {}, modules = {} } = {}) {
 }
 
 /**
- * The part of a supabase-js client the functions use on `push_subscriptions`,
- * over an array: `select().eq()`, `update().eq()`, `delete().eq()`.
+ * The part of a supabase-js client the functions use, over arrays:
+ * `from(table).select().eq()`, `.update().eq()`, `.delete().eq()` — and
+ * `rpc(name, args)`, answered by the function of that name in `rpc`.
  *
- *   const admin = fakeAdmin({ push_subscriptions: [row, …] });
- *   admin.calls   → [{ table, op, column, value, values? }]   in order
+ *   const admin = fakeAdmin({ push_subscriptions: [row, …] }, {
+ *     rpc: { claim_rest_push: ({ p_id }) => ({ data: { id: p_id, … } }) },
+ *   });
+ *   admin.calls   → in order: [{ table, op, column, value, values? }] for a
+ *                   table, [{ rpc, args }] for a function
  *   admin.error   → set it to make every read fail with that message
+ *
+ * An update changes the rows it names, a delete removes them: a test reads
+ * the arrays it gave. A function `rpc` does not have is answered the way
+ * PostgREST answers one the database does not have.
  */
-export function fakeAdmin(tables = {}) {
+export function fakeAdmin(tables = {}, { rpc = {} } = {}) {
   const calls = [];
   const admin = {
     calls,
@@ -118,6 +126,9 @@ export function fakeAdmin(tables = {}) {
             ? { data: null, error: { message: admin.error } }
             : { data: rows().filter((row) => row[column] === value), error: null });
         }
+        if (op === 'update') {
+          for (const row of rows()) if (row[column] === value) Object.assign(row, extra.values);
+        }
         if (op === 'delete') tables[table] = rows().filter((row) => row[column] !== value);
         return Promise.resolve({ data: null, error: null });
       };
@@ -126,6 +137,13 @@ export function fakeAdmin(tables = {}) {
         update: (values) => ({ eq: record('update', { values }) }),
         delete: () => ({ eq: record('delete') }),
       };
+    },
+    async rpc(name, args) {
+      calls.push({ rpc: name, args });
+      if (typeof rpc[name] !== 'function') {
+        return { data: null, error: { code: 'PGRST202', message: `Could not find the function public.${name} in the schema cache` } };
+      }
+      return { data: null, error: null, ...(await rpc[name](args)) };
     },
   };
   return admin;

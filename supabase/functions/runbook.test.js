@@ -4,6 +4,7 @@ import { execFile, execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { admitInternalRequest } from './_shared/auth.js';
 import {
   REPO_ROOT, fakeAdmin, functionNames, functionTables, listen, loadFunction, readRepoFile as read,
 } from './_test/harness.js';
@@ -17,6 +18,8 @@ import {
 //   - the check it gives for after a deploy, read off the page and run
 //     against send-push/index.ts itself, behind a real port — and against
 //     what the page says a wrong deploy looks like;
+//   - the lines of the function's log it quotes, which send-push/index.ts
+//     must write to the character;
 //   - the way back it gives, to the version before.
 //
 // The SQL statements of the page (the vault) are run by
@@ -131,6 +134,18 @@ describe(`${PAGE}: going back`, () => {
     expect(commands.filter((command) => /^git /.test(command))).toHaveLength(2);
   });
 
+  // The version this goes back to sends a rest push the moment it is handed
+  // one — ten seconds early, to every device. The job that hands them over
+  // has to be off first, and so has to be there before the deploy.
+  it('says not to go back while the job that hands over the rest pushes runs, and not to start that job before the deploy', () => {
+    const undo = page.slice(page.indexOf('\n## Undo\n'));
+    expect(undo).toContain('**Not while the job `sl-rest-push` is switched on.**');
+    expect(undo.indexOf('Switch the job off first')).toBeGreaterThan(-1);
+    const when = page.slice(page.indexOf('\n## When\n'), page.indexOf('\n## 1. Deploy\n'));
+    expect(when).toContain('**migrations 15 and 16, then this deploy, then, if you choose pg_cron, migration 19.**');
+    expect(when).toContain('**Never migration 19 before this deploy.**');
+  });
+
   // The way back is needed on the day a deploy went wrong, possibly months
   // from now. A commit of a branch that is not published yet can be gone by
   // then — rebased, or squashed into one — and the first command would fail
@@ -183,7 +198,8 @@ describe(`${PAGE}: the check after a deploy`, () => {
 
   const check = commands.find((command) => command.includes('/functions/v1/send-push'));
   const expected = tableUnder('| line | after a deploy | during a rotation (section 4) |');
-  const column = (n) => `${expected.map((row) => `${row[0]}: ${row[n]}`).join('\n')}\n`;
+  // A dash is a line that is not printed in that case.
+  const column = (n) => `${expected.filter((row) => row[n] !== '—').map((row) => `${row[0]}: ${row[n]}`).join('\n')}\n`;
 
   let admin;
   let webpush;
@@ -244,7 +260,7 @@ describe(`${PAGE}: the check after a deploy`, () => {
 
   beforeAll(() => {
     admin = fakeAdmin({
-      push_subscriptions: [{ id: 's1', user_id: '11111111-1111-4111-8111-111111111111', endpoint: 'https://push.invalid/s1', p256dh: 'k', auth: 'a' }],
+      push_subscriptions: [{ id: 's1', user_id: '11111111-1111-4111-8111-111111111111', endpoint: 'https://fcm.googleapis.com/fcm/send/s1', p256dh: 'k', auth: 'a' }],
     });
     webpush = { setVapidDetails: vi.fn(), sendNotification: vi.fn(async () => ({ statusCode: 201 })) };
     vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -262,7 +278,8 @@ describe(`${PAGE}: the check after a deploy`, () => {
 
   it('is on the page, with the table of what it prints', () => {
     expect(check, `${PAGE} has no bash block that calls /functions/v1/send-push`).toBeTruthy();
-    expect(expected?.map((row) => row[0])).toEqual(['no bearer', 'bearer']);
+    expect(expected?.map((row) => row[0])).toEqual(['no bearer', 'bearer', 'rest push']);
+    expect(expected.map((row) => row[1])).toEqual([expect.any(String), expect.any(String), '—']);
   });
 
   it('prints the "after a deploy" column against send-push itself, without the secret', async () => {
@@ -283,9 +300,26 @@ describe(`${PAGE}: the check after a deploy`, () => {
     expect(ran.failed).toBe(false);
     expect(ran.stdout).toBe(column(2));
     expect(ran.stdout).toContain('bearer: 200 {"delivered":0}\n');
-    expect(authorizations(site.requests)).toEqual([null, `Bearer ${SECRET}`]);
+    expect(ran.stdout).toContain('rest push: 400 send-push: schedule_id is not a uuid\n');
+    expect(authorizations(site.requests)).toEqual([null, `Bearer ${SECRET}`, `Bearer ${SECRET}`]);
     // Its own output never shows the secret.
     expect(ran.stdout).not.toContain(SECRET);
+  });
+
+  // The version of wave 1: the same gate, and a fan-out that reads the user
+  // and the payload and nothing else. Handed a rest push by the job of
+  // migration 19, it sends it at once. The first two lines cannot tell it
+  // from the version of this page; the third does.
+  it('tells the version from before wave 2, which has the gate and does not know a rest push', async () => {
+    const site = await deployed(async (request) => {
+      const admitted = await admitInternalRequest(request, { name: 'send-push', bearer: SECRET });
+      return admitted.response ?? Response.json({ delivered: 0 });
+    });
+    expect((await paste(site)).stdout).toBe(column(1));
+    const ran = await paste(site, { bearer: SECRET });
+    expect(ran.failed).toBe(true);
+    expect(ran.stdout).toBe('no bearer: 401 send-push: unauthorized\nbearer: 200 {"delivered":0}\nrest push: 200 {"delivered":0}\n');
+    expect(page).toContain('**`rest push: 200 {"delivered":0}`**');
   });
 
   it('sends no notification, writes nothing, and takes nothing else from .env', async () => {
@@ -373,5 +407,109 @@ describe(`${PAGE}: the check after a deploy`, () => {
     expect(ran.stdout).toBe('');
     expect(ran.stderr).toContain('.env: not found');
     expect(page).toContain('**`node: .env: not found`**');
+  });
+});
+
+// ------------------------------------------------------------
+// Section 5: the lines of the function's log, as the page quotes them. The
+// owner looks for them in the dashboard on the day a push did not arrive —
+// months from now, with nothing else to go by. Each line of the page is
+// taken apart, the devices and the push services it describes are put behind
+// send-push/index.ts, and the function must write those lines, and no other.
+// ------------------------------------------------------------
+describe(`${PAGE}: the lines of the log`, () => {
+  const USER = '11111111-1111-4111-8111-111111111111';
+  const SECRET = '5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b';
+  const quoted = fences.find(({ lang, body }) => lang === 'text' && body.includes('push failed'))?.body.split('\n') ?? [];
+
+  const FAILED = /^send-push: push failed status=(\d+|none) host=(\S+) subscription=(\S+) (body|error)=(".*")$/;
+  const NOT_SENT = /^send-push: push not sent host=(\S+) subscription=(\S+) reason=".+"$/;
+  const NOBODY = /^send-push: no device got the push \((\d+) failed, (\d+) gone\)$/;
+
+  // What each line of the page says happened, as a device and the answer of
+  // its push service.
+  const devices = [];
+  const answers = new Map();
+  for (const line of quoted) {
+    const [, status, host, id, , said] = FAILED.exec(line) ?? [];
+    const [, elsewhere, other] = NOT_SENT.exec(line) ?? [];
+    if (id) {
+      const endpoint = `https://${host}/the-address-of-${id}`;
+      devices.push({ id, user_id: USER, endpoint, p256dh: `p256dh-of-${id}`, auth: `auth-of-${id}` });
+      answers.set(endpoint, status === 'none'
+        ? new Error(JSON.parse(said))
+        : Object.assign(new Error('Received unexpected response code'), { statusCode: Number(status), body: JSON.parse(said), endpoint }));
+    } else if (other) {
+      devices.push({ id: other, user_id: USER, endpoint: `https://${elsewhere}/the-address-of-${other}`, p256dh: 'k', auth: 'a' });
+    }
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('quotes a push service that refused, one that did not answer, a device that is gone, an address that is not one, and the summary', () => {
+    expect(quoted.length).toBeGreaterThan(3);
+    for (const line of quoted) expect(FAILED.test(line) || NOT_SENT.test(line) || NOBODY.test(line), line).toBe(true);
+    const statuses = quoted.map((line) => FAILED.exec(line)?.[1]).filter(Boolean);
+    expect(statuses).toContain('none');
+    expect(statuses.some((status) => status === '404' || status === '410')).toBe(true);
+    expect(statuses.some((status) => /^\d+$/.test(status) && status !== '404' && status !== '410')).toBe(true);
+    expect(quoted.filter((line) => NOT_SENT.test(line))).toHaveLength(1);
+    expect(quoted.filter((line) => NOBODY.test(line))).toHaveLength(1);
+    // A host, and nothing of an address after it.
+    for (const line of quoted) expect(line).not.toMatch(/https?:|host=\S*\//);
+  });
+
+  it('is what send-push writes, to the character, and what it answers 502 to', async () => {
+    const admin = fakeAdmin({ push_subscriptions: devices.map((device) => ({ ...device })) });
+    const webpush = {
+      setVapidDetails: vi.fn(),
+      sendNotification: vi.fn(async ({ endpoint }) => {
+        if (answers.has(endpoint)) throw answers.get(endpoint);
+        return { statusCode: 201 };
+      }),
+    };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const handler = await loadFunction('send-push', {
+      env: {
+        SUPABASE_URL: 'https://project.invalid',
+        SUPABASE_SERVICE_ROLE_KEY: 'service-role-key-of-the-test',
+        INTERNAL_BEARER: SECRET,
+        VAPID_PUBLIC_KEY: 'vapid-public',
+        VAPID_PRIVATE_KEY: 'vapid-private',
+      },
+      modules: {
+        'jsr:@supabase/supabase-js@2': { createClient: () => admin },
+        'npm:web-push@3.6.7': { default: webpush },
+      },
+    });
+
+    const response = await handler(new Request('http://functions.invalid/functions/v1/send-push', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${SECRET}` },
+      body: JSON.stringify({ user_id: USER, payload: { title: 'Feedback from Coach' } }),
+    }));
+    expect(response.status).toBe(502);
+    expect(page).toContain('the request that is answered `502`');
+
+    const written = [...warn.mock.calls, ...error.mock.calls].map(([line]) => line);
+    expect([...written].sort()).toEqual([...quoted].sort());
+    // The summary comes last, and a device that is gone is a warning.
+    expect(error.mock.calls.at(-1)[0]).toMatch(NOBODY);
+    expect(warn.mock.calls.map(([line]) => FAILED.exec(line)?.[1])).toEqual(
+      quoted.map((line) => FAILED.exec(line)?.[1]).filter((status) => status === '404' || status === '410'),
+    );
+    expect(page).toContain('Written as a warning, not as an error');
+    // Sent to the push services only; the device that is gone is deleted.
+    expect(webpush.sendNotification).toHaveBeenCalledTimes(answers.size);
+    expect(admin.calls.filter(({ op }) => op === 'delete')).toHaveLength(warn.mock.calls.length);
+  });
+
+  it('names the place where they are read, and the 200 characters', () => {
+    expect(page).toContain('Dashboard → Edge Functions → `send-push` → **Logs**');
+    expect(page).toContain('cut at 200 characters');
   });
 });
