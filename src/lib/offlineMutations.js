@@ -20,13 +20,16 @@
 // write waits. All three rest on every function here being idempotent — a
 // retry re-sends a request whose first copy may have reached the database.
 //
-// Two more things are decided here and not in the hooks, because a write
+// Three more things are decided here and not in the hooks, because a write
 // restored from IndexedDB after a relaunch has no hook around it — only the
 // defaults registered at the bottom of this file:
 //   - WHEN a set was done: the moment of the tap, not of the request
 //     (`tapTime`);
-//   - which caches a settled write refreshes (`refreshAfter`).
+//   - which caches a settled write refreshes (`refreshAfter`);
+//   - what becomes of a write the database closed while it waited (`waited`,
+//     `refuseReplay`).
 
+import { onlineManager } from '@tanstack/react-query';
 import { supabase } from './supabase';
 import { pushToast } from './toast';
 import {
@@ -36,6 +39,12 @@ import {
   mutationRetry,
   mutationRetryDelay,
 } from './networkErrors';
+import {
+  REPLAY_REFUSED_KEY,
+  isClosedToAthlete,
+  markRefusedReplay,
+  recordRejectedWrite,
+} from './mutationErrors';
 
 export const MUTATION_KEYS = {
   toggleDone: ['set-log', 'toggle-done'],
@@ -383,28 +392,125 @@ const abandoned = () => new Promise(() => {});
 // retries — see `rankTransientFailure` in lib/networkErrors.js.
 const unanswered = new WeakMap();
 
-function queuedWrite(send) {
+// --- a write that waited, and was refused ---------------------------------------
+//
+// The database accepts an athlete's write while their program is the block
+// being trained and the session is neither archived nor reviewed. A workout
+// logged without signal is sent hours later, and the coach may have moved on
+// in between: the next block activated (past the 72 hours the database still
+// allows), the session reviewed, a set removed. Every write of that workout
+// then comes back with PGRST116 or 42501 (`isClosedToAthlete`).
+//
+// Treated like any failure, that was one generic toast per set, then a
+// refetch — and for the mutations restored after a relaunch no rollback
+// either: the screen showed the workout as logged, the reads replaced it with
+// the empty rows, and nothing anywhere still said what the athlete had done.
+//
+// So a write that WAITED and is refused this way is handled apart:
+//   - one message for the whole queue, which says what happened;
+//   - its variables go to the journal of lib/mutationErrors.js — what the
+//     athlete did stays on the device, readable;
+//   - the reads are not refreshed (`refusing`), so the mutation layer does not
+//     take off the screen what the athlete sees there.
+//
+// "Waited" is the whole difference. A tick turned down while the athlete is
+// looking at the set is an ordinary failure: the hook takes it back and the
+// usual toast says so. A write waited when it could not go out as it was
+// made — the three cases below. Only the first two are seen from outside the
+// write, by `watchQueue`.
+const waited = new WeakSet();
+
+// The clients whose replay has met a refusal, from the first one until nothing
+// of the workout is left to send. One replay, one message: counting on the
+// toast still being on screen would not do, it leaves after six seconds and a
+// queue on a slow network takes longer.
+const refusing = new WeakSet();
+
+const WORKOUT_KEY_ROOTS = new Set(
+  Object.entries(MUTATION_KEYS)
+    .filter(([name]) => !DRAFT_MUTATIONS.has(name))
+    .map(([, key]) => key[0])
+);
+
+function isPendingWorkoutWrite(mutation) {
+  const key = mutation.options.mutationKey;
+  return mutation.state.status === 'pending' && Array.isArray(key) && WORKOUT_KEY_ROOTS.has(key[0]);
+}
+
+function watchQueue(queryClient) {
+  const cache = queryClient.getMutationCache();
+  cache.subscribe((event) => {
+    const { mutation } = event;
+    if (event.type === 'added') {
+      // 1. Restored from IndexedDB: the only mutations that are built with a
+      //    state. A new one starts idle.
+      if (mutation.state.status !== 'idle') waited.add(mutation);
+    } else if (event.type === 'updated') {
+      // 2. Held back because the device was offline — at the tap, or when a
+      //    retry came due. The test on the device matters: React Query also
+      //    calls a mutation paused while it stands behind another one of its
+      //    scope, a few hundred milliseconds on a perfectly good network.
+      const { action } = event;
+      const heldBack = action.type === 'pause' || (action.type === 'pending' && action.isPaused);
+      if (heldBack && !onlineManager.isOnline()) waited.add(mutation);
+    }
+    // The replay is over once nothing of the workout is left to send. Read on
+    // every event rather than on the settling of a write: `clear()` empties
+    // the queue without settling anything.
+    if (refusing.has(queryClient) && !cache.getAll().some(isPendingWorkoutWrite)) {
+      refusing.delete(queryClient);
+    }
+  });
+}
+
+function refuseReplay(client, mutation, name, error, userId) {
+  markRefusedReplay(error);
+  recordRejectedWrite({
+    refused_at: new Date().toISOString(),
+    made_at: mutation.state.submittedAt ? new Date(mutation.state.submittedAt).toISOString() : null,
+    user_id: userId ?? null,
+    write: name,
+    variables: mutation.state.variables,
+    code: error.code,
+    message: error.message ?? null,
+  });
+  if (refusing.has(client)) return;
+  refusing.add(client);
+  pushToast(REPLAY_REFUSED_KEY, { kind: 'error' });
+}
+
+function queuedWrite(name, send) {
   return async function write(variables, context) {
     const client = context?.client;
     const gated = !!client && queueClients.has(client);
     let madeAt;
+    let userId;
     if (gated) {
       const mutation = mutationOf(client, variables);
       if (!mutation) return abandoned();
       // When the athlete made this write — see `tapTime`.
       madeAt = mutation.state.submittedAt;
-      if (!(await readSession())) throw new AuthNotReadyError();
+      const session = await readSession();
+      if (!session) {
+        // 3. Kept waiting for its owner to be signed in.
+        waited.add(mutation);
+        throw new AuthNotReadyError();
+      }
+      userId = session.user?.id;
       // Reading the session can last as long as a token refresh does.
       if (!mutationOf(client, variables)) return abandoned();
     }
     try {
       return await send(variables, { madeAt });
     } catch (error) {
-      const mutation = gated && isTransientError(error) ? mutationOf(client, variables) : undefined;
-      if (mutation) {
+      const mutation = gated ? mutationOf(client, variables) : undefined;
+      if (mutation && isTransientError(error)) {
         const rank = (unanswered.get(mutation) ?? 0) + 1;
         unanswered.set(mutation, rank);
         rankTransientFailure(error, rank);
+      } else if (mutation && waited.has(mutation) && !DRAFT_MUTATIONS.has(name) && isClosedToAthlete(error)) {
+        // A draft has its own answer to 42501 — see `draftSaveErrorHandler`.
+        refuseReplay(client, mutation, name, error, userId);
       }
       throw error;
     }
@@ -412,17 +518,17 @@ function queuedWrite(send) {
 }
 
 export const MUTATION_FNS = {
-  toggleDone: queuedWrite(toggleDoneFn),
-  setFailed: queuedWrite(setFailedFn),
-  setRpe: queuedWrite(setRpeFn),
-  logActual: queuedWrite(logActualFn),
-  setSkipped: queuedWrite(setSkippedFn),
-  confirmSession: queuedWrite(confirmSessionFn),
-  unconfirmSession: queuedWrite(unconfirmSessionFn),
-  saveSlotComment: queuedWrite(saveSlotCommentFn),
-  saveSlotDeviation: queuedWrite(saveSlotDeviationFn),
-  saveDraftTree: queuedWrite(saveDraftTreeFn),
-  discardDraft: queuedWrite(discardDraftFn),
+  toggleDone: queuedWrite('toggleDone', toggleDoneFn),
+  setFailed: queuedWrite('setFailed', setFailedFn),
+  setRpe: queuedWrite('setRpe', setRpeFn),
+  logActual: queuedWrite('logActual', logActualFn),
+  setSkipped: queuedWrite('setSkipped', setSkippedFn),
+  confirmSession: queuedWrite('confirmSession', confirmSessionFn),
+  unconfirmSession: queuedWrite('unconfirmSession', unconfirmSessionFn),
+  saveSlotComment: queuedWrite('saveSlotComment', saveSlotCommentFn),
+  saveSlotDeviation: queuedWrite('saveSlotDeviation', saveSlotDeviationFn),
+  saveDraftTree: queuedWrite('saveDraftTree', saveDraftTreeFn),
+  discardDraft: queuedWrite('discardDraft', discardDraftFn),
 };
 
 /**
@@ -505,7 +611,8 @@ export async function resumeMutationsAndReconcileDrafts(queryClient) {
 // --- what a settled write refreshes ----------------------------------------------
 //
 // The reads a write makes stale, refreshed when the write settles — accepted
-// or not: after a failure the read is what shows the row as it really is.
+// or not: after a failure the read is what shows the row as it really is. The
+// one exception is a replay that met a refusal (`refusing`).
 //
 // This list used to live in each hook's `onSettled`. A hook only exists while
 // its page does. A workout logged without signal is usually sent after the app
@@ -599,7 +706,9 @@ function refreshAfter(name, queryClient, variables) {
  * gym gets, not only a replay, and so is the refresh of `refreshAfter`.
  */
 export function registerOfflineMutationDefaults(queryClient) {
-  // From here on this client's writes wait for a session (see the gate).
+  // From here on this client's writes wait for a session (see the gate), and
+  // its queue is watched for the writes that wait (see `waited`).
+  if (!queueClients.has(queryClient)) watchQueue(queryClient);
   queueClients.add(queryClient);
 
   for (const [name, key] of Object.entries(MUTATION_KEYS)) {
@@ -633,8 +742,11 @@ export function registerOfflineMutationDefaults(queryClient) {
     };
     if (!DRAFT_MUTATIONS.has(name)) {
       // A write of the workout: the reads it makes stale are refreshed when it
-      // settles, live or replayed — see `refreshAfter`.
+      // settles, live or replayed — see `refreshAfter`. Not while a replay is
+      // being refused: those reads would come back with the rows as the
+      // database kept them, in place of the workout the athlete is looking at.
       defaults.onSettled = (_data, _error, variables) => {
+        if (refusing.has(queryClient)) return;
         refreshAfter(name, queryClient, variables);
       };
     }

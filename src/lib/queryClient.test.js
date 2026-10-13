@@ -301,6 +301,102 @@ describe('the writes of the queue, on the app\'s client', () => {
   });
 });
 
+// P55, the client half, where the toast is decided. Every failed mutation of
+// the app ends in the client's `onError`, which shows one generic line for it:
+// a workout refused because its session was closed while the phone was offline
+// was twenty of them. lib/offlineMutations.js says it once for the queue; the
+// client must then say nothing more.
+describe('a workout that waited and is refused, on the app\'s client', () => {
+  const REFUSED = 'offlineReplay.refused';
+  // An UPDATE that matches no row the athlete may write, read with `.single()`.
+  const noRow = () => ({
+    data: null,
+    error: {
+      code: 'PGRST116',
+      details: 'The result contains 0 rows',
+      hint: null,
+      message: 'Cannot coerce the result to a single JSON object',
+    },
+  });
+
+  function setLogsRefuse() {
+    const chain = {
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockImplementation(async () => noRow()),
+    };
+    supabase.from.mockReturnValue(chain);
+    return chain;
+  }
+
+  // Ten sets ticked without signal, as the persister stored them.
+  async function workoutWrittenOffline(sets) {
+    const { registerOfflineMutationDefaults, MUTATION_KEYS } = await import('./offlineMutations');
+    onlineManager.setOnline(false);
+    const phone = new QueryClient();
+    registerOfflineMutationDefaults(phone);
+    for (let n = 1; n <= sets; n += 1) {
+      phone
+        .getMutationCache()
+        .build(phone, {
+          mutationKey: MUTATION_KEYS.toggleDone,
+          ...phone.getMutationDefaults(MUTATION_KEYS.toggleDone),
+        })
+        .execute({ logId: `l-${n}`, done: true, at: '2026-10-09T18:02:11.000Z' })
+        .catch(() => {});
+    }
+    await new Promise((r) => setTimeout(r, 0));
+    const state = JSON.parse(JSON.stringify(dehydrate(phone)));
+    expect(state.mutations).toHaveLength(sets);
+    return state;
+  }
+
+  beforeEach(() => {
+    localStorage.removeItem('sl_rejected_writes');
+  });
+  afterEach(() => {
+    localStorage.removeItem('sl_rejected_writes');
+  });
+
+  it('ten refused sets restored from the device are one toast, and it is the one that says why', async () => {
+    const stored = await workoutWrittenOffline(10);
+    const chain = setLogsRefuse();
+    const { queryClient } = await launchApp();
+    // The modules were evaluated again for this launch: the app's toast is
+    // the one of this import, not of the top of the file.
+    const { pushToast } = await import('./toast');
+    const { readRejectedWrites } = await import('./mutationErrors');
+    hydrate(queryClient, stored);
+
+    await queryClient.resumePausedMutations();
+    await vi.waitFor(() => expect(queryClient.isMutating()).toBe(0));
+
+    expect(chain.single).toHaveBeenCalledTimes(10);
+    expect(queryClient.getMutationCache().getAll().every((m) => m.state.status === 'error')).toBe(true);
+    expect(pushToast).toHaveBeenCalledTimes(1);
+    expect(pushToast).toHaveBeenCalledWith(REFUSED, { kind: 'error' });
+    expect(readRejectedWrites()).toHaveLength(10);
+  });
+
+  it('the same answer to a tick made on the spot keeps the usual toast: one failure, said as one', async () => {
+    setLogsRefuse();
+    const { queryClient, MUTATION_KEYS, MUTATION_FNS } = await launchApp();
+    const { pushToast } = await import('./toast');
+    const { readRejectedWrites } = await import('./mutationErrors');
+    const observer = new MutationObserver(queryClient, {
+      mutationKey: MUTATION_KEYS.toggleDone,
+      mutationFn: MUTATION_FNS.toggleDone,
+    });
+
+    await expect(observer.mutate({ logId: 'l-1', done: true })).rejects.toMatchObject({ code: 'PGRST116' });
+
+    expect(pushToast).toHaveBeenCalledTimes(1);
+    expect(pushToast).toHaveBeenCalledWith('errors.generic', { kind: 'error' });
+    expect(readRejectedWrites()).toEqual([]);
+  });
+});
+
 // What PersistQueryClientProvider is given as `onSuccess`. The provider lets no
 // query fetch until that promise settles — wanted while the queue is being
 // replayed, fatal if the replay waits.
@@ -495,13 +591,15 @@ describe('replayQueuedWrites: the pages wait for the queue while it moves, and o
     setLogsAnswer();
     const { queryClient, replayQueuedWrites } = await launchApp();
     const cache = queryClient.getMutationCache();
-    const listening = () => cache.hasListeners();
-    expect(listening()).toBe(false);
+    // One listener is there for the life of the client: the watch
+    // lib/offlineMutations.js keeps on the queue for the writes that wait.
+    const listeners = () => cache.listeners.size;
+    expect(listeners()).toBe(1);
 
     const replay = replayQueuedWrites();
-    expect(listening()).toBe(true);
+    expect(listeners()).toBe(2);
     await replay;
 
-    expect(listening()).toBe(false);
+    expect(listeners()).toBe(1);
   });
 });

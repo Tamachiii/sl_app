@@ -15,6 +15,13 @@ vi.mock('./supabase', () => ({
 vi.mock('./toast', () => ({ pushToast: vi.fn() }));
 
 import { supabase } from './supabase';
+import { pushToast } from './toast';
+import {
+  REPLAY_REFUSED_KEY,
+  REJECTED_WRITES_KEY,
+  isRefusedReplay,
+  readRejectedWrites,
+} from './mutationErrors';
 import {
   MUTATION_KEYS,
   MUTATION_FNS,
@@ -1614,6 +1621,351 @@ describe('a settled write refreshes the reads it made stale, with or without a h
       if (name === 'saveDraftTree') continue;
       expect(typeof qc.getMutationDefaults(key).onSettled).toBe('function');
     }
+  });
+});
+
+// P55, the client half. The coach activates the next block (or reviews the
+// session, or removes a set) while the athlete trains without signal. Past the
+// 72 hours the database still allows, every write of that workout is refused:
+// it was one generic toast per set, a refetch that emptied the screen, and no
+// trace anywhere of what the athlete had done.
+describe('a write that waited, and is refused because its session was closed meanwhile', () => {
+  useFakeClock();
+
+  const TAP = '2026-10-09T18:02:11.000Z';
+  const TEN = Array.from({ length: 10 }, (_, i) => `l-${i + 1}`);
+  const tick = (logId) => [MUTATION_KEYS.toggleDone, { logId, done: true, at: TAP }];
+  const SETS_READ = ['set-logs', 's-1', ['slot-1']];
+
+  const replayMessages = () => pushToast.mock.calls.filter(([message]) => message === REPLAY_REFUSED_KEY);
+
+  beforeEach(() => {
+    localStorage.removeItem(REJECTED_WRITES_KEY);
+    vi.setSystemTime(new Date(TAP));
+  });
+  afterEach(() => {
+    localStorage.removeItem(REJECTED_WRITES_KEY);
+  });
+
+  it('ten sets replayed after a relaunch and all refused: one message, no read, ten entries in the journal', async () => {
+    const api = fakeWorkoutApi({ sets: TEN });
+    const qc = await workoutRestored(TEN.map(tick));
+    // The workout as the phone shows it: restored from storage, all ticked.
+    const asLogged = TEN.map((id) => ({ id, done: true, logged_at: TAP }));
+    qc.setQueryData(SETS_READ, asLogged);
+    const read = vi.fn().mockResolvedValue(TEN.map((id) => ({ id, done: false, logged_at: null })));
+    const sets = new QueryObserver(qc, { queryKey: SETS_READ, queryFn: read, staleTime: Infinity });
+    const stop = sets.subscribe(() => {});
+    // Three days on, the coach has long since started the next block.
+    await pass(3 * 24 * 60 * 60 * 1000);
+    api.closed = true;
+
+    await qc.resumePausedMutations();
+    await pass();
+
+    const queue = qc.getMutationCache().getAll();
+    expect(api.requests).toHaveLength(10);
+    expect(queue.map((m) => m.state.status)).toEqual(TEN.map(() => 'error'));
+    expect(queue.every((m) => m.state.error.code === 'PGRST116' && isRefusedReplay(m.state.error))).toBe(true);
+
+    // One message, and it is the one that says what happened.
+    expect(pushToast).toHaveBeenCalledTimes(1);
+    expect(pushToast).toHaveBeenCalledWith(REPLAY_REFUSED_KEY, { kind: 'error' });
+
+    // The sets are not read again: the athlete still sees the workout.
+    expect(read).not.toHaveBeenCalled();
+    expect(staleReads(qc)).toEqual([]);
+    expect(sets.getCurrentResult().data).toEqual(asLogged);
+
+    // And what was done is written down, set by set, with its moment.
+    const journal = readRejectedWrites();
+    expect(journal).toHaveLength(10);
+    expect(journal.map((entry) => entry.variables.logId)).toEqual(TEN);
+    expect(journal[0]).toEqual({
+      refused_at: new Date(Date.parse(TAP) + 3 * 24 * 60 * 60 * 1000).toISOString(),
+      made_at: TAP,
+      user_id: 'u-1',
+      write: 'toggleDone',
+      variables: { logId: 'l-1', done: true, at: TAP },
+      code: 'PGRST116',
+      message: NO_ROW.message,
+    });
+    stop();
+  });
+
+  it('the same ten in the per-row scopes of their hooks, refused together: still one message, ten entries, no read', async () => {
+    const api = fakeWorkoutApi({ sets: TEN });
+    // As useToggleSetDone makes them; the scope is stored with the write, so
+    // after the relaunch the ten requests leave at once.
+    const qc = await workoutRestored(
+      TEN.map((logId) => [...tick(logId), { scope: { id: `set-log-${logId}` } }])
+    );
+    api.closed = true;
+
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(api.requests).toHaveLength(10);
+    expect(qc.getMutationCache().getAll().every((m) => m.state.status === 'error')).toBe(true);
+    expect(pushToast).toHaveBeenCalledTimes(1);
+    expect(readRejectedWrites().map((entry) => entry.variables.logId).sort()).toEqual([...TEN].sort());
+    expect(staleReads(qc)).toEqual([]);
+  });
+
+  it('the confirmation, the note and the swap of that workout are refused with it: still one message, and nothing is read again', async () => {
+    const api = fakeWorkoutApi();
+    const note = { sessionId: 's-1', slotId: 'slot-1', studentId: 'u-1', body: 'elbow' };
+    const swap = { sessionId: 's-1', slotId: 'slot-1', studentId: 'u-1', kind: 'swap', substituteExerciseId: 'ex-2' };
+    const qc = await workoutRestored([
+      tick('l-1'),
+      [MUTATION_KEYS.setRpe, { logId: 'l-1', rpe: 8 }],
+      [MUTATION_KEYS.saveSlotDeviation, swap],
+      [MUTATION_KEYS.saveSlotComment, note],
+      [MUTATION_KEYS.confirmSession, CONFIRM],
+    ]);
+    api.closed = true;
+
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(api.requests).toHaveLength(5);
+    expect(qc.getMutationCache().getAll().map((m) => m.state.error?.code)).toEqual([
+      'PGRST116',
+      'PGRST116',
+      '42501',
+      '42501',
+      '42501',
+    ]);
+    expect(pushToast).toHaveBeenCalledTimes(1);
+    expect(staleReads(qc)).toEqual([]);
+    expect(readRejectedWrites().map((entry) => [entry.write, entry.code, entry.variables])).toEqual([
+      ['toggleDone', 'PGRST116', { logId: 'l-1', done: true, at: TAP }],
+      ['setRpe', 'PGRST116', { logId: 'l-1', rpe: 8 }],
+      ['saveSlotDeviation', '42501', swap],
+      ['saveSlotComment', '42501', note],
+      ['confirmSession', '42501', CONFIRM],
+    ]);
+  });
+
+  it('a write that waited in this page, without a relaunch, is one that waited', async () => {
+    const api = fakeWorkoutApi();
+    goOffline();
+    const qc = offlineQueue();
+    seedReads(qc);
+    const first = enqueue(qc, ...tick('l-1'));
+    const second = enqueue(qc, MUTATION_KEYS.setRpe, { logId: 'l-1', rpe: 9 });
+    await pass(2 * 60 * 60 * 1000);
+    api.closed = true;
+
+    comeBackOnline();
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(first.state.status).toBe('error');
+    expect(second.state.status).toBe('error');
+    expect(replayMessages()).toHaveLength(1);
+    expect(readRejectedWrites().map((entry) => entry.write)).toEqual(['toggleDone', 'setRpe']);
+    expect(staleReads(qc)).toEqual([]);
+  });
+
+  it('so is one that was kept waiting for its owner to be signed in', async () => {
+    const api = fakeWorkoutApi();
+    signedOut();
+    const qc = offlineQueue();
+    const waiting = enqueue(qc, ...tick('l-1'));
+    await pass(10 * 60_000);
+    expect(api.requests).toHaveLength(0);
+    api.closed = true;
+
+    signedIn();
+    await pass(AUTH_WAIT_CAP_MS);
+
+    expect(waiting.state.status).toBe('error');
+    expect(replayMessages()).toHaveLength(1);
+    expect(readRejectedWrites()).toHaveLength(1);
+  });
+
+  it('a tick refused while the athlete is looking at the set is an ordinary failure', async () => {
+    const api = fakeWorkoutApi();
+    api.closed = true;
+    const qc = offlineQueue();
+    seedReads(qc);
+
+    const live = enqueue(qc, ...tick('l-1'));
+    await pass();
+
+    expect(live.state.status).toBe('error');
+    expect(live.state.error.code).toBe('PGRST116');
+    // Nothing here speaks for it: the app's client shows its usual toast (see
+    // lib/queryClient.test.js) and the hook takes the tick back.
+    expect(isRefusedReplay(live.state.error)).toBe(false);
+    expect(pushToast).not.toHaveBeenCalled();
+    expect(readRejectedWrites()).toEqual([]);
+    expect(staleReads(qc)).toEqual([SETS_READ]);
+  });
+
+  it('a write standing behind another one of its scope has not waited: the network was there all along', async () => {
+    const api = fakeWorkoutApi();
+    api.closed = true;
+    const qc = offlineQueue();
+    // Two taps in a row on a good network: React Query holds the second as
+    // "paused" until the first has its answer.
+    const first = enqueue(qc, ...tick('l-1'));
+    const second = enqueue(qc, MUTATION_KEYS.setRpe, { logId: 'l-1', rpe: 8 });
+    expect(second.state.isPaused).toBe(true);
+    await pass();
+
+    expect(first.state.status).toBe('error');
+    expect(second.state.status).toBe('error');
+    expect(pushToast).not.toHaveBeenCalled();
+    expect(readRejectedWrites()).toEqual([]);
+  });
+
+  it('a replay refused for another reason stays an ordinary failure too', async () => {
+    const api = fakeWorkoutApi();
+    const qc = await workoutRestored([tick('l-1')]);
+    api.refuse = {
+      code: '23514',
+      details: null,
+      hint: null,
+      message: 'new row for relation "set_logs" violates check constraint "set_logs_done_xor_failed"',
+    };
+
+    await qc.resumePausedMutations();
+    await pass();
+
+    const [replayed] = qc.getMutationCache().getAll();
+    expect(replayed.state.error.code).toBe('23514');
+    expect(isRefusedReplay(replayed.state.error)).toBe(false);
+    expect(pushToast).not.toHaveBeenCalled();
+    expect(readRejectedWrites()).toEqual([]);
+    expect(staleReads(qc)).toEqual([SETS_READ]);
+  });
+
+  it('one refused set among accepted ones: the reads wait until the queue is empty, then the next write refreshes as usual', async () => {
+    const api = fakeWorkoutApi({ sets: ['l-1', 'l-3'] });
+    // l-2 is gone: the coach removed that set from the session.
+    const qc = await workoutRestored([tick('l-1'), tick('l-2'), tick('l-3')]);
+
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(qc.getMutationCache().getAll().map((m) => m.state.status)).toEqual(['success', 'error', 'success']);
+    expect(api.sets.get('l-3')).toMatchObject({ done: true, logged_at: TAP });
+    expect(replayMessages()).toHaveLength(1);
+    expect(readRejectedWrites().map((entry) => entry.variables.logId)).toEqual(['l-2']);
+    // Reading the sets now would take the tick of l-2 off the screen.
+    expect(staleReads(qc)).toEqual([]);
+
+    // That replay is over. A tick made now is followed by its read.
+    enqueue(qc, MUTATION_KEYS.setRpe, { logId: 'l-1', rpe: 7 });
+    await pass();
+
+    expect(staleReads(qc)).toEqual([SETS_READ]);
+    expect(replayMessages()).toHaveLength(1);
+  });
+
+  it('a later replay that is refused is said again: one message per replay, not one for ever', async () => {
+    const api = fakeWorkoutApi();
+    api.closed = true;
+    goOffline();
+    const qc = offlineQueue();
+    enqueue(qc, ...tick('l-1'));
+    await pass();
+    comeBackOnline();
+    await qc.resumePausedMutations();
+    await pass();
+    expect(replayMessages()).toHaveLength(1);
+
+    // The next day, another session, the same answer.
+    goOffline();
+    enqueue(qc, ...tick('l-2'));
+    enqueue(qc, ...tick('l-3'));
+    await pass(24 * 60 * 60 * 1000);
+    comeBackOnline();
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(replayMessages()).toHaveLength(2);
+    expect(readRejectedWrites()).toHaveLength(3);
+  });
+
+  it('a queue emptied in the middle of a refused replay ends it: the next account starts from nothing', async () => {
+    const api = fakeWorkoutApi();
+    api.closed = true;
+    goOffline();
+    const qc = offlineQueue();
+    seedReads(qc);
+    enqueue(qc, ...tick('l-1'));
+    const behind = enqueue(qc, ...tick('l-2'));
+    await pass();
+    // The network goes again right after the first answer: l-2 stays queued.
+    const refuseThenDrop = answer;
+    answer = async (...request) => {
+      const response = await refuseThenDrop(...request);
+      goOffline();
+      return response;
+    };
+    comeBackOnline();
+    // Not awaited: the promise of a replay settles with its last write, and
+    // that one is about to be held back.
+    qc.resumePausedMutations();
+    await pass();
+    expect(replayMessages()).toHaveLength(1);
+    expect(behind.state).toMatchObject({ status: 'pending', isPaused: true });
+
+    // The account changes: App.jsx empties the client.
+    qc.clear();
+    answer = refuseThenDrop;
+    api.closed = false;
+    comeBackOnline();
+    seedReads(qc);
+    enqueue(qc, MUTATION_KEYS.setRpe, { logId: 'l-1', rpe: 7 });
+    await pass();
+
+    // Nothing of the previous replay is left: this write refreshes its reads.
+    expect(staleReads(qc)).toEqual([SETS_READ]);
+  });
+
+  it('a draft that waited and is refused keeps its own handling: reconciled, not journalled', async () => {
+    supabase.rpc = vi.fn().mockResolvedValue({
+      data: null,
+      error: { code: '42501', details: null, hint: null, message: 'new row violates row-level security policy for table "programs"' },
+    });
+    goOffline();
+    const qc = offlineQueue();
+    qc.setQueryData(['my-draft', 'u-1'], { id: 'p-1' });
+    const save = enqueue(qc, MUTATION_KEYS.saveDraftTree, { tree: { program: { id: 'p-1' } } });
+    await pass();
+
+    comeBackOnline();
+    await qc.resumePausedMutations();
+    await pass();
+    delete supabase.rpc;
+
+    expect(save.state.status).toBe('error');
+    expect(isRefusedReplay(save.state.error)).toBe(false);
+    expect(pushToast).not.toHaveBeenCalled();
+    expect(readRejectedWrites()).toEqual([]);
+    expect(staleReads(qc)).toEqual([['my-draft', 'u-1']]);
+  });
+
+  it('a device that cannot store the journal still gets the message, and the write still fails cleanly', async () => {
+    const api = fakeWorkoutApi();
+    const qc = await workoutRestored([tick('l-1')]);
+    api.closed = true;
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+    });
+
+    await qc.resumePausedMutations();
+    await pass();
+    setItem.mockRestore();
+
+    const [replayed] = qc.getMutationCache().getAll();
+    expect(replayed.state.status).toBe('error');
+    expect(replayed.state.error.code).toBe('PGRST116');
+    expect(replayMessages()).toHaveLength(1);
   });
 });
 

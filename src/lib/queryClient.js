@@ -6,7 +6,7 @@ import {
   resumeMutationsAndReconcileDrafts,
 } from './offlineMutations';
 import { pushToast } from './toast';
-import { mutationErrorKey } from './mutationErrors';
+import { mutationErrorKey, isRefusedReplay } from './mutationErrors';
 
 // React Query's idea of "online" is `onlineManager`, and left alone it is wrong
 // in the one situation the offline layer exists for. It starts at `true` and
@@ -116,8 +116,14 @@ export function shouldPersistQuery(query) {
 // errors. Offline replays that fail transiently still toast (the write was
 // rejected, the user should know); the OfflineBanner covers the still-paused
 // case separately.
+//
+// One failure has been spoken for by the time it gets here: a write of the
+// workout that waited for the network and was then refused because its
+// session was closed in between. `lib/offlineMutations.js` says it once for
+// the whole queue — twenty sets are one message, not twenty toasts.
 const mutationCache = new MutationCache({
   onError: (error, _vars, _ctx, mutation) => {
+    if (isRefusedReplay(error)) return;
     if (mutation.options.meta?.skipErrorToast) return;
     pushToast(mutationErrorKey(error), { kind: 'error' });
   },
