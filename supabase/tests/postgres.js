@@ -33,6 +33,32 @@ import { runSqlFile } from './sql.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
+// The process keeps the exit code it chose.
+//
+// Importing `embedded-postgres` registers a hook (async-exit-hook, at the end
+// of its index.js) on Node's `beforeExit`. The hook stops whatever server is
+// still up and then calls process.exit(0) — with a literal 0. A process that
+// ends the way vitest does, by setting process.exitCode and letting the event
+// loop run dry, therefore always exited 0: `npm run test:db` printed
+// "1 failed" and the `db` job of CI stayed green.
+//
+// So the code is read at `beforeExit`, before the hook speaks, and put back in
+// the `exit` event that the hook's process.exit(0) raises. An exit that names
+// a code other than 0 (a signal, an explicit process.exit(n)) is left alone.
+// At module level because the import above is what brings the hook: whoever
+// loads this file is covered, with or without a server. Held by
+// src/test/dbSuiteExitCode.test.js — in the unit suite, whose exit code does
+// not depend on this.
+const EXIT_CODE_KEPT = Symbol.for('sl_app.db-tests.exit-code-kept');
+if (!process[EXIT_CODE_KEPT]) {
+  process[EXIT_CODE_KEPT] = true;
+  let chosen;
+  process.prependListener('beforeExit', () => { chosen = process.exitCode; });
+  process.on('exit', (code) => {
+    if (code === 0 && chosen) process.exitCode = chosen;
+  });
+}
+
 /** shim.sql only: a Supabase project with no user SQL in it yet. */
 export const BARE_DB = 'sl_bare';
 /** sl_bare + schema.sql: what a test file is cloned from. */
