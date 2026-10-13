@@ -78,11 +78,14 @@ const HELPERS = [
 ];
 /** Called by the app, through supabase.rpc(). */
 const RPCS = [
+  'activate_program(uuid)',           // 2026_10_13_11_activate_reorder_rpcs
   'adopt_skip(uuid, boolean)',
   'adopt_swap(uuid, uuid, boolean)',
   'approve_program(uuid)',
   'decline_promote_request(uuid)',
   'move_session(uuid, uuid, uuid[], uuid[])',
+  'reorder_sessions(uuid, uuid[])',   // 2026_10_13_11_activate_reorder_rpcs
+  'reorder_weeks(uuid, uuid[])',      // 2026_10_13_11_activate_reorder_rpcs
   'save_draft_tree(jsonb)',
   'send_back_program(uuid)',
 ];
@@ -449,8 +452,10 @@ describe('signed in', () => {
     expect(asked.coach).toEqual({ ...whoeverAsks, ...own(false) });
   });
 
-  // The five coach RPCs are called, by every caller, in rpc-auth.test.js.
-  it('save_draft_tree and move_session, the two RPCs that ride the caller\'s own RLS, still run', () => scenario(async (q) => {
+  // The five coach RPCs are called, by every caller, in rpc-auth.test.js; the
+  // three of migration 11 (activate_program, reorder_sessions, reorder_weeks)
+  // in atomic-rpcs.test.js.
+  it('save_draft_tree and move_session, the two RPCs of migration 03 that ride the caller\'s own RLS, still run', () => scenario(async (q) => {
     const uuid = () => q.value(`select gen_random_uuid()`);
     const [program, week, session, slot] = [await uuid(), await uuid(), await uuid(), await uuid()];
     const tree = {

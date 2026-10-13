@@ -90,6 +90,15 @@
       "covers": ["P18", "L7", "P21", "B9"],
       "reversible": true,
       "summary": "A library exercise that a goal is set on cannot be deleted, nor the profile of a coach while an athlete is linked to it or a goal names it (goals.exercise_id, goals.coach_id and students.coach_id are ON DELETE RESTRICT); exercise_library has archived_at, which nothing reads yet; a coach reads the progress of a goal only while they coach its athlete (coach_profile_for_goal follows the link); transfer_student(athlete, new coach) moves the link and the athlete's goals together, for the owner of the database and the service role only."
+    },
+    {
+      "name": "2026_10_13_11_activate_reorder_rpcs",
+      "kind": "required",
+      "wave": 1,
+      "checkpoint": "A3",
+      "covers": ["P16", "P51"],
+      "reversible": true,
+      "summary": "Three functions a signed-in user calls with the rights they already have (SECURITY INVOKER): activate_program(program) switches the athlete's other programs off and this one on in one statement, and refuses a draft and a program in the trash; reorder_sessions(phase, ids) and reorder_weeks(program, ids) renumber every session of a phase (0 to n-1) or every phase of a program (1 to n) in the order of the list, and refuse a list that is not exactly the children of the parent, archived sessions included. Nothing else: no table, no policy, no row."
     }
   ]
 }
