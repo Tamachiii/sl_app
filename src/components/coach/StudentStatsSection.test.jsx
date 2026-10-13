@@ -197,6 +197,20 @@ describe('StudentStatsSection — the scope is known before anything is computed
     expect(enabledScopes()).toEqual(['p-1']);
   });
 
+  // The section stays mounted when the coach goes from one athlete to the
+  // next: the outlet hands it another athlete, nothing remounts it.
+  it('follows the athlete: the next one gets their own saved scope, from their first render', () => {
+    saveScope('st-2', 'p-2');
+    const view = renderSection({ studentId: 'st-1' });
+    expect(statsCalls.at(-1)).toEqual({ studentId: 'st-1', scope: 'all', enabled: true });
+
+    statsCalls = [];
+    view.rerender(section('st-2', ''));
+    expect(statsCalls[0]).toEqual({ studentId: 'st-2', scope: 'p-2', enabled: true });
+    expect(statsCalls.every((c) => c.studentId === 'st-2' && c.scope === 'p-2')).toBe(true);
+    expect(programsCalls.at(-1)).toBe('st-2');
+  });
+
   // A list that failed or is paused is not coming: waiting for it would leave
   // the section on its spinner for as long as it stays away.
   it.each([
