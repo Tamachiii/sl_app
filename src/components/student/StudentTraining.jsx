@@ -14,10 +14,12 @@ import { useMyConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 import { useMyFeedbackSessionIds } from '../../hooks/useMessages';
 import { DAY_FULL_LONG, parseISODate, performedDate } from '../../lib/day';
 import { buildQueue, flattenSessions } from '../../lib/sessionQueue';
+import { readState } from '../../lib/readState';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
 import SessionCard from './SessionCard';
+import Unavailable from './Unavailable';
 
 const LOCALE = { en: 'en-US', fr: 'fr-FR', de: 'de-DE' };
 
@@ -89,31 +91,6 @@ function newestTrainedFirst(a, b) {
 }
 
 /**
- * What a part of the page can say about the reads it is made of: 'ready' when
- * each of them holds data, and otherwise why not.
- *
- * "No data" is not one state. A read that never got an answer — the device is
- * offline and waits (`isPaused`), or the request failed — has nothing to say
- * about the athlete's program, and the page used to print "No program assigned
- * yet" for it: the empty state of a read that DID answer. Data, however old,
- * always wins: a refresh that failed leaves `isError` on a read that still
- * holds the last good answer, and that answer is what is shown.
- *
- * `restoring` is the moment at launch when what the device kept is still being
- * read from IndexedDB: no read has data yet and none has been sent, which on a
- * device without a network would otherwise pass for "nothing kept".
- */
-function readState(queries, { online, restoring }) {
-  const missing = queries.filter((q) => q.data == null);
-  if (missing.length === 0) return 'ready';
-  if (restoring || missing.some((q) => q.fetchStatus === 'fetching')) return 'loading';
-  if (!online || missing.some((q) => q.isPaused)) return 'offline';
-  if (missing.some((q) => q.isError)) return 'failed';
-  // Not asked yet (the account is not known): nothing to report.
-  return 'loading';
-}
-
-/**
  * Read a session and its sets into the cache, under the keys and in the shapes
  * the session page reads — the same options objects its hooks mount.
  *
@@ -134,30 +111,6 @@ function readAheadSession(queryClient, sessionId) {
       return queryClient.prefetchQuery(setLogsQueryOptions(sessionId, slots));
     })
     .catch(() => {});
-}
-
-// Stands where content would be when its read got no answer: what happened,
-// and a way to ask again. `compact` is for one drawer rather than the page.
-function Unavailable({ title, body, onRetry, compact = false }) {
-  const { t } = useI18n();
-  return (
-    <div
-      role="status"
-      className={`flex flex-col items-center text-center gap-3 ${compact ? 'py-6' : 'py-16'}`}
-    >
-      <div>
-        <p className="text-sm text-gray-900">{title}</p>
-        {body && <p className="text-sm text-gray-400 mt-1">{body}</p>}
-      </div>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="sl-pill min-h-11 px-4 bg-ink-100 text-ink-700 hover:bg-ink-200"
-      >
-        {t('trainingListOffline.retry')}
-      </button>
-    </div>
-  );
 }
 
 // Name plus at most ONE short line, and only when it says something. "Trained

@@ -276,6 +276,32 @@ describe.each(Object.keys(MODES))('a session opened without a network (reads %s)
     expect(supabase.rpc).toHaveBeenCalledTimes(1);
     expect(gym.isMutating()).toBe(0);
   });
+
+  // N1. A session that was never opened on this device, and was not read
+  // ahead: the page has nothing — and used to show a session without an
+  // exercise, under the title "Session", with "Confirm session" live.
+  it('a session that is not on the device: says so, offers no confirmation, and opens when the network returns', async () => {
+    setNetwork(false, mode);
+    const gym = makeClient(mode);
+    renderPage(gym);
+
+    expect(await screen.findByText(/this session isn’t on this device yet/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+    expect(confirmButton()).toBeNull();
+    expect(screen.queryByText(/of \d+ sets/i)).toBeNull();
+    await settle();
+    expect(screen.getByText(/this session isn’t on this device yet/i)).toBeInTheDocument();
+    expect(confirmButton()).toBeNull();
+    expect(gym.getMutationCache().getAll()).toEqual([]);
+
+    // No tap: the return of the network is enough.
+    setNetwork(true, mode);
+    expect(await screen.findByText('Bench Press')).toBeInTheDocument();
+    expect(screen.getByText('Pull A')).toBeInTheDocument();
+    expect(screen.getByText('0 of 4 sets')).toBeInTheDocument();
+    expect(confirmButton()).toBeInTheDocument();
+    expect(screen.queryByText(/isn’t on this device/i)).toBeNull();
+  });
 });
 
 describe('a session opened on a network', () => {

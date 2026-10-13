@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useIsRestoring } from '@tanstack/react-query';
 import { useSession } from '../../hooks/useSession';
 import { useSetLogs, useEnsureSetLogs } from '../../hooks/useSetLogs';
 import { useSlotComments } from '../../hooks/useSlotComments';
@@ -14,12 +15,15 @@ import {
 } from '../../hooks/useSessionConfirmation';
 import { useSessionFeedback, formatMessageStamp } from '../../hooks/useMessages';
 import { useI18n } from '../../hooks/useI18n';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { readState } from '../../lib/readState';
 import Spinner from '../ui/Spinner';
 import Dialog from '../ui/Dialog';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import { groupSlotsBySuperset } from '../../lib/volume';
 import { DAY_FULL, performedOnFromLogs } from '../../lib/day';
 import SlotGroupCard from './SlotGroupCard';
+import Unavailable from './Unavailable';
 import RestTimerBanner from './RestTimerBanner';
 import { useRestTimerEffects } from '../../hooks/useRestTimerEffects';
 import { useRestTimerPush } from '../../hooks/useRestTimerPush';
@@ -92,12 +96,15 @@ export default function SessionView() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
   const { t, lang } = useI18n();
+  const online = useOnlineStatus();
+  const restoring = useIsRestoring();
   const sessionRead = useSession(sessionId);
   const { data: session, refetch: refetchSession } = sessionRead;
   const { data: feedback } = useSessionFeedback(sessionId);
   const slots = session?.exercise_slots || NO_SLOTS;
+  const hasSlots = slots.length > 0;
   const logsRead = useSetLogs(sessionId, slots);
-  const { data: logs } = logsRead;
+  const { data: logs, refetch: refetchLogs } = logsRead;
   const { data: slotComments } = useSlotComments(sessionId, slots);
   const { data: slotDeviations, isFetched: deviationsFetched } = useSlotDeviations(
     sessionId,
@@ -203,6 +210,38 @@ export default function SessionView() {
     }
   }, [sessionId, hasSession, isReadOnly, isConfirmed, feedbackId, refetchSession]);
 
+  // ── What the page is made of ─────────────────────────────────────────
+  // Two reads: the session, and its sets once it is known to have exercises.
+  // Until both hold data the page has nothing to show — and nothing to
+  // confirm. A read that waits for the network or failed is not an empty
+  // session: rendered as one, it was a page titled "Session" with no exercise
+  // and a live "Confirm session" button (live item N1).
+  const pageState = readState(hasSlots ? [sessionRead, logsRead] : [sessionRead], {
+    online,
+    restoring,
+  });
+  const ready = pageState === 'ready';
+
+  // `cancelRefetch: false` joins a request that is already on its way — a
+  // read React Query resumes by itself when the network returns — instead of
+  // starting a second one.
+  const retry = useCallback(() => {
+    refetchSession({ cancelRefetch: false });
+    if (hasSlots) refetchLogs({ cancelRefetch: false });
+  }, [refetchSession, refetchLogs, hasSlots]);
+
+  // The network is back and the page still has nothing to show: ask again,
+  // without waiting for a tap. On that step only, never in a loop — a read
+  // that keeps failing while the device is online stops at its message and its
+  // button. (A client that believed it was online when the read failed holds
+  // an errored read that nothing else picks up.)
+  const wasOnline = useRef(online);
+  useEffect(() => {
+    const cameBack = online && !wasOnline.current;
+    wasOnline.current = online;
+    if (cameBack && !ready) retry();
+  }, [online, ready, retry]);
+
   // A prescribed set without its row is added by the database, when the page
   // can tell that one is missing — see useEnsureSetLogs, which sends nothing
   // otherwise and nothing without a network. Not on a session shown read-only:
@@ -251,8 +290,28 @@ export default function SessionView() {
     setOpenKey(null);
   }, [firstOpenIdx]);
 
-  if (sessionRead.isLoading || logsRead.isLoading) {
+  if (pageState === 'loading') {
     return <div className="flex justify-center py-12"><Spinner /></div>;
+  }
+
+  // Nothing to build the page from, and nothing on its way. Said as what it
+  // is, with a way to ask again — and without the rest of the page: there is
+  // no set to tick, and a confirmation would be the confirmation of nothing.
+  if (!ready) {
+    const offline = pageState === 'offline';
+    return (
+      <div className="p-4 pb-6 md:p-8 space-y-5">
+        <SessionTopBar
+          title={session?.title || t('sessionUnavailable.title')}
+          onBack={() => navigate(-1)}
+        />
+        <Unavailable
+          title={t(offline ? 'sessionUnavailable.offlineTitle' : 'sessionUnavailable.errorTitle')}
+          body={t(offline ? 'sessionUnavailable.offlineBody' : 'sessionUnavailable.errorBody')}
+          onRetry={retry}
+        />
+      </div>
+    );
   }
 
   function getLogsForSlot(slotId) {
@@ -320,7 +379,7 @@ export default function SessionView() {
   return (
     <div className="p-4 pb-6 md:p-8 space-y-5">
       <SessionTopBar
-        title={session?.title || 'Session'}
+        title={session?.title || t('sessionUnavailable.title')}
         meta={metaBits.join(' · ')}
         onBack={() => navigate(-1)}
       />

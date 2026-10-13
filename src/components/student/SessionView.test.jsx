@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import { IsRestoringProvider } from '@tanstack/react-query';
 
 let mockSessionData = { data: null, isLoading: false };
 let mockSetLogsData = { data: [], isLoading: false };
@@ -23,9 +24,10 @@ vi.mock('../../hooks/useSession', () => ({
 // what it shows and whether it may ask (see "missing set rows" below); what
 // the hook does with it is in hooks/useSetLogs.ensure.test.jsx.
 const mockEnsureSetLogs = vi.fn();
+const mockRefetchLogs = vi.fn();
 
 vi.mock('../../hooks/useSetLogs', () => ({
-  useSetLogs: () => mockSetLogsData,
+  useSetLogs: () => ({ refetch: mockRefetchLogs, ...mockSetLogsData }),
   useEnsureSetLogs: (...args) => mockEnsureSetLogs(...args),
   useToggleSetDone: () => ({ mutate: vi.fn() }),
   useSetFailed: () => ({ mutate: vi.fn() }),
@@ -54,8 +56,10 @@ vi.mock('../../hooks/useExerciseLibrary', () => ({
   useExerciseLibrary: () => ({ data: [], isLoading: false }),
 }));
 
+let mockOnline = true;
+
 vi.mock('../../hooks/useOnlineStatus', () => ({
-  useOnlineStatus: () => true,
+  useOnlineStatus: () => mockOnline,
 }));
 
 let mockConfirmation = { data: null, isLoading: false };
@@ -110,8 +114,8 @@ describe('SessionView', () => {
   });
 
   it('renders loading spinner', () => {
-    mockSessionData = { data: null, isLoading: true };
-    mockSetLogsData = { data: [], isLoading: false };
+    mockSessionData = { data: undefined, isLoading: true, fetchStatus: 'fetching' };
+    mockSetLogsData = { data: undefined, isLoading: false, fetchStatus: 'idle' };
     renderSessionView();
     expect(screen.getByRole('status')).toBeInTheDocument();
   });
@@ -1356,5 +1360,226 @@ describe('SessionView: a session the coach has reviewed', () => {
       expect(lockLine()).toBeInTheDocument();
       expect(mockUnconfirm.mutate).not.toHaveBeenCalled();
     });
+  });
+});
+
+// The page is made of two reads — the session, and its sets — and both reach
+// it through a cache the device keeps. Opened in a gym on a session that is not
+// on the device, neither answers. That used to be rendered as an empty
+// session: a page titled "Session", no exercise, and a live "Confirm session"
+// (live item N1). What each state of the two reads looks like is here; that
+// the real reads get into those states is in SessionView.offline.test.jsx.
+describe('SessionView: a session whose reads did not answer', () => {
+  const SLOT = {
+    id: 'slot-1',
+    sets: 1,
+    reps: 5,
+    weight_kg: 50,
+    sort_order: 0,
+    exercise: { id: 'ex-1', name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
+  };
+  const LOG = { id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, rpe: null };
+
+  // A read as useQuery reports it, without data.
+  const waiting = { data: undefined, isLoading: false, fetchStatus: 'paused', isPaused: true };
+  const failed = { data: undefined, isLoading: false, fetchStatus: 'idle', isError: true };
+  const onItsWay = { data: undefined, isLoading: true, fetchStatus: 'fetching' };
+  // The sets are not asked for while the session has no exercise to show.
+  const notAsked = { data: undefined, isLoading: false, fetchStatus: 'idle' };
+  const loaded = (fields = {}) => ({
+    data: { title: 'Pull A', exercise_slots: [SLOT], program_is_active: true, ...fields },
+    isLoading: false,
+    fetchStatus: 'idle',
+  });
+
+  const confirmButton = () => screen.queryByRole('button', { name: /^confirm session$/i });
+  const retryButton = () => screen.queryByRole('button', { name: /try again/i });
+  const notOnDevice = () => screen.queryByText(/this session isn’t on this device yet/i);
+  const notLoaded = () => screen.queryByText(/this session couldn’t be loaded/i);
+
+  function rerenderSessionView(view) {
+    view.rerender(
+      <MemoryRouter>
+        <SessionView />
+      </MemoryRouter>
+    );
+  }
+
+  beforeEach(() => {
+    mockOnline = true;
+    mockConfirmation = { data: null, isLoading: false };
+    mockFeedback = { data: null };
+    mockDeviations = { data: [], isLoading: false };
+    mockVideos = { data: [], isLoading: false };
+    mockSessionData = loaded();
+    mockSetLogsData = { data: [LOG], isLoading: false, fetchStatus: 'idle' };
+    vi.clearAllMocks();
+    resetRestTimer();
+  });
+
+  afterEach(() => {
+    mockOnline = true;
+  });
+
+  it('without a network and with nothing on the device: says so, and offers nothing to confirm', () => {
+    mockOnline = false;
+    mockSessionData = waiting;
+    mockSetLogsData = notAsked;
+    // The confirmation was never read either, and waits like the rest.
+    mockConfirmation = { data: undefined, isLoading: false };
+    renderSessionView();
+
+    expect(notOnDevice()).toBeInTheDocument();
+    expect(screen.getByText(/you’re offline\. it will open as soon as the connection is back/i)).toBeInTheDocument();
+    expect(retryButton()).toBeInTheDocument();
+    // The page keeps its bar and its way back…
+    expect(screen.getByText('Session')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /go back/i })).toBeInTheDocument();
+    // …and nothing that speaks for a session it does not have.
+    expect(confirmButton()).toBeNull();
+    expect(screen.queryByText(/of \d+ sets/i)).toBeNull();
+    expect(screen.queryByRole('status', { name: /loading/i })).toBeNull();
+  });
+
+  // A client that pauses its reads without a network says "paused" before the
+  // device says "offline", and one that attempted the read ends on an error
+  // while the device is offline: both are the same thing to the athlete.
+  it('is the same message whether the read waits or was attempted and failed', () => {
+    mockSessionData = waiting;
+    mockSetLogsData = notAsked;
+    const paused = renderSessionView();
+    expect(notOnDevice()).toBeInTheDocument();
+    expect(confirmButton()).toBeNull();
+    paused.unmount();
+
+    mockOnline = false;
+    mockSessionData = failed;
+    renderSessionView();
+    expect(notOnDevice()).toBeInTheDocument();
+    expect(notLoaded()).toBeNull();
+    expect(confirmButton()).toBeNull();
+  });
+
+  it('on a network, a read that failed: says it could not be loaded, and "Try again" asks for it', async () => {
+    const user = userEvent.setup();
+    mockSessionData = failed;
+    mockSetLogsData = notAsked;
+    renderSessionView();
+
+    expect(notLoaded()).toBeInTheDocument();
+    expect(screen.getByText(/check your connection, then try again/i)).toBeInTheDocument();
+    expect(notOnDevice()).toBeNull();
+    expect(confirmButton()).toBeNull();
+
+    await user.click(retryButton());
+    // Joins a request already on its way instead of starting a second one.
+    expect(mockRefetchSession).toHaveBeenCalledTimes(1);
+    expect(mockRefetchSession).toHaveBeenCalledWith({ cancelRefetch: false });
+    // No exercise is known: there are no sets to ask for.
+    expect(mockRefetchLogs).not.toHaveBeenCalled();
+  });
+
+  // The session row is there and its sets are not: the exercises with no set
+  // under them, and a confirmation of nothing, are not the session either.
+  it('the session without its sets is not shown as exercises without sets', async () => {
+    const user = userEvent.setup();
+    mockOnline = false;
+    mockSetLogsData = waiting;
+    renderSessionView();
+
+    expect(notOnDevice()).toBeInTheDocument();
+    // What is known is said: the title of the session.
+    expect(screen.getByText('Pull A')).toBeInTheDocument();
+    expect(screen.queryByText('Squat')).toBeNull();
+    expect(confirmButton()).toBeNull();
+
+    await user.click(retryButton());
+    expect(mockRefetchSession).toHaveBeenCalledWith({ cancelRefetch: false });
+    expect(mockRefetchLogs).toHaveBeenCalledWith({ cancelRefetch: false });
+  });
+
+  it('holds its spinner while a read is on its way, and while the cache is read back from the device', () => {
+    mockSessionData = onItsWay;
+    mockSetLogsData = notAsked;
+    const session = renderSessionView();
+    expect(screen.getByRole('status')).toHaveAccessibleName(/loading/i);
+    session.unmount();
+
+    mockSessionData = loaded();
+    mockSetLogsData = onItsWay;
+    const sets = renderSessionView();
+    expect(screen.getByRole('status')).toHaveAccessibleName(/loading/i);
+    expect(retryButton()).toBeNull();
+    sets.unmount();
+
+    // At launch, before IndexedDB has answered: no read holds data and none
+    // was sent, on a device that may hold the whole session.
+    mockOnline = false;
+    mockSessionData = notAsked;
+    mockSetLogsData = notAsked;
+    render(
+      <IsRestoringProvider value={true}>
+        <MemoryRouter>
+          <SessionView />
+        </MemoryRouter>
+      </IsRestoringProvider>
+    );
+    expect(screen.getByRole('status')).toHaveAccessibleName(/loading/i);
+    expect(notOnDevice()).toBeNull();
+    expect(retryButton()).toBeNull();
+  });
+
+  // A refresh that failed leaves an error next to the last good answer, and
+  // the device being offline changes nothing to what it holds.
+  it('data wins: the workout the device holds is shown, offline and after a refresh that failed', () => {
+    mockOnline = false;
+    mockSessionData = { ...loaded(), isError: true, isPaused: true, fetchStatus: 'paused' };
+    mockSetLogsData = { data: [LOG], isLoading: false, isError: true, fetchStatus: 'idle' };
+    renderSessionView();
+
+    expect(screen.getByText('Squat')).toBeInTheDocument();
+    expect(screen.getByText(/0 of 1 sets/i)).toBeInTheDocument();
+    expect(confirmButton()).toBeInTheDocument();
+    expect(notOnDevice()).toBeNull();
+    expect(notLoaded()).toBeNull();
+  });
+
+  it('a session without an exercise waits for no sets', () => {
+    mockSessionData = loaded({ exercise_slots: [] });
+    mockSetLogsData = notAsked;
+    renderSessionView();
+
+    expect(screen.getByText('Pull A')).toBeInTheDocument();
+    expect(confirmButton()).toBeInTheDocument();
+    expect(retryButton()).toBeNull();
+  });
+
+  it('asks again by itself when the network returns — once, not for as long as it fails', () => {
+    mockOnline = false;
+    mockSessionData = failed;
+    mockSetLogsData = notAsked;
+    const view = renderSessionView();
+    expect(mockRefetchSession).not.toHaveBeenCalled();
+
+    mockOnline = true;
+    rerenderSessionView(view);
+    expect(mockRefetchSession).toHaveBeenCalledTimes(1);
+    expect(mockRefetchSession).toHaveBeenCalledWith({ cancelRefetch: false });
+
+    // Still failing, still online: the message and its button, no loop.
+    rerenderSessionView(view);
+    rerenderSessionView(view);
+    expect(mockRefetchSession).toHaveBeenCalledTimes(1);
+    expect(notLoaded()).toBeInTheDocument();
+  });
+
+  it('asks for nothing when the network returns on a page that has its session', () => {
+    mockOnline = false;
+    const view = renderSessionView();
+    mockOnline = true;
+    rerenderSessionView(view);
+
+    expect(mockRefetchSession).not.toHaveBeenCalled();
+    expect(mockRefetchLogs).not.toHaveBeenCalled();
   });
 });
