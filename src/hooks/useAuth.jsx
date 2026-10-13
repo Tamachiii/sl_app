@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, useMemo, useCallback, u
 import { supabase } from '../lib/supabase';
 import { setErrorReporterUser } from '../lib/errorReporter';
 import { replayQueuedWrites } from '../lib/queryClient';
-import { readStoredUser, forgetStoredSession } from '../lib/storedSession';
+import { readStoredUser, forgetStoredSession, isStoredSessionRemoval } from '../lib/storedSession';
 import { readCachedProfile, writeCachedProfile, forgetCachedProfile } from '../lib/profileCache';
 
 const AuthContext = createContext(null);
@@ -274,9 +274,22 @@ export function AuthProvider({ children }) {
     window.addEventListener('online', askAgain);
     const asking = setInterval(askForRole, ROLE_RETRY_MS);
 
+    // ANOTHER tab took the stored session off the device. When auth-js did
+    // that, it says SIGNED_OUT in every tab. It says nothing of the sign-out
+    // `signOut` below makes for a device that could not reach the server: the
+    // session is removed behind its back, and the `storage` event is all the
+    // other tabs get. Without it they went on showing the account, while
+    // their requests left without a session. As for any session that went
+    // away, this is not a sign-out of THIS tab: `signOuts` does not move.
+    const sessionRemovedElsewhere = (event) => {
+      if (who.current && isStoredSessionRemoval(event) && !readStoredUser()) nobody();
+    };
+    window.addEventListener('storage', sessionRemovedElsewhere);
+
     return () => {
       subscription.unsubscribe();
       window.removeEventListener('online', askAgain);
+      window.removeEventListener('storage', sessionRemovedElsewhere);
       clearInterval(asking);
     };
   }, [ensureProfile, signedInAs, asStored, nobody]);

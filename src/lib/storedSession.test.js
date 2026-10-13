@@ -17,7 +17,7 @@ vi.mock('./supabase', () => ({
 }));
 
 import { createClient } from '@supabase/supabase-js';
-import { readStoredUser, forgetStoredSession } from './storedSession';
+import { readStoredUser, forgetStoredSession, isStoredSessionRemoval } from './storedSession';
 
 const USER = { id: 'u-athlete', email: 'athlete@example.test', aud: 'authenticated', role: 'authenticated' };
 const STORAGE_KEY = 'sb-device-test-auth-token';
@@ -186,6 +186,33 @@ describe('signing out a device', () => {
     expect(await launch().auth.getSession()).toEqual({ data: { session: null }, error: null });
     expect(device.requests).toEqual([]);
   });
+
+  // Why the provider listens to `storage` (useAuth): a sign-out auth-js makes
+  // is an event in every tab, this one is an event in none.
+  it('forgetStoredSession() is no event of auth-js: another tab has the removal alone to go by, and tells it from any other change', async () => {
+    const client = await signedInDevice();
+    const events = [];
+    client.auth.onAuthStateChange((event) => events.push(event));
+    await client.auth.getSession();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    events.length = 0;
+    const stored = localStorage.getItem(STORAGE_KEY);
+
+    forgetStoredSession();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events).toEqual([]);
+    // What a browser sends the other tabs: the key that went, or no key when
+    // the whole storage was emptied.
+    expect(isStoredSessionRemoval({ key: STORAGE_KEY, oldValue: stored, newValue: null })).toBe(true);
+    expect(isStoredSessionRemoval({ key: null, oldValue: null, newValue: null })).toBe(true);
+    // A session that is written — a sign-in, a token refresh — is not one.
+    expect(isStoredSessionRemoval({ key: STORAGE_KEY, oldValue: null, newValue: stored })).toBe(false);
+    expect(isStoredSessionRemoval({ key: STORAGE_KEY, oldValue: stored, newValue: stored })).toBe(false);
+    // Nor is anything else that goes.
+    expect(isStoredSessionRemoval({ key: `${STORAGE_KEY}-code-verifier`, oldValue: 'v', newValue: null })).toBe(false);
+    expect(isStoredSessionRemoval({ key: 'sl_profile_cache', oldValue: '{}', newValue: null })).toBe(false);
+  });
 });
 
 describe('a client that does not say where it stores the session', () => {
@@ -196,5 +223,8 @@ describe('a client that does not say where it stores the session', () => {
     expect(readStoredUser()).toBeNull();
     forgetStoredSession();
     expect(localStorage.getItem(STORAGE_KEY)).not.toBeNull();
+    // And no change of the storage is the removal of a session it cannot name.
+    expect(isStoredSessionRemoval({ key: STORAGE_KEY, oldValue: 'x', newValue: null })).toBe(false);
+    expect(isStoredSessionRemoval({ key: null, oldValue: null, newValue: null })).toBe(false);
   });
 });

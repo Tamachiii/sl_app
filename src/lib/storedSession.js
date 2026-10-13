@@ -53,8 +53,24 @@ export function readStoredUser() {
 }
 
 /**
+ * True for the `storage` event of ANOTHER tab that removed the stored session,
+ * or emptied the storage — a browser never sends the event to the tab that
+ * made the change. It says what that tab did, not what the device stores by
+ * the time the event arrives: ask `readStoredUser()` as well.
+ */
+export function isStoredSessionRemoval(event) {
+  const key = storageKey();
+  if (!key || !event || event.newValue != null) return false;
+  // `key` is null when the whole storage was cleared.
+  return event.key === key || event.key === null;
+}
+
+/**
  * Take the stored session off this device. The next `auth.getSession()` — of
  * this page or of the next launch — answers "no session".
+ *
+ * auth-js is not told, and so tells nobody: the other tabs of the app learn
+ * it from the `storage` event alone (`isStoredSessionRemoval`).
  *
  * This is the sign-out of a device that cannot reach the server.
  * `auth.signOut()` removes the stored session only once the server has

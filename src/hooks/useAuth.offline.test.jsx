@@ -611,6 +611,97 @@ describe('signing out of the device', () => {
   });
 });
 
+// Two tabs of the app share the stored session. Of a sign-out auth-js made,
+// it tells every tab (SIGNED_OUT). Of the one made without a network it knows
+// nothing — the device forgets the session itself — and the `storage` event
+// of the browser is all the other tab gets.
+describe('another tab signs out of the device without a network', () => {
+  async function openAsA() {
+    deviceStores({ user: A, profile: ROW_A });
+    supabase.auth.getSession.mockResolvedValue(sessionAnswer(A));
+    profileReads(row(ROW_A));
+    const app = openApp();
+    await waitFor(() => expect(app.now().profile).toEqual(ROW_A));
+    return app;
+  }
+  // What a browser tells this tab about a change another tab made.
+  const hears = (change) =>
+    act(async () => {
+      window.dispatchEvent(new StorageEvent('storage', { storageArea: localStorage, ...change }));
+    });
+  async function otherTabRemoves(key) {
+    const oldValue = localStorage.getItem(key);
+    localStorage.removeItem(key);
+    await hears({ key, oldValue, newValue: null });
+  }
+
+  it('this tab shows nobody either, and it is not a sign-out of its own', async () => {
+    const app = await openAsA();
+
+    await otherTabRemoves(STORAGE_KEY);
+
+    expect(app.now()).toMatchObject({ user: null, profile: null, role: null, isLoading: false, signOuts: 0 });
+    expect(supabase.auth.signOut).not.toHaveBeenCalled();
+  });
+
+  it('a sign-in made in that tab afterwards signs this one in again', async () => {
+    const app = await openAsA();
+    await otherTabRemoves(STORAGE_KEY);
+    replayQueuedWrites.mockClear();
+
+    profileReads(row(ROW_B));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessionOf(B)));
+    await emit('SIGNED_IN', sessionOf(B));
+
+    await waitFor(() => expect(app.now().profile).toEqual(ROW_B));
+    expect(app.now()).toMatchObject({ user: B, role: 'coach' });
+    // A session appeared where there was none: what this tab holds for the
+    // account is replayed (and for another account, wiped first — App.jsx).
+    expect(replayQueuedWrites).toHaveBeenCalledTimes(1);
+  });
+
+  it('the whole storage emptied is the same', async () => {
+    const app = await openAsA();
+
+    localStorage.clear();
+    await hears({ key: null, oldValue: null, newValue: null });
+
+    expect(app.now()).toMatchObject({ user: null, signOuts: 0 });
+  });
+
+  it('a session written again — a token refreshed in that tab — changes nothing', async () => {
+    const app = await openAsA();
+    const renders = app.seen.length;
+
+    const stored = localStorage.getItem(STORAGE_KEY);
+    await hears({ key: STORAGE_KEY, oldValue: stored, newValue: stored });
+
+    expect(app.now()).toMatchObject({ user: A, role: 'student' });
+    expect(app.seen).toHaveLength(renders);
+  });
+
+  it('neither does another key that goes', async () => {
+    const app = await openAsA();
+    localStorage.setItem('sl_something_else', '1');
+
+    await otherTabRemoves('sl_something_else');
+
+    expect(app.now()).toMatchObject({ user: A, role: 'student' });
+  });
+
+  it('a removal heard after that tab has signed in again signs nobody out: the device stores a session', async () => {
+    const app = await openAsA();
+
+    // Sign-out and sign-in over there, before the first event arrives here.
+    const oldValue = localStorage.getItem(STORAGE_KEY);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessionOf(B)));
+    await hears({ key: STORAGE_KEY, oldValue, newValue: null });
+
+    // Who is signed in now is auth-js's to say (SIGNED_IN), not this event's.
+    expect(app.now().user).toEqual(A);
+  });
+});
+
 describe('another account signs in', () => {
   it('is never shown the profile of the previous one', async () => {
     deviceStores({ user: A, profile: ROW_A });
