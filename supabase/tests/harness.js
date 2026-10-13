@@ -600,28 +600,37 @@ export function seed() {
 // ------------------------------------------------------------
 
 /**
- * Configure the two Vault secrets the notify_* triggers look for. Without
- * them (the default) every trigger skips net.http_post — the "push not
- * configured" branch.
+ * Configure the two Vault secrets send_push_event() looks for: where the
+ * functions are, and the bearer of send-push. Without them (the default)
+ * nothing is queued — the "push not configured" branch.
+ *
+ *   enablePush()                                  // as production holds them today
+ *   enablePush({ bearerName: 'app_internal_bearer' })   // once the secret is renamed
+ *
+ * `bearerName` is the name the bearer is stored under: the historical
+ * `app_service_role_key` (default), or `app_internal_bearer`. Any bearer
+ * stored before, under either name, is removed first.
  */
 export function enablePush({
   url = 'https://functions.sl.test/functions/v1',
   bearer = 'test-internal-bearer',
+  bearerName = 'app_service_role_key',
 } = {}) {
   return fixture(async (q) => {
-    await q(`delete from vault.secrets where name in ('app_functions_url', 'app_service_role_key')`);
+    await q(`delete from vault.secrets where name in ('app_functions_url', 'app_service_role_key', 'app_internal_bearer')`);
     await q(`select vault.create_secret($1, 'app_functions_url')`, [url]);
-    await q(`select vault.create_secret($1, 'app_service_role_key')`, [bearer]);
+    await q(`select vault.create_secret($1, $2)`, [bearer, bearerName]);
   });
 }
 
 /**
  * The HTTP requests queued through net.http_post so far, oldest first:
- * `[{ id, method, url, headers, body }]`. Nothing is ever sent.
+ * `[{ id, method, url, headers, body, timeout_milliseconds }]`. Nothing is
+ * ever sent.
  */
 export function httpCalls() {
   return run(ADMIN, (q) => q.rows(
-    `select id, method, url, headers, body from net.http_request_queue order by id`,
+    `select id, method, url, headers, body, timeout_milliseconds from net.http_request_queue order by id`,
   ));
 }
 
@@ -655,6 +664,13 @@ export function httpCalls() {
  *   db.readOnly(sql, label) the same inside a READ ONLY transaction that is
  *                           rolled back: any write raises 25006. Resolves to
  *                           the result of each statement of `sql`, in order.
+ *   db.platform(sql)        one statement as the PLATFORM — the bootstrap
+ *                           superuser, which owns what Supabase provides
+ *                           (`net`, `vault`, `auth`, `storage`) — and
+ *                           committed. For a test about a project whose pg_net
+ *                           or vault is not the one of production: `postgres`
+ *                           can neither rename nor replace anything there.
+ *                           Never for what the app or a migration does.
  *   db.drop()               drop it now rather than at the end of the file —
  *                           for a test that builds many
  *
@@ -696,6 +712,16 @@ export async function scratchDatabase({ from = 'bare' } = {}) {
       await client.query('ROLLBACK');
       return Array.isArray(result) ? result : [result];
     }),
+    platform: async (sql) => {
+      // A connection of its own, closed at once: the pool is `postgres`.
+      const client = new pg.Client({ ...server, ...connection.superuser, database: name, types });
+      await client.connect();
+      try {
+        return await client.query(sql);
+      } finally {
+        await client.end();
+      }
+    },
     drop: async () => {
       const index = scratch.indexOf(created);
       if (index === -1) return;

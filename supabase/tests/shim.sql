@@ -244,8 +244,9 @@ GRANT supabase_storage_admin TO postgres;
 -- 5. vault  (stub for supabase_vault 0.3.1)
 -- ------------------------------------------------------------
 -- SHIM LIMIT: no encryption. `decrypted_secret` is the stored text. Empty by
--- default, which is the "push not configured" branch of every notify_*
--- trigger; a test opts in with harness.enablePush().
+-- default, which is the "push not configured" branch of send_push_event() —
+-- the one function of schema.sql that reads it; a test opts in with
+-- harness.enablePush().
 CREATE SCHEMA vault;
 
 CREATE TABLE vault.secrets (
@@ -325,8 +326,9 @@ CREATE TABLE net.http_request_queue (
 
 -- Same signature and defaults as pg_net. Set the transaction-local GUC
 --   select set_config('shim.http_post_fails', 'on', true);
--- to make the next calls raise — every caller in schema.sql wraps the call in
--- EXCEPTION WHEN OTHERS, and that is worth testing.
+-- to make the next calls raise — send_push_event() is its one caller in
+-- schema.sql, and every function that asks it for a push wraps that call in
+-- EXCEPTION WHEN OTHERS, which is worth testing.
 CREATE FUNCTION net.http_post(
   url                  text,
   body                 jsonb DEFAULT '{}'::jsonb,

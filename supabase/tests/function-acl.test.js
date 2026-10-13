@@ -106,6 +106,8 @@ const NOT_FOR_USERS = [
   ['set_log_is_logged(set_logs)', 'the one definition of a logged set: called by SECURITY DEFINER functions only (the guards, the pin on targets, adopt_swap, adopt_skip), as their owner'],
   // 2026_10_13_10_goals_fk_coach_links
   ['transfer_student(uuid, uuid)', 'moves an athlete and their goals to another coach: called by the owner of the database (the SQL editor) or with the service-role key, never by a signed-in user — it refuses a request that carries a user id'],
+  // 2026_10_13_15_push_plumbing
+  ['send_push_event(uuid, jsonb, jsonb)', 'hands a push to the send-push Edge Function: whoever may call it sends any text and any link to any account. Called by the eleven SECURITY DEFINER functions that notify somebody, as their owner, and by the service role — never by a signed-in user (push-plumbing.test.js)'],
 ];
 
 const SEARCH_PATH = 'search_path=public, pg_temp';

@@ -745,7 +745,8 @@ describe('the push of a confirmation', () => {
     expect(pushes.map((call) => call.body.payload.tag)).toEqual([
       `session-confirm-${s.id}`, `session-confirm-${s.id}`, `session-confirm-${other.id}`,
     ]);
-    // The rest of the push is what it was.
+    // The rest of the push is what it was — with, since 2026_10_13_15, the
+    // day send_push_event gives the push service to deliver it.
     expect(pushes[0].body).toEqual({
       user_id: ids.coach.id,
       payload: {
@@ -754,6 +755,7 @@ describe('the push of a confirmation', () => {
         tag: `session-confirm-${s.id}`,
         data: { url: `/sl_app/#/coach/student/${ids.studentA.studentRowId}/session/${s.id}/review` },
       },
+      ttl: 86400,
     });
   }));
 });

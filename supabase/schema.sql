@@ -1688,8 +1688,6 @@ DECLARE
   v_student_row_id    uuid;
   v_student_name      text;
   v_session_title     text;
-  v_functions_url     text;
-  v_service_key       text;
 BEGIN
   v_coach_id        := public.coach_profile_for_session(NEW.session_id);
   v_student_profile := public.student_profile_for_session(NEW.session_id);
@@ -1724,37 +1722,22 @@ BEGIN
     )
   );
 
-  -- Best-effort Web Push (same pattern as notify_coach_on_slot_deviation).
+  -- Best-effort Web Push, through send_push_event (2026_10_13_15). Whatever
+  -- it raises stays a warning: a push never undoes the write that caused it.
   BEGIN
-    SELECT decrypted_secret INTO v_functions_url
-      FROM vault.decrypted_secrets WHERE name = 'app_functions_url';
-    SELECT decrypted_secret INTO v_service_key
-      FROM vault.decrypted_secrets WHERE name = 'app_service_role_key';
-
-    IF v_functions_url IS NOT NULL AND v_service_key IS NOT NULL
-       AND v_functions_url <> '' AND v_service_key <> ''
-    THEN
-      PERFORM net.http_post(
-        url := v_functions_url || '/send-push',
-        headers := jsonb_build_object(
-          'Content-Type', 'application/json',
-          'Authorization', 'Bearer ' || v_service_key
-        ),
-        body := jsonb_build_object(
-          'user_id', v_coach_id,
-          'payload', jsonb_build_object(
-            'title', 'Session completed',
-            'body',  COALESCE(v_student_name, 'Your athlete')
-                     || ' completed ' || v_session_title,
-            'tag',   'session-confirm-' || NEW.session_id::text,
-            'data',  jsonb_build_object(
-              'url', '/sl_app/#/coach/student/' || COALESCE(v_student_row_id::text, '')
-                     || '/session/' || NEW.session_id::text || '/review'
-            )
-          )
+    PERFORM public.send_push_event(
+      v_coach_id,
+      jsonb_build_object(
+        'title', 'Session completed',
+        'body',  COALESCE(v_student_name, 'Your athlete')
+                 || ' completed ' || v_session_title,
+        'tag',   'session-confirm-' || NEW.session_id::text,
+        'data',  jsonb_build_object(
+          'url', '/sl_app/#/coach/student/' || COALESCE(v_student_row_id::text, '')
+                 || '/session/' || NEW.session_id::text || '/review'
         )
-      );
-    END IF;
+      )
+    );
   EXCEPTION WHEN OTHERS THEN
     RAISE WARNING 'send-push fan-out (session confirm) failed: %', SQLERRM;
   END;
@@ -1820,8 +1803,6 @@ DECLARE
   v_session_title   text;
   v_original_name   text;
   v_substitute_name text;
-  v_functions_url   text;
-  v_service_key     text;
   v_body            text;
 BEGIN
   SELECT es.session_id INTO v_session_id
@@ -1867,47 +1848,32 @@ BEGIN
     )
   );
 
-  -- Best-effort Web Push (same pattern as notify_student_on_session_feedback).
+  -- Best-effort Web Push, through send_push_event (2026_10_13_15). Whatever
+  -- it raises stays a warning: a push never undoes the write that caused it.
   BEGIN
-    SELECT decrypted_secret INTO v_functions_url
-      FROM vault.decrypted_secrets WHERE name = 'app_functions_url';
-    SELECT decrypted_secret INTO v_service_key
-      FROM vault.decrypted_secrets WHERE name = 'app_service_role_key';
-
-    IF v_functions_url IS NOT NULL AND v_service_key IS NOT NULL
-       AND v_functions_url <> '' AND v_service_key <> ''
-    THEN
-      IF NEW.kind = 'swap' THEN
-        v_body := COALESCE(v_student_name, 'Your athlete') || ' swapped '
-                  || COALESCE(v_original_name, 'an exercise') || ' → '
-                  || COALESCE(v_substitute_name, 'another exercise')
-                  || ' in ' || v_session_title;
-      ELSE
-        v_body := COALESCE(v_student_name, 'Your athlete') || ' skipped '
-                  || COALESCE(v_original_name, 'an exercise')
-                  || ' in ' || v_session_title;
-      END IF;
-
-      PERFORM net.http_post(
-        url := v_functions_url || '/send-push',
-        headers := jsonb_build_object(
-          'Content-Type', 'application/json',
-          'Authorization', 'Bearer ' || v_service_key
-        ),
-        body := jsonb_build_object(
-          'user_id', v_coach_id,
-          'payload', jsonb_build_object(
-            'title', 'Off-plan session',
-            'body',  v_body,
-            'tag',   'deviation-' || NEW.id::text,
-            'data',  jsonb_build_object(
-              'url', '/sl_app/#/coach/student/' || COALESCE(v_student_row_id::text, '')
-                     || '/session/' || v_session_id::text || '/review'
-            )
-          )
-        )
-      );
+    IF NEW.kind = 'swap' THEN
+      v_body := COALESCE(v_student_name, 'Your athlete') || ' swapped '
+                || COALESCE(v_original_name, 'an exercise') || ' → '
+                || COALESCE(v_substitute_name, 'another exercise')
+                || ' in ' || v_session_title;
+    ELSE
+      v_body := COALESCE(v_student_name, 'Your athlete') || ' skipped '
+                || COALESCE(v_original_name, 'an exercise')
+                || ' in ' || v_session_title;
     END IF;
+
+    PERFORM public.send_push_event(
+      v_coach_id,
+      jsonb_build_object(
+        'title', 'Off-plan session',
+        'body',  v_body,
+        'tag',   'deviation-' || NEW.id::text,
+        'data',  jsonb_build_object(
+          'url', '/sl_app/#/coach/student/' || COALESCE(v_student_row_id::text, '')
+                 || '/session/' || v_session_id::text || '/review'
+        )
+      )
+    );
   EXCEPTION WHEN OTHERS THEN
     RAISE WARNING 'send-push fan-out (slot deviation) failed: %', SQLERRM;
   END;
@@ -2150,8 +2116,6 @@ DECLARE
   v_sub_name       text;
   v_session_title  text;
   v_coach_name     text;
-  v_functions_url  text;
-  v_service_key    text;
 BEGIN
   SELECT es.session_id, es.exercise_id
     INTO v_session_id, v_original_ex
@@ -2247,30 +2211,20 @@ BEGIN
       )
     );
 
+    -- Best-effort Web Push, through send_push_event (2026_10_13_15). Whatever
+    -- it raises stays a warning: a push never undoes the write that caused it.
     BEGIN
-      SELECT decrypted_secret INTO v_functions_url FROM vault.decrypted_secrets WHERE name = 'app_functions_url';
-      SELECT decrypted_secret INTO v_service_key   FROM vault.decrypted_secrets WHERE name = 'app_service_role_key';
-      IF v_functions_url IS NOT NULL AND v_service_key IS NOT NULL
-         AND v_functions_url <> '' AND v_service_key <> '' THEN
-        PERFORM net.http_post(
-          url := v_functions_url || '/send-push',
-          headers := jsonb_build_object(
-            'Content-Type', 'application/json',
-            'Authorization', 'Bearer ' || v_service_key
-          ),
-          body := jsonb_build_object(
-            'user_id', v_student_prof,
-            'payload', jsonb_build_object(
-              'title', 'Program updated',
-              'body',  COALESCE(v_coach_name, 'Your coach') || ' adopted your swap: '
-                       || COALESCE(v_orig_name, 'an exercise') || ' → '
-                       || COALESCE(v_sub_name, 'another exercise'),
-              'tag',   'swap-adopted-' || p_slot_id::text,
-              'data',  jsonb_build_object('url', '/sl_app/#/student/session/' || v_session_id::text)
-            )
-          )
-        );
-      END IF;
+      PERFORM public.send_push_event(
+        v_student_prof,
+        jsonb_build_object(
+          'title', 'Program updated',
+          'body',  COALESCE(v_coach_name, 'Your coach') || ' adopted your swap: '
+                   || COALESCE(v_orig_name, 'an exercise') || ' → '
+                   || COALESCE(v_sub_name, 'another exercise'),
+          'tag',   'swap-adopted-' || p_slot_id::text,
+          'data',  jsonb_build_object('url', '/sl_app/#/student/session/' || v_session_id::text)
+        )
+      );
     EXCEPTION WHEN OTHERS THEN
       RAISE WARNING 'send-push fan-out (swap adopted) failed: %', SQLERRM;
     END;
@@ -2306,8 +2260,6 @@ DECLARE
   v_orig_name      text;
   v_session_title  text;
   v_coach_name     text;
-  v_functions_url  text;
-  v_service_key    text;
 BEGIN
   SELECT es.session_id, es.exercise_id
     INTO v_session_id, v_original_ex
@@ -2390,29 +2342,19 @@ BEGIN
       )
     );
 
+    -- Best-effort Web Push, through send_push_event (2026_10_13_15). Whatever
+    -- it raises stays a warning: a push never undoes the write that caused it.
     BEGIN
-      SELECT decrypted_secret INTO v_functions_url FROM vault.decrypted_secrets WHERE name = 'app_functions_url';
-      SELECT decrypted_secret INTO v_service_key   FROM vault.decrypted_secrets WHERE name = 'app_service_role_key';
-      IF v_functions_url IS NOT NULL AND v_service_key IS NOT NULL
-         AND v_functions_url <> '' AND v_service_key <> '' THEN
-        PERFORM net.http_post(
-          url := v_functions_url || '/send-push',
-          headers := jsonb_build_object(
-            'Content-Type', 'application/json',
-            'Authorization', 'Bearer ' || v_service_key
-          ),
-          body := jsonb_build_object(
-            'user_id', v_student_prof,
-            'payload', jsonb_build_object(
-              'title', 'Program updated',
-              'body',  COALESCE(v_coach_name, 'Your coach') || ' dropped '
-                       || COALESCE(v_orig_name, 'an exercise') || ' from your upcoming sessions',
-              'tag',   'skip-adopted-' || p_slot_id::text,
-              'data',  jsonb_build_object('url', '/sl_app/#/student/session/' || v_session_id::text)
-            )
-          )
-        );
-      END IF;
+      PERFORM public.send_push_event(
+        v_student_prof,
+        jsonb_build_object(
+          'title', 'Program updated',
+          'body',  COALESCE(v_coach_name, 'Your coach') || ' dropped '
+                   || COALESCE(v_orig_name, 'an exercise') || ' from your upcoming sessions',
+          'tag',   'skip-adopted-' || p_slot_id::text,
+          'data',  jsonb_build_object('url', '/sl_app/#/student/session/' || v_session_id::text)
+        )
+      );
     EXCEPTION WHEN OTHERS THEN
       RAISE WARNING 'send-push fan-out (skip adopted) failed: %', SQLERRM;
     END;
@@ -2438,8 +2380,6 @@ DECLARE
   v_session_title   text;
   v_original_name   text;
   v_substitute_name text;
-  v_functions_url   text;
-  v_service_key     text;
   v_body            text;
 BEGIN
   IF NEW.promote_requested_at IS NULL
@@ -2483,36 +2423,29 @@ BEGIN
     )
   );
 
+  -- Best-effort Web Push, through send_push_event (2026_10_13_15). Whatever
+  -- it raises stays a warning: a push never undoes the write that caused it.
   BEGIN
-    SELECT decrypted_secret INTO v_functions_url FROM vault.decrypted_secrets WHERE name = 'app_functions_url';
-    SELECT decrypted_secret INTO v_service_key   FROM vault.decrypted_secrets WHERE name = 'app_service_role_key';
-    IF v_functions_url IS NOT NULL AND v_service_key IS NOT NULL
-       AND v_functions_url <> '' AND v_service_key <> '' THEN
-      IF NEW.kind = 'swap' THEN
-        v_body := COALESCE(v_student_name, 'Your athlete') || ' wants to keep '
-                  || COALESCE(v_substitute_name, 'their swap') || ' instead of '
-                  || COALESCE(v_original_name, 'the prescription');
-      ELSE
-        v_body := COALESCE(v_student_name, 'Your athlete') || ' wants to drop '
-                  || COALESCE(v_original_name, 'an exercise') || ' going forward';
-      END IF;
-      PERFORM net.http_post(
-        url := v_functions_url || '/send-push',
-        headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || v_service_key),
-        body := jsonb_build_object(
-          'user_id', v_coach_id,
-          'payload', jsonb_build_object(
-            'title', 'Program change requested',
-            'body',  v_body,
-            'tag',   'promote-req-' || NEW.exercise_slot_id::text,
-            'data',  jsonb_build_object(
-              'url', '/sl_app/#/coach/student/' || COALESCE(v_student_row_id::text, '')
-                     || '/session/' || v_session_id::text || '/review'
-            )
-          )
-        )
-      );
+    IF NEW.kind = 'swap' THEN
+      v_body := COALESCE(v_student_name, 'Your athlete') || ' wants to keep '
+                || COALESCE(v_substitute_name, 'their swap') || ' instead of '
+                || COALESCE(v_original_name, 'the prescription');
+    ELSE
+      v_body := COALESCE(v_student_name, 'Your athlete') || ' wants to drop '
+                || COALESCE(v_original_name, 'an exercise') || ' going forward';
     END IF;
+    PERFORM public.send_push_event(
+      v_coach_id,
+      jsonb_build_object(
+        'title', 'Program change requested',
+        'body',  v_body,
+        'tag',   'promote-req-' || NEW.exercise_slot_id::text,
+        'data',  jsonb_build_object(
+          'url', '/sl_app/#/coach/student/' || COALESCE(v_student_row_id::text, '')
+                 || '/session/' || v_session_id::text || '/review'
+        )
+      )
+    );
   EXCEPTION WHEN OTHERS THEN
     RAISE WARNING 'send-push fan-out (promote request) failed: %', SQLERRM;
   END;
@@ -2539,8 +2472,6 @@ DECLARE
   v_original_name text;
   v_coach_name    text;
   v_session_title text;
-  v_functions_url text;
-  v_service_key   text;
   v_had_request   boolean;
 BEGIN
   SELECT es.session_id INTO v_session_id
@@ -2587,26 +2518,19 @@ BEGIN
       )
     );
 
+    -- Best-effort Web Push, through send_push_event (2026_10_13_15). Whatever
+    -- it raises stays a warning: a push never undoes the write that caused it.
     BEGIN
-      SELECT decrypted_secret INTO v_functions_url FROM vault.decrypted_secrets WHERE name = 'app_functions_url';
-      SELECT decrypted_secret INTO v_service_key   FROM vault.decrypted_secrets WHERE name = 'app_service_role_key';
-      IF v_functions_url IS NOT NULL AND v_service_key IS NOT NULL
-         AND v_functions_url <> '' AND v_service_key <> '' THEN
-        PERFORM net.http_post(
-          url := v_functions_url || '/send-push',
-          headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || v_service_key),
-          body := jsonb_build_object(
-            'user_id', v_student_prof,
-            'payload', jsonb_build_object(
-              'title', 'Coach kept your plan',
-              'body',  COALESCE(v_coach_name, 'Your coach') || ' is keeping '
-                       || COALESCE(v_original_name, 'the prescribed exercise') || ' in your program',
-              'tag',   'promote-declined-' || p_slot_id::text,
-              'data',  jsonb_build_object('url', '/sl_app/#/student/session/' || v_session_id::text)
-            )
-          )
-        );
-      END IF;
+      PERFORM public.send_push_event(
+        v_student_prof,
+        jsonb_build_object(
+          'title', 'Coach kept your plan',
+          'body',  COALESCE(v_coach_name, 'Your coach') || ' is keeping '
+                   || COALESCE(v_original_name, 'the prescribed exercise') || ' in your program',
+          'tag',   'promote-declined-' || p_slot_id::text,
+          'data',  jsonb_build_object('url', '/sl_app/#/student/session/' || v_session_id::text)
+        )
+      );
     EXCEPTION WHEN OTHERS THEN
       RAISE WARNING 'send-push fan-out (promote declined) failed: %', SQLERRM;
     END;
@@ -2777,8 +2701,6 @@ DECLARE
   v_coach_id     uuid;
   v_prog_name    text;
   v_created      int := 0;
-  v_functions_url text;
-  v_service_key   text;
 BEGIN
   SELECT p.student_id, p.name INTO v_student_id, v_prog_name
     FROM public.programs p WHERE p.id = p_program_id AND p.status = 'draft';
@@ -2822,21 +2744,18 @@ BEGIN
     INSERT INTO public.notifications (recipient_id, kind, payload)
     VALUES (v_student_prof, 'program_approved',
       jsonb_build_object('program_id', p_program_id, 'program_name', v_prog_name));
+    -- Best-effort Web Push, through send_push_event (2026_10_13_15). Whatever
+    -- it raises stays a warning: a push never undoes the write that caused it.
     BEGIN
-      SELECT decrypted_secret INTO v_functions_url FROM vault.decrypted_secrets WHERE name = 'app_functions_url';
-      SELECT decrypted_secret INTO v_service_key   FROM vault.decrypted_secrets WHERE name = 'app_service_role_key';
-      IF v_functions_url IS NOT NULL AND v_service_key IS NOT NULL
-         AND v_functions_url <> '' AND v_service_key <> '' THEN
-        PERFORM net.http_post(
-          url := v_functions_url || '/send-push',
-          headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || v_service_key),
-          body := jsonb_build_object('user_id', v_student_prof, 'payload', jsonb_build_object(
-            'title', 'Program approved',
-            'body',  'Your coach approved your program' || COALESCE(': ' || v_prog_name, ''),
-            'tag',   'program-approved-' || p_program_id::text,
-            'data',  jsonb_build_object('url', '/sl_app/#/student')))
-        );
-      END IF;
+      PERFORM public.send_push_event(
+        v_student_prof,
+        jsonb_build_object(
+          'title', 'Program approved',
+          'body',  'Your coach approved your program' || COALESCE(': ' || v_prog_name, ''),
+          'tag',   'program-approved-' || p_program_id::text,
+          'data',  jsonb_build_object('url', '/sl_app/#/student')
+        )
+      );
     EXCEPTION WHEN OTHERS THEN
       RAISE WARNING 'send-push fan-out (program approved) failed: %', SQLERRM;
     END;
@@ -2852,7 +2771,6 @@ CREATE OR REPLACE FUNCTION public.notify_coach_on_program_submit()
 RETURNS TRIGGER AS $$
 DECLARE
   v_coach_id uuid; v_student_prof uuid; v_student_row_id uuid; v_student_name text;
-  v_functions_url text; v_service_key text;
 BEGIN
   -- Fire only on the NULL → set edge (blocks re-submit spam; re-fires after
   -- send_back_program resets submitted_at to NULL).
@@ -2868,18 +2786,18 @@ BEGIN
   VALUES (v_coach_id, 'program_submitted', jsonb_build_object(
     'program_id', NEW.id, 'program_name', NEW.name, 'student_profile_id', v_student_prof,
     'student_row_id', v_student_row_id, 'student_name', v_student_name));
+  -- Best-effort Web Push, through send_push_event (2026_10_13_15). Whatever
+  -- it raises stays a warning: a push never undoes the write that caused it.
   BEGIN
-    SELECT decrypted_secret INTO v_functions_url FROM vault.decrypted_secrets WHERE name = 'app_functions_url';
-    SELECT decrypted_secret INTO v_service_key   FROM vault.decrypted_secrets WHERE name = 'app_service_role_key';
-    IF v_functions_url IS NOT NULL AND v_service_key IS NOT NULL AND v_functions_url <> '' AND v_service_key <> '' THEN
-      PERFORM net.http_post(url := v_functions_url || '/send-push',
-        headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || v_service_key),
-        body := jsonb_build_object('user_id', v_coach_id, 'payload', jsonb_build_object(
-          'title', 'Program submitted',
-          'body', COALESCE(v_student_name,'Your athlete') || ' submitted a program for approval' || COALESCE(': ' || NEW.name, ''),
-          'tag', 'program-submitted-' || NEW.id::text,
-          'data', jsonb_build_object('url', '/sl_app/#/coach/students/' || COALESCE(v_student_row_id::text,'') || '/programming'))));
-    END IF;
+    PERFORM public.send_push_event(
+      v_coach_id,
+      jsonb_build_object(
+        'title', 'Program submitted',
+        'body', COALESCE(v_student_name,'Your athlete') || ' submitted a program for approval' || COALESCE(': ' || NEW.name, ''),
+        'tag', 'program-submitted-' || NEW.id::text,
+        'data', jsonb_build_object('url', '/sl_app/#/coach/students/' || COALESCE(v_student_row_id::text,'') || '/programming')
+      )
+    );
   EXCEPTION WHEN OTHERS THEN RAISE WARNING 'send-push fan-out (program submitted) failed: %', SQLERRM; END;
   RETURN NEW;
 END;
@@ -2892,7 +2810,6 @@ CREATE OR REPLACE FUNCTION public.send_back_program(p_program_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
   v_student_id uuid; v_student_prof uuid; v_coach_id uuid; v_prog_name text;
-  v_functions_url text; v_service_key text;
 BEGIN
   SELECT p.student_id, p.name INTO v_student_id, v_prog_name
     FROM public.programs p WHERE p.id = p_program_id AND p.status = 'draft' AND p.submitted_at IS NOT NULL;
@@ -2905,18 +2822,18 @@ BEGIN
   IF v_student_prof IS NOT NULL THEN
     INSERT INTO public.notifications (recipient_id, kind, payload)
     VALUES (v_student_prof, 'program_sent_back', jsonb_build_object('program_id', p_program_id, 'program_name', v_prog_name));
+    -- Best-effort Web Push, through send_push_event (2026_10_13_15). Whatever
+    -- it raises stays a warning: a push never undoes the write that caused it.
     BEGIN
-      SELECT decrypted_secret INTO v_functions_url FROM vault.decrypted_secrets WHERE name = 'app_functions_url';
-      SELECT decrypted_secret INTO v_service_key   FROM vault.decrypted_secrets WHERE name = 'app_service_role_key';
-      IF v_functions_url IS NOT NULL AND v_service_key IS NOT NULL AND v_functions_url <> '' AND v_service_key <> '' THEN
-        PERFORM net.http_post(url := v_functions_url || '/send-push',
-          headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || v_service_key),
-          body := jsonb_build_object('user_id', v_student_prof, 'payload', jsonb_build_object(
-            'title', 'Program sent back',
-            'body', 'Your coach sent your program back for changes' || COALESCE(': ' || v_prog_name, ''),
-            'tag', 'program-sent-back-' || p_program_id::text,
-            'data', jsonb_build_object('url', '/sl_app/#/student/author'))));
-      END IF;
+      PERFORM public.send_push_event(
+        v_student_prof,
+        jsonb_build_object(
+          'title', 'Program sent back',
+          'body', 'Your coach sent your program back for changes' || COALESCE(': ' || v_prog_name, ''),
+          'tag', 'program-sent-back-' || p_program_id::text,
+          'data', jsonb_build_object('url', '/sl_app/#/student/author')
+        )
+      );
     EXCEPTION WHEN OTHERS THEN RAISE WARNING 'send-push fan-out (program sent back) failed: %', SQLERRM; END;
   END IF;
   RETURN jsonb_build_object('sent_back', true);
@@ -3085,8 +3002,10 @@ ALTER TABLE public.notifications REPLICA IDENTITY FULL;
 --    reads with the service role, sleeps until fire_at, double-checks
 --    canceled_at, and delivers via the web-push protocol.
 --
--- There are no triggers on these tables. RLS is the only client-side
--- guardrail; the Edge Function uses the service role and bypasses RLS.
+-- There are no triggers on these tables. RLS is the client-side guardrail,
+-- with one rule on what a row may hold (the endpoint of a subscription is an
+-- address at a known push service); the Edge Function uses the service role
+-- and bypasses RLS.
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS public.push_subscriptions (
@@ -3097,7 +3016,24 @@ CREATE TABLE IF NOT EXISTS public.push_subscriptions (
   auth          text NOT NULL,
   user_agent    text,
   created_at    timestamptz NOT NULL DEFAULT now(),
-  last_seen_at  timestamptz NOT NULL DEFAULT now()
+  last_seen_at  timestamptz NOT NULL DEFAULT now(),
+  -- An endpoint is an address at a push service, and nothing else
+  -- (2026_10_13_15_push_plumbing — review B3). The account writes this
+  -- column itself, and the Edge Functions POST to whatever it holds: without
+  -- the rule, a row is a way to make them call any URL. https, one of the
+  -- four hosts below, then a path — the host is everything between `https://`
+  -- and the first `/`, so no port, no user name, no upper case.
+  --     fcm.googleapis.com                  Chrome and the browsers built on it
+  --     updates.push.services.mozilla.com   Firefox
+  --     *.push.apple.com                    Safari, and the web apps of iOS
+  --     *.notify.windows.com                Edge
+  -- THE SAME LIST IS IN supabase/functions/_shared/pushHosts.js, which the
+  -- functions ask before they send: a push service that is added, is added
+  -- in both, by a migration that drops this constraint and adds it again.
+  -- A refused write is 23514, and names the constraint.
+  CONSTRAINT push_subscriptions_endpoint_known_push_service CHECK (
+    endpoint ~ '^https://(fcm[.]googleapis[.]com|updates[.]push[.]services[.]mozilla[.]com|[a-z0-9.-]+[.]push[.]apple[.]com|[a-z0-9.-]+[.]notify[.]windows[.]com)/'
+  )
 );
 
 CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx
@@ -3285,62 +3221,144 @@ CREATE POLICY "Delete own scheduled pushes"
   ON public.scheduled_pushes FOR DELETE
   USING (user_id = auth.uid());
 -- ============================================================
--- Coach-feedback Web Push fan-out.
+-- WEB PUSH FOR AN EVENT: ONE WAY OUT OF THE DATABASE
+-- (2026_10_13_15_push_plumbing — review P35 and B3, the database's half)
 --
--- The `notify_student_on_session_feedback` trigger already runs on
--- AFTER INSERT of a coach feedback message (see 2026_04_30_notifications.sql
--- and the unique partial index on `messages.session_id`). It inserts an
--- in-app notification row and stamps `sessions.reviewed_at`. This
--- migration extends it to also fire a Web Push to the student's
--- registered devices via the `send-push` Edge Function.
+-- Eleven functions tell somebody that something happened: six triggers (a
+-- session confirmed, an exercise swapped or skipped, "make this permanent",
+-- a draft submitted, feedback on a session, a chat message) and five RPCs of
+-- the coach (adopt_swap, adopt_skip, decline_promote_request,
+-- approve_program, send_back_program). Each writes its bell row itself — the
+-- chat message has none — and then asks send_push_event() for the push.
 --
--- pg_net is async: the HTTP call is enqueued and the trigger returns
--- immediately. If the function URL / service-role key Vault secrets
--- aren't set, the push fan-out is skipped silently — the in-app
--- notification path always runs. The block is also wrapped in EXCEPTION
--- so a transient HTTP failure can never roll back the message INSERT.
+--   send_push_event(p_user, p_payload, p_options)
+--     → the id pg_net gave the request, or NULL when nothing was queued
+--       because the vault is not configured
 --
--- Required project secrets (run once via psql or `supabase db query`):
+-- It is the ONLY function of this file that reads the vault or calls pg_net
+-- (supabase/tests/push-plumbing.test.js refuses a second one):
 --
---   SELECT vault.create_secret(
---     'https://<project-ref>.supabase.co/functions/v1',
---     'app_functions_url'
---   );
---   SELECT vault.create_secret(
---     '<shared-bearer-secret>',
---     'app_service_role_key'
---   );
+--   where      vault secret app_functions_url, then '/send-push' — the
+--              send-push Edge Function
+--   who        Authorization: Bearer <vault secret app_internal_bearer>, and
+--              while the vault has none of that name, the one stored as
+--              app_service_role_key. That older name is misleading: the
+--              value is the INTERNAL_BEARER secret of the function, a random
+--              string made for this — never the service-role key.
+--   how long   10 seconds. pg_net's own default is 2 or 5, depending on its
+--              version: less than a cold start of the function plus the
+--              round trip to the push service, and pg_net does not try again.
+--   what       { "user_id": p_user, "payload": p_payload, "ttl": 86400 }
+--              plus the keys of p_options, at the top level. "ttl" is how
+--              long, in seconds, the push service keeps the message for a
+--              device that is offline (without it: four weeks); a caller
+--              that wants another one says so in p_options. "user_id" and
+--              "payload" are the two arguments, whatever p_options holds.
+--              The payload goes to the service worker as it is.
 --
--- The value stored as `app_service_role_key` is sent verbatim as the
--- `Authorization: Bearer <…>` header to send-push, which compares it
--- to its `INTERNAL_BEARER` env var (set via `supabase secrets set
--- INTERNAL_BEARER=<…>`). The two must be the same string. Any opaque
--- secret works; the legacy service-role JWT is convenient because
--- it's already secret. We avoid SUPABASE_SERVICE_ROLE_KEY for this
--- because Supabase auto-injects an `sb_secret_*` key whose full value
--- isn't retrievable outside the dashboard, so the two ends would
--- drift on newer projects.
+-- pg_net queues the request and sends it once the transaction has committed:
+-- a write that is rolled back sends nothing, and what send-push answers is
+-- never read here. So the function raises only for what is wrong BEFORE the
+-- request exists — an argument that is not what it should be, pg_net or the
+-- vault out of reach — and a caller keeps its own net under it:
 --
--- Rotate with:
---   UPDATE vault.secrets SET secret = '<new>'
---    WHERE name = 'app_service_role_key';
---   supabase secrets set INTERNAL_BEARER='<new>'
+--     BEGIN
+--       PERFORM public.send_push_event(v_recipient, jsonb_build_object(
+--         'title', …, 'body', …, 'tag', …, 'data', jsonb_build_object('url', …)));
+--     EXCEPTION WHEN OTHERS THEN
+--       RAISE WARNING 'send-push fan-out (…) failed: %', SQLERRM;
+--     END;
 --
--- Vault stores the value encrypted at rest; only SECURITY DEFINER
--- functions running as `postgres` can read the decrypted view.
+-- The write that caused the push is never undone for it.
+--
+-- NOT FOR A SIGNED-IN USER. Whoever may call it can send any text and any
+-- link to any account: no EXECUTE for `authenticated` (it is not in the
+-- FUNCTION PRIVILEGES block at the end of this file), and SECURITY INVOKER —
+-- it is given no right its caller does not have. The eleven functions above
+-- are SECURITY DEFINER and call it as their owner, who reads the vault; the
+-- service role reads it too. Called from a function that runs with the
+-- rights of a signed-in user, it is refused, and that function's net turns
+-- the refusal into a warning: no push, and nothing on the screen says why.
+--
+-- The secrets are set and rotated by hand: docs/runbook/30-edge-functions.md
+-- (with vault.update_secret, never UPDATE vault.secrets), and the rename of
+-- app_service_role_key in docs/runbook/migrations/15-push-plumbing.md.
 -- ============================================================
 
 -- pg_net + vault ship with Supabase but only enable on demand.
 CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS supabase_vault;
 
+CREATE OR REPLACE FUNCTION public.send_push_event(
+  p_user    uuid,
+  p_payload jsonb,
+  p_options jsonb DEFAULT '{}'::jsonb
+)
+RETURNS bigint
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_functions_url text;
+  v_bearer        text;
+  v_options       jsonb := COALESCE(p_options, '{}'::jsonb);
+BEGIN
+  IF p_user IS NULL OR p_payload IS NULL OR jsonb_typeof(p_payload) <> 'object' THEN
+    RAISE EXCEPTION 'send_push_event needs a recipient and a payload that is a JSON object'
+      USING ERRCODE = 'invalid_parameter_value',
+            HINT = 'Nothing was queued.';
+  END IF;
+  IF jsonb_typeof(v_options) <> 'object' THEN
+    RAISE EXCEPTION 'send_push_event takes its options as a JSON object'
+      USING ERRCODE = 'invalid_parameter_value',
+            HINT = 'Nothing was queued.';
+  END IF;
+
+  SELECT ds.decrypted_secret INTO v_functions_url
+    FROM vault.decrypted_secrets ds
+   WHERE ds.name = 'app_functions_url';
+
+  -- The bearer under its own name; until the vault has it, under the name it
+  -- was first stored with.
+  SELECT ds.decrypted_secret INTO v_bearer
+    FROM vault.decrypted_secrets ds
+   WHERE ds.name = 'app_internal_bearer';
+  IF COALESCE(v_bearer, '') = '' THEN
+    SELECT ds.decrypted_secret INTO v_bearer
+      FROM vault.decrypted_secrets ds
+     WHERE ds.name = 'app_service_role_key';
+  END IF;
+
+  -- Not configured: no push and no error. The bell row is the caller's, and
+  -- it is written either way.
+  IF COALESCE(v_functions_url, '') = '' OR COALESCE(v_bearer, '') = '' THEN
+    RETURN NULL;
+  END IF;
+
+  RETURN net.http_post(
+    url     := rtrim(v_functions_url, '/') || '/send-push',
+    headers := jsonb_build_object(
+      'Content-Type',  'application/json',
+      'Authorization', 'Bearer ' || v_bearer
+    ),
+    body    := jsonb_build_object('ttl', 86400)
+               || (v_options - 'user_id'::text - 'payload'::text)
+               || jsonb_build_object('user_id', p_user, 'payload', p_payload),
+    timeout_milliseconds := 10000
+  );
+END;
+$$;
+-- Who may execute it: nobody but its owner and the service role. It is NOT in
+-- the FUNCTION PRIVILEGES block at the end of this file, and must not be.
+
+-- Trigger: the coach's feedback on a session. The bell row, the stamp of the
+-- review (sessions.reviewed_at, once), and the push — to the athlete.
 CREATE OR REPLACE FUNCTION public.notify_student_on_session_feedback()
 RETURNS TRIGGER AS $$
 DECLARE
   v_coach_name      text;
   v_session_title   text;
-  v_functions_url   text;
-  v_service_key     text;
   v_body_preview    text;
 BEGIN
   IF NEW.session_id IS NULL THEN
@@ -3375,49 +3393,26 @@ BEGIN
     )
   );
 
-  -- Web Push fan-out (best-effort). Skips silently when the Vault
-  -- secrets aren't configured so this migration can be applied before
-  -- the project ref and service-role key are stashed, and so a project
-  -- that's deliberately not using push isn't forced to.
+  -- Best-effort Web Push, through send_push_event (2026_10_13_15). Whatever
+  -- it raises stays a warning: a push never undoes the write that caused it —
+  -- the feedback is sent, and the bell row above is written.
   BEGIN
-    SELECT decrypted_secret INTO v_functions_url
-      FROM vault.decrypted_secrets
-     WHERE name = 'app_functions_url';
-    SELECT decrypted_secret INTO v_service_key
-      FROM vault.decrypted_secrets
-     WHERE name = 'app_service_role_key';
+    -- Trim to 200 chars so the encrypted push payload stays under the
+    -- 4 KB Web Push limit. iOS only shows ~200 chars on the lock screen.
+    v_body_preview := LEFT(BTRIM(NEW.body), 200);
 
-    IF v_functions_url IS NOT NULL
-       AND v_service_key IS NOT NULL
-       AND v_functions_url <> ''
-       AND v_service_key <> ''
-    THEN
-      -- Trim to 200 chars so the encrypted push payload stays under the
-      -- 4 KB Web Push limit. iOS only shows ~200 chars on the lock screen.
-      v_body_preview := LEFT(BTRIM(NEW.body), 200);
-
-      PERFORM net.http_post(
-        url := v_functions_url || '/send-push',
-        headers := jsonb_build_object(
-          'Content-Type', 'application/json',
-          'Authorization', 'Bearer ' || v_service_key
-        ),
-        body := jsonb_build_object(
-          'user_id', NEW.recipient_id,
-          'payload', jsonb_build_object(
-            'title', 'Feedback from ' || COALESCE(v_coach_name, 'your coach'),
-            'body',  COALESCE(NULLIF(v_body_preview, ''), 'Tap to read your coach''s feedback.'),
-            'tag',   'feedback-' || NEW.id::text,
-            'data',  jsonb_build_object(
-              'url', '/sl_app/#/student/session/' || NEW.session_id::text
-            )
-          )
+    PERFORM public.send_push_event(
+      NEW.recipient_id,
+      jsonb_build_object(
+        'title', 'Feedback from ' || COALESCE(v_coach_name, 'your coach'),
+        'body',  COALESCE(NULLIF(v_body_preview, ''), 'Tap to read your coach''s feedback.'),
+        'tag',   'feedback-' || NEW.id::text,
+        'data',  jsonb_build_object(
+          'url', '/sl_app/#/student/session/' || NEW.session_id::text
         )
-      );
-    END IF;
+      )
+    );
   EXCEPTION WHEN OTHERS THEN
-    -- Push delivery must never break the in-app notification path. The
-    -- coach's feedback INSERT succeeded; the bell will still light up.
     RAISE WARNING 'send-push fan-out failed: %', SQLERRM;
   END;
 
@@ -3425,8 +3420,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
--- Trigger already exists from 2026_04_30_notifications.sql; the function
--- replacement above takes effect without re-creating the trigger.
+-- The trigger is the one created with the first version of this function,
+-- further up (trg_notify_student_on_session_feedback): replacing the function
+-- is enough.
 
 -- ============================================================
 -- TRIGGER: Web Push for ordinary chat messages (2026_07_12)
@@ -3439,8 +3435,6 @@ RETURNS TRIGGER AS $$
 DECLARE
   v_sender_name     text;
   v_sender_role     text;
-  v_functions_url   text;
-  v_service_key     text;
   v_body_preview    text;
 BEGIN
   -- Feedback messages are handled by notify_student_on_session_feedback.
@@ -3448,55 +3442,36 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  -- Best-effort Web Push, through send_push_event (2026_10_13_15). Whatever
+  -- it raises stays a warning: a push never undoes the write that caused it —
+  -- the message is sent, and the badge of an open tab still updates.
   BEGIN
-    SELECT decrypted_secret INTO v_functions_url
-      FROM vault.decrypted_secrets
-     WHERE name = 'app_functions_url';
-    SELECT decrypted_secret INTO v_service_key
-      FROM vault.decrypted_secrets
-     WHERE name = 'app_service_role_key';
+    -- One lookup covers both ends: the recipient's surface is the
+    -- opposite of the sender's role, and the no-name fallback names the
+    -- sender's role.
+    SELECT p.full_name, p.role INTO v_sender_name, v_sender_role
+      FROM public.profiles p
+     WHERE p.id = NEW.sender_id;
 
-    IF v_functions_url IS NOT NULL
-       AND v_service_key IS NOT NULL
-       AND v_functions_url <> ''
-       AND v_service_key <> ''
-    THEN
-      -- One lookup covers both ends: the recipient's surface is the
-      -- opposite of the sender's role, and the no-name fallback names the
-      -- sender's role (blank full_name is the default after signup).
-      SELECT p.full_name, p.role INTO v_sender_name, v_sender_role
-        FROM public.profiles p
-       WHERE p.id = NEW.sender_id;
+    v_body_preview := LEFT(BTRIM(NEW.body), 200);
 
-      v_body_preview := LEFT(BTRIM(NEW.body), 200);
-
-      PERFORM net.http_post(
-        url := v_functions_url || '/send-push',
-        headers := jsonb_build_object(
-          'Content-Type', 'application/json',
-          'Authorization', 'Bearer ' || v_service_key
-        ),
-        body := jsonb_build_object(
-          'user_id', NEW.recipient_id,
-          'payload', jsonb_build_object(
-            'title', 'Message from ' || COALESCE(
-                       NULLIF(BTRIM(v_sender_name), ''),
-                       CASE WHEN v_sender_role = 'coach' THEN 'your coach' ELSE 'your student' END
-                     ),
-            'body',  COALESCE(NULLIF(v_body_preview, ''), 'Tap to read.'),
-            'tag',   'chat-' || NEW.sender_id::text,
-            'data',  jsonb_build_object(
-              'url', '/sl_app/#/'
-                     || CASE WHEN v_sender_role = 'coach' THEN 'student' ELSE 'coach' END
-                     || '/messages'
-            )
-          )
+    PERFORM public.send_push_event(
+      NEW.recipient_id,
+      jsonb_build_object(
+        'title', 'Message from ' || COALESCE(
+                   NULLIF(BTRIM(v_sender_name), ''),
+                   CASE WHEN v_sender_role = 'coach' THEN 'your coach' ELSE 'your student' END
+                 ),
+        'body',  COALESCE(NULLIF(v_body_preview, ''), 'Tap to read.'),
+        'tag',   'chat-' || NEW.sender_id::text,
+        'data',  jsonb_build_object(
+          'url', '/sl_app/#/'
+                 || CASE WHEN v_sender_role = 'coach' THEN 'student' ELSE 'coach' END
+                 || '/messages'
         )
-      );
-    END IF;
+      )
+    );
   EXCEPTION WHEN OTHERS THEN
-    -- Push delivery must never break the message INSERT; the realtime
-    -- badge still updates for open tabs.
     RAISE WARNING 'chat push fan-out failed: %', SQLERRM;
   END;
 
@@ -5669,4 +5644,5 @@ INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_13_11_activate_reorder_rpcs'),
   ('2026_10_13_12_copy_rpcs'),
   ('2026_10_13_13_ensure_claim_rpcs'),
-  ('2026_10_13_14_table_grants_lockdown');
+  ('2026_10_13_14_table_grants_lockdown'),
+  ('2026_10_13_15_push_plumbing');

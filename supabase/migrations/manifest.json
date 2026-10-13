@@ -126,6 +126,15 @@
       "covers": ["L24"],
       "reversible": true,
       "summary": "A request without a session holds no privilege on any table, view or sequence of public; a signed-in user holds SELECT, INSERT, UPDATE and DELETE on a table — what row-level security judges — and no longer TRUNCATE, REFERENCES, TRIGGER or MAINTAIN, and USAGE on a sequence; a table or a sequence postgres creates later in public starts with the same; the service role keeps everything. Nothing else: no table, no policy, no function, no row."
+    },
+    {
+      "name": "2026_10_13_15_push_plumbing",
+      "kind": "required",
+      "wave": 2,
+      "checkpoint": "B",
+      "covers": ["P35", "B3", "L25"],
+      "reversible": true,
+      "summary": "One function, send_push_event(recipient, payload, options), reads the vault and calls the send-push Edge Function through pg_net, with a time limit of 10 seconds and the bearer read from app_internal_bearer or, while the vault has none of that name, from app_service_role_key; the six notification triggers and the five coach RPCs that each carried a copy of that call ask it instead, inside their own EXCEPTION net, and send the same push as before; it is for the owner and the service role only. push_subscriptions.endpoint must be an https address at fcm.googleapis.com, updates.push.services.mozilla.com, a host under push.apple.com or one under notify.windows.com — validated when no row breaks it, otherwise for new and changed rows only. No row is changed."
     }
   ]
 }

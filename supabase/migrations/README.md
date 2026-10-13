@@ -284,6 +284,36 @@ Since migration 14 a request without a session holds no privilege on any table, 
 
 The default privileges of `supabase_admin`, the platform's own role, are untouched — `postgres` cannot change them: a table that role creates in `public` (line 15 of the audit of migration 14) starts open to everyone. Nothing of the app is created by it.
 
+## A migration that tells somebody something: a bell row, a push, a device
+
+Since migration 15 a push leaves the database through one function, `public.send_push_event(p_user, p_payload, p_options)`, and a device's endpoint is an address at a known push service. `supabase/tests/push-plumbing.test.js` holds it.
+
+- **No function reads the vault or calls `net.http_post` itself.** `send_push_event` is the one that does: the address (`app_functions_url`, then `/send-push`), the bearer (`app_internal_bearer`, and `app_service_role_key` while the vault has none of that name), a time limit of 10 seconds. A copy of that block in another function is a push without the time limit, with a bearer read under one name only — the test refuses a second function whose text holds `net.http_` or `vault.`.
+- **A function that notifies calls it inside a net of its own, and after its bell row:**
+
+  ```sql
+  INSERT INTO public.notifications (recipient_id, kind, payload) VALUES (…);
+
+  BEGIN
+    PERFORM public.send_push_event(
+      v_recipient,
+      jsonb_build_object('title', …, 'body', …, 'tag', …, 'data', jsonb_build_object('url', …))
+    );
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'send-push fan-out (…) failed: %', SQLERRM;
+  END;
+  ```
+
+  The write that caused the push is never undone for it: `send_push_event` raises for an argument that is not what it should be, and when pg_net or the vault is out of reach. The test reads the text of every caller for that shape — the call, then `EXCEPTION WHEN OTHERS`, then the warning, nothing in between — and the function joins `THE_ELEVEN` there with the sentence of its warning. Whatever the text of the push is put together from stands inside the same net.
+- **A function that calls it is `SECURITY DEFINER`.** `send_push_event` is `SECURITY INVOKER` and executable by its owner and the service role only: it has no right of its own. Called from a function that runs with the rights of a signed-in user it is refused — and the net turns the refusal into a warning: no push, and nothing on the screen says why. Do not "fix" that with a `GRANT` to `authenticated`, nor by making `send_push_event` `SECURITY DEFINER`: whoever may call it sends any text and any link to any account.
+- **What is handed over** is `{ "user_id", "payload", "ttl": 86400 }` plus the keys of `p_options`, at the top level of the body. The payload is what the service worker shows (`title`, `body`, `tag`, `data.url`) and goes through as it is; `ttl` is how many seconds the push service keeps the message for a device that is offline, and a caller that wants another one passes it. An option `send-push` does not know is ignored by it: a new option is taught to the function first, then passed here.
+- **Nobody reads the answer.** pg_net sends the request once the transaction has committed, and tries once. A function cannot know whether a push arrived, and nothing may depend on it: the bell row is the record.
+- **`CREATE OR REPLACE` of one of the eleven** copies the function from `schema.sql`, and keeps the sentence of its warning (the log is searched for it), the `tag` of its push (it is what makes two pushes one line on a lock screen) and, for the five RPCs, the line that asks who calls (migration 02).
+- **The list of push services is one list in four places**: the constraint `push_subscriptions_endpoint_known_push_service` in `schema.sql`, the migration that last wrote it (the rule, and the count that decides whether it is validated), `supabase/functions/_shared/pushHosts.js`, which the Edge Functions ask before they send, and `supabase/tests/fixtures/push-endpoints.json`, which both sides are held to. A push service is added in all four, in one commit: here by a migration that drops the constraint and adds it again, the way migration 15 added it. The pattern has no backslash and none of ``" $ ` !``, so that it reads the same in SQL and inside a shell's double quotes — keep it that way, the runbook page pastes it.
+- **A rule on what a row may hold, added to a table that holds rows, is added `NOT VALID` and validated in the same transaction when no row breaks it.** `NOT VALID` judges every `INSERT` and every `UPDATE` from then on — an `UPDATE` that leaves the column alone included, so a row in the way can be deleted and no longer changed — and reads none of the rows that are there. The audit counts the rows in the way with the pattern of the rule; the page lists them, says what each kind means and gives the statement that validates afterwards. The migration deletes none of them. Validated by the migration when it can be, the rule reads the same in production and in `schema.sql`, which declares it validated.
+- **A migration never writes a secret, and an audit never prints one.** The vault is the owner's (`docs/runbook/30-edge-functions.md`): a migration that needs a secret under another name reads both, as `send_push_event` does. An audit says whether a secret is there and whether two of them hold the same value — compared, never shown — and lists a device by the host of its endpoint, never by the endpoint, which is a secret of that device.
+- **A rollback that puts back functions which read a secret under its old name refuses to run while only the new name is there** (the guard of `2026_10_13_15_push_plumbing.down.sql`): it would be every push stopped, and no error anywhere.
+
 ## A migration that brings a rule the rows already there may break
 
 A trigger or a policy judges what is written after it. When rows that are already in the database break the rule **and leaving them would leave the hole in use**, the migration refuses to start:

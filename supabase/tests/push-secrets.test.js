@@ -2,7 +2,9 @@
 //
 // send-push lets in whoever presents the project's INTERNAL_BEARER. The
 // database holds its copy in the vault, under `app_service_role_key`, and
-// every notify_* trigger sends it. The page has the owner look at the vault,
+// send_push_event() sends it for every notify_* trigger (since migration 15,
+// which also reads it under `app_internal_bearer` — the rename is that
+// migration's page, and push-plumbing.test.js). The page has the owner look at the vault,
 // and change that copy when the secret is rotated — by hand, in production,
 // with statements nothing else runs. If one of them is wrong, the two copies
 // differ, send-push answers the database 401, and no push is sent: silently,

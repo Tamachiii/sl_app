@@ -1,0 +1,58 @@
+{
+  "about": [
+    "Endpoints of push subscriptions, as a browser hands them over and as somebody could write them by hand.",
+    "The rule is the check constraint push_subscriptions_endpoint_known_push_service (migration 2026_10_13_15_push_plumbing):",
+    "https, then fcm.googleapis.com, updates.push.services.mozilla.com, a host under push.apple.com or one under",
+    "notify.windows.com, then a path. supabase/tests/push-plumbing.test.js holds the constraint to these lists.",
+    "The Edge Functions keep the same list of hosts (supabase/functions/_shared/pushHosts.js) and can be held to",
+    "`accepted` and `refused` as well. `refused_by_the_database_only` is refused AS WRITTEN — an upper-case host,",
+    "a port, a space in front — while a URL parser reads one of the four hosts in it: the database is the",
+    "stricter of the two there, and a function that parses the URL may answer either way."
+  ],
+  "accepted": [
+    "https://fcm.googleapis.com/fcm/send/dQw4w9WgXcQ:APA91bHPRgkF3JUikC4ENAHEeMrd41Zxv3hVZjC9KtT8OvPVGJ",
+    "https://fcm.googleapis.com/wp/dQw4w9WgXcQ:APA91bHPRgkF3JUikC4ENAHEeMrd41Zxv3hVZjC9KtT8OvPVGJ",
+    "https://updates.push.services.mozilla.com/wpush/v2/gAAAAABl0Zk3x8Qb2n5T",
+    "https://web.push.apple.com/QGuQyavXutnMH9g6XgXc1wxrFWq0P2PA7B7nE",
+    "https://api.sandbox.push.apple.com/3/device/0123456789abcdef",
+    "https://wns2-by3p.notify.windows.com/w/?token=BQYAAAD%2bWsR8",
+    "https://db5p.notify.windows.com/w/?token=AwYAAAB"
+  ],
+  "refused": [
+    "http://fcm.googleapis.com/fcm/send/abc",
+    "https://fcm.googleapis.com",
+    "https://fcm.googleapis.com.example.org/fcm/send/abc",
+    "https://example.org/fcm.googleapis.com/fcm/send/abc",
+    "https://example.org/?to=https://fcm.googleapis.com/fcm/send/abc",
+    "https://example.org/#https://web.push.apple.com/abc",
+    "https://fcm.googleapis.com@example.org/fcm/send/abc",
+    "https://user:secret@example.org/fcm.googleapis.com/",
+    "https://notfcm.googleapis.com/fcm/send/abc",
+    "https://googleapis.com/fcm/send/abc",
+    "https://push.apple.com/abc",
+    "https://web.push.apple.com.example.org/abc",
+    "https://example.org/.push.apple.com/abc",
+    "https://notify.windows.com/w/?token=abc",
+    "https://wns2.notify.windows.com.example.org/w/?token=abc",
+    "https://updates.push.services.mozilla.org/wpush/v2/abc",
+    "https://example.org/\nhttps://fcm.googleapis.com/fcm/send/abc",
+    "https://127.0.0.1/fcm/send/abc",
+    "https://localhost/fcm/send/abc",
+    "https://[::1]/fcm/send/abc",
+    "https://abcdefghijklmnopqrst.supabase.co/functions/v1/send-push",
+    "wss://fcm.googleapis.com/fcm/send/abc",
+    "ftp://web.push.apple.com/abc",
+    "javascript:fetch('https://fcm.googleapis.com/')",
+    "//fcm.googleapis.com/fcm/send/abc",
+    "fcm.googleapis.com/fcm/send/abc",
+    "not a url"
+  ],
+  "refused_by_the_database_only": [
+    "https://FCM.googleapis.com/fcm/send/abc",
+    "HTTPS://fcm.googleapis.com/fcm/send/abc",
+    "https://fcm.googleapis.com:443/fcm/send/abc",
+    "https://Web.Push.Apple.com/abc",
+    " https://fcm.googleapis.com/fcm/send/abc",
+    "https://fcm.googleapis.com\\fcm/send/abc"
+  ]
+}
