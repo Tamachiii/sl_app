@@ -134,9 +134,17 @@ export function useEnsureProgram() {
 }
 
 /**
- * Create a new program for a student. Pass `setActive: true` to make it the
- * active one immediately (deactivates the current active program first, to
- * respect the partial unique index).
+ * Create a new program for a student. The row is always inserted INACTIVE;
+ * with `setActive: true` it is then made the active one by `activate_program`
+ * (see `useSetActiveProgram`).
+ *
+ * The order is the point. The block the athlete trains is switched off by the
+ * same statement that switches the new one on, and by nothing before it: a
+ * request that fails on the way — the read, the insert or the activation —
+ * leaves that block active. At worst the new program exists, inactive, and the
+ * mutation fails so the coach is told. Switching the current block off first
+ * left the athlete with NO active block when the insert was lost, and every
+ * set they logged was then refused (`program_active_for_session()`).
  */
 export function useCreateProgram() {
   const qc = useQueryClient();
@@ -152,27 +160,24 @@ export function useCreateProgram() {
       if (listErr) throw listErr;
       const nextSort = (existing?.[0]?.sort_order ?? -1) + 1;
 
-      if (setActive) {
-        const { error: deactErr } = await supabase
-          .from('programs')
-          .update({ is_active: false })
-          .eq('student_id', studentId)
-          .eq('is_active', true);
-        if (deactErr) throw deactErr;
-      }
-
       const { data, error } = await supabase
         .from('programs')
         .insert({
           student_id: studentId,
           name,
           sort_order: nextSort,
-          is_active: setActive,
+          is_active: false,
         })
         .select()
         .single();
       if (error) throw error;
-      return data;
+      if (!setActive) return data;
+
+      const { error: activateErr } = await supabase.rpc('activate_program', {
+        p_program_id: data.id,
+      });
+      if (activateErr) throw activateErr;
+      return { ...data, is_active: true };
     },
     onSuccess: (newProg, vars) => {
       // Seed the list cache synchronously so the parent's `onSelect(newProg.id)`
@@ -180,8 +185,16 @@ export function useCreateProgram() {
       // lands — otherwise CoachHome's stale-?program cleanup strips it.
       qc.setQueryData(['programs', vars.studentId], (old) => {
         if (!Array.isArray(old)) return old;
-        return [...old, { ...newProg, weeks: [] }];
+        // A newcomer that is active took the place of every other block.
+        const others = newProg.is_active
+          ? old.map((p) => (p.is_active ? { ...p, is_active: false } : p))
+          : old;
+        return [...others, { ...newProg, weeks: [] }];
       });
+    },
+    // After a failure too: with `setActive`, the program can exist by the time
+    // its activation is refused.
+    onSettled: (_d, _e, vars) => {
       invalidateProgramQueries(qc, vars.studentId);
     },
   });
@@ -343,30 +356,35 @@ export function useHardDeleteProgram() {
 }
 
 /**
- * Make a program the active one for its student. Deactivates the current
- * active program in the same mutation to respect the partial unique index.
+ * Make a program the active one for its student: ONE request, the
+ * `activate_program` function (migration 2026_10_13_11), which switches the
+ * athlete's other blocks off and this one on in a single statement — both
+ * happen or neither.
+ *
+ * It used to be two requests, the others off and then this one on. With the
+ * second one lost the athlete had no active block at all, and the database
+ * refused every set they logged, the ones waiting in their offline queue
+ * included.
+ *
+ * Resolves to what the function answers:
+ * `{ program_id, student_id, already_active, deactivated }`. A program that is
+ * active already is not an error. A draft, a program in the trash and one the
+ * coach cannot reach are refused before anything is written.
  */
 export function useSetActiveProgram() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ programId, studentId }) => {
-      const { error: deactErr } = await supabase
-        .from('programs')
-        .update({ is_active: false })
-        .eq('student_id', studentId)
-        .eq('is_active', true);
-      if (deactErr) throw deactErr;
-
-      const { data, error } = await supabase
-        .from('programs')
-        .update({ is_active: true })
-        .eq('id', programId)
-        .select()
-        .single();
+    mutationFn: async ({ programId }) => {
+      const { data, error } = await supabase.rpc('activate_program', {
+        p_program_id: programId,
+      });
       if (error) throw error;
       return data;
     },
-    onSuccess: (_d, vars) => {
+    // After a refusal too: what the function refuses is a program the list on
+    // screen still offers — put in the trash or deleted from another tab — so
+    // that list is the thing to read again.
+    onSettled: (_d, _e, vars) => {
       invalidateProgramQueries(qc, vars.studentId);
     },
   });

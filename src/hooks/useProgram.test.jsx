@@ -154,27 +154,44 @@ describe('useEnsureProgram', () => {
 });
 
 describe('useCreateProgram', () => {
-  it('without setActive — inserts at next sort_order, no deactivate call', async () => {
+  // The two requests every create makes: the read of the highest sort_order,
+  // then the insert. `update` is a spy on both so a test can say that no
+  // request of the hook switched a block off.
+  function createChains({ existing = [], inserted, insertError = null, order = [] }) {
     const listExisting = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
       order: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({
-        data: [{ sort_order: 2 }],
-        error: null,
-      }),
+      limit: vi.fn().mockResolvedValue({ data: existing, error: null }),
+      update: vi.fn(),
     };
     const insertProg = {
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: { id: 'p-new', name: 'Block 4', sort_order: 3, is_active: false },
-        error: null,
+      insert: vi.fn(function (row) {
+        order.push(['insert', row]);
+        return this;
       }),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: insertError ? null : inserted, error: insertError }),
+      update: vi.fn(),
     };
     const seq = [listExisting, insertProg];
     let i = 0;
     supabase.from.mockImplementation(() => seq[i++]);
+    return { listExisting, insertProg, order };
+  }
+
+  function activation(order, result) {
+    supabase.rpc.mockImplementation((fn, args) => {
+      order.push(['rpc', fn, args]);
+      return Promise.resolve(result);
+    });
+  }
+
+  it('without setActive — inserts at next sort_order, inactive, and activates nothing', async () => {
+    const { insertProg } = createChains({
+      existing: [{ sort_order: 2 }],
+      inserted: { id: 'p-new', name: 'Block 4', sort_order: 3, is_active: false },
+    });
 
     const qc = makeClient();
     const { result } = renderHook(() => useCreateProgram(), { wrapper: withClient(qc) });
@@ -186,73 +203,101 @@ describe('useCreateProgram', () => {
       sort_order: 3,
       is_active: false,
     });
+    expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
-  it('with setActive=true — first deactivates the current active program', async () => {
-    const listExisting = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({ data: [], error: null }),
-    };
-    const deactivate = {
-      update: vi.fn().mockReturnThis(),
-      eq: vi.fn(function () {
-        this._calls = (this._calls || 0) + 1;
-        // resolve on second .eq() (student_id then is_active)
-        if (this._calls === 2) return Promise.resolve({ error: null });
-        return this;
-      }),
-    };
-    const insertProg = {
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: { id: 'p-new', name: 'Active Block', sort_order: 0, is_active: true },
-        error: null,
-      }),
-    };
-    const seq = [listExisting, deactivate, insertProg];
-    let i = 0;
-    supabase.from.mockImplementation(() => seq[i++]);
+  // Review finding P16. The hook used to switch the athlete's active block
+  // off, then insert the new one as active: with the insert lost, the athlete
+  // had no active block and every set they logged was refused.
+  it('with setActive=true — inserts the program INACTIVE, then activates it in one call', async () => {
+    const { listExisting, insertProg, order } = createChains({
+      inserted: { id: 'p-new', name: 'Active Block', sort_order: 0, is_active: false },
+    });
+    activation(order, {
+      data: { program_id: 'p-new', student_id: 'st-1', already_active: false, deactivated: 1 },
+      error: null,
+    });
 
     const qc = makeClient();
     const { result } = renderHook(() => useCreateProgram(), { wrapper: withClient(qc) });
     result.current.mutate({ studentId: 'st-1', name: 'Active Block', setActive: true });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(deactivate.update).toHaveBeenCalledWith({ is_active: false });
-    expect(insertProg.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ is_active: true, sort_order: 0 }),
-    );
+    // The insert first, so that the activation has a program to name.
+    expect(order).toEqual([
+      ['insert', { student_id: 'st-1', name: 'Active Block', sort_order: 0, is_active: false }],
+      ['rpc', 'activate_program', { p_program_id: 'p-new' }],
+    ]);
+    // The read and the insert: no third request, and none that updates.
+    expect(supabase.from).toHaveBeenCalledTimes(2);
+    expect(listExisting.update).not.toHaveBeenCalled();
+    expect(insertProg.update).not.toHaveBeenCalled();
+    // The row came back inactive from the insert; it is active now.
+    expect(result.current.data).toMatchObject({ id: 'p-new', is_active: true });
+  });
+
+  it('with setActive=true — a refused activation fails the mutation and has switched nothing off', async () => {
+    const { listExisting, insertProg, order } = createChains({
+      inserted: { id: 'p-new', name: 'Active Block', sort_order: 0, is_active: false },
+    });
+    const refusal = { code: 'P0001', message: 'program_in_trash' };
+    activation(order, { data: null, error: refusal });
+
+    const qc = makeClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useCreateProgram(), { wrapper: withClient(qc) });
+    result.current.mutate({ studentId: 'st-1', name: 'Active Block', setActive: true });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(result.current.error).toBe(refusal);
+    expect(supabase.from).toHaveBeenCalledTimes(2);
+    expect(listExisting.update).not.toHaveBeenCalled();
+    expect(insertProg.update).not.toHaveBeenCalled();
+    // The program exists, inactive: the lists are read again so it shows.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['programs', 'st-1'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['active-program', 'st-1'] });
+  });
+
+  it('with setActive=true — an insert that fails activates nothing', async () => {
+    const { order } = createChains({ insertError: { code: '42501', message: 'not allowed' } });
+    activation(order, { data: null, error: null });
+
+    const { result } = renderHook(() => useCreateProgram(), { wrapper: withClient(makeClient()) });
+    result.current.mutate({ studentId: 'st-1', name: 'Active Block', setActive: true });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
   it('seeds the ["programs", studentId] cache synchronously on success', async () => {
-    const listExisting = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({ data: [], error: null }),
-    };
-    const insertProg = {
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: { id: 'p-new', name: 'X', sort_order: 0, is_active: false },
-        error: null,
-      }),
-    };
-    const seq = [listExisting, insertProg];
-    let i = 0;
-    supabase.from.mockImplementation(() => seq[i++]);
+    createChains({ inserted: { id: 'p-new', name: 'X', sort_order: 0, is_active: false } });
 
     const qc = makeClient();
-    qc.setQueryData(['programs', 'st-1'], [{ id: 'p-old' }]);
+    qc.setQueryData(['programs', 'st-1'], [{ id: 'p-old', is_active: true }]);
     const { result } = renderHook(() => useCreateProgram(), { wrapper: withClient(qc) });
     result.current.mutate({ studentId: 'st-1', name: 'X' });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    const cached = qc.getQueryData(['programs', 'st-1']);
-    expect(cached.map((p) => p.id)).toContain('p-new');
+    // An inactive newcomer leaves the active block as it is.
+    expect(qc.getQueryData(['programs', 'st-1'])).toEqual([
+      { id: 'p-old', is_active: true },
+      { id: 'p-new', name: 'X', sort_order: 0, is_active: false, weeks: [] },
+    ]);
+  });
+
+  it('seeds an ACTIVE newcomer as the only active program of the list', async () => {
+    const { order } = createChains({
+      inserted: { id: 'p-new', name: 'X', sort_order: 1, is_active: false },
+    });
+    activation(order, { data: {}, error: null });
+
+    const qc = makeClient();
+    qc.setQueryData(['programs', 'st-1'], [{ id: 'p-old', is_active: true }]);
+    const { result } = renderHook(() => useCreateProgram(), { wrapper: withClient(qc) });
+    result.current.mutate({ studentId: 'st-1', name: 'X', setActive: true });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(qc.getQueryData(['programs', 'st-1']).map((p) => [p.id, p.is_active])).toEqual([
+      ['p-old', false],
+      ['p-new', true],
+    ]);
   });
 });
 
@@ -353,48 +398,55 @@ describe('useHardDeleteProgram', () => {
   });
 });
 
+// Review finding P16. "Set active" was two requests — the athlete's other
+// blocks off, then this one on — and each request is a transaction of its own:
+// with the second one lost the athlete had no active block. It is one call of
+// `activate_program` now, which does both or neither.
 describe('useSetActiveProgram', () => {
-  it('deactivates the sibling active program before activating the target', async () => {
-    const callOrder = [];
-    const deactivate = {
-      update: vi.fn(function (payload) {
-        this._payload = payload;
-        return this;
-      }),
-      eq: vi.fn(function () {
-        this._calls = (this._calls || 0) + 1;
-        if (this._calls === 2) {
-          callOrder.push({ phase: 'deactivate', payload: this._payload });
-          return Promise.resolve({ error: null });
-        }
-        return this;
-      }),
-    };
-    const activate = {
-      update: vi.fn(function (payload) {
-        this._payload = payload;
-        return this;
-      }),
-      eq: vi.fn(function () {
-        callOrder.push({ phase: 'activate', payload: this._payload });
-        return this;
-      }),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: { id: 'p-1', is_active: true }, error: null }),
-    };
-    const seq = [deactivate, activate];
-    let i = 0;
-    supabase.from.mockImplementation(() => seq[i++]);
+  const PROGRAM_KEYS = [
+    ['programs', 'st-1'],
+    ['programs-trash', 'st-1'],
+    ['active-program', 'st-1'],
+    ['program'],
+    ['student-program-details'],
+    ['student-progress-stats'],
+    ['coach-dashboard-programs'],
+  ];
+
+  it('is ONE activate_program call, and no request of its own on the table', async () => {
+    const answer = { program_id: 'p-1', student_id: 'st-1', already_active: false, deactivated: 1 };
+    supabase.rpc.mockResolvedValue({ data: answer, error: null });
 
     const qc = makeClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useSetActiveProgram(), { wrapper: withClient(qc) });
     result.current.mutate({ programId: 'p-1', studentId: 'st-1' });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(callOrder[0].phase).toBe('deactivate');
-    expect(callOrder[0].payload).toEqual({ is_active: false });
-    expect(callOrder[1].phase).toBe('activate');
-    expect(callOrder[1].payload).toEqual({ is_active: true });
+    expect(supabase.rpc).toHaveBeenCalledTimes(1);
+    expect(supabase.rpc).toHaveBeenCalledWith('activate_program', { p_program_id: 'p-1' });
+    expect(supabase.from).not.toHaveBeenCalled();
+    expect(result.current.data).toEqual(answer);
+    // The athlete's own views read through is_active, so they drop too.
+    for (const queryKey of PROGRAM_KEYS) expect(invalidate).toHaveBeenCalledWith({ queryKey });
+  });
+
+  // What the function refuses is a program the list on screen still offers —
+  // one that went to the trash from another tab, say. The mutation fails (the
+  // toast), and the list is read again so that it stops offering it.
+  it('a refusal fails the mutation, writes nothing itself and reads the lists again', async () => {
+    const refusal = { code: 'P0001', message: 'program_in_trash' };
+    supabase.rpc.mockResolvedValue({ data: null, error: refusal });
+
+    const qc = makeClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useSetActiveProgram(), { wrapper: withClient(qc) });
+    result.current.mutate({ programId: 'p-1', studentId: 'st-1' });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(result.current.error).toBe(refusal);
+    expect(supabase.from).not.toHaveBeenCalled();
+    for (const queryKey of PROGRAM_KEYS) expect(invalidate).toHaveBeenCalledWith({ queryKey });
   });
 });
 
