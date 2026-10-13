@@ -1,9 +1,16 @@
-import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { describe, it, expect, vi } from 'vitest';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
+
+// The registry of the queue is read from the module itself; the module opens
+// the supabase client at import.
+vi.mock('./supabase', () => ({ supabase: {} }));
+
+import { MUTATION_KEYS, MUTATION_FNS } from './offlineMutations';
 
 const here = dirname(fileURLToPath(import.meta.url));
+const srcDir = resolve(here, '..');
 const hooksDir = resolve(here, '../hooks');
 
 // Student-surface write hooks: every mutation here must survive
@@ -32,14 +39,18 @@ const COACH_ONLY = new Set([
   'useDeleteGoal',
 ]);
 
-// Mutations that are intentionally NOT offline-queued. Each must be UI-gated
-// on connectivity (useOnlineStatus) so it can't silently hang/drop offline.
+// Mutations that are intentionally NOT offline-queued. Each is kept from
+// STARTING without a network — see "an online-only write has an online guard"
+// below, which checks it. Without a network such a write would not fail: it
+// would pause, and run whenever the network returns, on whatever the page
+// held at the time. It is not part of the queue either, so nothing stores it
+// (lib/persistence.js): the same write is gone if the app is closed first.
 // Keep this list tight — adding a name here is a deliberate decision to
 // forgo offline support for that write.
 const ONLINE_ONLY = new Set([
   'useAddStudentSet', // brand-new-row INSERT can't queue offline (UNIQUE collision)
   'useRemoveStudentSet', // symmetry with add
-  'useEnsureSetLogs', // student SessionView safety-net INSERT; self-heals on the next mount, so no gate needed
+  'useEnsureSetLogs', // student SessionView safety-net INSERT; see LEGACY_UNGATED below
   'useAddGoalProgress', // brand-new-row INSERT, no offline id story; MyGoals gates on useOnlineStatus
   'useDeleteGoalProgress', // symmetry with add
   'useToggleGoalAchieved', // low-stakes flag; MyGoals gates on useOnlineStatus
@@ -59,8 +70,11 @@ const ONLINE_ONLY = new Set([
 // Split a file's text into top-level `export function useXxx(...) { ... }`
 // blocks by brace-matching, so we can inspect each hook in isolation.
 function extractHooks(src) {
+  return extractFunctions(src, /export function (use[A-Za-z0-9]+)\s*\(/g);
+}
+
+function extractFunctions(src, re) {
   const hooks = [];
-  const re = /export function (use[A-Za-z0-9]+)\s*\(/g;
   let m;
   while ((m = re.exec(src))) {
     const name = m[1];
@@ -144,5 +158,191 @@ describe('offline-safety guardrail', () => {
         'useSetRpe',
       ]),
     );
+  });
+});
+
+// --- an online-only write has an online guard ----------------------------------------
+//
+// "Online-only" is a promise that the write does not start without a network.
+// It is kept in one of two places, and this is where it is checked:
+//   - in the hook itself, which reads the state of the network before it
+//     mutates; or
+//   - in every component that calls the hook, which reads it to disable or
+//     hide the control.
+// "Reads the state of the network" is one of the three ways the app has:
+// `useOnlineStatus()`, `onlineManager.isOnline()` or `navigator.onLine`. A
+// static check cannot tell that the value is USED on the right line; what it
+// does tell is that a write was added to ONLINE_ONLY without anything near it
+// looking at the network — which is how every entry without a guard got there.
+const READS_THE_NETWORK = /\buseOnlineStatus\s*\(|\bonlineManager\s*\.\s*isOnline\s*\(|\bnavigator\s*\.\s*onLine\b/;
+
+// A hook nobody calls starts nothing, with or without a network.
+function isGuarded({ body, callers }) {
+  return READS_THE_NETWORK.test(body) || callers.every((caller) => READS_THE_NETWORK.test(caller.text));
+}
+
+// Every source file of the app, tests left out.
+function sourceFiles(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = resolve(dir, entry.name);
+    if (entry.isDirectory()) return sourceFiles(path);
+    if (!/\.jsx?$/.test(entry.name) || /\.test\.jsx?$/.test(entry.name)) return [];
+    return [{ file: relative(srcDir, path), text: readFileSync(path, 'utf8') }];
+  });
+}
+
+// One entry is let through without a guard, and only as it stands today.
+// `useEnsureSetLogs` is fired by an effect of SessionView with nothing looking
+// at the network. What that cost offline is handled where it showed — the
+// write is neither stored nor counted as waiting (lib/persistence.js) — and
+// the guard itself comes with the hook's move onto the `ensure_set_logs` RPC,
+// which is called "only when online". So the entry is excused for as long as
+// the hook does not name that RPC, and held to the rule from then on.
+const LEGACY_UNGATED = {
+  useEnsureSetLogs: (body) => !/\bensure_set_logs\b/.test(body),
+};
+
+describe('an online-only write has an online guard', () => {
+  const sources = sourceFiles(srcDir);
+  const hooks = FILES.flatMap((file) =>
+    extractHooks(readFileSync(resolve(hooksDir, file), 'utf8')).map((hook) => ({ ...hook, file: `hooks/${file}` })),
+  );
+  // An entry whose hook is gone guards nothing and is left alone here: the
+  // hook that replaced it is caught by the first test of this file, which
+  // sends it to ONLINE_ONLY — and so to this one.
+  const guards = hooks
+    .filter((hook) => ONLINE_ONLY.has(hook.name))
+    .map((hook) => {
+      const calls = new RegExp(`\\b${hook.name}\\s*\\(`);
+      const callers = sources.filter((source) => source.file !== hook.file && calls.test(source.text));
+      return { name: hook.name, hook, callers };
+    });
+
+  it('the hook reads the state of the network, or every component that calls it does', () => {
+    const unguarded = guards
+      .filter(({ hook, callers }) => !isGuarded({ body: hook.body, callers }))
+      .filter(({ name, hook }) => !LEGACY_UNGATED[name]?.(hook.body))
+      .map(({ name, callers }) => `${name} — called from ${callers.map((caller) => caller.file).join(', ')}`);
+
+    // A name here is a write that pauses without a network and runs later, on
+    // stale data, or is lost with the app. Read the network in the hook
+    // (`onlineManager.isOnline()`) or in each caller (`useOnlineStatus()`).
+    expect(unguarded).toEqual([]);
+  });
+
+  it('an excuse is for an entry of the list, and for nothing else', () => {
+    expect(Object.keys(LEGACY_UNGATED).filter((name) => !ONLINE_ONLY.has(name))).toEqual([]);
+  });
+
+  it('looked at the hooks and found who calls them: the scan is not passing for want of anything to read', () => {
+    expect(guards.length).toBeGreaterThan(ONLINE_ONLY.size / 2);
+    expect(guards.filter((guard) => guard.callers.length > 0).length).toBeGreaterThan(guards.length / 2);
+    expect(sources.some((source) => source.file === 'hooks/useOnlineStatus.js')).toBe(true);
+    expect(sources.some((source) => /\.test\./.test(source.file))).toBe(false);
+  });
+
+  it('tells a guard from its absence', () => {
+    const gated = { file: 'Gated.jsx', text: 'const online = useOnlineStatus();\nuseAddThing();' };
+    const blind = { file: 'Blind.jsx', text: 'const add = useAddThing();\nadd.mutate();' };
+
+    expect(isGuarded({ body: '{ return useMutation({ mutationFn }); }', callers: [gated] })).toBe(true);
+    // One caller that does not look is enough for the write to start offline.
+    expect(isGuarded({ body: '{ return useMutation({ mutationFn }); }', callers: [gated, blind] })).toBe(false);
+    // The hook that looks for itself covers every caller.
+    expect(isGuarded({ body: '{ if (!onlineManager.isOnline()) return; }', callers: [blind] })).toBe(true);
+    expect(isGuarded({ body: '{ if (navigator.onLine === false) return; }', callers: [blind] })).toBe(true);
+    // Importing the helper is not reading the network.
+    expect(isGuarded({ body: '{ return useMutation({ mutationFn }); }', callers: [{ ...blind, text: "import { useOnlineStatus } from './x';\nuseAddThing();" }] })).toBe(false);
+  });
+});
+
+// --- a write of the queue can be sent twice ------------------------------------------
+//
+// The queue re-sends. A write that got no answer is sent again (the first copy
+// may have reached the database), and so is every write that had not settled
+// when the app was killed: the persister stores all of them — paused, out
+// with a request that hangs, asleep between two attempts — and the next launch
+// replays them (lib/persistence.js). All of it rests on one property of the
+// registered functions: run twice, a function leaves the database as it does
+// run once.
+//
+// That is read off the code, statement by statement. Each registered write is
+// listed with what it sends; a function that changes, or a write that is
+// added, has to be put here and looked at:
+//   update — columns of the row named by the variables, set to values carried
+//            in the variables: the second run writes the same values;
+//   upsert — only with `onConflict`: the second run meets the row of the first
+//            (and overwrites it with the same values, or does nothing);
+//   delete — the second run finds nothing to delete;
+//   rpc    — only a function known to be a full replace.
+// A bare INSERT is the one thing that is never replay-safe: sent twice, it is
+// two rows, or a UNIQUE violation that fails a write which had succeeded.
+const WHAT_A_QUEUED_WRITE_SENDS = {
+  toggleDone: ['update'],
+  setFailed: ['update'],
+  setRpe: ['update'],
+  logActual: ['update'],
+  setSkipped: ['update'],
+  confirmSession: ['upsert'],
+  unconfirmSession: ['delete'],
+  saveSlotComment: ['delete', 'upsert'],
+  saveSlotDeviation: ['delete', 'upsert'],
+  saveDraftTree: ['rpc save_draft_tree'],
+  discardDraft: ['delete'],
+};
+
+// `save_draft_tree` replaces the whole draft by client-minted ids.
+const REPLAY_SAFE_RPCS = ['save_draft_tree'];
+
+function statementsOf(body) {
+  const sent = new Set();
+  for (const [, verb] of body.matchAll(/\.\s*(insert|update|upsert|delete)\s*\(/g)) sent.add(verb);
+  for (const [, fn] of body.matchAll(/\.\s*rpc\s*\(\s*['"`]([^'"`]+)['"`]/g)) sent.add(`rpc ${fn}`);
+  // An rpc whose name is not a literal cannot be vouched for.
+  if (/\.\s*rpc\s*\(\s*[^'"`\s]/.test(body)) sent.add('rpc ?');
+  return [...sent].sort();
+}
+
+describe('a write of the queue can be sent twice', () => {
+  const source = readFileSync(resolve(here, 'offlineMutations.js'), 'utf8');
+  const senders = Object.fromEntries(
+    extractFunctions(source, /async function ([A-Za-z0-9]+)Fn\s*\(/g).map(({ name, body }) => [name, body]),
+  );
+
+  it('every registered write is listed, and has a function to send it', () => {
+    expect(Object.keys(WHAT_A_QUEUED_WRITE_SENDS).sort()).toEqual(Object.keys(MUTATION_KEYS).sort());
+    expect(Object.keys(MUTATION_FNS).sort()).toEqual(Object.keys(MUTATION_KEYS).sort());
+    expect(Object.keys(MUTATION_KEYS).filter((name) => !senders[name])).toEqual([]);
+  });
+
+  it('each sends what it is listed with, and nothing else', () => {
+    const actual = Object.fromEntries(Object.keys(MUTATION_KEYS).map((name) => [name, statementsOf(senders[name] ?? '')]));
+
+    expect(actual).toEqual(WHAT_A_QUEUED_WRITE_SENDS);
+  });
+
+  it('none is a bare INSERT, an upsert without its conflict target, or an rpc nobody vouched for', () => {
+    const unsafe = [];
+    for (const name of Object.keys(MUTATION_KEYS)) {
+      const body = senders[name] ?? '';
+      const sent = statementsOf(body);
+      if (sent.includes('insert')) unsafe.push(`${name}: insert`);
+      const upserts = body.match(/\.\s*upsert\s*\(/g)?.length ?? 0;
+      const targets = body.match(/\bonConflict\s*:/g)?.length ?? 0;
+      if (upserts > targets) unsafe.push(`${name}: upsert without onConflict`);
+      for (const statement of sent.filter((s) => s.startsWith('rpc '))) {
+        if (!REPLAY_SAFE_RPCS.includes(statement.slice(4))) unsafe.push(`${name}: ${statement}`);
+      }
+    }
+
+    expect(unsafe).toEqual([]);
+  });
+
+  it('reads a function the way it is written: the scan is not passing on an empty body', () => {
+    expect(statementsOf(senders.confirmSession)).toEqual(['upsert']);
+    expect(senders.confirmSession).toContain('ignoreDuplicates: true');
+    expect(statementsOf("{ await supabase.from('set_logs').insert(rows); }")).toEqual(['insert']);
+    expect(statementsOf("{ await supabase.rpc('ensure_set_logs', { p_session_id }); }")).toEqual(['rpc ensure_set_logs']);
+    expect(statementsOf('{ await supabase.rpc(name, args); }')).toEqual(['rpc ?']);
   });
 });

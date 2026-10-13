@@ -4,9 +4,15 @@ import { render, screen, act } from '@testing-library/react';
 import {
   QueryClient,
   QueryClientProvider,
+  onlineManager,
   useMutation,
 } from '@tanstack/react-query';
+// The banner asks lib/persistence.js what a queued write is, which knows the
+// keys of lib/offlineMutations.js — a module that opens the supabase client.
+vi.mock('../../lib/supabase', () => ({ supabase: {} }));
+
 import OfflineBanner from './OfflineBanner';
+import { MUTATION_KEYS } from '../../lib/offlineMutations';
 
 const onlineDescriptor = Object.getOwnPropertyDescriptor(
   Object.getPrototypeOf(navigator),
@@ -24,6 +30,8 @@ afterEach(() => {
   if (onlineDescriptor) {
     Object.defineProperty(Object.getPrototypeOf(navigator), 'onLine', onlineDescriptor);
   }
+  delete navigator.onLine;
+  onlineManager.setOnline(true);
 });
 
 function makeClient() {
@@ -136,29 +144,78 @@ describe('<OfflineBanner />', () => {
     }
   });
 
-  it('reflects the count of paused mutations in the offline notice', async () => {
-    setOnline(false);
-    const qc = makeClient();
-
-    render(<OfflineBanner />, { wrapper: withClient(qc) });
-    act(() => {
-      window.dispatchEvent(new Event('offline'));
-    });
-
-    // Build a mutation that React Query will park as paused (networkMode
-    // 'online' + offline). The banner's mutation-cache subscription should
-    // pick it up and render the count.
+  // A write of the queue, as a hook makes it: one of the registered keys.
+  function queueWrite(qc, mutationKey, mutationFn = () => Promise.resolve()) {
     act(() => {
       qc.getMutationCache()
-        .build(qc, {
-          mutationKey: ['paused-test'],
-          networkMode: 'online',
-          mutationFn: () => Promise.resolve(),
-        })
-        .execute({});
+        .build(qc, { mutationKey, networkMode: 'online', retry: 3, retryDelay: 60_000, mutationFn })
+        .execute({})
+        .catch(() => {});
     });
+  }
 
-    const banner = await screen.findByTestId('offline-banner');
-    expect(banner).toHaveTextContent(/1 change/);
+  function goOffline() {
+    setOnline(false);
+    act(() => {
+      onlineManager.setOnline(false);
+      window.dispatchEvent(new Event('offline'));
+    });
+  }
+
+  it('counts the writes that wait for the network', async () => {
+    const qc = makeClient();
+    render(<OfflineBanner />, { wrapper: withClient(qc) });
+    goOffline();
+
+    queueWrite(qc, MUTATION_KEYS.toggleDone);
+    expect(await screen.findByText('Offline · 1 change waiting to sync')).toBeInTheDocument();
+
+    queueWrite(qc, MUTATION_KEYS.confirmSession);
+    expect(await screen.findByText('Offline · 2 changes waiting to sync')).toBeInTheDocument();
+  });
+
+  it('a session that was only opened is not a change waiting to sync', async () => {
+    // Opening a page can pause a write of its own — one without a key, or with
+    // a key that is not of the queue. Nothing the athlete did, nothing that is
+    // kept through a relaunch: it is not announced as waiting.
+    const qc = makeClient();
+    render(<OfflineBanner />, { wrapper: withClient(qc) });
+    goOffline();
+
+    act(() => {
+      qc.getMutationCache()
+        .build(qc, { networkMode: 'online', mutationFn: () => Promise.resolve() })
+        .execute({ sessionId: 's-1' });
+      qc.getMutationCache()
+        .build(qc, { mutationKey: ['messages', 'mark-read'], networkMode: 'online', mutationFn: () => Promise.resolve() })
+        .execute('coach-1');
+    });
+    await act(async () => {});
+
+    expect(qc.getMutationCache().getAll().map((m) => m.state.isPaused)).toEqual([true, true]);
+    expect(screen.getByTestId('offline-banner')).toHaveTextContent(
+      'Offline — your changes will sync when you reconnect.',
+    );
+
+    // And next to a real one, it still is not counted.
+    queueWrite(qc, MUTATION_KEYS.setRpe);
+    expect(await screen.findByText('Offline · 1 change waiting to sync')).toBeInTheDocument();
+  });
+
+  it('counts a write that is between two attempts when the network goes: it is owed like the others', async () => {
+    // Online, on a network that does not answer: the write is not paused, it
+    // sleeps until its next attempt. Then the phone notices it is offline.
+    setOnline(true);
+    onlineManager.setOnline(true);
+    const qc = makeClient();
+    render(<OfflineBanner />, { wrapper: withClient(qc) });
+    queueWrite(qc, MUTATION_KEYS.toggleDone, () => Promise.reject(new TypeError('Failed to fetch')));
+    await act(async () => {});
+    const [write] = qc.getMutationCache().getAll();
+    expect(write.state).toMatchObject({ status: 'pending', isPaused: false, failureCount: 1 });
+
+    goOffline();
+
+    expect(await screen.findByText('Offline · 1 change waiting to sync')).toBeInTheDocument();
   });
 });

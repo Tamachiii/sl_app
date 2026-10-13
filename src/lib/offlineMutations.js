@@ -687,11 +687,12 @@ export function hasUnsyncedDraft(queryClient) {
 }
 
 // Send again every marked tree that nothing is carrying to the database: the
-// save of its last edit failed for good, or was running when the app was
-// killed (only a PAUSED mutation is stored). The snapshot is built from the
-// tree as it is now and goes through the queue like any other save — same
-// key, same scope, same retries — so it waits behind a save that is already
-// there, pauses without a network and is stored with the queue.
+// save of its last edit failed for good (a write that ended in error is not
+// stored), or the app was killed before that save was written to the device.
+// The snapshot is built from the tree as it is now and goes through the queue
+// like any other save — same key, same scope, same retries — so it waits
+// behind a save that is already there, pauses without a network and is stored
+// with the queue.
 function sendUnsyncedDrafts(queryClient) {
   const sending = pendingDraftSaves(queryClient);
   const refused = turnedDown.get(queryClient);

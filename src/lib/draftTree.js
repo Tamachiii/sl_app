@@ -13,7 +13,8 @@
 // and the marker stays until the database has accepted a snapshot of exactly
 // that tree. It is part of the cached DATA, on purpose: the persister stores
 // the data, so the marker is still there after the app was killed and opened
-// again — which a mutation that failed is not (only paused ones are stored).
+// again — which a mutation that failed is not (lib/persistence.js stores the
+// writes that have not settled, and no other).
 //
 // Three things read it (lib/offlineMutations.js, hooks/useAuthoring.js):
 //   - a read of the server never replaces a marked tree;

@@ -1,19 +1,26 @@
 import { useIsMutating } from '@tanstack/react-query';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useI18n } from '../../hooks/useI18n';
+import { isQueuedWrite } from '../../lib/persistence';
 
 /**
  * Slim global banner that surfaces real connectivity loss.
  *
  * Mounted once in AppShell so every signed-in page picks it up. Visibility is
- * keyed on `navigator.onLine` plus the count of mutations React Query has
- * **paused** (state.isPaused === true). Paused mutations only exist when a
- * write was issued while offline; normal in-flight online mutations don't
- * count, so the banner doesn't flash on every set/RPE tap. The container
- * stays mounted with `max-height: 0` while hidden, so its appearance/dismissal
- * animates rather than yanking the layout up and down.
+ * keyed on `navigator.onLine`; the container stays mounted with
+ * `max-height: 0` while hidden, so its appearance/dismissal animates rather
+ * than yanking the layout up and down.
  *
- * The paused count is DERIVED, never mirrored into state. `useIsMutating` is a
+ * "N changes waiting to sync" counts the writes this device still owes the
+ * database — `isQueuedWrite` in lib/persistence.js, the same test that decides
+ * what the persister stores. So the number is what will be sent once the
+ * network is back, also after the app was killed in between, and nothing else.
+ * It used to count every paused mutation: a session opened without signal
+ * paused a housekeeping write of its page (one without a key, not part of the
+ * queue), and the banner announced "1 change waiting to sync" to an athlete
+ * who had not touched anything.
+ *
+ * The count is DERIVED, never mirrored into state. `useIsMutating` is a
  * `useSyncExternalStore` read over the mutation cache, so React owns the
  * scheduling. The previous `useState` + `mutationCache.subscribe` mirror called
  * `setState` straight from React Query's *synchronous* notify — and
@@ -26,18 +33,18 @@ import { useI18n } from '../../hooks/useI18n';
 export default function OfflineBanner() {
   const isOnline = useOnlineStatus();
   const { t } = useI18n();
-  const pausedCount = useIsMutating({ predicate: (m) => m.state.isPaused });
+  const waitingCount = useIsMutating({ predicate: isQueuedWrite });
 
   const visible = !isOnline;
 
   let message;
   if (!isOnline) {
-    if (pausedCount > 0) {
+    if (waitingCount > 0) {
       message = t(
-        pausedCount === 1
+        waitingCount === 1
           ? 'offline.bannerOfflineWithPending'
           : 'offline.bannerOfflineWithPendingMany',
-        { n: pausedCount }
+        { n: waitingCount }
       );
     } else {
       message = t('offline.bannerOffline');

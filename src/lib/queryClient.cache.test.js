@@ -158,9 +158,10 @@ describe('what the device read is still there at the gym', () => {
     for (const root of PERSISTED_QUERY_ROOTS) {
       expect(queryClient.getQueryDefaults([root, 'any']).gcTime, root).toBe(PERSIST_MAX_AGE_MS);
     }
-    // The age at which the provider throws the whole cache away is that number.
-    const provider = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../App.jsx'), 'utf8');
-    expect(provider).toMatch(/maxAge: PERSIST_MAX_AGE_MS,/);
+    // The age at which the provider throws the whole cache away is that
+    // number: it is what the persisted cache is built with.
+    const client = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'queryClient.js'), 'utf8');
+    expect(client).toMatch(/maxAge: PERSIST_MAX_AGE_MS,/);
   });
 
   it('a session opened at home is on the device hours later; so is the list of what is confirmed', async () => {

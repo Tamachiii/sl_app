@@ -6,13 +6,7 @@ import { AuthProvider, useAuth } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
 import { I18nProvider } from './hooks/useI18n';
 import { usePushAutoHeal } from './hooks/usePushAutoHeal';
-import {
-  queryClient,
-  queryPersister,
-  shouldPersistQuery,
-  replayQueuedWrites,
-  PERSIST_MAX_AGE_MS,
-} from './lib/queryClient';
+import { queryClient, queryPersister, persistOptions, replayQueuedWrites } from './lib/queryClient';
 import { routes } from './routes';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import { installGlobalErrorReporting } from './lib/errorReporter';
@@ -55,23 +49,18 @@ function PushAutoHeal() {
 function CacheBoundary({ children }) {
   // No IndexedDB (older Safari, jsdom test runs): drop straight to a vanilla
   // provider. Persistence becomes a no-op; queries still work in-memory.
-  if (!queryPersister) {
+  if (!persistOptions) {
     return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
   }
   return (
     <PersistQueryClientProvider
       client={queryClient}
-      persistOptions={{
-        persister: queryPersister,
-        // 14d is long enough to cover a vacation without internet, short
-        // enough that stale set-log targets eventually get refreshed. The
-        // same number is the `gcTime` of the persisted roots: an entry that
-        // leaves memory earlier leaves the device with it.
-        maxAge: PERSIST_MAX_AGE_MS,
-        // Bump this when the persisted shape changes incompatibly.
-        buster: 'sl-app-cache-v1',
-        dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery },
-      }}
+      // The persister, how long the stored reads live, their version and what
+      // is stored at all: one object, built in lib/queryClient.js. Do not
+      // rebuild it here option by option — the persister and its options only
+      // work together: the filter that keeps a write whose request is out is
+      // of no use without the persister that stores it as one that waits.
+      persistOptions={persistOptions}
       // Replay mutations queued offline in a previous session, then reconcile
       // the draft caches. No-op if the queue is empty, we're still offline
       // (network-mode pauses) or nobody is signed in. This provider holds

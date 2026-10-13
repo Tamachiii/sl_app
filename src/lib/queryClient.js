@@ -1,10 +1,10 @@
 import { QueryClient, MutationCache, focusManager, onlineManager } from '@tanstack/react-query';
-import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister';
 import { createStore, get, set, del } from 'idb-keyval';
 import {
   registerOfflineMutationDefaults,
   resumeMutationsAndReconcileDrafts,
 } from './offlineMutations';
+import { createCachePersistence } from './persistence';
 import { pushToast } from './toast';
 import { mutationErrorKey, isRefusedReplay } from './mutationErrors';
 import { isUnsyncedDraft } from './draftTree';
@@ -44,8 +44,8 @@ if (typeof window !== 'undefined') {
 
 // How long this device keeps what it has read. One number, because three
 // things have to agree on it:
-//   - `maxAge` of the persisted cache (App.jsx): a cache that was not written
-//     for that long is thrown away as a whole;
+//   - `maxAge` of the persisted cache (`persistOptions` below): a cache that
+//     was not written for that long is thrown away as a whole;
 //   - `gcTime` of the persisted roots (below): how long an entry nobody
 //     observes stays in memory — and what leaves memory is written out of
 //     IndexedDB on the next save;
@@ -118,7 +118,8 @@ const idbStore =
 
 // idb-keyval falls back to throwing when indexedDB is missing (older Safari,
 // some test runners); guard the storage shim so the queryClient still imports
-// cleanly. PersistQueryClientProvider treats undefined persister as a no-op.
+// cleanly. Without a store nothing is persisted: App.jsx mounts the plain
+// provider.
 const queryStorage = idbStore
   ? {
       getItem: (key) => get(key, idbStore),
@@ -127,14 +128,26 @@ const queryStorage = idbStore
     }
   : null;
 
-export const queryPersister = queryStorage
-  ? createAsyncStoragePersister({
+// What PersistQueryClientProvider is given (App.jsx), whole: the persister,
+// and the options that only mean something together with it. Which reads are
+// stored is decided below (`shouldPersistQuery`, `serializeCache`); which
+// writes, in lib/persistence.js.
+export const persistOptions = queryStorage
+  ? createCachePersistence({
       storage: queryStorage,
       key: 'sl-app-rq-cache',
+      // 14d is long enough to cover a vacation without internet, short
+      // enough that stale set-log targets eventually get refreshed. The same
+      // number is the `gcTime` of the persisted roots: an entry that leaves
+      // memory earlier leaves the device with it.
+      maxAge: PERSIST_MAX_AGE_MS,
       throttleTime: 1000,
       serialize: serializeCache,
+      shouldPersistQuery,
     })
   : null;
+
+export const queryPersister = persistOptions?.persister ?? null;
 
 // A draft whose edits the database does not have (lib/draftTree.js): the tree
 // that carries the marker, and the pointer to it — for a draft created without
@@ -160,7 +173,7 @@ function confirmedLongAgo(sessionId, now) {
 
 /**
  * Whether an entry of the cache is written to the device. Asked for every
- * entry each time the cache is saved (`dehydrateOptions` in App.jsx).
+ * entry each time the cache is saved (`persistOptions` above).
  *
  * It is also what takes entries OFF the device. With `gcTime` at
  * PERSIST_MAX_AGE_MS nothing is collected in an app that is opened every day —
