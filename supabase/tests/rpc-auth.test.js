@@ -17,6 +17,13 @@
 //   3. the migration file itself, on the frozen production baseline: the hole
 //      is there before, gone after, back after the rollback.
 //
+// Since migration 13 two more SECURITY DEFINER functions are callable by a
+// client: ensure_set_logs and claim_push_subscription. They act for the
+// account that calls, not for a coach, so "somebody who is not the coach" is
+// not their question — what each allows is in ensure-claim.test.js. What they
+// share with the five is tested here: a caller without a user id is refused in
+// the body, by a line that is NULL-safe.
+//
 // Why the callers without a user id matter beyond `anon`: migration 03 took
 // the EXECUTE of `anon` away, and since then an anonymous call fails on the
 // privilege — "permission denied for function …" — whatever the function body
@@ -95,6 +102,15 @@ const CALLS = [
   ['decline_promote_request', () => [`select public.decline_promote_request($1)`, [firstPullUp()]]],
   ['approve_program', ({ draft }) => [`select public.approve_program($1)`, [draft.id]]],
   ['send_back_program', ({ draft }) => [`select public.send_back_program($1)`, [draft.id]]],
+];
+
+// The two that act for the account that calls (migration 13). The session is
+// athlete A's, and short of a set: there is something to add, and nobody to
+// add it for.
+const DEVICE = 'https://fcm.googleapis.com/fcm/send/a-device-nobody-is-signed-in-on';
+const CALLS_FOR_THE_CALLER = [
+  ['ensure_set_logs', () => [`select public.ensure_set_logs($1)`, [ids.programA.sessions[0]]]],
+  ['claim_push_subscription', () => [`select public.claim_push_subscription($1, $2, $3)`, [DEVICE, 'p256dh', 'auth']]],
 ];
 
 // Everything the five write, as one value: which exercise every slot holds,
@@ -180,6 +196,36 @@ describe('a caller who is not the coach of the athlete', () => {
       expect(await state(q)).toEqual(before);
     }));
   });
+
+  // ensure_set_logs and claim_push_subscription: "for the account that
+  // calls" is nobody when the request names no user.
+  it('without a user id, the two functions that act for the account that calls are refused too, and nothing changes', () => scenario(async (q) => {
+    await q(`delete from set_logs where id = $1`, [ids.programA.setLogs[2]]);
+    const written = () => q.one(
+      `select (select count(*) from set_logs) as set_logs, (select count(*) from push_subscriptions) as devices`,
+    );
+    const before = await written();
+
+    for (const [label, as] of WITHOUT_USER_ID) {
+      for (const [name, call] of CALLS_FOR_THE_CALLER) {
+        const [sql, params] = call();
+        const tried = await attempt(() => as((caller) => caller.value(sql, params)));
+        expect(outcome(tried), `${name}, called by ${label}`).toBe('not authorized');
+        expect(tried.error.code, name).toBe('42501');
+      }
+    }
+    for (const [name, call] of CALLS_FOR_THE_CALLER) {
+      const [sql, params] = call();
+      const tried = await attempt(() => asAnon((anon) => anon.value(sql, params)));
+      expect(outcome(tried), name).toBe(`permission denied for function ${name}`);
+    }
+    expect(await written()).toEqual(before);
+
+    // With a user id each does what it is for: the athlete of the session
+    // gets the set, and whoever is signed in gets the device.
+    expect(await asUser(ids.studentA, (athlete) => athlete.value(...CALLS_FOR_THE_CALLER[0][1]()))).toBe(1);
+    expect(await asUser(otherCoach, (olga) => olga.value(...CALLS_FOR_THE_CALLER[1][1]()))).toMatchObject({ outcome: 'created' });
+  }));
 
   it('another coach is refused even when the substitute is an exercise of her own library', () => scenario(async (q) => {
     const before = await state(q);
@@ -409,10 +455,37 @@ describe('in the catalog', () => {
     }
   });
 
+  // The two of migration 13 read auth.uid() once, into v_uid, and judge by it.
+  const FOR_THE_CALLER = {
+    claim_push_subscription: 'IF v_uid IS NULL THEN',
+    ensure_set_logs: 'IF v_uid IS NULL OR public.student_profile_for_session(p_session_id) IS DISTINCT FROM v_uid THEN',
+  };
+
+  it('each of the two that act for the account that calls refuses a caller without a user id first, with a NULL-safe line', async () => {
+    const rows = await asAdmin((q) => q.rows(
+      `select p.proname as name, p.prosrc as body
+         from pg_proc p
+        where p.pronamespace = 'public'::regnamespace and p.proname = any($1)
+        order by 1`,
+      [Object.keys(FOR_THE_CALLER)],
+    ));
+    expect(rows.map((row) => row.name)).toEqual(Object.keys(FOR_THE_CALLER));
+    for (const { name, body } of rows) {
+      const code = body.replace(/--.*$/gm, '');
+      expect(code, name).toContain('v_uid     uuid := auth.uid();');
+      // The first IF of the body: nothing is read or written before it.
+      expect(code.slice(code.indexOf('BEGIN')).match(/\bIF\b.*\bTHEN\b/)?.[0], name).toBe(FOR_THE_CALLER[name]);
+      expect(code, name).not.toMatch(/(?:(?<!:)=|<>)\s*auth\.uid\(\)|auth\.uid\(\)\s*(?:=|<>|!=)/);
+      // v_uid is compared with `=` only after that line, where it is not NULL — never with `<>`.
+      expect(code, name).not.toMatch(/<>\s*v_uid|v_uid\s*(?:<>|!=)/);
+    }
+  });
+
   // A SECURITY DEFINER function that writes and that a client can call by name
-  // is a gate of its own. This list is the five; a function that joins it must
-  // be called here as every caller above before it ships.
-  it('the SECURITY DEFINER functions a client can call to write are these five', async () => {
+  // is a gate of its own. This list is the five, and the two that act for the
+  // account that calls; a function that joins it must be called here as every
+  // caller above before it ships.
+  it('the SECURITY DEFINER functions a client can call to write are these five, and the two that act for the account that calls', async () => {
     const callable = await asAdmin((q) => q.rows(
       `select p.proname as name
          from pg_proc p
@@ -427,7 +500,7 @@ describe('in the catalog', () => {
       'a new SECURITY DEFINER function that is neither a trigger nor STABLE: it bypasses RLS, so it must refuse '
       + 'a caller without a user id itself (auth.uid() IS NULL first, then IS DISTINCT FROM) — add it to CALLS '
       + 'in supabase/tests/rpc-auth.test.js, or test here why nobody can call it',
-    ).toEqual(FIVE);
+    ).toEqual([...FIVE, ...Object.keys(FOR_THE_CALLER)].sort());
   });
 });
 

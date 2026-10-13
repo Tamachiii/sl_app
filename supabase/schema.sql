@@ -1190,7 +1190,9 @@ CREATE TRIGGER trg_restrict_student_goal_update
 -- without a user id.
 -- What it does NOT cover is the INSERT: an athlete still inserts a row with
 -- targets of their choosing, because the deployed app materializes the
--- prescribed rows under the athlete's JWT (useEnsureSetLogs).
+-- prescribed rows under the athlete's JWT (useEnsureSetLogs). The function
+-- that does it for the app, ensure_set_logs, is further down (2026_10_13_13);
+-- the INSERT itself is held by a contract migration, once no app inserts.
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.pin_set_log_targets_for_student()
 RETURNS trigger AS $$
@@ -1251,6 +1253,116 @@ CREATE TRIGGER trg_pin_logged_set_log_targets
         OR NEW.target_weight_kg IS DISTINCT FROM OLD.target_weight_kg
         OR NEW.target_rest_seconds IS DISTINCT FROM OLD.target_rest_seconds)
   EXECUTE FUNCTION public.pin_logged_set_log_targets();
+
+-- ============================================================
+-- THE PRESCRIBED SETS OF A SESSION, COMPLETED FOR ITS ATHLETE
+-- (2026_10_13_13_ensure_claim_rpcs — review L8, P22, and what L6 needs)
+--
+-- A set is a row of set_logs: the coach's editor writes one per set when an
+-- exercise is added, and approve_program writes them for a draft. A session
+-- can still be short of some — a block copied from a draft, a request of the
+-- editor that was lost — and the athlete's page shows the sets it finds. The
+-- app deployed before wave 2 adds the others itself, from the number of sets
+-- it has in its cache: a set the coach has removed since comes back (P22).
+-- This function is given the id of the session, and nothing else.
+--
+--   ensure_set_logs(p_session_id)   → how many rows were added; 0 when none
+--                                     was missing
+--
+--   adds      for every exercise of the session, every number from 1 to its
+--             number of sets that has no row — whatever that row is: an
+--             extra set of the athlete standing on a number is a row. A new
+--             row is not done, and its targets are those of the exercise,
+--             which is what the editor and approve_program write. Nothing
+--             that exists is touched.
+--   reads     the exercises in the database, at the moment of the call.
+--   refuses   not authorized         (42501) no user id, or not the caller's
+--                                    own session — somebody else's, one of
+--                                    an athlete the caller coaches and no
+--                                    such session are the same answer
+--             program_not_active     not the block being trained: a past
+--                                    block, a draft, a block in the trash
+--             session_not_writable   archived or reviewed by the coach
+--   … and has then written nothing.
+--
+-- SECURITY DEFINER, so it asks the three questions of an athlete's write
+-- itself (see session_writable above), through the helpers the policies of
+-- set_logs use. It has to be: its rows carry the coach's targets, which an
+-- athlete's own INSERT will not be allowed to write.
+--
+-- THE SETTING. app.trusted_set_log_insert is 'on' while the INSERT runs and
+-- 'off' again before the function returns — transaction-local, so a call
+-- that fails takes it back with everything else. It is how a trigger on
+-- set_logs tells these rows from an INSERT the athlete sent themselves:
+-- auth.uid() is the athlete in both. NOTHING READS IT YET (the contract
+-- migration that holds the athlete's INSERT will), and NOTHING ELSE MAY SET
+-- IT: a function a signed-in user can execute that sets a setting named by
+-- its caller would hand every athlete the same word. A re-creation of this
+-- function keeps the two set_config lines around the one INSERT.
+--
+-- The exercises are locked FOR SHARE first, in the order of their ids: the
+-- number of sets is read under that lock, so a coach who changes it in the
+-- same instant waits for the rows to be there. Two calls for one session
+-- wait for each other's rows (ON CONFLICT), and the second adds nothing.
+-- Who may execute it: the FUNCTION PRIVILEGES block at the end of this file.
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.ensure_set_logs(p_session_id uuid)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_uid     uuid := auth.uid();
+  v_created integer;
+BEGIN
+  -- auth.uid() IS NULL is tested first, and the comparison is NULL-safe: a
+  -- session that does not exist has no athlete, and neither has a caller
+  -- without a session.
+  IF v_uid IS NULL OR public.student_profile_for_session(p_session_id) IS DISTINCT FROM v_uid THEN
+    RAISE EXCEPTION 'not authorized'
+      USING ERRCODE = 'insufficient_privilege',
+            DETAIL = 'The session is not one of the caller''s own.',
+            HINT = 'The sets of a session are completed for its athlete. Nothing was changed.';
+  END IF;
+  IF public.program_active_for_session(p_session_id) IS NOT TRUE THEN
+    RAISE EXCEPTION 'program_not_active'
+      USING DETAIL = 'The session belongs to a program that is not the block being trained: a past block, a draft, or a block in the trash.',
+            HINT = 'Nothing was changed.';
+  END IF;
+  IF NOT public.session_writable(p_session_id) THEN
+    RAISE EXCEPTION 'session_not_writable'
+      USING DETAIL = 'The coach has archived or reviewed this session.',
+            HINT = 'Nothing was changed.';
+  END IF;
+
+  PERFORM 1
+     FROM public.exercise_slots es
+    WHERE es.session_id = p_session_id
+    ORDER BY es.id
+      FOR SHARE;
+
+  PERFORM set_config('app.trusted_set_log_insert', 'on', true);
+
+  INSERT INTO public.set_logs
+    (exercise_slot_id, set_number, done, target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds)
+  SELECT es.id, gs.n, false, es.reps, es.duration_seconds, es.weight_kg, es.rest_seconds
+    FROM public.exercise_slots es
+   CROSS JOIN LATERAL generate_series(1, es.sets) AS gs (n)
+   WHERE es.session_id = p_session_id
+     AND NOT EXISTS (
+       SELECT 1 FROM public.set_logs sl
+        WHERE sl.exercise_slot_id = es.id AND sl.set_number = gs.n
+     )
+   ORDER BY es.id, gs.n
+  ON CONFLICT (exercise_slot_id, set_number) DO NOTHING;
+  GET DIAGNOSTICS v_created = ROW_COUNT;
+
+  PERFORM set_config('app.trusted_set_log_insert', 'off', true);
+
+  RETURN v_created;
+END;
+$$;
 
 -- ============================================================
 -- SET LOG VIDEOS
@@ -3013,6 +3125,119 @@ DROP POLICY IF EXISTS "Delete own push subscriptions" ON public.push_subscriptio
 CREATE POLICY "Delete own push subscriptions"
   ON public.push_subscriptions FOR DELETE
   USING (user_id = auth.uid());
+
+-- A device belongs to the account that is signed in on it
+-- (2026_10_13_13_ensure_claim_rpcs — review P15).
+-- The browser keeps its push subscription across sign-outs, so the next
+-- account on the same device is handed the same endpoint — and the policies
+-- above let an account write its own rows only: through them the second
+-- account cannot take the row over, and the first goes on receiving on that
+-- device. This function is how the row changes hands.
+--
+--   claim_push_subscription(p_endpoint, p_p256dh, p_auth, p_user_agent)
+--     → { "subscription_id", "outcome" }
+--       'created'    nobody held this endpoint: a new row
+--       'refreshed'  the caller held it: the keys sent are stored (and the
+--                    user agent, unless it is left out), last_seen_at is now
+--       'rehomed'    another account held it, with these keys: the row is
+--                    the caller's now
+--
+--   refuses   not authorized            (42501) no user id
+--             subscription_incomplete   the endpoint or a key is missing or
+--                                       empty
+--             endpoint_keys_mismatch    another account holds the endpoint,
+--                                       and the keys sent are not the ones
+--                                       stored with it
+--   … and has then written nothing.
+--
+-- WHY THE KEYS. The row of another account is taken over on the caller's
+-- word, so the caller proves they hold the subscription: `auth` is a secret
+-- the browser shares with this database only, readable by the owner of the
+-- row. Somebody who has learnt an endpoint and no more cannot move it to
+-- their account — which would send their notifications to that device and
+-- stop its owner's.
+--
+-- SECURITY DEFINER: the UPDATE that moves a row to the caller is one no
+-- policy allows. The row is locked before it is judged; an endpoint that is
+-- registered between the look and the INSERT is found by the next turn of
+-- the loop. The policies above stay: the app deployed before wave 2 writes
+-- the table itself.
+-- Who may execute it: the FUNCTION PRIVILEGES block at the end of this file.
+CREATE OR REPLACE FUNCTION public.claim_push_subscription(
+  p_endpoint   text,
+  p_p256dh     text,
+  p_auth       text,
+  p_user_agent text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_uid     uuid := auth.uid();
+  v_id      uuid;
+  v_owner   uuid;
+  v_p256dh  text;
+  v_auth    text;
+  v_outcome text;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'not authorized'
+      USING ERRCODE = 'insufficient_privilege',
+            DETAIL = 'The request carries no user id.',
+            HINT = 'A device is registered by the account that is signed in on it. Nothing was changed.';
+  END IF;
+  IF btrim(COALESCE(p_endpoint, '')) = ''
+     OR btrim(COALESCE(p_p256dh, '')) = ''
+     OR btrim(COALESCE(p_auth, '')) = '' THEN
+    RAISE EXCEPTION 'subscription_incomplete'
+      USING DETAIL = 'A push subscription is an endpoint and its two keys, p256dh and auth: one of the three is missing or empty.',
+            HINT = 'Nothing was changed.';
+  END IF;
+
+  LOOP
+    SELECT ps.id, ps.user_id, ps.p256dh, ps.auth
+      INTO v_id, v_owner, v_p256dh, v_auth
+      FROM public.push_subscriptions ps
+     WHERE ps.endpoint = p_endpoint
+       FOR UPDATE;
+
+    IF FOUND THEN
+      IF v_owner = v_uid THEN
+        v_outcome := 'refreshed';
+      ELSIF v_p256dh = p_p256dh AND v_auth = p_auth THEN
+        v_outcome := 'rehomed';
+      ELSE
+        RAISE EXCEPTION 'endpoint_keys_mismatch'
+          USING DETAIL = 'Another account holds this endpoint, and the keys sent are not the ones stored with it.',
+                HINT = 'A device takes a subscription over by presenting the keys it was registered with. Nothing was changed.';
+      END IF;
+
+      UPDATE public.push_subscriptions ps
+         SET user_id      = v_uid,
+             p256dh       = p_p256dh,
+             auth         = p_auth,
+             user_agent   = COALESCE(p_user_agent, ps.user_agent),
+             last_seen_at = now()
+       WHERE ps.id = v_id;
+
+      RETURN jsonb_build_object('subscription_id', v_id, 'outcome', v_outcome);
+    END IF;
+
+    INSERT INTO public.push_subscriptions (user_id, endpoint, p256dh, auth, user_agent, last_seen_at)
+    VALUES (v_uid, p_endpoint, p_p256dh, p_auth, p_user_agent, now())
+    ON CONFLICT (endpoint) DO NOTHING
+    RETURNING id INTO v_id;
+
+    IF v_id IS NOT NULL THEN
+      RETURN jsonb_build_object('subscription_id', v_id, 'outcome', 'created');
+    END IF;
+    -- Registered by another request in the same instant, and committed by
+    -- now: the next turn finds it, and judges it as a row that is there.
+  END LOOP;
+END;
+$$;
 
 
 CREATE TABLE IF NOT EXISTS public.scheduled_pushes (
@@ -5309,10 +5534,12 @@ GRANT EXECUTE ON FUNCTION
 TO authenticated;
 
 -- The RPCs the app calls. The five coach RPCs authorize the caller themselves
--- (auth.uid() IS NULL first, then IS DISTINCT FROM); save_draft_tree,
--- move_session, activate_program, reorder_sessions, reorder_weeks and the
--- four that copy (duplicate_session, copy_sessions, duplicate_week,
--- duplicate_program) are SECURITY INVOKER and ride the caller's RLS.
+-- (auth.uid() IS NULL first, then IS DISTINCT FROM), and so do
+-- ensure_set_logs and claim_push_subscription, for the account that calls;
+-- save_draft_tree, move_session, activate_program, reorder_sessions,
+-- reorder_weeks and the four that copy (duplicate_session, copy_sessions,
+-- duplicate_week, duplicate_program) are SECURITY INVOKER and ride the
+-- caller's RLS.
 GRANT EXECUTE ON FUNCTION
   public.adopt_swap(uuid, uuid, boolean),
   public.adopt_skip(uuid, boolean),
@@ -5327,7 +5554,9 @@ GRANT EXECUTE ON FUNCTION
   public.duplicate_session(uuid, text),
   public.copy_sessions(uuid[], uuid),
   public.duplicate_week(uuid, uuid, text),
-  public.duplicate_program(uuid, uuid, text)
+  public.duplicate_program(uuid, uuid, text),
+  public.ensure_set_logs(uuid),
+  public.claim_push_subscription(text, text, text, text)
 TO authenticated;
 
 -- ============================================================
@@ -5380,4 +5609,5 @@ INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_13_09_review_lifecycle'),
   ('2026_10_13_10_goals_fk_coach_links'),
   ('2026_10_13_11_activate_reorder_rpcs'),
-  ('2026_10_13_12_copy_rpcs');
+  ('2026_10_13_12_copy_rpcs'),
+  ('2026_10_13_13_ensure_claim_rpcs');

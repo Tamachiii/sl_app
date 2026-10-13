@@ -82,11 +82,13 @@ const RPCS = [
   'adopt_skip(uuid, boolean)',
   'adopt_swap(uuid, uuid, boolean)',
   'approve_program(uuid)',
+  'claim_push_subscription(text, text, text, text)',   // 2026_10_13_13_ensure_claim_rpcs
   'copy_sessions(uuid[], uuid)',      // 2026_10_13_12_copy_rpcs
   'decline_promote_request(uuid)',
   'duplicate_program(uuid, uuid, text)',   // 2026_10_13_12_copy_rpcs
   'duplicate_session(uuid, text)',    // 2026_10_13_12_copy_rpcs
   'duplicate_week(uuid, uuid, text)', // 2026_10_13_12_copy_rpcs
+  'ensure_set_logs(uuid)',            // 2026_10_13_13_ensure_claim_rpcs
   'move_session(uuid, uuid, uuid[], uuid[])',
   'reorder_sessions(uuid, uuid[])',   // 2026_10_13_11_activate_reorder_rpcs
   'reorder_weeks(uuid, uuid[])',      // 2026_10_13_11_activate_reorder_rpcs
@@ -459,7 +461,9 @@ describe('signed in', () => {
   // The five coach RPCs are called, by every caller, in rpc-auth.test.js; the
   // three of migration 11 (activate_program, reorder_sessions, reorder_weeks)
   // in atomic-rpcs.test.js; the four of migration 12 (duplicate_session,
-  // copy_sessions, duplicate_week, duplicate_program) in copy-rpcs.test.js.
+  // copy_sessions, duplicate_week, duplicate_program) in copy-rpcs.test.js;
+  // the two of migration 13 (ensure_set_logs, claim_push_subscription) in
+  // ensure-claim.test.js.
   it('save_draft_tree and move_session, the two RPCs of migration 03 that ride the caller\'s own RLS, still run', () => scenario(async (q) => {
     const uuid = () => q.value(`select gen_random_uuid()`);
     const [program, week, session, slot] = [await uuid(), await uuid(), await uuid(), await uuid()];
