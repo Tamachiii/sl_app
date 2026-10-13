@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import {
@@ -101,8 +102,18 @@ function rowScope(logId) {
   return logId ? { scope: { id: `set-log-${logId}` } } : {};
 }
 
+// The moment of the gesture, put into the variables when `mutate` is called —
+// the tap — and not when the request leaves: a set ticked without signal is
+// sent hours later. The variables are what the device stores with a queued
+// write, so the moment survives a relaunch. lib/offlineMutations.js builds
+// `logged_at` / `failed_at` from it (`patchForDone(done, at)`).
+function atTheTap(variables) {
+  return { ...variables, at: variables?.at ?? new Date().toISOString() };
+}
+
 /**
- * Every single-row set-log write shares one protocol: patch the row into all
+ * Every single-row set-log write shares one protocol: `mutate` stamps the
+ * variables with the moment of the gesture (`at`), then patch the row into all
  * ['set-logs'] caches so the change shows instantly (including while parked
  * offline), restore the snapshot on error, and invalidate once the write
  * settles. `buildPatch` receives the mutation's variables and returns the
@@ -116,7 +127,7 @@ function rowScope(logId) {
 function useOptimisticSetLogMutation(logId, { mutationKey, mutationFn, buildPatch }) {
   const qc = useQueryClient();
 
-  return useMutation({
+  const mutation = useMutation({
     mutationKey,
     mutationFn,
     ...rowScope(logId),
@@ -139,13 +150,23 @@ function useOptimisticSetLogMutation(logId, { mutationKey, mutationFn, buildPatc
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ['set-logs'] }),
   });
+
+  const { mutate, mutateAsync } = mutation;
+  const stamped = useMemo(
+    () => ({
+      mutate: (variables, options) => mutate(atTheTap(variables), options),
+      mutateAsync: (variables, options) => mutateAsync(atTheTap(variables), options),
+    }),
+    [mutate, mutateAsync],
+  );
+  return { ...mutation, ...stamped };
 }
 
 export function useToggleSetDone(logId) {
   return useOptimisticSetLogMutation(logId, {
     mutationKey: MUTATION_KEYS.toggleDone,
     mutationFn: MUTATION_FNS.toggleDone,
-    buildPatch: ({ done }) => patchForDone(done),
+    buildPatch: ({ done, at }) => patchForDone(done, at),
   });
 }
 
@@ -153,7 +174,7 @@ export function useSetFailed(logId) {
   return useOptimisticSetLogMutation(logId, {
     mutationKey: MUTATION_KEYS.setFailed,
     mutationFn: MUTATION_FNS.setFailed,
-    buildPatch: ({ failed }) => patchForFailed(failed),
+    buildPatch: ({ failed, at }) => patchForFailed(failed, at),
   });
 }
 
