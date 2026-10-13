@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { reportError } from '../lib/errorReporter';
+import { mutationErrorKey } from '../lib/mutationErrors';
+import { pushToast } from '../lib/toast';
 import {
   videoFileProblem,
   videoFileError,
@@ -8,6 +10,8 @@ import {
   videoExtension,
   videoUploadBody,
 } from '../lib/setVideoFile';
+import { uploadObject, abortError, isAbortError, UPLOAD_NETWORK } from '../lib/storageUpload';
+import { beginVideoUpload } from '../lib/setVideoUploads';
 import { useAuth } from './useAuth';
 
 const BUCKET = 'set-videos';
@@ -65,6 +69,21 @@ export function useSetVideos(sessionId, slotIds) {
   });
 }
 
+// The one line an upload that failed is told with — a toast, pushed by the
+// hook and not by the button, because the button may be gone by then (its
+// card closes when the last set of the exercise is ticked) while the upload
+// goes on. A cancelled upload is not a failure and says nothing.
+function uploadErrorKey(error) {
+  if (error?.videoProblem === 'type' || String(error?.statusCode) === '415') {
+    return 'videoUpload.wrongType';
+  }
+  if (error?.code === UPLOAD_NETWORK) return 'videoUpload.connectionLost';
+  // What the app already has a sentence for (a refusal of row-level security:
+  // the session was closed in the meantime) keeps it.
+  const known = mutationErrorKey(error);
+  return known === 'errors.generic' ? 'videoUpload.failed' : known;
+}
+
 // Saves the clip of a set. The order is what keeps the previous clip safe:
 //
 //   1. the new file is uploaded, at a path of its own;
@@ -73,10 +92,21 @@ export function useSetVideos(sessionId, slotIds) {
 //      INSERT when the set had no video;
 //   3. only then is the previous file removed.
 //
-// Whatever fails, the row names a file that exists. A failed upload touches
-// nothing. A refused row write removes the new file. A failed step 3 leaves
-// one file too many and is not an error for the athlete.
-async function saveSetVideo({ userId, setLogId, exerciseSlotId, setNumber, file }) {
+// Whatever fails, the row names a file that exists. A failed or cancelled
+// upload touches nothing. A refused row write removes the new file. A failed
+// step 3 leaves one file too many and is not an error for the athlete.
+//
+// `signal` is the cancel. It is honoured up to the row write and not after:
+// once the row names the new file the replace has happened.
+async function saveSetVideo({
+  userId,
+  setLogId,
+  exerciseSlotId,
+  setNumber,
+  file,
+  signal,
+  onProgress,
+}) {
   const { data: existing, error: existErr } = await supabase
     .from('set_log_videos')
     .select('id, storage_path')
@@ -91,13 +121,21 @@ async function saveSetVideo({ userId, setLogId, exerciseSlotId, setNumber, file 
   // The database holds a video to this path: <athlete>/<slot of the set>/<file>.
   const storagePath = `${userId}/${exerciseSlotId}/${setNumber}-${uid}.${videoExtension(mimeType)}`;
 
-  const { error: upErr } = await supabase.storage
-    .from(BUCKET)
-    .upload(storagePath, videoUploadBody(file), {
-      contentType: mimeType,
-      upsert: false,
-    });
-  if (upErr) throw upErr;
+  // Rejects with an AbortError when `signal` aborts, before or during the
+  // request: nothing is in the bucket then.
+  await uploadObject({
+    bucket: BUCKET,
+    path: storagePath,
+    body: videoUploadBody(file),
+    signal,
+    onProgress,
+  });
+
+  // Cancelled once the bytes were in: the file is there and no row names it.
+  if (signal?.aborted) {
+    await removeUnreferenced(storagePath, 'the file of a cancelled upload');
+    throw abortError();
+  }
 
   const fields = { storage_path: storagePath, mime_type: mimeType, size_bytes: file.size };
   const write = existing
@@ -129,6 +167,9 @@ export function useUploadSetVideo() {
   const { user } = useAuth();
 
   return useMutation({
+    // `onError` below is the one place a failed upload is told from; the
+    // query client's toast would be a second one, and would fire on a cancel.
+    meta: { skipErrorToast: true },
     mutationFn: async ({ setLogId, exerciseSlotId, setNumber, file }) => {
       if (!user?.id) throw new Error('Not signed in');
       if (!file) throw new Error('No file selected');
@@ -137,7 +178,27 @@ export function useUploadSetVideo() {
       const problem = videoFileProblem(file);
       if (problem) throw videoFileError(problem);
 
-      return saveSetVideo({ userId: user.id, setLogId, exerciseSlotId, setNumber, file });
+      // Progress and cancel live beside the mutation, by set, where a button
+      // that was unmounted and came back finds them (lib/setVideoUploads).
+      const inFlight = beginVideoUpload(setLogId);
+      if (!inFlight) throw new Error('A video is already uploading for this set');
+      try {
+        return await saveSetVideo({
+          userId: user.id,
+          setLogId,
+          exerciseSlotId,
+          setNumber,
+          file,
+          signal: inFlight.signal,
+          onProgress: inFlight.progress,
+        });
+      } finally {
+        inFlight.end();
+      }
+    },
+    onError: (error) => {
+      if (isAbortError(error)) return;
+      pushToast(uploadErrorKey(error), { kind: 'error' });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['set-videos'] });

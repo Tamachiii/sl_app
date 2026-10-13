@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 vi.mock('../lib/supabase', () => {
   const storage = {
@@ -17,6 +17,14 @@ vi.mock('./useAuth', () => ({ useAuth: vi.fn() }));
 // The real reporter writes to `client_errors` through supabase.from(): it
 // would be taken for a write of the hook.
 vi.mock('../lib/errorReporter', () => ({ reportError: vi.fn() }));
+vi.mock('../lib/toast', () => ({ pushToast: vi.fn() }));
+// The request itself is lib/storageUpload's, tested there against a stand-in
+// XMLHttpRequest. Here it is one call in the order of calls; its errors are
+// the real ones.
+vi.mock('../lib/storageUpload', async (importOriginal) => ({
+  ...(await importOriginal()),
+  uploadObject: vi.fn(),
+}));
 
 import {
   useSetVideos,
@@ -26,10 +34,28 @@ import {
 } from './useSetVideo';
 import { supabase } from '../lib/supabase';
 import { reportError } from '../lib/errorReporter';
+import { pushToast } from '../lib/toast';
+import { uploadObject, abortError, isAbortError, UPLOAD_NETWORK } from '../lib/storageUpload';
+import {
+  cancelVideoUpload,
+  getVideoUpload,
+  resetVideoUploads,
+} from '../lib/setVideoUploads';
+import { getMessage } from '../lib/i18n';
 import { useAuth } from './useAuth';
+
+// The app's query client toasts every failed mutation that does not opt out
+// (lib/queryClient.js). This one keeps that rule and counts instead.
+const globalToast = vi.fn();
 
 function makeClient() {
   return new QueryClient({
+    mutationCache: new MutationCache({
+      onError: (error, _variables, _context, mutation) => {
+        if (mutation.options.meta?.skipErrorToast) return;
+        globalToast(error);
+      },
+    }),
     defaultOptions: {
       queries: { retry: false, gcTime: Infinity },
       mutations: { retry: false },
@@ -44,6 +70,7 @@ function withClient(qc) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetVideoUploads();
   useAuth.mockReturnValue({ user: { id: 'u-1' } });
 });
 
@@ -101,7 +128,8 @@ describe('useSetVideos', () => {
 function backend({
   existing = null,
   existError = null,
-  upload = { data: { path: 'p' }, error: null },
+  // What the upload does once it is called: return, throw, or wait.
+  upload = () => {},
   write = { data: { id: 'v-saved' }, error: null },
   deleted = { data: [{ id: 'v-old' }], error: null },
   remove = () => ({ data: [{ name: 'file' }], error: null }),
@@ -156,16 +184,23 @@ function backend({
   supabase.storage.from.mockImplementation((bucket) => {
     if (bucket !== 'set-videos') throw new Error(`unexpected bucket ${bucket}`);
     return {
-      upload: async (path, body, options) => {
-        log.push('upload');
-        sent.uploads.push({ path, body, options });
-        return typeof upload === 'function' ? upload(path) : upload;
+      // The storage client's own upload has no progress and cannot be
+      // stopped: the hook must not go back to it.
+      upload: async () => {
+        throw new Error('the hook uploads through lib/storageUpload');
       },
       remove: async ([path]) => {
         log.push(`remove ${path}`);
         return remove(path);
       },
     };
+  });
+
+  uploadObject.mockImplementation(async (request) => {
+    log.push('upload');
+    sent.uploads.push(request);
+    await upload(request);
+    return { path: request.path };
   });
 
   return { log, sent };
@@ -245,10 +280,10 @@ describe('useUploadSetVideo — a set without a video', () => {
 
     // <athlete>/<slot of the set>/<set>-<uuid>.<ext>: the database refuses a
     // row whose path is anywhere else.
-    const { path, body, options } = sent.uploads[0];
+    const { bucket, path, body } = sent.uploads[0];
+    expect(bucket).toBe('set-videos');
     expect(path).toMatch(/^u-1\/sl-1\/1-[0-9a-f-]+\.mp4$/);
     expect(body).toBe(file);
-    expect(options).toMatchObject({ upsert: false });
 
     expect(sent.inserted).toEqual({
       set_log_id: 'l-1',
@@ -270,10 +305,14 @@ describe('useUploadSetVideo — a set without a video', () => {
   });
 
   it('a failed upload writes no row', async () => {
-    const { log } = backend({ upload: { data: null, error: new Error('network') } });
+    const { log } = backend({
+      upload: () => {
+        throw new Error('refused');
+      },
+    });
     const { result, invalidate } = await runUpload({ file: mp4() });
 
-    expect(result.current.error.message).toBe('network');
+    expect(result.current.error.message).toBe('refused');
     expect(log).toEqual(['read row', 'upload']);
     expect(invalidate).not.toHaveBeenCalled();
   });
@@ -319,7 +358,9 @@ describe('useUploadSetVideo — replacing a video', () => {
   it('a failed upload leaves the previous video: no row write, nothing removed', async () => {
     const { log } = backend({
       existing: OLD,
-      upload: { data: null, error: { statusCode: '415', message: 'mime type not supported' } },
+      upload: () => {
+        throw Object.assign(new Error('The upload got no answer'), { code: UPLOAD_NETWORK });
+      },
     });
     const { result } = await runUpload({ file: mp4() });
 
@@ -416,6 +457,235 @@ describe('useUploadSetVideo — replacing a video', () => {
   });
 });
 
+// A promise the test settles, for an upload that is still running.
+function pending() {
+  let release;
+  let fail;
+  const promise = new Promise((resolve, reject) => {
+    release = resolve;
+    fail = reject;
+  });
+  return { promise, release, fail };
+}
+
+// An upload the way lib/storageUpload runs one: it ends when the test says so,
+// or with an AbortError as soon as its signal aborts.
+function controllableUpload() {
+  const gate = pending();
+  const upload = ({ signal }) =>
+    new Promise((resolve, reject) => {
+      signal.addEventListener('abort', () => reject(abortError()), { once: true });
+      gate.promise.then(resolve, reject);
+    });
+  return { upload, finish: gate.release };
+}
+
+function startUpload(variables) {
+  const qc = makeClient();
+  const invalidate = vi.spyOn(qc, 'invalidateQueries');
+  const { result } = renderHook(() => useUploadSetVideo(), { wrapper: withClient(qc) });
+  result.current.mutate({ setLogId: 'l-1', exerciseSlotId: 'sl-1', setNumber: 2, file: mp4(), ...variables });
+  const settled = () => waitFor(() => expect(result.current.isPending).toBe(false));
+  return { result, invalidate, settled };
+}
+
+describe('useUploadSetVideo — progress', () => {
+  it('the upload of a set is known while it runs, with its percentage, and forgotten after', async () => {
+    const { upload, finish } = controllableUpload();
+    const { sent } = backend({ upload });
+    const { result, settled } = startUpload();
+
+    await waitFor(() => expect(sent.uploads).toHaveLength(1));
+    expect(getVideoUpload('l-1')).toMatchObject({ percent: 0, cancelled: false });
+
+    sent.uploads[0].onProgress(0.42);
+    expect(getVideoUpload('l-1').percent).toBe(42);
+    // Another set is not uploading.
+    expect(getVideoUpload('l-2')).toBeNull();
+
+    finish();
+    await settled();
+    expect(result.current.isSuccess).toBe(true);
+    expect(getVideoUpload('l-1')).toBeNull();
+  });
+
+  it('is forgotten after a failure too', async () => {
+    backend({
+      upload: () => {
+        throw new Error('refused');
+      },
+    });
+    const { settled } = startUpload();
+    await settled();
+    expect(getVideoUpload('l-1')).toBeNull();
+  });
+
+  // Two uploads of one set would share one progress and one cancel, and race
+  // for the row.
+  it('a second upload of a set that is uploading is refused without a request', async () => {
+    const { upload, finish } = controllableUpload();
+    const { sent, log } = backend({ upload });
+    const first = startUpload();
+    await waitFor(() => expect(sent.uploads).toHaveLength(1));
+
+    const second = startUpload();
+    await second.settled();
+
+    expect(second.result.current.error.message).toMatch(/already uploading/i);
+    expect(log).toEqual(['read row', 'upload']);
+    // The first one is still there, and still the one the store knows.
+    expect(getVideoUpload('l-1')).not.toBeNull();
+
+    finish();
+    await first.settled();
+    expect(first.result.current.isSuccess).toBe(true);
+  });
+});
+
+describe('useUploadSetVideo — cancel', () => {
+  it('stops the upload: no row write, the previous video untouched, nothing said', async () => {
+    const { upload } = controllableUpload();
+    const { sent, log } = backend({ existing: OLD, upload });
+    const { result, invalidate, settled } = startUpload();
+    await waitFor(() => expect(sent.uploads).toHaveLength(1));
+
+    cancelVideoUpload('l-1');
+    await settled();
+
+    expect(sent.uploads[0].signal.aborted).toBe(true);
+    expect(isAbortError(result.current.error)).toBe(true);
+    expect(log).toEqual(['read row', 'upload']);
+    expect(getVideoUpload('l-1')).toBeNull();
+    expect(invalidate).not.toHaveBeenCalled();
+    // A cancel is what the athlete asked for, not an error.
+    expect(pushToast).not.toHaveBeenCalled();
+    expect(globalToast).not.toHaveBeenCalled();
+    expect(reportError).not.toHaveBeenCalled();
+  });
+
+  // The bytes are in the bucket and the row does not name them yet: the file
+  // is taken back out, and the row is left alone.
+  it('after the last byte and before the row write: the new file is removed, the row untouched', async () => {
+    const { sent, log } = backend({
+      existing: OLD,
+      upload: () => {
+        cancelVideoUpload('l-1');
+      },
+    });
+    const { result, settled } = startUpload();
+    await settled();
+
+    expect(isAbortError(result.current.error)).toBe(true);
+    expect(log).toEqual(['read row', 'upload', `remove ${sent.uploads[0].path}`]);
+    expect(pushToast).not.toHaveBeenCalled();
+  });
+
+  // Once the row names the new file the replace has happened: a cancel that
+  // arrives during the clean-up does not undo it.
+  it('after the row write it changes nothing', async () => {
+    const { log } = backend({
+      existing: OLD,
+      remove: () => {
+        cancelVideoUpload('l-1');
+        return { data: [{ name: 'file' }], error: null };
+      },
+    });
+    const { result, invalidate, settled } = startUpload();
+    await settled();
+
+    expect(result.current.isSuccess).toBe(true);
+    expect(log).toEqual(['read row', 'upload', 'update row', `remove ${OLD.storage_path}`]);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['set-videos'] });
+  });
+});
+
+describe('useUploadSetVideo — a failure is told once', () => {
+  // The message is a key of the dictionaries: a key that does not exist would
+  // show as its dotted path.
+  function expectOneToast(key) {
+    expect(pushToast).toHaveBeenCalledTimes(1);
+    expect(pushToast).toHaveBeenCalledWith(key, { kind: 'error' });
+    for (const lang of ['en', 'fr', 'de']) {
+      expect(getMessage(lang, key), `${lang} has no ${key}`).not.toBe(key);
+    }
+    // The query client's own toast would be the second surface.
+    expect(globalToast).not.toHaveBeenCalled();
+  }
+
+  it('an upload the server refuses: one toast, in the words of an upload', async () => {
+    backend({
+      upload: () => {
+        throw Object.assign(new Error('Internal Server Error'), { statusCode: '500' });
+      },
+    });
+    const { settled } = startUpload();
+    await settled();
+    expectOneToast('videoUpload.failed');
+  });
+
+  it('a connection that dropped: says so', async () => {
+    backend({
+      upload: () => {
+        throw Object.assign(new Error('The upload got no answer'), { code: UPLOAD_NETWORK });
+      },
+    });
+    const { settled } = startUpload();
+    await settled();
+    expectOneToast('videoUpload.connectionLost');
+  });
+
+  it('a type the bucket refuses after all: names the types', async () => {
+    backend({
+      upload: () => {
+        throw Object.assign(new Error('mime type video/mp4 is not supported'), { statusCode: '415' });
+      },
+    });
+    const { settled } = startUpload();
+    await settled();
+    expectOneToast('videoUpload.wrongType');
+  });
+
+  it('a file the hook refuses before sending: the same sentence', async () => {
+    backend();
+    const { settled } = startUpload({ file: new File(['x'], 'clip.3gp', { type: 'video/3gpp' }) });
+    await settled();
+    expectOneToast('videoUpload.wrongType');
+  });
+
+  // The session was reviewed or archived in the meantime: storage refuses the
+  // file, and the app already has the sentence for that.
+  it('a refusal of row-level security keeps the app’s sentence for it', async () => {
+    backend({
+      upload: () => {
+        throw Object.assign(new Error('new row violates row-level security policy'), {
+          statusCode: '403',
+        });
+      },
+    });
+    const { settled } = startUpload();
+    await settled();
+    expectOneToast('errors.notAllowed');
+  });
+
+  it('a row the database refuses: one toast as well', async () => {
+    backend({
+      existing: OLD,
+      write: { data: null, error: { code: '23514', message: 'check constraint' } },
+    });
+    const { settled } = startUpload();
+    await settled();
+    expectOneToast('errors.constraint.generic');
+  });
+
+  it('a success says nothing', async () => {
+    backend({ existing: OLD });
+    const { settled } = startUpload();
+    await settled();
+    expect(pushToast).not.toHaveBeenCalled();
+    expect(globalToast).not.toHaveBeenCalled();
+  });
+});
+
 describe('useDeleteSetVideo', () => {
   async function runDelete(options) {
     const { log, sent } = backend(options);
@@ -444,6 +714,9 @@ describe('useDeleteSetVideo', () => {
 
     expect(result.current.error).toBe(failure);
     expect(log).toEqual(['delete row']);
+    // Told once, by the query client's toast: the button shows nothing itself.
+    expect(globalToast).toHaveBeenCalledTimes(1);
+    expect(pushToast).not.toHaveBeenCalled();
   });
 
   // The database answers an athlete's delete on a reviewed or archived
