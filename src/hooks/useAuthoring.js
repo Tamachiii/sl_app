@@ -3,6 +3,10 @@ import { useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 import { MUTATION_KEYS, MUTATION_FNS } from '../lib/offlineMutations';
+import { buildSnapshot, isUnsyncedDraft, markUnsynced, nextDraftRev } from '../lib/draftTree';
+
+// The snapshot builder lives with the marker it must leave out (lib/draftTree.js).
+export { buildSnapshot };
 
 // ── Phase 3.4d: OFFLINE student program authoring ─────────────────────────────
 // The draft is edited entirely in an optimistic React Query cache with
@@ -12,15 +16,36 @@ import { MUTATION_KEYS, MUTATION_FNS } from '../lib/offlineMutations';
 // collisions): re-running a snapshot converges to exactly that tree, so stacked
 // snapshots, a cold-reload hydrate, or a double-run can never duplicate rows.
 // Drafts never carry set_logs — the coach's approve_program materializes those.
+//
+// Between an edit and the answer of the database the cache is AHEAD of the
+// server, and it is the only copy of the edit. Every edit therefore marks the
+// tree (lib/draftTree.js), the save of that edit clears the marker when the
+// database has accepted it (the defaults in lib/offlineMutations.js), and the
+// two reads below answer from the cache for as long as the marker is there:
+// whatever asks for a refetch — a return to the app, a remount, a reconnect, an
+// invalidation — a marked tree is never replaced by the server's older one.
 
 const newId = () => crypto.randomUUID();
 
-/** The signed-in student's current draft program (one at a time), or null. */
+/**
+ * The signed-in student's current draft program (one at a time), or null.
+ *
+ * While the tree it points at holds edits the server does not have, the
+ * pointer is answered from the cache: for a draft created without a network
+ * the server has no row yet, and "no draft" would take the builder — and the
+ * way back to the tree — off the screen.
+ */
 export function useMyDraft() {
   const { user } = useAuth();
   return useQuery({
     queryKey: ['my-draft', user?.id],
-    queryFn: async () => {
+    queryFn: async ({ client }) => {
+      const held = () => {
+        const mine = client.getQueryData(['my-draft', user.id]);
+        return mine && isUnsyncedDraft(client.getQueryData(['draft-tree', mine.id])) ? mine : undefined;
+      };
+      const mine = held();
+      if (mine) return mine;
       const { data, error } = await supabase
         .from('programs')
         .select('id, name, status, submitted_at, created_at')
@@ -29,17 +54,29 @@ export function useMyDraft() {
         .is('deleted_at', null)
         .maybeSingle();
       if (error) throw error;
-      return data || null;
+      // A draft made, or edited, while the request was out.
+      return held() ?? (data || null);
     },
     enabled: !!user?.id,
   });
 }
 
-/** Full draft tree (weeks → sessions → slots + exercise meta) for the builder. */
+/**
+ * Full draft tree (weeks → sessions → slots + exercise meta) for the builder.
+ *
+ * A tree that carries the unsynced marker is its own answer: no request is
+ * made, and the answer to one that was already out is dropped.
+ */
 export function useDraftTree(programId) {
   return useQuery({
     queryKey: ['draft-tree', programId],
-    queryFn: async () => {
+    queryFn: async ({ client }) => {
+      const ahead = () => {
+        const local = client.getQueryData(['draft-tree', programId]);
+        return isUnsyncedDraft(local) ? local : undefined;
+      };
+      const local = ahead();
+      if (local) return local;
       const { data, error } = await supabase
         .from('programs')
         .select(`
@@ -67,44 +104,11 @@ export function useDraftTree(programId) {
           }
         }
       }
-      return data;
+      // An edit made while the request was out is ahead of its answer.
+      return ahead() ?? data;
     },
     enabled: !!programId,
   });
-}
-
-/**
- * Flatten the nested draft-tree cache into the flat snapshot the RPC expects.
- * XOR guard: exercise_slots require exactly one of reps/duration — the authoring
- * UI only sets reps, so force reps ≥ 1 whenever no duration is present (a blank
- * reps field must never sync as both-null and abort the whole tree at replay).
- */
-export function buildSnapshot(tree) {
-  const program = { id: tree.id, name: tree.name, submitted_at: tree.submitted_at ?? null };
-  const weeks = [];
-  const sessions = [];
-  const slots = [];
-  for (const w of tree.weeks || []) {
-    weeks.push({ id: w.id, program_id: tree.id, week_number: w.week_number, label: w.label ?? null });
-    for (const s of w.sessions || []) {
-      sessions.push({ id: s.id, week_id: w.id, title: s.title, day_number: s.day_number, sort_order: s.sort_order });
-      for (const sl of s.exercise_slots || []) {
-        const hasDuration = sl.duration_seconds != null;
-        slots.push({
-          id: sl.id,
-          session_id: s.id,
-          exercise_id: sl.exercise_id,
-          sets: sl.sets ?? 3,
-          reps: hasDuration ? (sl.reps ?? null) : (sl.reps ?? 1),
-          weight_kg: sl.weight_kg ?? null,
-          duration_seconds: sl.duration_seconds ?? null,
-          rest_seconds: sl.rest_seconds ?? null,
-          sort_order: sl.sort_order ?? 0,
-        });
-      }
-    }
-  }
-  return { program, weeks, sessions, slots };
 }
 
 // Bound queue growth: drop any still-paused draft-tree saves before enqueuing a
@@ -124,9 +128,14 @@ function coalesceSaves(qc) {
 /**
  * The single keyed mutation that syncs a draft snapshot. Offline it PAUSES
  * (networkMode 'online') and replays on reconnect. Its onSuccess / onError
- * (reconcile recognized codes, toast the rest, never clobber the local tree) +
- * meta.skipErrorToast live in the registered DEFAULTS (lib/offlineMutations.js)
- * so a hydrated post-reload resume behaves identically to this live instance.
+ * (settle the tree's unsynced marker, reconcile recognized codes, toast the
+ * rest, never clobber the local tree) + meta.skipErrorToast live in the
+ * registered DEFAULTS (lib/offlineMutations.js) so a hydrated post-reload
+ * resume behaves identically to this live instance.
+ *
+ * The variables are `{ tree, rev }`: the snapshot, and the rev of the marked
+ * tree it was built from — what lets the answer clear that marker and no
+ * later one.
  */
 export function useSaveDraftTree() {
   return useMutation({
@@ -163,10 +172,13 @@ export function useCreateDraft() {
       const id = newId();
       const cleanName = (name || '').trim() || 'My program';
       const draft = { id, name: cleanName, status: 'draft', submitted_at: null, created_at: new Date().toISOString() };
+      // Marked from its first moment: the server does not have this draft at all.
+      const rev = nextDraftRev();
+      const tree = markUnsynced({ id, name: cleanName, status: 'draft', submitted_at: null, weeks: [] }, rev);
       qc.setQueryData(['my-draft', user?.id], draft);
-      qc.setQueryData(['draft-tree', id], { id, name: cleanName, status: 'draft', submitted_at: null, weeks: [] });
+      qc.setQueryData(['draft-tree', id], tree);
       coalesceSaves(qc);
-      save.mutate({ tree: buildSnapshot({ id, name: cleanName, submitted_at: null, weeks: [] }) });
+      save.mutate({ tree: buildSnapshot(tree), rev });
       return id;
     },
   };
@@ -174,9 +186,10 @@ export function useCreateDraft() {
 
 /**
  * Local editors for a draft's tree. Each is a synchronous optimistic cache edit
- * (ordinals derived inside the updater so rapid adds never collide) followed by
- * enqueuing one fresh whole-tree snapshot. No per-edit useMutation → the offline
- * guardrail's static scan sees only the two keyed writes above.
+ * (ordinals derived inside the updater so rapid adds never collide) that marks
+ * the tree as ahead of the server, followed by enqueuing one fresh whole-tree
+ * snapshot. No per-edit useMutation → the offline guardrail's static scan sees
+ * only the two keyed writes above.
  */
 export function useDraftActions(programId) {
   const qc = useQueryClient();
@@ -187,11 +200,14 @@ export function useDraftActions(programId) {
   const commit = useCallback(
     (updater) => {
       qc.cancelQueries({ queryKey: ['draft-tree', programId] });
-      qc.setQueryData(['draft-tree', programId], (prev) => (prev ? updater(prev) : prev));
+      // The edit and its marker in ONE cache write: there is no moment at
+      // which the tree holds the edit and a read may still replace it.
+      const rev = nextDraftRev();
+      qc.setQueryData(['draft-tree', programId], (prev) => (prev ? markUnsynced(updater(prev), rev) : prev));
       const fresh = qc.getQueryData(['draft-tree', programId]);
       if (!fresh) return;
       coalesceSaves(qc);
-      save.mutate({ tree: buildSnapshot(fresh) });
+      save.mutate({ tree: buildSnapshot(fresh), rev });
     },
     [qc, programId, save],
   );

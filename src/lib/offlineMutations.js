@@ -28,10 +28,15 @@
 //   - which caches a settled write refreshes (`refreshAfter`);
 //   - what becomes of a write the database closed while it waited (`waited`,
 //     `refuseReplay`).
+//
+// The draft an athlete writes has a section of its own further down: a tree
+// that is ahead of the server says so itself, is never replaced by a read, and
+// is sent again until the database has it.
 
 import { onlineManager } from '@tanstack/react-query';
 import { supabase } from './supabase';
 import { pushToast } from './toast';
+import { buildSnapshot, isUnsyncedDraft, markSynced, markUnsynced, unsyncedRev } from './draftTree';
 import {
   AuthNotReadyError,
   isTransientError,
@@ -531,68 +536,202 @@ export const MUTATION_FNS = {
   discardDraft: queuedWrite('discardDraft', discardDraftFn),
 };
 
+// --- a draft that is ahead of the server -------------------------------------------
+//
+// The tree in `['draft-tree', programId]` carries a marker while it holds edits
+// the database has not accepted (lib/draftTree.js has the marker itself). Here
+// is where a save settles it, and what is done with a tree that still has one.
+//
+// A save that failed used to leave nothing behind. Its mutation ends in
+// `error`, which the persister does not store, and the next read of the server
+// put the tree of BEFORE the edits back in the cache: the reconcile below after
+// a relaunch, or any refetch once the cache was two minutes old. For a draft
+// created without a network the server has no row at all, so the read answered
+// "no draft" and the whole of it was gone — right after a toast had said "it's
+// saved on this device". And nothing sent it again before the next edit; a
+// draft that was SUBMITTED cannot be edited, so that one was never sent.
+
+const DRAFT_TREE = 'draft-tree';
+const MY_DRAFT = 'my-draft';
+
+const draftIdOf = (variables) => variables?.tree?.program?.id ?? null;
+
+// The saves of the queue that have not settled: running, waiting for a retry,
+// paused offline or behind another one of their scope.
+function pendingDraftSaves(queryClient) {
+  return queryClient
+    .getMutationCache()
+    .findAll({ mutationKey: MUTATION_KEYS.saveDraftTree, status: 'pending' });
+}
+
+// The snapshots the database has turned down, by rev, per client. The same
+// tree would be turned down again, so it is not sent a second time: it waits
+// for the athlete's next edit, which makes a new rev. Kept in memory and not in
+// the marker on purpose — after a relaunch the tree is tried once more, which
+// is how a refusal that was lifted in the meantime (the coach put the exercise
+// back in the library) ends without the athlete having to touch the draft, and
+// how one that was not is said again.
+const turnedDown = new WeakMap();
+
+function refusedRevs(queryClient) {
+  let revs = turnedDown.get(queryClient);
+  if (!revs) turnedDown.set(queryClient, (revs = new Set()));
+  return revs;
+}
+
+// The database holds the snapshot this save carried. The tree is in sync if it
+// is still that one. After a later edit it is not: that edit has a save of its
+// own, which settles the marker when its answer comes.
+function draftSaved(queryClient, variables) {
+  const programId = draftIdOf(variables);
+  const rev = variables?.rev ?? null;
+  if (programId === null || rev === null) return;
+  const key = [DRAFT_TREE, programId];
+  const tree = queryClient.getQueryData(key);
+  if (unsyncedRev(tree) === rev) queryClient.setQueryData(key, markSynced(tree));
+}
+
+// The save failed and the tree stays: it is ahead of the server, and marked so.
+//
+// Only the tree this save was built from is touched. One with another rev has
+// been edited since, and that edit's save is on its way. One with no marker
+// after a save that had a rev was reconciled to the server in between.
+// (Neither has a rev when the save was queued by a build older than the
+// marker: that tree gets its marker here.)
+//
+// `refused`: the database answered, and said no to this snapshot. Two more
+// things then. The rev is remembered, so that the same tree is not sent again
+// by itself. And a submission the snapshot carried is taken back on this
+// device: the save is one transaction, so the database has not recorded it,
+// and a submitted draft cannot be edited — it would stay locked on a tree the
+// athlete has to change before it can be accepted.
+function keepDraft(queryClient, variables, { refused }) {
+  const programId = draftIdOf(variables);
+  if (programId === null) return;
+  const key = [DRAFT_TREE, programId];
+  const tree = queryClient.getQueryData(key);
+  if (!tree || unsyncedRev(tree) !== (variables.rev ?? null)) return;
+
+  const unsubmit = refused && !!tree.submitted_at;
+  let kept = isUnsyncedDraft(tree) ? tree : markUnsynced(tree);
+  if (unsubmit) kept = { ...kept, submitted_at: null };
+  if (kept !== tree) queryClient.setQueryData(key, kept);
+  if (!refused) return;
+
+  refusedRevs(queryClient).add(unsyncedRev(kept));
+  if (unsubmit) {
+    queryClient.setQueriesData({ queryKey: [MY_DRAFT] }, (mine) =>
+      mine?.id === programId && mine.submitted_at ? { ...mine, submitted_at: null } : mine
+    );
+  }
+}
+
 /**
- * Error handling for a draft-tree snapshot save, applied via mutation DEFAULTS
- * so a LIVE save and a HYDRATED (post-cold-reload) save behave identically —
- * neither is silent, and neither clobbers unsynced local edits:
+ * What a failed draft save leaves behind, applied via mutation DEFAULTS so a
+ * LIVE save and a HYDRATED (post-cold-reload) one behave identically — neither
+ * is silent, and neither loses the edits it carried:
  *   - exercise_unavailable → a slot's exercise left the coach library: keep the
- *     local tree (so it can be fixed) + a specific toast.
+ *     tree (so it can be fixed) + a specific toast.
  *   - draft_not_editable / 23505 / 42501 → coach approved/removed it, or a second
- *     device owns the one draft: reconcile to the canonical server state.
- *   - anything else (transient) → keep the local tree + a plain toast; the next
- *     edit re-sends the whole snapshot.
+ *     device owns the one draft: the server's version is the one that counts.
+ *     The marker goes first — it is what keeps a read of the server out.
+ *   - no answer (after the retries of the queue) → keep the tree, marked: it is
+ *     sent again on reconnect and on return to the app. Said once; the attempts
+ *     that follow by themselves are silent.
+ *   - any other refusal → keep the tree + the plain toast; like the first case
+ *     it waits for the next edit.
  */
-function draftSaveErrorHandler(queryClient, error) {
+function draftSaveErrorHandler(queryClient, error, variables) {
   const code = error?.code;
   const msg = error?.message || '';
   if (/exercise_unavailable/.test(msg)) {
+    keepDraft(queryClient, variables, { refused: true });
     pushToast('One exercise is no longer in your coach’s library — remove or replace it.', { kind: 'error' });
     return;
   }
   if (code === '23505' || code === '42501' || /draft_not_editable/.test(msg)) {
-    queryClient.invalidateQueries({ queryKey: ['my-draft'] });
-    queryClient.invalidateQueries({ queryKey: ['draft-tree'] });
+    const programId = draftIdOf(variables);
+    const tree = programId === null ? undefined : queryClient.getQueryData([DRAFT_TREE, programId]);
+    if (isUnsyncedDraft(tree)) queryClient.setQueryData([DRAFT_TREE, programId], markSynced(tree));
+    queryClient.invalidateQueries({ queryKey: [MY_DRAFT] });
+    queryClient.invalidateQueries({ queryKey: [DRAFT_TREE] });
     return;
   }
+  const noAnswer = isTransientError(error);
+  keepDraft(queryClient, variables, { refused: !noAnswer });
+  if (noAnswer && variables?.resend) return;
   pushToast('Couldn’t sync your draft — it’s saved on this device.', { kind: 'error' });
 }
 
 /**
- * True when any draft-tree save is still un-synced (paused, pending, or errored).
- * The resume-time reconcile MUST skip its refetch in that case: refetching a
- * draft the local optimistic cache holds edits the server doesn't have would
- * clobber them (and for an offline-CREATED draft the server row doesn't exist
- * yet, so my-draft would refetch to null and the whole draft would vanish).
+ * True while this device holds draft edits the database does not: a tree in
+ * the cache carries the marker, or a draft write is still on its way. The
+ * second covers a save queued by a build older than the marker, and a discard
+ * — the server still has the draft the athlete has just thrown away, and a
+ * read would put it back on the screen until the discard lands.
+ *
+ * The reconcile below MUST skip its refetch in that case — and the reads of
+ * hooks/useAuthoring.js answer a marked tree from the cache for the same
+ * reason. A save that ended in error is not asked about: what it left is on
+ * the tree (`keepDraft`), or the server already won (the reconcile codes).
  */
-export function hasUnsyncedDraftSave(queryClient) {
-  return queryClient.getMutationCache().getAll().some((m) => {
-    const key = m.options.mutationKey;
-    if (!Array.isArray(key) || key[0] !== 'draft-tree' || key[1] !== 'save') return false;
-    return m.state.isPaused || m.state.status === 'pending' || m.state.status === 'error';
-  });
+export function hasUnsyncedDraft(queryClient) {
+  const ahead = queryClient
+    .getQueryCache()
+    .findAll({ queryKey: [DRAFT_TREE] })
+    .some((query) => isUnsyncedDraft(query.state.data));
+  if (ahead) return true;
+  // Both draft keys start with 'draft-tree': the save and the discard.
+  const [root] = MUTATION_KEYS.saveDraftTree;
+  return queryClient.getMutationCache().findAll({ mutationKey: [root], status: 'pending' }).length > 0;
+}
+
+// Send again every marked tree that nothing is carrying to the database: the
+// save of its last edit failed for good, or was running when the app was
+// killed (only a PAUSED mutation is stored). The snapshot is built from the
+// tree as it is now and goes through the queue like any other save — same
+// key, same scope, same retries — so it waits behind a save that is already
+// there, pauses without a network and is stored with the queue.
+function sendUnsyncedDrafts(queryClient) {
+  const sending = pendingDraftSaves(queryClient);
+  const refused = turnedDown.get(queryClient);
+  for (const query of queryClient.getQueryCache().findAll({ queryKey: [DRAFT_TREE] })) {
+    const tree = query.state.data;
+    const rev = unsyncedRev(tree);
+    if (rev === null || refused?.has(rev)) continue;
+    if (sending.some((mutation) => mutation.state.variables?.rev === rev)) continue;
+    queryClient
+      .getMutationCache()
+      .build(queryClient, { mutationKey: MUTATION_KEYS.saveDraftTree })
+      .execute({ tree: buildSnapshot(tree), rev, resend: true })
+      // Settled by the defaults of the key, like every save.
+      .catch(() => {});
+  }
 }
 
 /**
- * Replay mutations queued offline, then reconcile the draft caches to the
- * canonical server rows so a coach approval or send-back that happened during
- * the offline window is observed. Client-minted ids echo back, so the
- * reconcile is flicker-free.
+ * Replay mutations queued offline, send again a draft the database does not
+ * have, then reconcile the draft caches to the canonical server rows so a coach
+ * approval or send-back that happened in the meantime is observed. Client-minted
+ * ids echo back, so the reconcile is flicker-free.
  *
  * Nothing happens without a session. The replay would only start each write's
  * wait (see the session gate), and the reconcile would read the drafts as an
  * anonymous request. The queue stays paused, which is the state the persister
  * keeps; `useAuth` calls this again when a session appears.
  *
- * The `hasUnsyncedDraftSave` guard is load-bearing, not defensive: refetching
- * while a save is paused, pending or errored would replace the optimistic tree
- * that holds the ONLY copy of the unsynced edits — and for a draft created
- * offline the server row doesn't exist yet, so `my-draft` would refetch to null
- * and the whole session's work would disappear.
+ * The `hasUnsyncedDraft` guard is load-bearing, not defensive: a read of the
+ * server while the device is ahead of it would replace the tree that holds the
+ * ONLY copy of the unsynced edits — and for a draft created offline the server
+ * row doesn't exist yet, so `my-draft` would refetch to null and the whole
+ * session's work would disappear. So either the draft is in sync and is read
+ * again, or it is not and is sent again; never both.
  *
- * Called from three places that need the exact same semantics: the persister's
+ * Called from four places that need the exact same semantics: the persister's
  * hydration `onSuccess` and the auth listener (both through
- * `replayQueuedWrites` in lib/queryClient.js), and the window `online`
- * listener.
+ * `replayQueuedWrites` in lib/queryClient.js), the window `online` listener
+ * (AppShell), and the return to the app (the focus listener of
+ * lib/queryClient.js).
  *
  * The promise settles when the replay has: with a write waiting for a retry or
  * for a session that can be long, or never. Await it in a test; in the app,
@@ -602,10 +741,11 @@ export function hasUnsyncedDraftSave(queryClient) {
  */
 export async function resumeMutationsAndReconcileDrafts(queryClient) {
   if (!(await readSession())) return;
+  sendUnsyncedDrafts(queryClient);
   await queryClient.resumePausedMutations();
-  if (hasUnsyncedDraftSave(queryClient)) return;
-  queryClient.invalidateQueries({ queryKey: ['my-draft'] });
-  queryClient.invalidateQueries({ queryKey: ['draft-tree'] });
+  if (hasUnsyncedDraft(queryClient)) return;
+  queryClient.invalidateQueries({ queryKey: [MY_DRAFT] });
+  queryClient.invalidateQueries({ queryKey: [DRAFT_TREE] });
 }
 
 // --- what a settled write refreshes ----------------------------------------------
@@ -755,11 +895,20 @@ export function registerOfflineMutationDefaults(queryClient) {
       // my-draft invalidation onSuccess, and skipErrorToast HERE (in defaults)
       // so a hydrated resume behaves exactly like a live save — the review
       // caught that a hydrated failure would otherwise be silent, and that the
-      // hook-only onError didn't cover the resumed path.
+      // hook-only onError didn't cover the resumed path. The marker of the
+      // tree is settled here for the same reason: a save sent again after a
+      // relaunch has no hook around it either.
       Object.assign(defaults, {
         meta: { skipErrorToast: true },
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['my-draft'] }),
-        onError: (error) => draftSaveErrorHandler(queryClient, error),
+        onSuccess: (_data, variables) => {
+          // The marker first: it is what would answer the read below from
+          // the cache. And the read is started, not returned — a save is
+          // settled when the database has answered, and the next one of the
+          // scope must not wait for a refetch (see `refreshAfter`).
+          draftSaved(queryClient, variables);
+          queryClient.invalidateQueries({ queryKey: [MY_DRAFT] });
+        },
+        onError: (error, variables) => draftSaveErrorHandler(queryClient, error, variables),
       });
     }
     if (name === 'discardDraft') {
@@ -768,7 +917,7 @@ export function registerOfflineMutationDefaults(queryClient) {
       // reload clears 'my-draft' exactly like a live one. It keeps the generic
       // error toast — a failed discard is worth telling the student about.
       Object.assign(defaults, {
-        onSettled: () => queryClient.invalidateQueries({ queryKey: ['my-draft'] }),
+        onSettled: () => queryClient.invalidateQueries({ queryKey: [MY_DRAFT] }),
       });
     }
     queryClient.setMutationDefaults(key, defaults);

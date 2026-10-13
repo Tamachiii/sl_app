@@ -6,6 +6,7 @@ import {
   QueryObserver,
   MutationObserver,
   dehydrate,
+  focusManager,
   hydrate,
   onlineManager,
   useQuery,
@@ -13,7 +14,7 @@ import {
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 
 vi.mock('./supabase', () => ({
-  supabase: { from: vi.fn(), auth: { getSession: vi.fn() } },
+  supabase: { from: vi.fn(), rpc: vi.fn(), auth: { getSession: vi.fn() } },
 }));
 vi.mock('./toast', () => ({ pushToast: vi.fn() }));
 
@@ -97,6 +98,9 @@ afterEach(() => {
   }
   delete navigator.onLine;
   onlineManager.setOnline(true);
+  // Back to "ask the page": a test that left the app must not leave the next
+  // one in the background, where React Query holds every retry.
+  focusManager.setFocused(undefined);
 });
 
 describe('the app is opened without a network', () => {
@@ -601,5 +605,210 @@ describe('replayQueuedWrites: the pages wait for the queue while it moves, and o
     await replay;
 
     expect(listeners()).toBe(1);
+  });
+});
+
+// --- the draft an athlete is writing -------------------------------------------
+// Two cache entries: the pointer (`my-draft`) and the tree (`draft-tree`). A
+// tree that holds edits the database does not have carries a marker
+// (lib/draftTree.js); the rules about it are tested where they are written, in
+// lib/offlineMutations.test.js and hooks/useAuthoring.test.jsx. Here: what the
+// app's own client adds — how long the two entries live, and what a return to
+// the app does.
+const DRAFT_POINTER = ['my-draft', 'u-1'];
+const DRAFT_TREE = ['draft-tree', 'p-1'];
+const pointer = { id: 'p-1', name: 'Off-season', status: 'draft', submitted_at: null };
+const treeInSync = {
+  id: 'p-1',
+  name: 'Off-season',
+  status: 'draft',
+  submitted_at: null,
+  weeks: [{ id: 'w-1', week_number: 1, label: null, sessions: [] }],
+};
+const treeAhead = { ...treeInSync, name: 'Off-season, rewritten', unsynced: { rev: 7 } };
+
+// The cache as the device stored it, through JSON: the draft, and one entry of
+// another kind for comparison.
+function storedCache(tree) {
+  const phone = new QueryClient();
+  phone.setQueryData(DRAFT_POINTER, pointer);
+  phone.setQueryData(DRAFT_TREE, tree);
+  phone.setQueryData(['anything-else', 1], { some: 'row' });
+  const stored = JSON.parse(JSON.stringify(dehydrate(phone)));
+  phone.clear();
+  return stored;
+}
+
+describe('a draft nobody is looking at', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('is still in the cache hours later: collected, it would be written out of the device as well', async () => {
+    const { queryClient } = await launchApp();
+    // Restored at launch; the athlete trains, and never opens the builder.
+    hydrate(queryClient, storedCache(treeAhead));
+
+    await vi.advanceTimersByTimeAsync(6 * 60 * 60_000);
+
+    // What React Query does with an entry nobody observes, left to its default.
+    expect(queryClient.getQueryData(['anything-else', 1])).toBeUndefined();
+    expect(queryClient.getQueryData(DRAFT_TREE)).toEqual(treeAhead);
+    expect(queryClient.getQueryData(DRAFT_POINTER)).toEqual(pointer);
+  });
+
+  it('is kept for as long as the persisted cache itself', async () => {
+    const { queryClient, DRAFT_GC_MS } = await launchApp();
+
+    expect(DRAFT_GC_MS).toBe(14 * 24 * 60 * 60_000);
+    expect(queryClient.getQueryDefaults(DRAFT_TREE).gcTime).toBe(DRAFT_GC_MS);
+    expect(queryClient.getQueryDefaults(DRAFT_POINTER).gcTime).toBe(DRAFT_GC_MS);
+  });
+});
+
+describe('a draft that is ahead of the server, across a relaunch', () => {
+  afterEach(() => {
+    supabase.rpc.mockReset();
+  });
+
+  it('the device stores the tree with its marker, and the app opened again sends it instead of reading over it', async () => {
+    const before = await launchApp();
+    before.queryClient.setQueryData(DRAFT_POINTER, pointer);
+    before.queryClient.setQueryData(DRAFT_TREE, treeAhead);
+    before.queryClient.setQueryData(['anything-else', 1], { some: 'row' });
+
+    // What the persister writes: the allow-list of the app, through JSON. No
+    // mutation — the save that failed is not one the device keeps.
+    const stored = JSON.parse(
+      JSON.stringify(dehydrate(before.queryClient, { shouldDehydrateQuery: before.shouldPersistQuery })),
+    );
+    expect(stored.mutations).toEqual([]);
+    expect(stored.queries.map((query) => query.queryKey)).toEqual([DRAFT_POINTER, DRAFT_TREE]);
+
+    supabase.rpc.mockResolvedValue({ data: { program_id: 'p-1' }, error: null });
+    const { queryClient, hasUnsyncedDraft, replayQueuedWrites } = await launchApp();
+    hydrate(queryClient, stored);
+    expect(queryClient.getQueryData(DRAFT_TREE)).toEqual(treeAhead);
+    expect(hasUnsyncedDraft(queryClient)).toBe(true);
+    const read = vi.fn(async () => treeInSync);
+    const builder = new QueryObserver(queryClient, { queryKey: DRAFT_TREE, queryFn: read, staleTime: Infinity });
+    const stop = builder.subscribe(() => {});
+
+    // The persister's `onSuccess`.
+    await replayQueuedWrites();
+
+    await vi.waitFor(() => expect(hasUnsyncedDraft(queryClient)).toBe(false));
+    expect(supabase.rpc).toHaveBeenCalledTimes(1);
+    expect(supabase.rpc.mock.calls[0][1].p_tree.program.name).toBe('Off-season, rewritten');
+    expect(queryClient.getQueryData(DRAFT_TREE)).toEqual({ ...treeInSync, name: 'Off-season, rewritten' });
+    expect(read).not.toHaveBeenCalled();
+    stop();
+  });
+});
+
+describe('the athlete comes back to the app', () => {
+  // React Query's manager says "focused" when the page becomes visible.
+  function leaveTheApp() {
+    focusManager.setFocused(false);
+  }
+  function comeBack() {
+    focusManager.setFocused(true);
+  }
+
+  // The builder, open on the draft: a reader of the tree that only reads when
+  // it is told its data is out of date.
+  function builderOpen(queryClient, read) {
+    const builder = new QueryObserver(queryClient, { queryKey: DRAFT_TREE, queryFn: read, staleTime: Infinity });
+    const stop = builder.subscribe(() => {});
+    return { builder, stop };
+  }
+
+  it('a draft in sync is read again: one the coach sent back shows up without a reload', async () => {
+    const { queryClient } = await launchApp();
+    hydrate(queryClient, storedCache({ ...treeInSync, submitted_at: '2026-10-12T08:00:00.000Z' }));
+    const read = vi.fn(async () => treeInSync);
+    const { builder, stop } = builderOpen(queryClient, read);
+    leaveTheApp();
+    expect(read).not.toHaveBeenCalled();
+
+    comeBack();
+
+    await vi.waitFor(() => expect(builder.getCurrentResult().data.submitted_at).toBeNull());
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(supabase.rpc).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it('a draft that is ahead of the server is sent instead, and the server\'s tree is not read over it', async () => {
+    supabase.rpc.mockResolvedValue({ data: { program_id: 'p-1' }, error: null });
+    const { queryClient } = await launchApp();
+    hydrate(queryClient, storedCache(treeAhead));
+    const read = vi.fn(async () => treeInSync);
+    const { stop } = builderOpen(queryClient, read);
+    leaveTheApp();
+
+    comeBack();
+
+    await vi.waitFor(() => expect(queryClient.getQueryData(DRAFT_TREE).unsynced).toBeUndefined());
+    expect(supabase.rpc).toHaveBeenCalledTimes(1);
+    const [name, args] = supabase.rpc.mock.calls[0];
+    expect(name).toBe('save_draft_tree');
+    expect(args.p_tree.program).toEqual({ id: 'p-1', name: 'Off-season, rewritten', submitted_at: null });
+    expect(args.p_tree.weeks).toEqual([{ id: 'w-1', program_id: 'p-1', week_number: 1, label: null }]);
+    expect(queryClient.getQueryData(DRAFT_TREE).name).toBe('Off-season, rewritten');
+    expect(read).not.toHaveBeenCalled();
+    stop();
+    supabase.rpc.mockReset();
+  });
+
+  it('a draft ahead of the server on a network that still does not answer stays as it is', async () => {
+    supabase.rpc.mockResolvedValue({ data: null, error: { message: 'TypeError: Failed to fetch', details: '', hint: '', code: '' } });
+    const { queryClient } = await launchApp();
+    hydrate(queryClient, storedCache(treeAhead));
+    const read = vi.fn(async () => treeInSync);
+    const { stop } = builderOpen(queryClient, read);
+    leaveTheApp();
+
+    comeBack();
+
+    await vi.waitFor(() => expect(supabase.rpc).toHaveBeenCalledTimes(1));
+    expect(queryClient.getQueryData(DRAFT_TREE)).toEqual(treeAhead);
+    expect(read).not.toHaveBeenCalled();
+    stop();
+    supabase.rpc.mockReset();
+  });
+
+  it('leaving the app sends nothing and reads nothing', async () => {
+    const { queryClient } = await launchApp();
+    hydrate(queryClient, storedCache(treeAhead));
+    const read = vi.fn(async () => treeInSync);
+    const { stop } = builderOpen(queryClient, read);
+    supabase.auth.getSession.mockClear();
+
+    leaveTheApp();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(supabase.auth.getSession).not.toHaveBeenCalled();
+    expect(supabase.rpc).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it('nobody signed in: nothing is sent, nothing is read, and the draft waits', async () => {
+    supabase.auth.getSession.mockResolvedValue({ data: { session: null }, error: null });
+    const { queryClient } = await launchApp();
+    hydrate(queryClient, storedCache(treeAhead));
+    leaveTheApp();
+    supabase.auth.getSession.mockClear();
+
+    comeBack();
+
+    await vi.waitFor(() => expect(supabase.auth.getSession).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(supabase.rpc).not.toHaveBeenCalled();
+    expect(queryClient.getQueryData(DRAFT_TREE)).toEqual(treeAhead);
   });
 });

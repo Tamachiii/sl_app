@@ -1,4 +1,4 @@
-import { QueryClient, MutationCache, onlineManager } from '@tanstack/react-query';
+import { QueryClient, MutationCache, focusManager, onlineManager } from '@tanstack/react-query';
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister';
 import { createStore, get, set, del } from 'idb-keyval';
 import {
@@ -166,6 +166,30 @@ export const queryClient = new QueryClient({
 });
 
 registerOfflineMutationDefaults(queryClient);
+
+// A draft the athlete is writing lives in two cache entries, and while it is
+// ahead of the server (the unsynced marker of lib/draftTree.js) they are its
+// only copy. A cache entry nobody observes is collected after five minutes by
+// default, and what is collected is also written out of IndexedDB: a draft
+// whose save had failed was gone once the athlete had spent five minutes on
+// another page, or had opened the app without visiting the builder. So these
+// two roots are kept for as long as the persisted cache itself (`maxAge` in
+// App.jsx).
+export const DRAFT_GC_MS = 1000 * 60 * 60 * 24 * 14;
+for (const root of ['my-draft', 'draft-tree']) {
+  queryClient.setQueryDefaults([root], { gcTime: DRAFT_GC_MS });
+}
+
+// The athlete comes back to the app. A draft in sync is read again — that is
+// how one the coach sent back, or approved, shows up without a reload — and
+// one that is ahead of the server is sent again instead: the same call as on
+// reconnect, which decides between the two (and replays the queue first).
+// React Query's manager says "focused" when the page becomes visible.
+focusManager.subscribe((focused) => {
+  if (!focused) return;
+  // Nobody is waiting for this, and a write that fails has its own handling.
+  resumeMutationsAndReconcileDrafts(queryClient).catch(() => {});
+});
 
 // How long the replay of the queue may make no progress before whoever waits
 // for it stops waiting.

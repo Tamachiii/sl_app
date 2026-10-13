@@ -10,7 +10,7 @@ import {
 import { createClient } from '@supabase/supabase-js';
 
 vi.mock('./supabase', () => ({
-  supabase: { from: vi.fn(), auth: { getSession: vi.fn() } },
+  supabase: { from: vi.fn(), rpc: vi.fn(), auth: { getSession: vi.fn() } },
 }));
 vi.mock('./toast', () => ({ pushToast: vi.fn() }));
 
@@ -30,12 +30,17 @@ import {
   patchForSkipped,
   registerOfflineMutationDefaults,
   resumeMutationsAndReconcileDrafts,
-  hasUnsyncedDraftSave,
+  hasUnsyncedDraft,
 } from './offlineMutations';
 import { AUTH_WAIT_CAP_MS, isAuthNotReady, isNetworkError } from './networkErrors';
-
-const fakeQc = (mutations) => ({ getMutationCache: () => ({ getAll: () => mutations }) });
-const draftSave = (state) => ({ options: { mutationKey: ['draft-tree', 'save'] }, state });
+import {
+  buildSnapshot,
+  isUnsyncedDraft,
+  markSynced,
+  markUnsynced,
+  nextDraftRev,
+  unsyncedRev,
+} from './draftTree';
 
 // --- PostgREST, as far as a confirm reaches it --------------------------------
 // The confirm tests send what confirmSessionFn REALLY sends: the supabase-js
@@ -339,23 +344,6 @@ describe('registerOfflineMutationDefaults', () => {
     expect(typeof d.onError).toBe('function');
     expect(typeof d.onSuccess).toBe('function');
     expect(d.meta).toEqual({ skipErrorToast: true });
-  });
-
-  describe('hasUnsyncedDraftSave (guards the resume-time reconcile)', () => {
-    it('is false with no draft saves', () => {
-      expect(hasUnsyncedDraftSave(fakeQc([]))).toBe(false);
-      expect(hasUnsyncedDraftSave(fakeQc([
-        { options: { mutationKey: ['set-log', 'toggle-done'] }, state: { status: 'error', isPaused: false } },
-      ]))).toBe(false);
-    });
-    it('is true while a draft save is errored, pending, or paused', () => {
-      expect(hasUnsyncedDraftSave(fakeQc([draftSave({ status: 'error', isPaused: false })]))).toBe(true);
-      expect(hasUnsyncedDraftSave(fakeQc([draftSave({ status: 'pending', isPaused: false })]))).toBe(true);
-      expect(hasUnsyncedDraftSave(fakeQc([draftSave({ status: 'idle', isPaused: true })]))).toBe(true);
-    });
-    it('is false once every draft save succeeded (safe to reconcile)', () => {
-      expect(hasUnsyncedDraftSave(fakeQc([draftSave({ status: 'success', isPaused: false })]))).toBe(false);
-    });
   });
 
   it('replays queued writes serially in FIFO order (shared scope)', async () => {
@@ -1928,7 +1916,7 @@ describe('a write that waited, and is refused because its session was closed mea
   });
 
   it('a draft that waited and is refused keeps its own handling: reconciled, not journalled', async () => {
-    supabase.rpc = vi.fn().mockResolvedValue({
+    supabase.rpc.mockResolvedValue({
       data: null,
       error: { code: '42501', details: null, hint: null, message: 'new row violates row-level security policy for table "programs"' },
     });
@@ -1941,7 +1929,7 @@ describe('a write that waited, and is refused because its session was closed mea
     comeBackOnline();
     await qc.resumePausedMutations();
     await pass();
-    delete supabase.rpc;
+    supabase.rpc.mockReset();
 
     expect(save.state.status).toBe('error');
     expect(isRefusedReplay(save.state.error)).toBe(false);
@@ -1966,6 +1954,610 @@ describe('a write that waited, and is refused because its session was closed mea
     expect(replayed.state.status).toBe('error');
     expect(replayed.state.error.code).toBe('PGRST116');
     expect(replayMessages()).toHaveLength(1);
+  });
+});
+
+// --- PostgREST, for a draft ------------------------------------------------------
+// POST /rpc/save_draft_tree with the whole tree. `saved` is what the database
+// holds: the last snapshot it accepted, by program. `down`: `fetch` rejects, as
+// on a network that does not answer. `refuse`: the database answers with that
+// body instead of saving. `hold`: the answer waits for that promise — the
+// request is out, and the app can do something else meanwhile.
+function fakeDraftApi() {
+  const api = { saved: new Map(), requests: [], down: false, refuse: null, hold: null };
+  answer = async (input, init = {}) => {
+    const url = new URL(String(input));
+    if (url.pathname !== '/rest/v1/rpc/save_draft_tree') {
+      return reply(404, { code: 'PGRST202', message: `not expected: ${init.method} ${url.pathname}` });
+    }
+    const { p_tree: tree } = JSON.parse(init.body);
+    api.requests.push(tree);
+    if (api.hold) await api.hold;
+    if (api.down) throw new TypeError('Failed to fetch');
+    if (api.refuse) return reply(400, api.refuse);
+    api.saved.set(tree.program.id, tree);
+    return reply(200, {
+      program_id: tree.program.id,
+      weeks: tree.weeks.length,
+      sessions: tree.sessions.length,
+      slots: tree.slots.length,
+    });
+  };
+  supabase.rpc.mockImplementation((name, args) => wire.rpc(name, args));
+  return api;
+}
+
+function deferred() {
+  let release;
+  const promise = new Promise((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
+}
+
+const TREE_KEY = ['draft-tree', 'p-1'];
+const POINTER_KEY = ['my-draft', 'u-1'];
+
+// The draft as the builder last read it from the server.
+function draftOpen(qc, over = {}) {
+  qc.setQueryData(POINTER_KEY, { id: 'p-1', name: 'Off-season', status: 'draft', submitted_at: null });
+  qc.setQueryData(TREE_KEY, {
+    id: 'p-1',
+    name: 'Off-season',
+    status: 'draft',
+    submitted_at: null,
+    weeks: [{ id: 'w-1', week_number: 1, label: null, sessions: [] }],
+    ...over,
+  });
+}
+
+// An edit, as `useDraftActions` makes one, without React around it: the tree
+// and its marker in one cache write, then the save of that tree with its rev.
+function edit(qc, change) {
+  const rev = nextDraftRev();
+  const tree = markUnsynced({ ...qc.getQueryData(TREE_KEY), ...change }, rev);
+  qc.setQueryData(TREE_KEY, tree);
+  const save = enqueue(qc, MUTATION_KEYS.saveDraftTree, { tree: buildSnapshot(tree), rev });
+  return { rev, tree, save };
+}
+
+const draftSaves = (qc) => qc.getMutationCache().findAll({ mutationKey: MUTATION_KEYS.saveDraftTree });
+
+const COULD_NOT_SYNC = 'Couldn’t sync your draft — it’s saved on this device.';
+const EXERCISE_GONE = 'One exercise is no longer in your coach’s library — remove or replace it.';
+const EXERCISE_UNAVAILABLE = { code: 'P0001', details: 'e-9', hint: null, message: 'exercise_unavailable' };
+const DRAFT_NOT_EDITABLE = {
+  code: 'P0001',
+  details: 'program is no longer a draft',
+  hint: null,
+  message: 'draft_not_editable',
+};
+
+// P54. A draft save that failed left nothing behind but the toast: the
+// mutation ends in `error`, which the device does not store, and the next read
+// of the server — the reconcile after a relaunch, any refetch of a cache two
+// minutes old — put the tree of before the edits back. Nothing sent it again
+// before the next edit either.
+describe('a draft that is ahead of the server', () => {
+  useFakeClock();
+
+  beforeEach(() => {
+    vi.setSystemTime(new Date('2026-10-13T10:00:00.000Z'));
+  });
+  afterEach(() => {
+    supabase.rpc.mockReset();
+  });
+
+  // The six attempts of a save on a network that does not answer.
+  async function givesUp() {
+    await pass();
+    for (const wait of [1000, 2000, 4000, 8000, 16000]) await pass(wait);
+  }
+
+  // The situation of the finding: the athlete edited the draft, the save got
+  // no answer for half a minute, the toast said "it's saved on this device".
+  async function savedOnThisDeviceOnly(change = { name: 'Off-season, rewritten' }, opened = {}) {
+    const api = fakeDraftApi();
+    api.down = true;
+    const phone = offlineQueue();
+    draftOpen(phone, opened);
+    const { rev, tree, save } = edit(phone, change);
+    await givesUp();
+    expect(save.state.status).toBe('error');
+    expect(api.requests).toHaveLength(6);
+    return { api, phone, rev, tree, save };
+  }
+
+  describe('hasUnsyncedDraft', () => {
+    it('is false with no draft, with a draft in sync, and for a write of the workout', async () => {
+      fakeSetLogsApi();
+      const qc = offlineQueue();
+      expect(hasUnsyncedDraft(qc)).toBe(false);
+
+      draftOpen(qc);
+      goOffline();
+      enqueue(qc, MUTATION_KEYS.toggleDone, TICK);
+      await pass();
+
+      expect(hasUnsyncedDraft(qc)).toBe(false);
+    });
+
+    it('is true for a tree that carries the marker, whatever became of its save', async () => {
+      const { phone } = await savedOnThisDeviceOnly();
+
+      expect(draftSaves(phone).map((save) => save.state.status)).toEqual(['error']);
+      expect(hasUnsyncedDraft(phone)).toBe(true);
+    });
+
+    it('is true while a save is on its way, with or without a marker on the tree', async () => {
+      const api = fakeDraftApi();
+      api.hold = deferred().promise;
+      const qc = offlineQueue();
+      draftOpen(qc);
+      // A save queued by a build that set no marker.
+      enqueue(qc, MUTATION_KEYS.saveDraftTree, { tree: buildSnapshot(qc.getQueryData(TREE_KEY)) });
+      await pass();
+
+      expect(isUnsyncedDraft(qc.getQueryData(TREE_KEY))).toBe(false);
+      expect(hasUnsyncedDraft(qc)).toBe(true);
+    });
+
+    it('is true while a save is paused without a network', async () => {
+      fakeDraftApi();
+      goOffline();
+      const qc = offlineQueue();
+      draftOpen(qc);
+      const { save } = edit(qc, { name: 'Off-season, rewritten' });
+      await pass();
+
+      expect(save.state).toMatchObject({ status: 'pending', isPaused: true });
+      expect(hasUnsyncedDraft(qc)).toBe(true);
+    });
+
+    it('is true while a discard is on its way: the server still has the draft just thrown away', async () => {
+      supabase.from.mockReturnValue({ delete: () => ({ eq: () => new Promise(() => {}) }) });
+      const qc = offlineQueue();
+      // `discard`: the pointer emptied, the tree removed, then the write.
+      qc.setQueryData(POINTER_KEY, null);
+      const discard = enqueue(qc, MUTATION_KEYS.discardDraft, { programId: 'p-1' });
+      await pass();
+
+      expect(discard.state.status).toBe('pending');
+      expect(hasUnsyncedDraft(qc)).toBe(true);
+      await resumeMutationsAndReconcileDrafts(qc);
+      expect(staleReads(qc)).toEqual([]);
+    });
+
+    it('is false again once the database has the tree', async () => {
+      const api = fakeDraftApi();
+      const qc = offlineQueue();
+      draftOpen(qc);
+      const { save } = edit(qc, { name: 'Off-season, rewritten' });
+      await pass();
+
+      expect(save.state.status).toBe('success');
+      expect(api.saved.get('p-1').program.name).toBe('Off-season, rewritten');
+      expect(hasUnsyncedDraft(qc)).toBe(false);
+    });
+  });
+
+  it('a save the database accepted leaves the tree as it is, without its marker', async () => {
+    const api = fakeDraftApi();
+    const qc = offlineQueue();
+    draftOpen(qc);
+
+    const { tree } = edit(qc, { name: 'Off-season, rewritten' });
+    expect(isUnsyncedDraft(qc.getQueryData(TREE_KEY))).toBe(true);
+    await pass();
+
+    expect(api.saved.get('p-1')).toEqual(buildSnapshot(tree));
+    expect(qc.getQueryData(TREE_KEY)).toEqual(markSynced(tree));
+    // The pointer is read again, the tree is not: the database holds exactly it.
+    expect(staleReads(qc)).toEqual([POINTER_KEY]);
+  });
+
+  it('a save is settled when the database has answered, not when the read it starts has come back', async () => {
+    fakeDraftApi();
+    const qc = offlineQueue();
+    draftOpen(qc);
+    // The builder is open: the pointer has a reader, and its request hangs.
+    const pointer = new QueryObserver(qc, {
+      queryKey: POINTER_KEY,
+      queryFn: () => new Promise(() => {}),
+      staleTime: Infinity,
+    });
+    const stop = pointer.subscribe(() => {});
+
+    const { save } = edit(qc, { name: 'Off-season, rewritten' });
+    await pass();
+    stop();
+
+    expect(pointer.getCurrentResult().fetchStatus).toBe('fetching');
+    expect(save.state.status).toBe('success');
+  });
+
+  it('a save that got no answer leaves the tree as the athlete wrote it, marked, and says so once', async () => {
+    const { phone, tree, rev } = await savedOnThisDeviceOnly();
+
+    expect(phone.getQueryData(TREE_KEY)).toEqual(tree);
+    expect(unsyncedRev(phone.getQueryData(TREE_KEY))).toBe(rev);
+    expect(pushToast.mock.calls).toEqual([[COULD_NOT_SYNC, { kind: 'error' }]]);
+    // Nothing asks the server for its (older) tree.
+    expect(staleReads(phone)).toEqual([]);
+  });
+
+  it('the tree is sent again when the device reconnects, as it is by then', async () => {
+    const { api, phone, tree } = await savedOnThisDeviceOnly();
+    api.down = false;
+
+    // What the `online` listener of the shell runs.
+    await resumeMutationsAndReconcileDrafts(phone);
+    // On its way: still ahead of the server, still not read.
+    expect(staleReads(phone)).toEqual([]);
+    await pass();
+
+    expect(api.requests).toHaveLength(7);
+    expect(api.saved.get('p-1')).toEqual(buildSnapshot(tree));
+    expect(phone.getQueryData(TREE_KEY)).toEqual(markSynced(tree));
+    expect(hasUnsyncedDraft(phone)).toBe(false);
+    expect(pushToast).toHaveBeenCalledTimes(1);
+  });
+
+  it('once in sync, the next reconnect reads both caches again: that is how a send-back is seen', async () => {
+    const { api, phone } = await savedOnThisDeviceOnly();
+    api.down = false;
+    await resumeMutationsAndReconcileDrafts(phone);
+    await pass();
+    phone.setQueryData(POINTER_KEY, phone.getQueryData(POINTER_KEY));
+    expect(staleReads(phone)).toEqual([]);
+
+    await resumeMutationsAndReconcileDrafts(phone);
+
+    expect(api.requests).toHaveLength(7);
+    expect(staleReads(phone)).toEqual([POINTER_KEY, TREE_KEY]);
+  });
+
+  it('the attempts that follow by themselves are silent, and never cost the tree', async () => {
+    const { api, phone, tree } = await savedOnThisDeviceOnly();
+
+    // The athlete comes back to the app; the network is no better.
+    await resumeMutationsAndReconcileDrafts(phone);
+    await givesUp();
+
+    expect(api.requests).toHaveLength(12);
+    expect(pushToast).toHaveBeenCalledTimes(1);
+    expect(phone.getQueryData(TREE_KEY)).toEqual(tree);
+    expect(staleReads(phone)).toEqual([]);
+  });
+
+  it('a tree whose save is already on its way is not sent a second time', async () => {
+    const api = fakeDraftApi();
+    goOffline();
+    const qc = offlineQueue();
+    draftOpen(qc);
+    const { tree } = edit(qc, { name: 'Off-season, rewritten' });
+    await pass();
+
+    // Back in the app, still without a network.
+    await resumeMutationsAndReconcileDrafts(qc);
+    await resumeMutationsAndReconcileDrafts(qc);
+    expect(draftSaves(qc)).toHaveLength(1);
+
+    comeBackOnline();
+    await resumeMutationsAndReconcileDrafts(qc);
+    await pass();
+
+    expect(api.requests).toEqual([buildSnapshot(tree)]);
+    expect(qc.getQueryData(TREE_KEY)).toEqual(markSynced(tree));
+  });
+
+  describe('after the app was killed and opened again', () => {
+    it('the device stored the tree with its marker, and not the save that failed', async () => {
+      const { phone, tree, rev } = await savedOnThisDeviceOnly();
+
+      const stored = JSON.parse(JSON.stringify(dehydrate(phone)));
+
+      expect(stored.mutations).toEqual([]);
+      const storedTree = stored.queries.find((query) => query.queryKey[0] === 'draft-tree').state.data;
+      expect(storedTree).toEqual(tree);
+      expect(unsyncedRev(storedTree)).toBe(rev);
+    });
+
+    it('the tree is not replaced by the server\'s: it is sent, and only then is anything read', async () => {
+      const { api, phone, tree } = await savedOnThisDeviceOnly();
+      const qc = relaunch(phone);
+      expect(draftSaves(qc)).toHaveLength(0);
+      api.down = false;
+
+      // What the restored cache runs (`replayQueuedWrites`).
+      await resumeMutationsAndReconcileDrafts(qc);
+      expect(staleReads(qc)).toEqual([]);
+      expect(qc.getQueryData(TREE_KEY)).toEqual(tree);
+      await pass();
+
+      expect(api.requests).toHaveLength(7);
+      expect(api.saved.get('p-1')).toEqual(buildSnapshot(tree));
+      expect(qc.getQueryData(TREE_KEY)).toEqual(markSynced(tree));
+      expect(staleReads(qc)).toEqual([POINTER_KEY]);
+    });
+
+    it('a draft created without a network keeps its pointer: the server would answer "no draft"', async () => {
+      const api = fakeDraftApi();
+      api.down = true;
+      const phone = offlineQueue();
+      // `useCreateDraft`: the pointer and a tree marked from its first moment.
+      const rev = nextDraftRev();
+      const tree = markUnsynced({ id: 'p-1', name: 'My program', status: 'draft', submitted_at: null, weeks: [] }, rev);
+      phone.setQueryData(POINTER_KEY, { id: 'p-1', name: 'My program', status: 'draft', submitted_at: null });
+      phone.setQueryData(TREE_KEY, tree);
+      enqueue(phone, MUTATION_KEYS.saveDraftTree, { tree: buildSnapshot(tree), rev });
+      await givesUp();
+
+      const qc = relaunch(phone);
+      const noDraftOnTheServer = vi.fn(async () => null);
+      const pointer = new QueryObserver(qc, { queryKey: POINTER_KEY, queryFn: noDraftOnTheServer, staleTime: Infinity });
+      const stop = pointer.subscribe(() => {});
+      await resumeMutationsAndReconcileDrafts(qc);
+      await givesUp();
+      stop();
+
+      expect(noDraftOnTheServer).not.toHaveBeenCalled();
+      expect(qc.getQueryData(POINTER_KEY)).toMatchObject({ id: 'p-1' });
+      expect(qc.getQueryData(TREE_KEY)).toEqual(tree);
+      expect(api.saved.size).toBe(0);
+    });
+
+    it('opened without a network, the tree goes into the queue: paused, which is what the device stores', async () => {
+      const { api, phone, tree, rev } = await savedOnThisDeviceOnly();
+      goOffline();
+      const qc = relaunch(phone);
+
+      await resumeMutationsAndReconcileDrafts(qc);
+      await pass();
+
+      expect(api.requests).toHaveLength(6);
+      const stored = JSON.parse(JSON.stringify(dehydrate(qc))).mutations;
+      expect(stored).toHaveLength(1);
+      expect(stored[0]).toMatchObject({
+        mutationKey: MUTATION_KEYS.saveDraftTree,
+        scope: { id: 'draft-tree' },
+        state: { isPaused: true, variables: { tree: buildSnapshot(tree), rev } },
+      });
+
+      api.down = false;
+      comeBackOnline();
+      await qc.resumePausedMutations();
+      await pass();
+
+      expect(api.saved.get('p-1')).toEqual(buildSnapshot(tree));
+      expect(qc.getQueryData(TREE_KEY)).toEqual(markSynced(tree));
+    });
+  });
+
+  it('the answer to one save says nothing about an edit made after it', async () => {
+    const api = fakeDraftApi();
+    const qc = offlineQueue();
+    draftOpen(qc);
+    const first = deferred();
+    api.hold = first.promise;
+    const one = edit(qc, { name: 'First edit' });
+    await pass();
+
+    // The second edit is made while the first save is out.
+    const two = edit(qc, { name: 'Second edit' });
+    await pass();
+    const second = deferred();
+    api.hold = second.promise;
+    first.release();
+    await pass();
+
+    expect(one.save.state.status).toBe('success');
+    expect(api.saved.get('p-1').program.name).toBe('First edit');
+    // The database does not have the second edit: the tree is still ahead.
+    expect(qc.getQueryData(TREE_KEY)).toEqual(two.tree);
+    expect(unsyncedRev(qc.getQueryData(TREE_KEY))).toBe(two.rev);
+
+    second.release();
+    await pass();
+
+    expect(api.saved.get('p-1').program.name).toBe('Second edit');
+    expect(qc.getQueryData(TREE_KEY)).toEqual(markSynced(two.tree));
+  });
+
+  describe('a snapshot the database turned down', () => {
+    it('stays on the device, marked, and is not sent again by itself', async () => {
+      const api = fakeDraftApi();
+      api.refuse = EXERCISE_UNAVAILABLE;
+      const qc = offlineQueue();
+      draftOpen(qc);
+
+      const { save, tree } = edit(qc, { name: 'Off-season, rewritten' });
+      await pass();
+
+      expect(save.state.status).toBe('error');
+      expect(api.requests).toHaveLength(1);
+      expect(qc.getQueryData(TREE_KEY)).toEqual(tree);
+      expect(pushToast.mock.calls).toEqual([[EXERCISE_GONE, { kind: 'error' }]]);
+
+      // Reconnect, return to the app: the same tree would get the same answer.
+      await resumeMutationsAndReconcileDrafts(qc);
+      await resumeMutationsAndReconcileDrafts(qc);
+      await pass();
+
+      expect(api.requests).toHaveLength(1);
+      expect(pushToast).toHaveBeenCalledTimes(1);
+      expect(qc.getQueryData(TREE_KEY)).toEqual(tree);
+      expect(staleReads(qc)).toEqual([]);
+    });
+
+    it('goes out again with the athlete\'s next edit', async () => {
+      const api = fakeDraftApi();
+      api.refuse = EXERCISE_UNAVAILABLE;
+      const qc = offlineQueue();
+      draftOpen(qc);
+      edit(qc, { name: 'Off-season, rewritten' });
+      await pass();
+
+      // The exercise is removed from the draft.
+      api.refuse = null;
+      const fixed = edit(qc, { weeks: [] });
+      await pass();
+
+      expect(api.saved.get('p-1')).toEqual(buildSnapshot(fixed.tree));
+      expect(api.saved.get('p-1').program.name).toBe('Off-season, rewritten');
+      expect(qc.getQueryData(TREE_KEY)).toEqual(markSynced(fixed.tree));
+    });
+
+    it('is tried once more after a relaunch, and said again if the answer is the same', async () => {
+      const api = fakeDraftApi();
+      api.refuse = EXERCISE_UNAVAILABLE;
+      const phone = offlineQueue();
+      draftOpen(phone);
+      const { tree } = edit(phone, { name: 'Off-season, rewritten' });
+      await pass();
+
+      const qc = relaunch(phone);
+      await resumeMutationsAndReconcileDrafts(qc);
+      await pass();
+      await resumeMutationsAndReconcileDrafts(qc);
+      await pass();
+
+      expect(api.requests).toHaveLength(2);
+      expect(pushToast.mock.calls).toEqual([
+        [EXERCISE_GONE, { kind: 'error' }],
+        [EXERCISE_GONE, { kind: 'error' }],
+      ]);
+      expect(qc.getQueryData(TREE_KEY)).toEqual(tree);
+    });
+
+    it('a submission it carried is taken back on the device: a submitted draft could not be corrected', async () => {
+      const api = fakeDraftApi();
+      api.refuse = EXERCISE_UNAVAILABLE;
+      const qc = offlineQueue();
+      draftOpen(qc);
+
+      // `submit`: the stamp on the pointer and on the tree.
+      const stamp = '2026-10-13T10:00:00.000Z';
+      qc.setQueryData(POINTER_KEY, (mine) => ({ ...mine, submitted_at: stamp }));
+      const { tree, rev } = edit(qc, { submitted_at: stamp });
+      await pass();
+
+      expect(api.requests[0].program.submitted_at).toBe(stamp);
+      expect(qc.getQueryData(TREE_KEY)).toEqual({ ...tree, submitted_at: null });
+      expect(unsyncedRev(qc.getQueryData(TREE_KEY))).toBe(rev);
+      expect(qc.getQueryData(POINTER_KEY).submitted_at).toBeNull();
+    });
+
+    it('for any other reason is kept the same way, with the plain message', async () => {
+      const api = fakeDraftApi();
+      api.refuse = { code: '23514', details: null, hint: null, message: 'new row violates check constraint' };
+      const qc = offlineQueue();
+      draftOpen(qc);
+
+      const { tree } = edit(qc, { name: 'Off-season, rewritten' });
+      await pass();
+      await resumeMutationsAndReconcileDrafts(qc);
+      await pass();
+
+      expect(api.requests).toHaveLength(1);
+      expect(qc.getQueryData(TREE_KEY)).toEqual(tree);
+      expect(pushToast.mock.calls).toEqual([[COULD_NOT_SYNC, { kind: 'error' }]]);
+    });
+  });
+
+  it('a submission that got no answer is not taken back: it is sent again, though the draft can no longer be edited', async () => {
+    const stamp = '2026-10-13T10:00:00.000Z';
+    const { api, phone, tree } = await savedOnThisDeviceOnly({ submitted_at: stamp });
+    expect(phone.getQueryData(TREE_KEY).submitted_at).toBe(stamp);
+
+    api.down = false;
+    await resumeMutationsAndReconcileDrafts(phone);
+    await pass();
+
+    expect(api.saved.get('p-1').program.submitted_at).toBe(stamp);
+    expect(phone.getQueryData(TREE_KEY)).toEqual(markSynced(tree));
+  });
+
+  it('a draft the coach approved in the meantime is the server\'s: the marker goes, and both caches are read again', async () => {
+    const api = fakeDraftApi();
+    api.refuse = DRAFT_NOT_EDITABLE;
+    const qc = offlineQueue();
+    draftOpen(qc);
+
+    edit(qc, { name: 'Off-season, rewritten' });
+    await pass();
+
+    expect(isUnsyncedDraft(qc.getQueryData(TREE_KEY))).toBe(false);
+    expect(hasUnsyncedDraft(qc)).toBe(false);
+    expect(staleReads(qc)).toEqual([POINTER_KEY, TREE_KEY]);
+    expect(pushToast).not.toHaveBeenCalled();
+    // Nothing is left to send.
+    await resumeMutationsAndReconcileDrafts(qc);
+    await pass();
+    expect(api.requests).toHaveLength(1);
+  });
+
+  it('a save queued by a build that set no marker: when it fails for good, the tree gets one and is sent again', async () => {
+    const api = fakeDraftApi();
+    api.down = true;
+    const qc = offlineQueue();
+    draftOpen(qc, { name: 'Edited by the build before' });
+    const tree = qc.getQueryData(TREE_KEY);
+    enqueue(qc, MUTATION_KEYS.saveDraftTree, { tree: buildSnapshot(tree) });
+    await givesUp();
+
+    expect(isUnsyncedDraft(qc.getQueryData(TREE_KEY))).toBe(true);
+    expect(markSynced(qc.getQueryData(TREE_KEY))).toEqual(tree);
+
+    api.down = false;
+    await resumeMutationsAndReconcileDrafts(qc);
+    await pass();
+
+    expect(api.saved.get('p-1')).toEqual(buildSnapshot(tree));
+    expect(qc.getQueryData(TREE_KEY)).toEqual(tree);
+  });
+
+  it('a failed save of a tree the athlete has edited since changes nothing: the later save decides', async () => {
+    const api = fakeDraftApi();
+    const qc = offlineQueue();
+    draftOpen(qc);
+    const first = deferred();
+    api.hold = first.promise;
+    const stamp = '2026-10-13T10:00:00.000Z';
+    edit(qc, { name: 'First edit' });
+    await pass();
+    const two = edit(qc, { name: 'Second edit', submitted_at: stamp });
+    await pass();
+
+    // The first save is turned down; the second, queued behind it, is accepted.
+    api.hold = null;
+    api.refuse = EXERCISE_UNAVAILABLE;
+    const second = deferred();
+    first.release();
+    api.hold = second.promise;
+    await pass();
+    // Between the two answers: the tree is the second edit, submission included.
+    expect(qc.getQueryData(TREE_KEY)).toEqual(two.tree);
+
+    api.refuse = null;
+    second.release();
+    await pass();
+
+    expect(api.saved.get('p-1').program).toMatchObject({ name: 'Second edit', submitted_at: stamp });
+    expect(qc.getQueryData(TREE_KEY)).toEqual(markSynced(two.tree));
+  });
+
+  it('nothing is sent, and nothing read, while nobody is signed in', async () => {
+    const { api, phone, tree } = await savedOnThisDeviceOnly();
+    api.down = false;
+    signedOut();
+
+    await resumeMutationsAndReconcileDrafts(phone);
+    await pass();
+
+    expect(api.requests).toHaveLength(6);
+    expect(phone.getQueryData(TREE_KEY)).toEqual(tree);
+    expect(staleReads(phone)).toEqual([]);
   });
 });
 
