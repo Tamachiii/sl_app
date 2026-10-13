@@ -1,7 +1,23 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  useIsMutating,
+  onlineManager,
+} from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
+import { useOnlineStatus } from './useOnlineStatus';
+import { writeTrainingListSession } from './useStudentProgramDetails';
+import { writeCached } from '../lib/cacheWrite';
 import { MUTATION_KEYS, MUTATION_FNS } from '../lib/offlineMutations';
+
+// The athlete's list of confirmed sessions, whoever it is keyed for.
+const MY_CONFIRMED = ['my-confirmed-session-ids'];
+// The copies of the athlete's blocks (hooks/useStudentProgramDetails.js).
+const TRAINING_LIST = ['student-program-details'];
+// What the two keys of MUTATION_KEYS that write a confirmation start with.
+const CONFIRMATION_WRITES = ['session-confirmation'];
 
 /**
  * Fetch the confirmation (if any) for a single session.
@@ -173,27 +189,103 @@ export function useProgramConfirmedSessionIds(programId) {
   });
 }
 
-function invalidateConfirmationQueries(qc) {
-  qc.invalidateQueries({ queryKey: ['session-confirmation'] });
-  qc.invalidateQueries({ queryKey: ['my-confirmed-session-ids'] });
-  qc.invalidateQueries({ queryKey: ['week-confirmed-session-ids'] });
-  qc.invalidateQueries({ queryKey: ['program-confirmed-session-ids'] });
-  // Confirming is what moves adherence, tonnage and lifetime totals. Those
-  // three queries reduce over set_logs INSIDE their queryFn, so nothing about
-  // their keys changes when a session is confirmed and they would otherwise
-  // sit on pre-confirmation numbers until their staleTime expired. Session
-  // confirmation is the right chokepoint for this — deviation and set-log
-  // writes fire mid-workout and would re-trigger the same heavy scans on
-  // every tap.
-  qc.invalidateQueries({ queryKey: ['student-progress-stats'] });
-  qc.invalidateQueries({ queryKey: ['student-records'] });
-  qc.invalidateQueries({ queryKey: ['student-lifetime-stats'] });
-  // The athlete's "Last time" hints are held as fresh for hours
-  // (lib/queryClient.js), and a confirmation is what changes them. Flagged,
-  // not read again: deriving one is a read of the whole set history. This is
-  // `flagLastTimeHints` of lib/offlineMutations.js, which does it once these
-  // hooks set no `onSettled` of their own.
-  qc.invalidateQueries({ queryKey: ['last-performance'], refetchType: 'none' });
+// ── Confirming, and taking a confirmation back ────────────────────────────
+//
+// A confirmation is made at the end of a workout, in a gym: more often than
+// not the write waits for a network, sometimes until the app has been closed
+// and opened again. So everything the athlete is shown about "this session is
+// done" is written at the tap, and three reads say it:
+//
+//   ['session-confirmation', sessionId]   the card on the session page;
+//   ['my-confirmed-session-ids', …]       which session is "Next" on the
+//                                         training list, the place in the
+//                                         block, the "Done" drawer;
+//   ['student-program-details', …]        the day a done session was trained
+//                                         (`sessions.performed_at`), which
+//                                         dates and orders the drawer and
+//                                         feeds the greeting.
+//
+// Writing only the first left the session that had just been finished as the
+// "Next" one of the list, with its Start button, until the confirmation
+// reached the database — hours later, for a write parked offline (P25).
+//
+// There is NO `onSettled` on these two mutations. Asking the database again
+// for everything a confirmation changes, once the write has settled, belongs
+// to the defaults that `registerOfflineMutationDefaults` registers for their
+// keys (lib/offlineMutations.js), which also serve a confirmation replayed
+// after a relaunch, with no hook around it. An option set here REPLACES the
+// default of the same name — it does not run next to it.
+
+// What `sync_session_performed_at` puts on the session when the confirmation
+// reaches the database: the day trained as a moment (`performed_on::timestamptz`
+// — midnight, in UTC there), or the moment of the confirmation when no day was
+// sent. Written the way PostgREST prints it, so the list does not move when the
+// real row replaces the guess.
+function performedAtOf(performedOn, confirmedAt) {
+  return performedOn ? `${performedOn}T00:00:00+00:00` : confirmedAt;
+}
+
+// Puts the session into the list of confirmed sessions the device holds, or
+// takes it out. Answers whether a list changed — a list that does not exist is
+// not made (see `writeCached`), and one that already says so is left alone.
+function listAsConfirmed(qc, sessionId, confirmed) {
+  let changed = false;
+  writeCached(qc, MY_CONFIRMED, (ids) => {
+    if (!Array.isArray(ids) || ids.includes(sessionId) === confirmed) return undefined;
+    changed = true;
+    return confirmed ? [...ids, sessionId] : ids.filter((id) => id !== sessionId);
+  });
+  return changed;
+}
+
+// Writes the day a session was trained into the copies of the block, and
+// answers what this write has to remember to take it back.
+function writePerformedAt(qc, sessionId, performedAt) {
+  const before = writeTrainingListSession(qc, sessionId, () => ({ performed_at: performedAt }));
+  return before ? { written: performedAt, previous: before.performed_at ?? null } : null;
+}
+
+// A read on its way was sent before this write: it would land on top of it.
+function cancelReads(qc, sessionId) {
+  return Promise.all([
+    qc.cancelQueries({ queryKey: ['session-confirmation', sessionId] }),
+    qc.cancelQueries({ queryKey: MY_CONFIRMED }),
+    qc.cancelQueries({ queryKey: TRAINING_LIST }),
+  ]);
+}
+
+// Is another confirmation or undo of the same session still on its way? These
+// writes leave one at a time, in the order they were made (the `offline-writes`
+// scope), so any other one that is pending was made AFTER the one that asks.
+// React Query hands a handler the variables object of its own mutation:
+// identity tells this write from the others.
+function hasNewerWrite(qc, variables) {
+  return qc
+    .getMutationCache()
+    .findAll({ mutationKey: CONFIRMATION_WRITES, status: 'pending' })
+    .some((m) => m.state.variables !== variables && m.state.variables?.sessionId === variables?.sessionId);
+}
+
+// A write that failed takes back what IT put on screen — unless a newer write
+// to the same session is waiting: confirm, undo, confirm again without a
+// network is three writes, and what the athlete sees is the state after the
+// last of them. Putting the first one's "before" back would show a session as
+// not confirmed while its confirmation is in the queue.
+function takeBack(qc, variables, context) {
+  if (!context?.sessionId || hasNewerWrite(qc, variables)) return;
+  const { sessionId, previous, list, trained } = context;
+  // `?? null`: a confirmation that had never been read is `undefined`, which
+  // `setQueryData` does not write — the card would stay on "Session confirmed"
+  // after a confirmation the database refused. "Not confirmed" is what the
+  // page shows for an unknown confirmation anyway, and the read that follows
+  // the failure says what it really is.
+  qc.setQueryData(['session-confirmation', sessionId], previous ?? null);
+  if (list) listAsConfirmed(qc, sessionId, list === 'removed');
+  if (trained) {
+    writeTrainingListSession(qc, sessionId, (session) =>
+      Object.is(session.performed_at, trained.written) ? { performed_at: trained.previous } : undefined,
+    );
+  }
 }
 
 export function useConfirmSession() {
@@ -208,23 +300,27 @@ export function useConfirmSession() {
     mutationKey: MUTATION_KEYS.confirmSession,
     mutationFn: MUTATION_FNS.confirmSession,
     onMutate: async ({ sessionId, studentId: sid, notes, performedOn }) => {
-      await qc.cancelQueries({ queryKey: ['session-confirmation', sessionId] });
-      const previous = qc.getQueryData(['session-confirmation', sessionId]);
-      qc.setQueryData(['session-confirmation', sessionId], {
+      await cancelReads(qc, sessionId);
+      const key = ['session-confirmation', sessionId];
+      const previous = qc.getQueryData(key);
+      const confirmedAt = new Date().toISOString();
+      qc.setQueryData(key, {
         session_id: sessionId,
         student_id: sid,
         notes: notes || null,
         performed_on: performedOn || null,
-        confirmed_at: new Date().toISOString(),
+        confirmed_at: confirmedAt,
       });
-      return { previous, sessionId };
+      // What is kept for the rollback is stored with a write that waits: a
+      // few values, not the lists.
+      return {
+        sessionId,
+        previous,
+        list: listAsConfirmed(qc, sessionId, true) ? 'added' : null,
+        trained: writePerformedAt(qc, sessionId, performedAtOf(performedOn, confirmedAt)),
+      };
     },
-    onError: (_err, _vars, context) => {
-      if (context?.sessionId) {
-        qc.setQueryData(['session-confirmation', context.sessionId], context.previous);
-      }
-    },
-    onSettled: () => invalidateConfirmationQueries(qc),
+    onError: (_err, variables, context) => takeBack(qc, variables, context),
   });
   return {
     ...m,
@@ -240,16 +336,41 @@ export function useUnconfirmSession() {
     mutationKey: MUTATION_KEYS.unconfirmSession,
     mutationFn: MUTATION_FNS.unconfirmSession,
     onMutate: async ({ sessionId }) => {
-      await qc.cancelQueries({ queryKey: ['session-confirmation', sessionId] });
-      const previous = qc.getQueryData(['session-confirmation', sessionId]);
-      qc.setQueryData(['session-confirmation', sessionId], null);
-      return { previous, sessionId };
+      await cancelReads(qc, sessionId);
+      const key = ['session-confirmation', sessionId];
+      const previous = qc.getQueryData(key);
+      qc.setQueryData(key, null);
+      return {
+        sessionId,
+        previous,
+        list: listAsConfirmed(qc, sessionId, false) ? 'removed' : null,
+        // The trigger empties `performed_at` when the confirmation goes.
+        trained: writePerformedAt(qc, sessionId, null),
+      };
     },
-    onError: (_err, _vars, context) => {
-      if (context?.sessionId) {
-        qc.setQueryData(['session-confirmation', context.sessionId], context.previous);
-      }
-    },
-    onSettled: () => invalidateConfirmationQueries(qc),
+    onError: (_err, variables, context) => takeBack(qc, variables, context),
   });
+}
+
+/**
+ * Is the confirmation of this session held on the device until a network
+ * returns?
+ *
+ * Read from the queue, not from the hook that sent the write: a confirmation
+ * made offline is usually still waiting after the page was left, and after the
+ * app was closed and opened again — where it is a mutation restored from
+ * IndexedDB that no `useConfirmSession` knows.
+ *
+ * "Paused" alone is not it. React Query also calls a write paused while it
+ * stands behind another one of its scope — a note being saved — for a few
+ * hundred milliseconds on a perfectly good network. `onlineManager` is asked
+ * as well as the device because it is the one that parks a write.
+ */
+export function useConfirmationWaiting(sessionId) {
+  const online = useOnlineStatus();
+  const parked = useIsMutating({
+    mutationKey: MUTATION_KEYS.confirmSession,
+    predicate: (m) => m.state.isPaused && m.state.variables?.sessionId === sessionId,
+  });
+  return parked > 0 && !(online && onlineManager.isOnline());
 }

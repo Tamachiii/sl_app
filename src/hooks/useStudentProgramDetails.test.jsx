@@ -9,6 +9,7 @@ import {
   studentPastProgramKey,
   useStudentProgramDetails,
   useStudentPastProgram,
+  writeTrainingListSession,
 } from './useStudentProgramDetails';
 import { supabase } from '../lib/supabase';
 import { shouldPersistQuery } from '../lib/queryClient';
@@ -339,5 +340,87 @@ describe('useStudentPastProgram', () => {
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual([]);
+  });
+});
+
+// What a write that changes a session in the database — a confirmation dates
+// it — puts into the copies of the block before the database has answered.
+describe('writeTrainingListSession', () => {
+  const session = (id, performed_at = null) => ({ id, title: id, sort_order: 0, performed_at });
+  const weeksOf = () => [
+    { id: 'w-1', week_number: 1, sessions: [session('s-1', '2026-10-10T00:00:00+00:00'), session('s-2')] },
+    { id: 'w-2', week_number: 2, sessions: [session('s-3')] },
+  ];
+  const LIST = studentProgramDetailsKey('u-1');
+  const PAST = studentPastProgramKey('u-1', 'p-0');
+
+  function clientWith(entries) {
+    const qc = makeClient();
+    for (const [key, data] of entries) qc.setQueryData(key, data);
+    return qc;
+  }
+  const find = (weeks, id) => weeks.flatMap((w) => w.sessions).find((s) => s.id === id);
+
+  it('writes the fields on that session, and answers what they held', () => {
+    const qc = clientWith([[LIST, { weeks: weeksOf(), pastPrograms: [{ id: 'p-0' }] }]]);
+    const before = qc.getQueryData(LIST);
+
+    const held = writeTrainingListSession(qc, 's-3', () => ({ performed_at: '2026-10-13T00:00:00+00:00' }));
+
+    expect(held).toEqual({ performed_at: null });
+    const after = qc.getQueryData(LIST);
+    expect(find(after.weeks, 's-3').performed_at).toBe('2026-10-13T00:00:00+00:00');
+    // Everything else is what it was: the other week, the other blocks.
+    expect(after.weeks[0]).toBe(before.weeks[0]);
+    expect(after.pastPrograms).toBe(before.pastPrograms);
+    expect(find(after.weeks, 's-3').title).toBe('s-3');
+  });
+
+  it('hands the session to `change`, which may leave it alone', () => {
+    const qc = clientWith([[LIST, { weeks: weeksOf(), pastPrograms: [] }]]);
+    const before = qc.getQueryState(LIST);
+    const change = vi.fn(() => undefined);
+
+    expect(writeTrainingListSession(qc, 's-1', change)).toBeNull();
+
+    expect(change).toHaveBeenCalledWith(expect.objectContaining({ id: 's-1', performed_at: '2026-10-10T00:00:00+00:00' }));
+    expect(qc.getQueryState(LIST)).toBe(before);
+  });
+
+  it('writes nothing when the fields already hold these values, or when no copy has the session', () => {
+    const qc = clientWith([[LIST, { weeks: weeksOf(), pastPrograms: [] }]]);
+    const before = qc.getQueryState(LIST);
+
+    expect(writeTrainingListSession(qc, 's-2', () => ({ performed_at: null }))).toBeNull();
+    expect(writeTrainingListSession(qc, 's-9', () => ({ performed_at: 'x' }))).toBeNull();
+    expect(writeTrainingListSession(makeClient(), 's-1', () => ({ performed_at: 'x' }))).toBeNull();
+
+    expect(qc.getQueryState(LIST)).toBe(before);
+  });
+
+  it('reaches a past block that was opened, and a list cached as bare weeks by an older build', () => {
+    const qc = clientWith([
+      [LIST, weeksOf()],
+      [PAST, weeksOf()],
+    ]);
+
+    const held = writeTrainingListSession(qc, 's-1', () => ({ performed_at: null }));
+
+    expect(held).toEqual({ performed_at: '2026-10-10T00:00:00+00:00' });
+    expect(Array.isArray(qc.getQueryData(LIST))).toBe(true);
+    expect(find(qc.getQueryData(LIST), 's-1').performed_at).toBeNull();
+    expect(find(qc.getQueryData(PAST), 's-1').performed_at).toBeNull();
+  });
+
+  // A guess is not a read: the list is still due when the athlete returns to it.
+  it('leaves the copy as old as its last read', async () => {
+    const qc = clientWith([[LIST, { weeks: weeksOf(), pastPrograms: [] }]]);
+    const readAt = qc.getQueryState(LIST).dataUpdatedAt;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    writeTrainingListSession(qc, 's-3', () => ({ performed_at: '2026-10-13T00:00:00+00:00' }));
+
+    expect(find(qc.getQueryData(LIST).weeks, 's-3').performed_at).not.toBeNull();
+    expect(qc.getQueryState(LIST).dataUpdatedAt).toBe(readAt);
   });
 });

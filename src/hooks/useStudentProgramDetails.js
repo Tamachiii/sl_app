@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { compareSessions } from '../lib/day';
+import { writeCached } from '../lib/cacheWrite';
 
 const ROOT = 'student-program-details';
 
@@ -114,6 +115,46 @@ function pastProgramsOf(programs) {
 // blocks known — until the next request replaces it.
 function asTrainingList(data) {
   return Array.isArray(data) ? { weeks: data, pastPrograms: [] } : data;
+}
+
+/**
+ * Change one session in the copies of the athlete's blocks the device holds —
+ * the training list and any past block that was opened — before the database
+ * has answered a write that changes it there.
+ *
+ * `change(session)` answers the fields to put on the session, or nothing to
+ * leave it alone. Answers what the fields that changed held before, for the
+ * write that has to take them back — `null` when no copy holds the session or
+ * none of them changed.
+ *
+ * The copies are written as guesses (`writeCached`): they keep the age of
+ * their last read, so the list is still read again when the athlete comes back
+ * to it. A copy that does not exist is not made.
+ */
+export function writeTrainingListSession(queryClient, sessionId, change) {
+  let before = null;
+  writeCached(queryClient, [ROOT], (data) => {
+    // The list holds `{ weeks, pastPrograms }`; a past block, and a list
+    // cached by an older build, the bare weeks.
+    const weeks = Array.isArray(data) ? data : data?.weeks;
+    if (!Array.isArray(weeks)) return undefined;
+    for (let w = 0; w < weeks.length; w++) {
+      const sessions = weeks[w]?.sessions || [];
+      const s = sessions.findIndex((session) => session.id === sessionId);
+      if (s === -1) continue;
+      const fields = change(sessions[s]) || {};
+      const changed = Object.keys(fields).filter((f) => !Object.is(sessions[s][f], fields[f]));
+      if (changed.length === 0) return undefined;
+      before ??= Object.fromEntries(changed.map((f) => [f, sessions[s][f]]));
+      const nextSessions = sessions.slice();
+      nextSessions[s] = { ...sessions[s], ...fields };
+      const nextWeeks = weeks.slice();
+      nextWeeks[w] = { ...weeks[w], sessions: nextSessions };
+      return Array.isArray(data) ? nextWeeks : { ...data, weeks: nextWeeks };
+    }
+    return undefined;
+  });
+  return before;
 }
 
 /**

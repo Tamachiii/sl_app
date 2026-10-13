@@ -357,7 +357,6 @@ describe('useConfirmSession / useUnconfirmSession', () => {
     supabase.from.mockReturnValue(chain);
 
     const qc = makeClient();
-    const invalidate = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useConfirmSession(), { wrapper: withClient(qc) });
     result.current.mutate({ sessionId: 's-1', notes: 'felt good' });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -369,8 +368,6 @@ describe('useConfirmSession / useUnconfirmSession', () => {
     // Insert-or-nothing on session_id: a replay against a confirmed session
     // writes nothing, so the first note and training date stay.
     expect(options).toEqual({ onConflict: 'session_id', ignoreDuplicates: true });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['my-confirmed-session-ids'] });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['week-confirmed-session-ids'] });
   });
 
   // The date the student actually trained rides in the serialized variables,
@@ -428,7 +425,7 @@ describe('useConfirmSession / useUnconfirmSession', () => {
     expect(chain.upsert.mock.calls[0][0].notes).toBeNull();
   });
 
-  it('useUnconfirmSession deletes by session_id and invalidates the confirmation caches', async () => {
+  it('useUnconfirmSession deletes by session_id', async () => {
     const chain = {
       delete: vi.fn().mockReturnThis(),
       eq: vi.fn().mockResolvedValue({ error: null }),
@@ -436,16 +433,14 @@ describe('useConfirmSession / useUnconfirmSession', () => {
     supabase.from.mockReturnValue(chain);
 
     const qc = makeClient();
-    const invalidate = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useUnconfirmSession(), { wrapper: withClient(qc) });
     result.current.mutate({ sessionId: 's-1' });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(chain.eq).toHaveBeenCalledWith('session_id', 's-1');
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['session-confirmation'] });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['my-confirmed-session-ids'] });
-    // 'student-confirmations' is not a key any query uses — invalidating it was
-    // a no-op, and the coach's feed ('all-confirmations') is deliberately NOT
-    // dropped here: this runs on the student's device.
-    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ['student-confirmations'] });
   });
+
+  // What a confirmation and its undo put on screen before the database has
+  // answered, what they take back when it refuses, and who reads the
+  // confirmation again once they have settled (not these hooks): see
+  // useSessionConfirmation.optimistic.test.jsx.
 });
