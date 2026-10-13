@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { QueryClient, MutationObserver, dehydrate, onlineManager } from '@tanstack/react-query';
+import { QueryClient, MutationObserver, dehydrate, hydrate, onlineManager } from '@tanstack/react-query';
 import { createClient } from '@supabase/supabase-js';
 
 vi.mock('./supabase', () => ({
@@ -203,6 +203,52 @@ describe('patch helpers', () => {
     const p = patchForSkipped(false);
     expect(p.skipped).toBe(false);
     expect('done' in p).toBe(false);
+  });
+
+  // Contract with the set-log hooks: the variables carry `at`, the moment of
+  // the tap, and the patch is built from it — the hook's optimistic one and
+  // the request's alike.
+  describe('the moment of the tap', () => {
+    const TAP = '2026-10-09T18:02:11.000Z';
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-10-11T07:30:00.000Z'));
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('a done set is logged at the moment it is given, not at the moment the patch is built', () => {
+      expect(patchForDone(true, TAP).logged_at).toBe(TAP);
+    });
+
+    it('so is a failed one', () => {
+      expect(patchForFailed(true, TAP).failed_at).toBe(TAP);
+    });
+
+    it('without one the clock is read, as before', () => {
+      expect(patchForDone(true).logged_at).toBe('2026-10-11T07:30:00.000Z');
+      expect(patchForFailed(true).failed_at).toBe('2026-10-11T07:30:00.000Z');
+    });
+
+    it('a moment is always sent as ISO, whatever shape it arrived in', () => {
+      expect(patchForDone(true, Date.parse(TAP)).logged_at).toBe(TAP);
+      expect(patchForDone(true, new Date(TAP)).logged_at).toBe(TAP);
+      expect(patchForDone(true, '2026-10-09T20:02:11+02:00').logged_at).toBe(TAP);
+    });
+
+    it('something that is not a date is not sent: the clock is read instead', () => {
+      for (const junk of ['yesterday', '', null, undefined, NaN, 0, {}, new Date('nope')]) {
+        expect(patchForDone(true, junk).logged_at).toBe('2026-10-11T07:30:00.000Z');
+        expect(patchForFailed(true, junk).failed_at).toBe('2026-10-11T07:30:00.000Z');
+      }
+    });
+
+    it('taking a set back carries no moment at all', () => {
+      expect(patchForDone(false, TAP)).toEqual({ done: false, logged_at: null });
+      expect(patchForFailed(false, TAP)).toEqual({ failed: false, failed_at: null });
+    });
   });
 });
 
@@ -1085,6 +1131,156 @@ describe('the premise: supabase-js and a token it cannot refresh', () => {
     // The write went out — as nobody — and the database refused it for good.
     expect(sentAs).toEqual([`Bearer ${ANON_KEY}`]);
     expect(answerOfTheWrite.error).toMatchObject({ code: 'PGRST116' });
+  });
+});
+
+// The queue after the app was killed and opened again: what the persister
+// stored — the paused mutations, through JSON — restored into a new client.
+// Nothing of the hook that made a write survives this: no closure, no
+// callback, only the key, the variables and the state.
+function relaunch(phone) {
+  const stored = JSON.parse(JSON.stringify(dehydrate(phone)));
+  const qc = offlineQueue();
+  hydrate(qc, stored);
+  return qc;
+}
+
+function goOffline() {
+  setOnline(false);
+  onlineManager.setOnline(false);
+}
+
+function comeBackOnline() {
+  setOnline(true);
+  onlineManager.setOnline(true);
+}
+
+// P23. `logged_at` and `failed_at` were read from the clock inside the
+// mutation function: a set ticked in a basement was dated at the moment the
+// phone found a network again. `performed_on`, "N days ago", the recent
+// records and the bodyweight of a ×BW ratio all followed the wrong day.
+describe('a set is dated at the tap, whenever it is sent', () => {
+  useFakeClock();
+
+  const TAP = '2026-10-09T18:02:11.000Z';
+  const TWO_DAYS = 2 * 24 * 60 * 60 * 1000;
+
+  beforeEach(() => {
+    vi.setSystemTime(new Date(TAP));
+  });
+
+  it('a set ticked offline and replayed two days later, after a relaunch, keeps the moment of the tap', async () => {
+    const api = fakeSetLogsApi();
+    goOffline();
+    const phone = offlineQueue();
+    // What the set-log hook sends: the tap time is one of the variables.
+    enqueue(phone, MUTATION_KEYS.toggleDone, { logId: 'l-1', done: true, at: TAP });
+    await pass();
+
+    const qc = relaunch(phone);
+    await pass(TWO_DAYS);
+    comeBackOnline();
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(api.attempts).toHaveLength(1);
+    expect(api.table.get('l-1')).toMatchObject({ done: true, logged_at: TAP });
+  });
+
+  it('a failed set too', async () => {
+    const api = fakeSetLogsApi();
+    goOffline();
+    const phone = offlineQueue();
+    enqueue(phone, MUTATION_KEYS.setFailed, { logId: 'l-1', failed: true, at: TAP });
+    await pass();
+
+    const qc = relaunch(phone);
+    await pass(TWO_DAYS);
+    comeBackOnline();
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(api.table.get('l-1')).toMatchObject({ failed: true, failed_at: TAP, logged_at: null });
+  });
+
+  it('a write that waited in this page, without a relaunch, keeps it as well', async () => {
+    const api = fakeSetLogsApi();
+    goOffline();
+    const qc = offlineQueue();
+    enqueue(qc, MUTATION_KEYS.toggleDone, { logId: 'l-1', done: true, at: TAP });
+    await pass(3 * 60 * 60 * 1000);
+
+    comeBackOnline();
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(api.table.get('l-1').logged_at).toBe(TAP);
+  });
+
+  it('a write queued by an older build carries no tap time: it is dated when it was made, which the queue stored', async () => {
+    const api = fakeSetLogsApi();
+    goOffline();
+    const phone = offlineQueue();
+    // The variables of the build deployed before this rule.
+    const made = enqueue(phone, MUTATION_KEYS.toggleDone, { logId: 'l-1', done: true });
+    await pass();
+    expect(made.state.submittedAt).toBe(Date.parse(TAP));
+
+    const qc = relaunch(phone);
+    await pass(TWO_DAYS);
+    comeBackOnline();
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(api.table.get('l-1')).toMatchObject({ done: true, logged_at: TAP });
+  });
+
+  it('a tap time that cannot be read does not cost the set: it falls back on when the write was made', async () => {
+    const api = fakeSetLogsApi();
+    goOffline();
+    const phone = offlineQueue();
+    enqueue(phone, MUTATION_KEYS.setFailed, { logId: 'l-1', failed: true, at: 'not a date' });
+    await pass();
+
+    const qc = relaunch(phone);
+    await pass(TWO_DAYS);
+    comeBackOnline();
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(api.table.get('l-1')).toMatchObject({ failed: true, failed_at: TAP });
+  });
+
+  it('a tick sent at once through a hook is dated by its variables, not by the request', async () => {
+    const api = fakeSetLogsApi();
+    const qc = offlineQueue();
+    const observer = new MutationObserver(qc, {
+      mutationKey: MUTATION_KEYS.toggleDone,
+      mutationFn: MUTATION_FNS.toggleDone,
+      scope: { id: 'set-log-l-1' },
+    });
+    // The network is slow to answer the session read: the request leaves late.
+    supabase.auth.getSession.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve({ data: { session: { access_token: bearer, user: { id: 'u-1' } } }, error: null }), 20_000);
+        })
+    );
+
+    observer.mutate({ logId: 'l-1', done: true, at: TAP }).catch(() => {});
+    await pass(20_000);
+
+    expect(observer.getCurrentResult().status).toBe('success');
+    expect(api.table.get('l-1').logged_at).toBe(TAP);
+  });
+
+  it('the function called with nothing to go by reads the clock', async () => {
+    const api = fakeSetLogsApi();
+    await pass(TWO_DAYS);
+
+    await MUTATION_FNS.toggleDone({ logId: 'l-1', done: true });
+
+    expect(api.table.get('l-1').logged_at).toBe(new Date(Date.parse(TAP) + TWO_DAYS).toISOString());
   });
 });
 

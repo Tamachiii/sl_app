@@ -19,6 +19,10 @@
 // times at most; and while NOBODY IS SIGNED IN nothing is sent at all, the
 // write waits. All three rest on every function here being idempotent — a
 // retry re-sends a request whose first copy may have reached the database.
+//
+// WHEN a set was done is decided here too, and not in the hooks: the moment of
+// the tap, not of the request (`tapTime`). A write restored from IndexedDB
+// after a relaunch has no hook around it — only this file.
 
 import { supabase } from './supabase';
 import { pushToast } from './toast';
@@ -47,18 +51,47 @@ export const MUTATION_KEYS = {
   discardDraft: ['draft-tree', 'discard'],
 };
 
-export function patchForDone(done) {
+// --- when the set was done ------------------------------------------------------
+//
+// `logged_at` and `failed_at` say when the athlete did the set. They used to be
+// read from the clock inside the mutation function — the moment the REQUEST is
+// built. For a set ticked in a basement that is the moment the phone found a
+// network again: the evening, or the next day. `performed_on` (the earliest
+// `logged_at` of the session), "N days ago", the recent personal records and
+// the bodyweight a ×BW ratio is read against all moved with it.
+//
+// The moment of the tap travels with the write instead. A set-log hook puts it
+// in the variables as `at` (ISO), where its own optimistic patch reads it too,
+// and the variables are what the persister stores. A write that carries none —
+// queued by a build older than this rule — still has the moment its mutation
+// was made (`state.submittedAt`, set on the tap and persisted with it), which
+// `queuedWrite` hands over as `madeAt`. Only a call that knows neither falls
+// back on the clock.
+//
+// Each candidate is a string, a number of milliseconds or a Date; anything that
+// is not a date is skipped rather than sent — one unreadable value must not
+// turn a set into a row the database refuses.
+function tapTime(...candidates) {
+  for (const candidate of candidates) {
+    if (candidate == null || candidate === '' || candidate === 0) continue;
+    const date = new Date(candidate);
+    if (!Number.isNaN(date.getTime())) return date.toISOString();
+  }
+  return new Date().toISOString();
+}
+
+export function patchForDone(done, at) {
   return done
-    ? { done: true, failed: false, logged_at: new Date().toISOString(), failed_at: null }
+    ? { done: true, failed: false, logged_at: tapTime(at), failed_at: null }
     : { done: false, logged_at: null };
 }
 
-export function patchForFailed(failed) {
+export function patchForFailed(failed, at) {
   // RPE is meaningless on a set the student didn't complete; null it out on
   // the same write so a student who rated then later marked failed doesn't
   // leave an orphan rating. The DB CHECK enforces this server-side too.
   return failed
-    ? { failed: true, done: false, failed_at: new Date().toISOString(), logged_at: null, rpe: null }
+    ? { failed: true, done: false, failed_at: tapTime(at), logged_at: null, rpe: null }
     : { failed: false, failed_at: null };
 }
 
@@ -80,10 +113,10 @@ export function patchForSkipped(skipped) {
     : { skipped: false };
 }
 
-async function toggleDoneFn({ logId, done }) {
+async function toggleDoneFn({ logId, done, at }, { madeAt } = {}) {
   const { data, error } = await supabase
     .from('set_logs')
-    .update(patchForDone(done))
+    .update(patchForDone(done, tapTime(at, madeAt)))
     .eq('id', logId)
     .select()
     .single();
@@ -91,10 +124,10 @@ async function toggleDoneFn({ logId, done }) {
   return data;
 }
 
-async function setFailedFn({ logId, failed }) {
+async function setFailedFn({ logId, failed, at }, { madeAt } = {}) {
   const { data, error } = await supabase
     .from('set_logs')
-    .update(patchForFailed(failed))
+    .update(patchForFailed(failed, tapTime(at, madeAt)))
     .eq('id', logId)
     .select()
     .single();
@@ -346,14 +379,18 @@ function queuedWrite(send) {
   return async function write(variables, context) {
     const client = context?.client;
     const gated = !!client && queueClients.has(client);
+    let madeAt;
     if (gated) {
-      if (!mutationOf(client, variables)) return abandoned();
+      const mutation = mutationOf(client, variables);
+      if (!mutation) return abandoned();
+      // When the athlete made this write — see `tapTime`.
+      madeAt = mutation.state.submittedAt;
       if (!(await readSession())) throw new AuthNotReadyError();
       // Reading the session can last as long as a token refresh does.
       if (!mutationOf(client, variables)) return abandoned();
     }
     try {
-      return await send(variables);
+      return await send(variables, { madeAt });
     } catch (error) {
       const mutation = gated && isTransientError(error) ? mutationOf(client, variables) : undefined;
       if (mutation) {
