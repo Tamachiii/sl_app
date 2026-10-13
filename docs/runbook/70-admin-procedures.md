@@ -35,11 +35,12 @@ A procedure that belongs to a rule of the database is written on the page of the
 | rename the secret the database sends its pushes with | [15 — Renaming the secret](migrations/15-push-plumbing.md#renaming-the-secret) | 15 |
 | change the secret itself | [30 — Edge Functions](30-edge-functions.md), the section on rotating `INTERNAL_BEARER` | — |
 | create a table or a function by hand | [14 — From now on: a table you create by hand](migrations/14-table-grants-lockdown.md#from-now-on-a-table-you-create-by-hand), [03 — From now on: a function you create by hand](migrations/03-function-grants-lockdown.md#from-now-on-a-function-you-create-by-hand) | 14, 03 |
+| look at the jobs of pg_cron, switch one off for a while, or switch the four off for good — where pg_cron is switched on | [50 — Looking at the jobs](50-pg-cron.md#looking-at-the-jobs), [50 — Pausing a job, and starting it again](50-pg-cron.md#pausing-a-job-and-starting-it-again), [50 — Turning it off](50-pg-cron.md#turning-it-off) | — |
 | delete what nobody reads any more | [below](#once-a-month-delete-what-nobody-reads-any-more) | 18 |
 
 ## Once a month: delete what nobody reads any more
 
-Needs migration 18 ([its page](migrations/18-retention.md) says what the function is). **Not needed once the nightly job of migration 19 runs**: that migration is optional, it needs pg_cron, and its job does every night what this section does once a month. Line 16 of the audit below says whether pg_cron is installed at all; while it reads `nobody by itself: …`, this routine is the only thing that deletes those rows.
+Needs migration 18 ([its page](migrations/18-retention.md) says what the function is). **Not needed once the nightly job of migration 19 runs**: that migration is optional, it needs pg_cron ([50 — pg_cron](50-pg-cron.md) is the choice), and its job does every night what this section does once a month. Line 16 of the audit below says whether pg_cron is installed at all; while it reads `nobody by itself: …`, this routine is the only thing that deletes those rows.
 
 Three tables hold rows that are of use for a while and of none afterwards. One function deletes them:
 

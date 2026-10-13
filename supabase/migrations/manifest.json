@@ -162,6 +162,16 @@
       "covers": ["L27", "B14", "L20"],
       "reversible": true,
       "summary": "One function, run_retention(), deletes the rows nobody reads any more and answers how many: rest pushes created more than 7 days ago — never one that is still to be sent —, notifications their recipient read more than 90 days ago, client errors older than 90 days. A notification that was never read stays, and no other table is named in it. It is for the owner of the database and the service role only, runs with the rights of its caller, and passes over a row another request holds instead of waiting for it. Nothing calls it: the owner does, once a month, or the nightly job of the optional migration 19. Applying the migration deletes no row."
+    },
+    {
+      "name": "2026_10_13_19_pg_cron_jobs",
+      "kind": "optional",
+      "extension": "pg_cron",
+      "wave": 2,
+      "checkpoint": "B",
+      "covers": ["P10", "L27", "P35"],
+      "reversible": true,
+      "summary": "Where the extension pg_cron is switched on — the file refuses without it, and nothing is missing without the file — four jobs of pg_cron run as postgres: sl-rest-push calls dispatch_due_rest_pushes() every ten seconds, so that a rest push is handed to send-push by the database and schedule_rest_push answers mode cron; sl-retention calls run_retention() every night at 03:17 UTC; sl-push-failures calls record_push_failures() at seven minutes past every hour; sl-cron-history keeps three days of the runs pg_cron remembers. record_push_failures() is the one function it creates: for each hour that is over and in which a request the database sent through pg_net was not answered with a status between 200 and 299, it writes one line into client_errors with the role database — how many of how many, and what kind — and answers { hours, failed }; it is for the owner of the database and the service role only, and runs with the rights of its caller. No table, no column, no policy. From the first night on, what run_retention() deletes is deleted without anybody asking."
     }
   ]
 }

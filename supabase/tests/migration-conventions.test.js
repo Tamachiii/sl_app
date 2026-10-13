@@ -10,6 +10,11 @@
 // the list is applied once more with the optional migrations left out: the
 // others must not need them.
 //
+// A migration that names an `extension` in the manifest (pg_cron) is run in
+// order like the others: the extension is switched on right before it, as the
+// owner would, and stays on for the migrations after it. The second run, the
+// one without the optional migrations, is a project that never had it.
+//
 // The rules live in migration-checks.js. The last block of this file runs them
 // on migrations that are wrong on purpose: a judge that accepts everything
 // would otherwise look exactly like a green suite.
@@ -19,9 +24,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { repoRoot, scratchDatabase } from './harness.js';
+import { catalogSnapshot, diffCatalogs } from './catalog.js';
 import { checkMigration, staticProblems, withoutOptionalProblems } from './migration-checks.js';
 import {
-  LEDGER, loadManifest, MANIFEST_FILE, manifestProblems, orderOf, pathsOf, predecessorOf,
+  installedBySchemaSql, LEDGER, loadManifest, MANIFEST_FILE, manifestProblems, migrationsBefore, orderOf, pathsOf,
+  predecessorOf, REFUSAL,
 } from '../migrations/manifest.js';
 
 const manifest = loadManifest();
@@ -64,6 +71,7 @@ describe('each migration of the manifest', () => {
 
   describe('run on the production baseline, in order', () => {
     let db;
+    const switchedOn = new Set();
     beforeAll(async () => {
       db = await scratchDatabase();
       await db.runFile(manifest.baseline);
@@ -72,6 +80,11 @@ describe('each migration of the manifest', () => {
     it.each(each)(
       '%s: refused out of order, applied, refused twice, rolled back, applied again',
       async (_, migration) => {
+        // What the owner does in the dashboard before a file that needs it.
+        if (migration.extension !== undefined && !switchedOn.has(migration.extension)) {
+          await db.enableExtension(migration.extension);
+          switchedOn.add(migration.extension);
+        }
         expect(await checkMigration(db, filesOf(migration))).toEqual([]);
       },
     );
@@ -93,6 +106,21 @@ describe('each migration of the manifest', () => {
       manifest.migrations.filter((m) => m.kind !== 'optional').map((m) => m.name),
     );
   });
+
+  // The choice not to switch an extension on is the usual case, not an
+  // accident: the file must say so, with a code of its own, and touch nothing.
+  const waiting = manifest.migrations.filter((m) => m.extension !== undefined).map((m) => [m.name, m]);
+  it.each(waiting)('%s: refused with SLM06 where its extension is not switched on, and nothing is changed', async (_, migration) => {
+    const db = await scratchDatabase();
+    await db.runFile(manifest.baseline);
+    for (const earlier of migrationsBefore(manifest.migrations, migration.name)) await db.runFile(earlier.paths.migration);
+    const before = await catalogSnapshot(db.query);
+    const refused = await db.runFile(migration.paths.migration).then(() => null, (error) => error);
+    expect(refused?.code).toBe(REFUSAL.extensionMissing);
+    expect(refused.message).toContain(`needs the extension ${migration.extension}, which is not switched on in this project`);
+    expect(diffCatalogs(before, await catalogSnapshot(db.query), { left: 'before', right: 'after' })).toEqual([]);
+    await db.drop();
+  });
 });
 
 // ------------------------------------------------------------
@@ -105,6 +133,24 @@ describe('the manifest reader', () => {
       runbook: 'docs/runbook/migrations/02-rpc-auth-null-guard.md',
     });
     expect(orderOf('2026_10_03_02_rpc_auth_null_guard')).toBe(2);
+  });
+
+  it('says what a project has before a migration, and what schema.sql applies, with and without an optional extension', () => {
+    const list = [
+      { name: 'a', kind: 'required' },
+      { name: 'b', kind: 'optional', extension: 'pg_cron' },
+      { name: 'c', kind: 'optional' },
+      { name: 'd', kind: 'required' },
+      { name: 'e', kind: 'contract' },
+    ];
+    const names = (entries) => entries.map((m) => m.name);
+    // Production as it is: the migration that waits for pg_cron is not there.
+    expect(names(migrationsBefore(list, 'd'))).toEqual(['a', 'c']);
+    expect(names(migrationsBefore(list, 'd', ['pg_cron']))).toEqual(['a', 'b', 'c']);
+    expect(names(migrationsBefore(list, 'a'))).toEqual([]);
+    expect(() => migrationsBefore(list, 'z')).toThrow('z is not a migration of the manifest');
+    expect(names(list.filter((m) => installedBySchemaSql(m)))).toEqual(['a', 'c', 'd']);
+    expect(names(list.filter((m) => installedBySchemaSql(m, ['pg_cron'])))).toEqual(['a', 'b', 'c', 'd']);
   });
 
   it('makes a migration require the nearest one nobody may skip', () => {
@@ -228,6 +274,18 @@ describe('the manifest reader', () => {
     it('a baseline that is not there', () => {
       expect(judge(both, 'supabase/tests/fixtures/gone.sql')).toEqual([
         'manifest: baseline "supabase/tests/fixtures/gone.sql" does not exist',
+      ]);
+    });
+
+    // A migration may wait for an extension the project does not have until
+    // its owner switches it on. Then it is one nobody has to apply.
+    it('an extension: one the suite has a stub for, and on an optional migration only', () => {
+      expect(judge([entry(FIRST), entry(SECOND, { kind: 'optional', extension: 'pg_cron' })])).toEqual([]);
+      expect(judge([entry(FIRST), entry(SECOND, { kind: 'optional', extension: 'pg_partman' })])).toEqual([
+        `${SECOND}: extension is "pg_partman", expected one of pg_cron — or no such field`,
+      ]);
+      expect(judge([entry(FIRST), entry(SECOND, { extension: 'pg_cron' })])).toEqual([
+        `${SECOND}: it names an extension and is required — a migration that needs one is optional`,
       ]);
     });
   });

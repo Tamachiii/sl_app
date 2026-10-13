@@ -39,9 +39,10 @@ Entries are in apply order. `manifest.js` reads the file and derives the four pa
 
 - **`kind`**
   - `required` — the client of its wave needs it: it must be in production's ledger before that client is deployed.
-  - `optional` — may be skipped (it needs an extension, or only pays off under load). Still merged into `schema.sql`.
+  - `optional` — may be skipped (it needs an extension, or only pays off under load). Still merged into `schema.sql` — one that names an `extension`, inside a block that runs only where the project has it.
   - `contract` — removes something an old client still uses. Applied long after the deploy, and **not merged into `schema.sql` until it has been applied**: until then `schema.sql` must keep describing production.
 - **`checkpoint`** — when the user applies it (`A0`, `A1`, … `Z`; `docs/RUNBOOK.md`).
+- **`extension`** — on an `optional` migration only, and only when it needs one: the extension the owner of the project must have switched on before the file runs (`"extension": "pg_cron"` — `EXTENSIONS` in `manifest.js` is the list). Left out everywhere else: pg_net and the vault are in every project. It is what the tests go by to know which of two projects a migration belongs to: ["A migration that needs an extension the project may not have"](#a-migration-that-needs-an-extension-the-project-may-not-have), below.
 - **`reversible`** — `true`: the rollback gives back exactly the catalog the migration started from, and the test checks it. `false` only when that is impossible (a new enum value cannot be removed); the rollback must still remove the ledger row and leave a database the migration can be applied to again. It is about the catalog: rows a migration deletes or rewrites do not come back with a rollback, and the runbook page must say so.
 
 **What a migration requires.** The nearest migration before it that nobody may skip: the nearest `required` one. A `contract` migration requires the nearest `required` or `contract` one. So a required migration never depends on an optional one being there — not by its guard, and not by what it uses: the test applies the list once more with the optional ones left out.
@@ -102,7 +103,7 @@ Since migration 03 no function of `public` is executable by `anon` or by `PUBLIC
 
 3. **In `schema.sql`, the grant goes into the `FUNCTION PRIVILEGES` block at the end of the file, and nowhere else.** That block takes everything back from `PUBLIC`, `anon` and `authenticated` and then grants the allow-list: a `GRANT` written next to the function would be undone by it. The block stays below every function: nothing after it creates one.
 4. **Who gets the grant.** `authenticated`, when a policy calls the function (a policy runs with the privileges of the user who queries the table — so does a column default, a check constraint, a view, the expression of an index) or when the app calls it with `supabase.rpc()`. Nobody, for a trigger function: a trigger fires whatever the privileges of the user whose statement fires it. Nobody either for a function that only an Edge Function, a cron job or another `SECURITY DEFINER` function calls. Never `anon`.
-5. **The function joins a list of `function-acl.test.js`** — `HELPERS`, `RPCS`, or `NOT_FOR_USERS` with the reason; a trigger function joins none. The test fails until it does.
+5. **The function joins a list of `function-acl.test.js`** — `HELPERS`, `RPCS`, or `NOT_FOR_USERS` with the reason; a trigger function joins none. The test fails until it does. The one exception is a function of a migration that names an `extension`: it is not in the database that file runs on, and the test of its migration holds the same three things — who may execute it, with whose rights it runs, its `search_path` (`record_push_failures()` in `cron-jobs.test.js`).
 
 ## A migration that deletes or rewrites training rows
 
@@ -377,6 +378,34 @@ Since migration 18 the rows nobody reads any more are deleted by one function, `
 - **Nothing calls it.** No trigger, no other function: a run happens when the owner or the job says so, and the test refuses a function of `public` whose text names it. Without a run nothing breaks — the rows wait.
 - **The rollback of such a migration does not bring back what a run deleted**, and says so in its header: those rows are in the backup taken before that run, and nowhere else.
 
+## A migration that needs an extension the project may not have
+
+Since migration 19 a migration can wait for an extension that a Supabase project does not have until its owner switches it on: pg_cron. Production does not have it, and may never. Such a migration is a choice, and everything about it is written so that **not making it is the usual case**. `supabase/tests/cron-jobs.test.js` holds it; `supabase/tests/parity.test.js` compares both kinds of project.
+
+- **It is `optional`, and says which extension in the manifest**: `"extension": "pg_cron"`. No later migration may need it — not by its guard, not by what it uses — and no client may: whatever it does has a way that works without it, which its runbook page describes first.
+- **Its guard asks for the extension after the ledger, and refuses with `SLM06`** (`REFUSAL.extensionMissing`): `needs the extension pg_cron, which is not switched on in this project`, with a hint that says the migration is optional and what the project does without it. Nothing is touched. It never runs `CREATE EXTENSION` itself: switching an extension on is the owner's decision, taken in the dashboard.
+- **It asks for what it uses, by name, before it uses it.** The schema of an extension, its tables and its functions are the platform's, and what `postgres` may do with them is the platform's to decide: the guard asks `to_regnamespace` and `has_schema_privilege` first — `to_regclass` of a table in a schema one may not use is an error, not an answer — then `has_table_privilege` and `has_function_privilege` for each object, and the columns its functions are written with. A refusal that names the object is worth more than a job that fails at night.
+- **In `schema.sql` everything it makes stands inside ONE block that asks for the extension first, and does nothing without it** — a function included, created there with `EXECUTE`. The line of the ledger is a statement of its own, under the same condition. So a database installed without the extension is, to the last object, production without the migration; and one installed with it is production with it. Nothing of such a migration is written outside its block: the test reads the file.
+- **Two projects, both compared.** `parity.test.js` builds the baseline plus the migrations twice — as production is, without the migrations that name an extension, against the database every test file is cloned from; and with each extension switched on right before the first migration that needs it, against `schema.sql` loaded into a project that has them. A table the migration fills (`cron.job`) is in `REFERENCE_DATA` of `supabase/tests/catalog.js`, with the columns that do not depend on the database.
+- **The database the suite runs on does not have the extension.** `asUser()` and the other helpers run on production as it is. A test about a project that has it builds one: `scratchDatabase()`, then `db.enableExtension('pg_cron')` — the stub `supabase/tests/shim-pg-cron.sql`, run as the platform, the way the dashboard's switch does — then `schema.sql`, or the baseline and the migrations. A new extension gets its stub there, its name in `EXTENSIONS` (`manifest.js`) and in `EXTENSION_STUBS` (`harness.js`); the stub says what it leaves out, and is at least as strict as the platform about what `postgres` may do.
+- **A test that builds "production before migration N" on the baseline runs `migrationsBefore(manifest.migrations, name)`** (`manifest.js`), which leaves out the migrations that wait for an extension the project does not have. A loop over the whole manifest stops at migration 19 with `SLM06`.
+- **Its rollback is never refused for a later migration** — no `SLM04`: nothing may need what it removes, and the rollback is the way out of a choice. It works where the extension was switched off before it was run, when what the extension held is gone already: it removes what is left and the line of the ledger, so that the migration can be applied again.
+- **Its audit runs in a project without the extension**, and says `not installed` instead of failing. A query that names a table of the extension does not even start where the schema is not there: the audit reads such a table through `query_to_xml`, which takes its query as text, and hands it one that reads nothing when the table is not there to read (the audit of migration 19).
+
+## A migration that adds a job, or changes what one runs
+
+Since migration 19 four jobs of pg_cron run where the extension is switched on: `sl-rest-push` (every 10 seconds, `dispatch_due_rest_pushes()`), `sl-retention` (every night, `run_retention()`), `sl-push-failures` (every hour, `record_push_failures()`) and `sl-cron-history` (every night, three days of pg_cron's own runs). `supabase/tests/cron-jobs.test.js` holds them.
+
+- **A job is made, changed and removed through pg_cron's functions**: `cron.schedule(name, schedule, command)`, `cron.alter_job`, `cron.unschedule(name)`. `postgres` reads `cron.job` and may not write it: a migration or a rollback that says `DELETE FROM cron.job` fails in production — and in the stub, which is why the stub refuses it.
+- **A job has a name that starts with `sl-`, runs as `postgres` in this database, and its command is one statement that calls a function** — or, for pg_cron's own table, one statement. What a job does is in a function of `public`, with its tests and its privileges, not in the text of a row.
+- **The definition of a job is one text in five places**: the migration that makes it, the block of `schema.sql`, the `meant` list of the audit of migration 19, the names in its rollback, and `JOBS` in `cron-jobs.test.js` — plus the tables of the two runbook pages. The test compares them. A migration that adds a job or changes one calls `cron.schedule` under the guard of migration 19 (the extension, its version, what it may use), reads the job back — once, switched on, of `postgres`, in this database — and changes all of them.
+- **`cron.schedule` on a name that exists changes the schedule and the command of that job, and leaves it switched off if it was.** That is why migration 19 refuses to run next to a job of one of its names; a migration that changes a job of the ledger switches it on with `cron.alter_job(jobid, active := true)` on purpose, or says why not.
+- **The name `sl-rest-push` is a contract with `schedule_rest_push`**, which answers `mode: cron` while a job of that name is there and switched on — whoever made it, whatever it runs. Never give that name to another job. And **`send-push` must know what that job hands it** (`schedule_id`, `not_before`) before the job exists: the one from before wave 2 would ring at once, ten seconds early.
+- **A job whose function writes a line somebody reads says so with the role `database`.** `record_push_failures()` writes into `client_errors` with `user_id` NULL and `role = 'database'`: no signed-in user can write such a row (the `INSERT` policy holds a report to the account and the role of its author), and a policy that narrows who reads `client_errors` keeps those lines readable by a coach. Its `url` is the key that keeps an hour from being written twice (`pg_net 2026-10-13T14:00Z`): a new kind of line from the database takes another prefix.
+- **A request failed when it was not answered with a status from 200 to 299** — the condition is written in `record_push_failures()`, in line 17 of the audit of migration 19 and in the statement of `docs/runbook/50-pg-cron.md` that lists the failed answers; the test holds the three to the same rows. `send-push` therefore answers 2xx for everything that is not a failure — an account without a device included — or the coach's list fills with lines that mean nothing.
+- **pg_cron keeps one row per run and deletes none**: a job that runs often is a table that grows. `sl-cron-history` keeps three days, by the number of a run and not by its time — a run that never started has no time. A new job that runs every few seconds needs nothing more; one whose runs must be kept longer changes that statement, in the five places.
+- **What a job deletes is deleted without anybody asking.** The page of a migration that makes a job run a function that deletes rows says what the first run deletes, and that the backup taken before the file is the one that holds it.
+
 ## A migration that brings a rule the rows already there may break
 
 A trigger or a policy judges what is written after it. When rows that are already in the database break the rule **and leaving them would leave the hole in use**, the migration refuses to start:
@@ -414,7 +443,7 @@ NOTIFY pgrst, 'reload schema';
 COMMIT;
 ```
 
-Same transaction rules. Raise `SLM04` when a later migration still needs what the rollback would remove.
+Same transaction rules. Raise `SLM04` when a later migration still needs what the rollback would remove — except in the rollback of a migration that names an `extension`, which nothing may need.
 
 ## What the test does with each migration
 
@@ -429,7 +458,9 @@ On a database built from the production baseline, in manifest order, for every e
 7. rolls it back again — it must refuse with `SLM03`;
 8. applies it again — the catalog is the one from after step 3.
 
-Then, on a second copy of the baseline, it applies every migration that is not `optional`, in order: each must go through without the optional ones before it.
+A migration that names an `extension` is run in order like the others: the test switches the extension on right before it — a stub, `supabase/tests/shim-pg-cron.sql` — and it stays on for the migrations after it.
+
+Then, on a second copy of the baseline, it applies every migration that is not `optional`, in order: each must go through without the optional ones before it. And on a third, without the extension, each migration that names one must refuse with `SLM06` and change nothing.
 
 "The catalog" is everything `supabase/tests/catalog.js` reads: tables, columns, constraints, indexes, triggers, policies, functions with their settings and privileges, types, default privileges, publications, comments, and the rows SQL files insert. A migration that seeds a table adds it to `REFERENCE_DATA` there, with the columns to compare; the parity test refuses rows in a table that is not listed, because all it could compare is how many there are.
 

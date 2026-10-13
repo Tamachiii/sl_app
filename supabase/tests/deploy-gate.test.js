@@ -28,7 +28,7 @@ import {
 import {
   LEDGER_QUERY, LOCAL_SECRET, OVERRIDE, PAGE, SECRET, decide, isRequired, readLedger,
 } from '../../scripts/lib/ledger-gate.mjs';
-import { LEDGER, inSchemaSql, loadManifest } from '../migrations/manifest.js';
+import { LEDGER, installedBySchemaSql, loadManifest } from '../migrations/manifest.js';
 import { repoRoot, scratchDatabase } from './harness.js';
 
 const server = inject('slDb');
@@ -398,9 +398,10 @@ describe(`${PAGE}: the commands, as written`, () => {
     for (const { name } of manifest.migrations) expect(result.stdout).toContain(name);
     expect(result.stdout).toContain(`supabase db query --linked "${LEDGER_QUERY}"`);
     // And that query is one the database answers: on a copy of schema.sql,
-    // with the migrations manifest.js says are merged into that file.
+    // with the migrations manifest.js says that file applies in a project
+    // without an optional extension.
     expect((await applied.query.rows(LEDGER_QUERY)).map((row) => row.name).sort()).toEqual(
-      manifest.migrations.filter(inSchemaSql).map((m) => m.name).sort(),
+      manifest.migrations.filter((m) => installedBySchemaSql(m)).map((m) => m.name).sort(),
     );
   });
 });

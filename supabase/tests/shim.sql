@@ -307,10 +307,12 @@ GRANT EXECUTE ON FUNCTION vault.update_secret(uuid, text, text, text, uuid) TO p
 -- 6. net  (stub for pg_net 0.20.0)
 -- ------------------------------------------------------------
 -- pg_net queues an HTTP request and returns its id; a background worker sends
--- it. The stub keeps the queue and never sends, so a test asserts the push
--- fan-out by reading net.http_request_queue.
--- SHIM LIMIT: `body` is jsonb (bytea in pg_net) so it can be asserted on
--- directly, and there is no net._http_response.
+-- it, and writes what came back into net._http_response, where it stays for
+-- six hours (pg_net.ttl). The stub keeps the queue and never sends, so a test
+-- asserts the push fan-out by reading net.http_request_queue.
+-- SHIM LIMITS: `body` is jsonb (bytea in pg_net) so it can be asserted on
+-- directly; and nothing ever answers — net._http_response stays empty until a
+-- test writes the answer of a request into it itself.
 CREATE SCHEMA net;
 
 CREATE TABLE net.http_request_queue (
@@ -323,6 +325,21 @@ CREATE TABLE net.http_request_queue (
   timeout_milliseconds int,
   created_at           timestamptz NOT NULL DEFAULT clock_timestamp()
 );
+
+-- One row per request that was sent: what the other side answered
+-- (status_code, content), or why nothing came back (timed_out, error_msg).
+-- The columns of pg_net; `id` is the id net.http_post gave the request.
+CREATE TABLE net._http_response (
+  id           bigint,
+  status_code  integer,
+  content_type text,
+  headers      jsonb,
+  content      text,
+  timed_out    boolean,
+  error_msg    text,
+  created      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX _http_response_created_idx ON net._http_response (created);
 
 -- Same signature and defaults as pg_net. Set the transaction-local GUC
 --   select set_config('shim.http_post_fails', 'on', true);
@@ -357,6 +374,11 @@ GRANT EXECUTE ON FUNCTION net.http_post(text, jsonb, jsonb, jsonb, int)
   TO postgres, anon, authenticated, service_role;
 -- Harness-only: lets a test read and reset the queue as `postgres`.
 GRANT SELECT, DELETE ON net.http_request_queue TO postgres;
+-- `postgres` reads the answers, as it does in a Supabase project (the
+-- dashboard's own advice for a request that went wrong is `select * from
+-- net._http_response`). INSERT and DELETE are harness-only: a test writes the
+-- answers the absent worker would have written.
+GRANT SELECT, INSERT, DELETE ON net._http_response TO postgres;
 
 -- ------------------------------------------------------------
 -- 7. Make `CREATE EXTENSION IF NOT EXISTS pg_net / supabase_vault` a no-op
@@ -365,8 +387,12 @@ GRANT SELECT, DELETE ON net.http_request_queue TO postgres;
 -- Postgres binaries, and IF NOT EXISTS only skips when a pg_extension row
 -- exists — otherwise the server looks for a control file and fails. The two
 -- stubs above are therefore registered by hand, with production's versions.
--- SHIM LIMIT: catalog rows only (no pg_depend entries); pg_cron is absent, as
--- in production.
+-- SHIM LIMIT: catalog rows only (no pg_depend entries).
+--
+-- pg_cron is ABSENT, as in production, where nobody has switched it on. A
+-- test about a project that has it switches a stub on in a database of its
+-- own — shim-pg-cron.sql, through scratchDatabase().enableExtension('pg_cron')
+-- in harness.js — the way the owner would in the dashboard.
 INSERT INTO pg_catalog.pg_extension (oid, extname, extowner, extnamespace, extrelocatable, extversion)
 VALUES (
   pg_nextoid('pg_catalog.pg_extension'::regclass, 'oid', 'pg_catalog.pg_extension_oid_index'::regclass),

@@ -15,11 +15,13 @@ export default defineConfig({
     // Watch mode: the SQL is not in the module graph, so name it. A save
     // reruns every file, after global-setup.js has rebuilt the template
     // (schema.sql, shim.sql). The migrations, their audits and rollbacks, the
-    // manifest and the frozen baseline are read by the tests themselves.
+    // manifest, the frozen baseline and the stub of pg_cron are read by the
+    // tests themselves.
     forceRerunTriggers: [
       ...configDefaults.forceRerunTriggers,
       '**/supabase/schema.sql',
       '**/supabase/tests/shim.sql',
+      '**/supabase/tests/shim-pg-cron.sql',
       '**/supabase/tests/fixtures/**',
       '**/supabase/migrations/**',
       '**/supabase/audits/**',

@@ -12,7 +12,7 @@ import {
 } from './harness.js';
 import { catalogSnapshot, diffCatalogs } from './catalog.js';
 import {
-  inSchemaSql, LEDGER, loadManifest, REFUSAL,
+  installedBySchemaSql, LEDGER, loadManifest, REFUSAL,
 } from '../migrations/manifest.js';
 
 const manifest = loadManifest();
@@ -37,7 +37,10 @@ describe('app_private.app_migrations', () => {
   it('holds one row per migration merged into schema.sql', async () => {
     const names = await asAdmin((q) => q.rows(`select name from ${LEDGER} order by name`));
     expect(names.map((row) => row.name)).toEqual(
-      manifest.migrations.filter(inSchemaSql).map((m) => m.name).sort(),
+      // In a project as production is: a migration that waits for an
+      // extension nobody switched on is not on record (parity.test.js has the
+      // project that has it).
+      manifest.migrations.filter((m) => installedBySchemaSql(m)).map((m) => m.name).sort(),
     );
     expect(names.length).toBeGreaterThan(0);
   });

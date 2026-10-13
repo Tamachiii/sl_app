@@ -53,6 +53,11 @@ const APPLICATION_SCHEMAS = ['public', 'app_private'];
 export const REFERENCE_DATA = [
   { table: 'storage.buckets', columns: ['id', 'name', 'public', 'file_size_limit', 'allowed_mime_types'] },
   { table: 'app_private.app_migrations', columns: ['name'] },
+  // The jobs of pg_cron, where a test has switched the extension on: a job is
+  // a row a migration makes (2026_10_13_19_pg_cron_jobs), and what it runs and
+  // when is the whole of it. Not its number, and not the database: each test
+  // database has a name of its own.
+  { table: 'cron.job', columns: ['jobname', 'schedule', 'command', 'username', 'active'] },
 ];
 
 const inScope = (ns) => `${ns}.nspname not in ('pg_catalog', 'information_schema') and ${ns}.nspname !~ '^pg_(toast|temp)'`;

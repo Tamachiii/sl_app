@@ -6053,6 +6053,169 @@ END;
 $$;
 
 -- ============================================================
+-- THE JOBS: WHAT RUNS ON A TIMER, WHERE pg_cron IS SWITCHED ON
+-- (2026_10_13_19_pg_cron_jobs — optional; the scheduled halves of review
+-- P10, L27 and P35)
+--
+-- EVERYTHING IN THIS SECTION EXISTS ONLY IN A PROJECT THAT HAS THE EXTENSION
+-- pg_cron. Its owner switches it on, or does not: production may never have
+-- it, and the database the tests run on does not. Without it the block below
+-- does nothing, and nothing is missing: a rest push is sent through the
+-- dispatch-rest-push Edge Function, run_retention() is run by hand once a
+-- month, and a push request that failed is in the log of the send-push
+-- function. That is why the function of this section is created inside the
+-- block and not next to the others: a database without the extension is, to
+-- the last object, production without migration 19
+-- (supabase/tests/parity.test.js compares both ways).
+--
+-- Where the extension is there, the block makes one function and four jobs:
+--
+--   sl-rest-push       every 10 seconds   select public.dispatch_due_rest_pushes()
+--       closes the rest pushes more than a minute late and hands each one due
+--       within ten seconds to send-push, once (THE REST PUSH, further up).
+--       While this job is there and switched on, schedule_rest_push answers
+--       mode 'cron': the NAME of the job is that contract.
+--   sl-retention       every night, 03:17 UTC   select public.run_retention()
+--       RETENTION, above.
+--   sl-push-failures   every hour, at :07   select public.record_push_failures()
+--       below.
+--   sl-cron-history    every night, 03:47 UTC
+--       pg_cron keeps one row per run of a job (cron.job_run_details) and
+--       deletes none itself; sl-rest-push alone writes 8,640 a day. This job
+--       keeps three days of them: it finds the first run that ended within
+--       the last three days and deletes every run numbered before it — by its
+--       number and not by its time, because a run that never started has
+--       none.
+--
+-- A job runs as the role that made it — postgres — in this database. It is
+-- made, changed and removed through pg_cron's functions (cron.schedule,
+-- cron.alter_job, cron.unschedule): postgres reads cron.job and may not
+-- write it.
+--
+--   record_push_failures() → { "hours": n, "failed": n }
+--
+-- A push leaves the database as a request of pg_net to send-push
+-- (send_push_event), and nobody reads what came back: pg_net keeps each
+-- answer in net._http_response for six hours. This function writes ONE LINE
+-- PER HOUR in which a request failed into client_errors — the list at the
+-- bottom of the coach's roster:
+--
+--     role     'database'
+--     message  'Push: 3 of 41 requests the database sent to send-push failed
+--               between 2026-10-13 14:00 and 15:00 UTC — 2 × HTTP 502,
+--               1 × no answer in time'
+--     url      'pg_net 2026-10-13T14:00Z' — which hour; it is also what keeps
+--              a second run from writing that hour again
+--
+-- A request failed when it was not answered with a status between 200 and
+-- 299. Only hours that are over are written, so that each is counted whole
+-- and once — and every such hour pg_net still holds, so that a run that was
+-- missed is caught up. What send-push answered is not copied: the body may
+-- name a device. SECURITY INVOKER, and for no client: the job runs it as
+-- postgres.
+-- Who may execute it: nobody but its owner and the service role. It is NOT in
+-- the FUNCTION PRIVILEGES block at the end of this file, and must not be.
+--
+-- A JOB THAT IS ADDED, or whose schedule or command changes, is a migration
+-- that calls cron.schedule under the same guard as this block, and names it
+-- in its audit, in its rollback and in supabase/tests/cron-jobs.test.js: the
+-- four definitions are held to be the same text in all of them.
+-- ============================================================
+DO $pg_cron_jobs$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_extension e WHERE e.extname = 'pg_cron') THEN
+    RAISE NOTICE 'pg_cron is not switched on in this project: record_push_failures() and the four jobs of migration 19 are left out';
+    RETURN;
+  END IF;
+
+  EXECUTE $create$
+CREATE OR REPLACE FUNCTION public.record_push_failures()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_hour   record;
+  v_key    text;
+  v_hours  integer := 0;
+  v_failed integer := 0;
+BEGIN
+  -- One run at a time: a run that waited here reads the lines of the one
+  -- before it, and writes none of them again.
+  PERFORM pg_advisory_xact_lock(hashtextextended('sl_app.record_push_failures', 0));
+
+  FOR v_hour IN
+    WITH answered AS (
+      SELECT date_trunc('hour', r.created, 'UTC') AS hour,
+             CASE
+               WHEN r.timed_out IS TRUE THEN 'no answer in time'
+               WHEN r.status_code BETWEEN 200 AND 299 AND r.error_msg IS NULL THEN NULL
+               WHEN r.status_code IS NOT NULL THEN 'HTTP ' || r.status_code
+               ELSE 'no answer' || COALESCE(' (' || left(r.error_msg, 80) || ')', '')
+             END AS failure
+        FROM net._http_response r
+       WHERE r.created < date_trunc('hour', now(), 'UTC')
+    ),
+    kinds AS (
+      SELECT a.hour, a.failure, count(*) AS n
+        FROM answered a
+       WHERE a.failure IS NOT NULL
+       GROUP BY a.hour, a.failure
+    )
+    SELECT a.hour,
+           count(*) AS sent,
+           count(a.failure) AS failed,
+           (SELECT string_agg(k.n || ' × ' || k.failure, ', ' ORDER BY k.n DESC, k.failure)
+              FROM kinds k
+             WHERE k.hour = a.hour) AS kinds
+      FROM answered a
+     GROUP BY a.hour
+    HAVING count(a.failure) > 0
+     ORDER BY a.hour
+  LOOP
+    v_key := 'pg_net ' || to_char(v_hour.hour AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24":00Z"');
+    CONTINUE WHEN EXISTS (
+      SELECT 1 FROM public.client_errors ce
+       WHERE ce.role = 'database' AND ce.url = v_key
+    );
+
+    INSERT INTO public.client_errors (user_id, role, message, stack, url, user_agent)
+    VALUES (
+      NULL,
+      'database',
+      left(format(
+        'Push: %s of %s requests the database sent to send-push failed between %s and %s UTC — %s',
+        v_hour.failed,
+        v_hour.sent,
+        to_char(v_hour.hour AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI'),
+        to_char((v_hour.hour + interval '1 hour') AT TIME ZONE 'UTC', 'HH24:MI'),
+        v_hour.kinds
+      ), 2000),
+      'What each request was answered is in net._http_response for six hours, and in the log of the send-push Edge Function.',
+      v_key,
+      'public.record_push_failures()'
+    );
+    v_hours := v_hours + 1;
+    v_failed := v_failed + v_hour.failed;
+  END LOOP;
+
+  RETURN jsonb_build_object('hours', v_hours, 'failed', v_failed);
+END;
+$$
+$create$;
+
+  PERFORM cron.schedule(j.jobname, j.schedule, j.command)
+     FROM (VALUES
+       ('sl-rest-push',     '10 seconds', 'select public.dispatch_due_rest_pushes()'),
+       ('sl-retention',     '17 3 * * *', 'select public.run_retention()'),
+       ('sl-push-failures', '7 * * * *',  'select public.record_push_failures()'),
+       ('sl-cron-history',  '47 3 * * *', 'delete from cron.job_run_details where runid < (select coalesce(min(runid), 0) from cron.job_run_details where end_time >= now() - interval ''3 days'')')
+     ) AS j (jobname, schedule, command);
+END
+$pg_cron_jobs$;
+
+-- ============================================================
 -- FUNCTION PRIVILEGES (2026_10_11_03_function_grants_lockdown)
 --
 -- KEEP THIS BLOCK BELOW EVERY FUNCTION OF THIS FILE: nothing after it may
@@ -6243,8 +6406,9 @@ REVOKE ALL ON TABLE app_private.app_migrations FROM PUBLIC, anon, authenticated,
 -- This file IS those migrations, already merged: a database installed from it
 -- starts with all of them on record. A migration that is merged in above adds
 -- its name here (a `contract` migration only once it is applied — until then
--- this file must keep describing production). supabase/tests/parity.test.js
--- fails when this list and the manifest disagree.
+-- this file must keep describing production; one that needs an extension, in
+-- the statement after this one). supabase/tests/parity.test.js fails when
+-- this list and the manifest disagree.
 INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_03_01_migration_ledger'),
   ('2026_10_03_02_rpc_auth_null_guard'),
@@ -6264,3 +6428,11 @@ INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_13_16_rest_push_scheduling'),
   ('2026_10_13_17_replay_grace_window'),
   ('2026_10_13_18_retention');
+
+-- An optional migration that needs an extension is on record where its block
+-- above ran, and nowhere else: a project that switches pg_cron on later must
+-- still be able to apply the file, which refuses a name that is in the
+-- ledger.
+INSERT INTO app_private.app_migrations (name)
+SELECT '2026_10_13_19_pg_cron_jobs'
+ WHERE EXISTS (SELECT 1 FROM pg_extension e WHERE e.extname = 'pg_cron');

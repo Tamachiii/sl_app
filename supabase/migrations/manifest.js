@@ -24,11 +24,21 @@ const LEGACY_FILE = /^(2026_0[4-8]_\d{2}_[a-z][a-z0-9_]*|20260416_set_logs_weigh
 /**
  *   required  the client of its wave needs it; merged into schema.sql
  *   optional  may be skipped (it needs an extension, or only pays off under
- *             load); merged into schema.sql all the same
+ *             load); merged into schema.sql all the same — one that names an
+ *             `extension` inside a block that runs only where the project
+ *             has it
  *   contract  removes something an old client still uses: applied long after
  *             the deploy, and merged into schema.sql only once it is applied
  */
 export const KINDS = ['required', 'optional', 'contract'];
+
+/**
+ * The extensions a migration may name in its `extension` field: one that a
+ * Supabase project does not have until its owner switches it on. (pg_net and
+ * the vault are in every project, and are nobody's `extension`.) The database
+ * suite has a stub for each — EXTENSION_STUBS in supabase/tests/harness.js.
+ */
+export const EXTENSIONS = ['pg_cron'];
 
 /** SQLSTATEs a migration or a rollback raises when it refuses to run. */
 export const REFUSAL = {
@@ -46,6 +56,12 @@ export const REFUSAL = {
    * remove them; then the file is run again.
    */
   rowsInTheWay: 'SLM05',
+  /**
+   * A migration: the extension it is written for is not switched on in the
+   * project. Such a migration is `optional`: not applying it is a choice, and
+   * its runbook page says what the project does without it.
+   */
+  extensionMissing: 'SLM06',
 };
 
 /** The files that belong to one migration, relative to the repository root. */
@@ -77,6 +93,30 @@ export function loadManifest(root = REPO_ROOT) {
 
 /** Merged into schema.sql — which is what the parity test replays on the baseline. */
 export const inSchemaSql = (entry) => entry.kind !== 'contract';
+
+/**
+ * Applied by schema.sql — and so on record in a database installed from it —
+ * in a project that has `extensions` switched on. With none, the default,
+ * that is production as it is, and the database every test file is cloned
+ * from: a migration that names an `extension` stands in schema.sql inside a
+ * block that is skipped there, and signs the ledger only where it ran.
+ */
+export const installedBySchemaSql = (entry, extensions = []) => (
+  inSchemaSql(entry) && (entry.extension === undefined || extensions.includes(entry.extension))
+);
+
+/**
+ * What a project has applied when it comes to the migration `name`: every
+ * migration listed before it, in order — without the ones that wait for an
+ * extension the project does not have. `extensions` are the ones it has
+ * switched on: none by default, which is production as it is. A test that
+ * builds "production before migration N" on the baseline runs this list.
+ */
+export function migrationsBefore(migrations, name, extensions = []) {
+  const index = migrations.findIndex((m) => m.name === name);
+  if (index === -1) throw new Error(`migrationsBefore: ${name} is not a migration of the manifest`);
+  return migrations.slice(0, index).filter((m) => m.extension === undefined || extensions.includes(m.extension));
+}
 
 /**
  * The migration `entry` refuses to run without: the nearest one before it
@@ -125,6 +165,13 @@ export function manifestProblems({ baseline, migrations }, root = REPO_ROOT) {
     if (typeof entry.reversible !== 'boolean') out.push(`${name}: reversible must be true or false`);
     if (!Array.isArray(entry.covers)) out.push(`${name}: covers must be a list of finding ids (it may be empty)`);
     if (typeof entry.summary !== 'string' || !entry.summary.trim()) out.push(`${name}: summary is missing`);
+    if (entry.extension !== undefined) {
+      if (!EXTENSIONS.includes(entry.extension)) {
+        out.push(`${name}: extension is ${JSON.stringify(entry.extension)}, expected one of ${EXTENSIONS.join(', ')} — or no such field`);
+      }
+      // What a project may be without, a client cannot need.
+      if (entry.kind !== 'optional') out.push(`${name}: it names an extension and is ${entry.kind} — a migration that needs one is optional`);
+    }
 
     if (previous) {
       if (entry.order <= previous.order) {

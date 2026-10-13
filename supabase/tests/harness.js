@@ -39,14 +39,26 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomBytes } from 'node:crypto';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { afterAll, inject } from 'vitest';
 import { runSql, runSqlFile } from './sql.js';
 
+const here = path.dirname(fileURLToPath(import.meta.url));
+
 /** The repository root: SQL files are named relative to it. */
-export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+export const repoRoot = path.resolve(here, '../..');
+
+/**
+ * The extensions production does not have switched on, each with the file
+ * that stands in for it: what `CREATE EXTENSION` and Supabase's own script
+ * after it leave in a project. shim.sql holds the ones every project has.
+ */
+export const EXTENSION_STUBS = {
+  pg_cron: path.join(here, 'shim-pg-cron.sql'),
+};
 
 const connection = inject('slDb');
 if (!connection) {
@@ -697,6 +709,14 @@ export function httpCalls() {
  *                           or vault is not the one of production: `postgres`
  *                           can neither rename nor replace anything there.
  *                           Never for what the app or a migration does.
+ *   db.enableExtension(name)
+ *                           switch on an extension production does not have:
+ *                           what the owner does in the dashboard under
+ *                           Database → Extensions, and what a migration that
+ *                           needs one waits for. `'pg_cron'` is the one there
+ *                           is (EXTENSION_STUBS; the stub is shim-pg-cron.sql,
+ *                           which says what it leaves out — nothing runs a
+ *                           job). Once per database.
  *   db.drop()               drop it now rather than at the end of the file —
  *                           for a test that builds many
  *
@@ -725,6 +745,17 @@ export async function scratchDatabase({ from = 'bare' } = {}) {
     }
   };
 
+  // A connection of its own, closed at once: the pool is `postgres`.
+  const asPlatform = async (fn) => {
+    const client = new pg.Client({ ...server, ...connection.superuser, database: name, types });
+    await client.connect();
+    try {
+      return await fn(client);
+    } finally {
+      await client.end();
+    }
+  };
+
   return {
     name,
     query: withShortcuts((text, params) => pool.query(text, params)),
@@ -738,15 +769,18 @@ export async function scratchDatabase({ from = 'bare' } = {}) {
       await client.query('ROLLBACK');
       return Array.isArray(result) ? result : [result];
     }),
-    platform: async (sql) => {
-      // A connection of its own, closed at once: the pool is `postgres`.
-      const client = new pg.Client({ ...server, ...connection.superuser, database: name, types });
-      await client.connect();
-      try {
-        return await client.query(sql);
-      } finally {
-        await client.end();
+    platform: (sql) => asPlatform((client) => client.query(sql)),
+    enableExtension: async (extension) => {
+      const stub = EXTENSION_STUBS[extension];
+      if (!stub) {
+        throw new Error(
+          `scratchDatabase: there is no stub for the extension "${extension}" `
+          + `(known: ${Object.keys(EXTENSION_STUBS).join(', ')}; the ones every project has are in shim.sql)`,
+        );
       }
+      // One implicit transaction: the extension is there completely, or not at all.
+      const sql = await fs.readFile(stub, 'utf8');
+      await asPlatform((client) => runSql(client, sql, path.relative(process.cwd(), stub)));
     },
     drop: async () => {
       const index = scratch.indexOf(created);
