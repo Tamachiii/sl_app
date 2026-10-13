@@ -496,6 +496,122 @@ describe('useReorderPrograms', () => {
     const restored = qc.getQueryData(['programs', 'st-1']);
     expect(restored.map((p) => p.id)).toEqual(['p-a', 'p-b']);
   });
+
+  // Review finding P51. The list of an athlete's programs is still renumbered
+  // by one request per program — `sort_order` has no unique key here, so there
+  // is no function for it — and two drags used to send theirs side by side:
+  // the requests of the second landing among those of the first, for an order
+  // nobody chose. A drag now waits for the one before it.
+  it('sends the writes of a second drag only when the first drag has finished', async () => {
+    const calls = [];
+    let release;
+    const held = new Promise((resolve) => {
+      release = () => resolve({ error: null });
+    });
+    const chain = {
+      update: vi.fn(function (payload) {
+        this._payload = payload;
+        return this;
+      }),
+      eq: vi.fn(function (_col, id) {
+        calls.push(`${id}=${this._payload.sort_order}`);
+        // The very first write is the one the test holds back.
+        return calls.length === 1 ? held : Promise.resolve({ error: null });
+      }),
+    };
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    qc.setQueryData(['programs', 'st-1'], [{ id: 'p-a' }, { id: 'p-b' }]);
+    const { result } = renderHook(() => useReorderPrograms('st-1'), { wrapper: withClient(qc) });
+
+    act(() => {
+      result.current.mutate({ studentId: 'st-1', orderedIds: ['p-b', 'p-a'] });
+    });
+    await waitFor(() => expect(calls).toHaveLength(2));
+    act(() => {
+      result.current.mutate({ studentId: 'st-1', orderedIds: ['p-a', 'p-b'] });
+    });
+    await act(() => new Promise((r) => setTimeout(r, 25)));
+    // Still the first pass of the first drag, and nothing of the second.
+    expect(calls).toEqual(['p-b=100000', 'p-a=100001']);
+    // Its order is on screen all the same.
+    expect(qc.getQueryData(['programs', 'st-1']).map((p) => p.id)).toEqual(['p-a', 'p-b']);
+
+    release();
+    await waitFor(() => expect(calls).toHaveLength(8));
+    expect(calls).toEqual([
+      'p-b=100000', 'p-a=100001', 'p-b=0', 'p-a=1',
+      'p-a=100000', 'p-b=100001', 'p-a=0', 'p-b=1',
+    ]);
+    // Read again once, by the last drag: the answer to the first would have
+    // put the order before the second back on screen.
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(1));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['programs', 'st-1'] });
+  });
+
+  // The snapshot of a drag is the list from before it. Put back while a later
+  // drag waits, it takes that drag's order off the screen — the order the next
+  // drag would start from.
+  it('does not put the list back for a drag that failed while a later one waits', async () => {
+    let fail;
+    const held = new Promise((resolve) => {
+      fail = () => resolve({ error: { message: 'Failed to fetch' } });
+    });
+    let writes = 0;
+    const chain = {
+      update: vi.fn().mockReturnThis(),
+      // The very first write is the one the test holds back, then fails.
+      eq: vi.fn(() => (++writes === 1 ? held : Promise.resolve({ error: null }))),
+    };
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    qc.setQueryData(['programs', 'st-1'], [{ id: 'p-a' }, { id: 'p-b' }, { id: 'p-c' }]);
+    const shown = () => qc.getQueryData(['programs', 'st-1']).map((p) => p.id);
+    const { result } = renderHook(() => useReorderPrograms('st-1'), { wrapper: withClient(qc) });
+
+    act(() => {
+      result.current.mutate({ studentId: 'st-1', orderedIds: ['p-b', 'p-a', 'p-c'] });
+    });
+    await waitFor(() => expect(writes).toBe(3));
+    act(() => {
+      result.current.mutate({ studentId: 'st-1', orderedIds: ['p-b', 'p-c', 'p-a'] });
+    });
+    await waitFor(() => expect(shown()).toEqual(['p-b', 'p-c', 'p-a']));
+
+    fail();
+    // The second drag goes out in full — two passes of three — behind the
+    // first pass of the one that failed, and its order has stayed on screen.
+    await waitFor(() => expect(writes).toBe(9));
+    expect(shown()).toEqual(['p-b', 'p-c', 'p-a']);
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(1));
+  });
+
+  it('keeps the lists of two athletes apart: neither waits for the other', async () => {
+    const calls = [];
+    const chain = {
+      update: vi.fn().mockReturnThis(),
+      // Never answered: both drags stay in their first pass.
+      eq: vi.fn((_col, id) => {
+        calls.push(id);
+        return new Promise(() => {});
+      }),
+    };
+    supabase.from.mockReturnValue(chain);
+
+    const { result } = renderHook(
+      () => ({ one: useReorderPrograms('st-1'), other: useReorderPrograms('st-2') }),
+      { wrapper: withClient(makeClient()) },
+    );
+    act(() => {
+      result.current.one.mutate({ studentId: 'st-1', orderedIds: ['p-b', 'p-a'] });
+      result.current.other.mutate({ studentId: 'st-2', orderedIds: ['p-y', 'p-x'] });
+    });
+    await waitFor(() => expect(calls).toEqual(['p-b', 'p-a', 'p-y', 'p-x']));
+  });
 });
 
 // A PostgREST read is awaited after its last filter, whichever that is: every

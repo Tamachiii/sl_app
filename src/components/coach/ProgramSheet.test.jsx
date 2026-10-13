@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -24,11 +24,24 @@ const mockCopySessions = { mutate: vi.fn(), isPending: false };
 const mockDuplicateWeek = { mutate: vi.fn(), isPending: false };
 const mockDuplicateSession = { mutate: vi.fn(), isPending: false };
 
+// What the sheet hands the three hooks a drag can end in: the block whose
+// queue their writes wait in.
+const orderHookArgs = {};
+
 vi.mock('../../hooks/useWeek', () => ({
   useCreateWeek: () => mockCreateWeek,
-  useReorderWeeks: () => mockReorderWeeks,
-  useReorderSessions: () => mockReorderSessions,
-  useMoveSession: () => mockMoveSession,
+  useReorderWeeks: (...args) => {
+    orderHookArgs.reorderWeeks = args;
+    return mockReorderWeeks;
+  },
+  useReorderSessions: (...args) => {
+    orderHookArgs.reorderSessions = args;
+    return mockReorderSessions;
+  },
+  useMoveSession: (...args) => {
+    orderHookArgs.moveSession = args;
+    return mockMoveSession;
+  },
   useArchiveSession: () => mockArchiveSession,
   useArchiveSessions: () => mockArchiveSessions,
   useUpdateWeek: () => mockUpdateWeek,
@@ -65,6 +78,22 @@ vi.mock('../../hooks/useProgram', () => ({
   useProgramsForStudent: () => ({ data: [] }),
   useProgram: () => ({ data: null }),
 }));
+
+// dnd-kit measures the page to follow a pointer, and jsdom lays nothing out:
+// a drag cannot be made here. The context is the real one; it also hands the
+// test the sheet's `onDragEnd`, which `drop()` calls the way a drop does.
+let onDragEnd = null;
+vi.mock('@dnd-kit/core', async (importOriginal) => {
+  const actual = await importOriginal();
+  const RealContext = actual.DndContext;
+  return {
+    ...actual,
+    DndContext: (props) => {
+      onDragEnd = props.onDragEnd;
+      return <RealContext {...props} />;
+    },
+  };
+});
 
 import ProgramSheet from './ProgramSheet';
 
@@ -325,6 +354,76 @@ describe('ProgramSheet', () => {
 
       await user.click(screen.getByRole('button', { name: /^done$/i }));
       expect(screen.getByText('Pull')).toBeInTheDocument();
+    });
+  });
+
+  // Review finding P51. What a drop sends is what the database renumbers from,
+  // in one statement: `reorder_sessions` and `reorder_weeks` take EVERY child
+  // of the phase or the block and refuse a list that is not exactly that.
+  describe('a drop', () => {
+    function drop(activeId, overId) {
+      act(() => onDragEnd({ active: { id: activeId }, over: overId ? { id: overId } : null }));
+    }
+
+    it('gives the three order hooks the block, so that its drags wait for each other', () => {
+      renderSheet();
+      expect(orderHookArgs).toEqual({
+        reorderWeeks: ['prog-1'],
+        reorderSessions: ['prog-1'],
+        moveSession: ['prog-1'],
+      });
+    });
+
+    it('within a phase sends every session of it, the archived one at the end', () => {
+      renderSheet();
+      drop('sess-2', 'sess-1');
+      expect(mockReorderSessions.mutate).toHaveBeenCalledTimes(1);
+      expect(mockReorderSessions.mutate).toHaveBeenCalledWith({
+        weekId: 'w-1',
+        orderedIds: ['sess-2', 'sess-1', 'sess-old'],
+      });
+      expect(mockMoveSession.mutate).not.toHaveBeenCalled();
+      expect(mockReorderWeeks.mutate).not.toHaveBeenCalled();
+    });
+
+    it('across a divider moves the session, with the full list of both phases', () => {
+      renderSheet();
+      drop('sess-2', 'sess-3');
+      expect(mockMoveSession.mutate).toHaveBeenCalledTimes(1);
+      expect(mockMoveSession.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: 'sess-2',
+          destWeekId: 'w-2',
+          sourceIds: ['sess-1', 'sess-old'],
+          destIds: ['sess-2', 'sess-3'],
+        }),
+      );
+      expect(mockReorderSessions.mutate).not.toHaveBeenCalled();
+    });
+
+    it('in phase mode sends every phase of the block in its new order', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(screen.getAllByRole('button', { name: /phase options/i })[0]);
+      await user.click(screen.getByRole('button', { name: /reorder phases/i }));
+
+      drop('w-2', 'w-1');
+      expect(mockReorderWeeks.mutate).toHaveBeenCalledTimes(1);
+      expect(mockReorderWeeks.mutate).toHaveBeenCalledWith({
+        programId: 'prog-1',
+        orderedIds: ['w-2', 'w-1'],
+      });
+      expect(mockReorderSessions.mutate).not.toHaveBeenCalled();
+      expect(mockMoveSession.mutate).not.toHaveBeenCalled();
+    });
+
+    it('that lands nowhere, or where it started, writes nothing', () => {
+      renderSheet();
+      drop('sess-1', null);
+      drop('sess-1', 'sess-1');
+      expect(mockReorderSessions.mutate).not.toHaveBeenCalled();
+      expect(mockMoveSession.mutate).not.toHaveBeenCalled();
+      expect(mockReorderWeeks.mutate).not.toHaveBeenCalled();
     });
   });
 

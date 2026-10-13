@@ -106,7 +106,11 @@ export default function ProgramSwitcher({ studentId, programs, selectedId, onSel
   const { data: trashedPrograms = [] } = useTrashedPrograms(studentId, { enabled: isOpen });
   const wrapperRef = useRef(null);
   const createProgram = useCreateProgram();
-  const reorderPrograms = useReorderPrograms();
+  // One athlete for as long as the switcher is mounted (`key={studentId}` in
+  // its parent): the hook's reorders wait in a queue named after the athlete,
+  // and a hook whose athlete changed under it would lose the one it has
+  // waiting.
+  const reorderPrograms = useReorderPrograms(studentId);
 
   useEffect(() => {
     setLocalPrograms(programs || []);

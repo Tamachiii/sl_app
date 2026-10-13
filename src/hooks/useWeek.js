@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { invalidateCoachDashboard } from './useProgram';
+import { mutationScope, laterWriteQueued } from '../lib/mutationScope';
 
 export function useWeek(weekId) {
   return useQuery({
@@ -88,36 +89,101 @@ export function useCreateWeek() {
 }
 
 /**
+ * The ORDER of a block is written by three mutations: the sessions of a phase
+ * (`useReorderSessions`), a session across phases (`useMoveSession`) and the
+ * phases themselves (`useReorderWeeks`). The program sheet sends all three
+ * from one drag handler, and each is ONE call of a database function that
+ * does the whole renumbering or none of it.
+ *
+ * Each hook takes the id of the block (`blockId`, a program's id) and runs
+ * under one scope per block, so two drags reach the database one after the
+ * other, in the order they were made. The database would stay consistent
+ * without it — every function locks its parent first. What the scope keeps in
+ * step is the list on screen: a drag sends the full list of ids as it is
+ * shown, so the order it was read from has to be the one the drag before it
+ * asked for. Hence the three rules the hooks share: each draws its order at
+ * once (`onMutate`), none puts an order back while a later drag waits
+ * (`restoreBlockOrder`), and only the last drag of a run reads the server
+ * again (`refreshBlockOrder`).
+ *
+ * `blockId` MUST NOT CHANGE during the life of a hook. TanStack Query hands
+ * the options of a re-rendered hook — the scope with them — to the write that
+ * hook still has pending, and then looks for that write's turn in a queue it
+ * was never put in: it is not sent until the next focus or reconnection, and
+ * not at all after a reload. So the component that calls these hooks is
+ * mounted once per block (`key={program.id}` on `ProgramSheet`, in
+ * `StudentProgrammingSection`); a hook that unmounts leaves its writes in the
+ * cache as they were made, and they are sent.
+ */
+function blockOrderScope(blockId) {
+  return mutationScope('block-order', blockId);
+}
+
+// The sessions of a phase in the order of `orderedIds`, numbered the way the
+// database functions leave them: 0 to n-1.
+function placeSessions(sessions, orderedIds) {
+  const byId = new Map((sessions || []).map((sess) => [sess.id, sess]));
+  return orderedIds
+    .map((id, idx) => {
+      const sess = byId.get(id);
+      return sess ? { ...sess, sort_order: idx } : null;
+    })
+    .filter(Boolean);
+}
+
+// After a refusal: the sheet as `onMutate` found it. Not while a later drag of
+// this block waits for its turn — the snapshot is the WHOLE block from before
+// this drag, so it would take the later drag's order off the screen, and the
+// next one would send a list without it. The last drag of the run reads the
+// server again, which settles what a failed one left on screen.
+function restoreBlockOrder(qc, scope, ctx) {
+  if (!ctx || laterWriteQueued(qc, scope)) return;
+  for (const [key, data] of ctx.snapshots) qc.setQueryData(key, data);
+}
+
+// What reads the order of a block: the sheet (['program']), a week read on its
+// own (['week']), the athlete's queue (['student-program-details'] — it follows
+// sessions.sort_order and weeks.week_number) and the strip of the roster.
+function refreshBlockOrder(qc, scope) {
+  // Not while a later drag of this block waits for its turn: its order is on
+  // screen already, and this refetch would put back the one before it.
+  if (laterWriteQueued(qc, scope)) return;
+  qc.invalidateQueries({ queryKey: ['program'] });
+  qc.invalidateQueries({ queryKey: ['week'] });
+  qc.invalidateQueries({ queryKey: ['student-program-details'] });
+  invalidateCoachDashboard(qc);
+}
+
+/**
  * Reorder the sessions of ONE week. `orderedIds` is the week's full list of
  * session ids in their new order — archived rows included, because
  * `sessions_week_sort_order_unique` spans them too.
  *
- * Same park-then-place as `useReorderWeeks`, and for the same reason: that
- * UNIQUE is NOT deferrable, so writing final positions directly collides
- * mid-statement. Position is the block's order since 2026_08_22, so this is
- * the coach's only ordering control — the recommended weekday no longer sorts.
+ * One call of `reorder_sessions` (migration 2026_10_13_11): the database parks
+ * and places every row in a single statement, so the phase ends in the order
+ * of the list or stays as it was. Sent as one request per row in two passes —
+ * what this hook used to do — a request that was lost left sessions numbered
+ * 100000 and more, in the athlete's queue too: position is the block's order
+ * since 2026_08_22, and this is the coach's only control over it.
+ *
+ * A list that is not exactly the sessions of the phase is refused with
+ * `reorder_ids_mismatch` — a page that was loaded before a session was added,
+ * moved or deleted. Nothing is retried: the cache goes back to what it was,
+ * the refetch that follows shows the phase as it is, and the coach drags
+ * again.
  */
-export function useReorderSessions() {
+export function useReorderSessions(blockId) {
   const qc = useQueryClient();
+  const scope = blockOrderScope(blockId);
 
   return useMutation({
+    scope,
     mutationFn: async ({ weekId, orderedIds }) => {
-      const TMP_BASE = 100000;
-
-      // Ordered relative to each other (that is what dodges the UNIQUE), but
-      // the writes within a pass are independent so they go out together.
-      async function writeAll(numberFor) {
-        const results = await Promise.all(
-          orderedIds.map((id, i) =>
-            supabase.from('sessions').update({ sort_order: numberFor(i) }).eq('id', id),
-          ),
-        );
-        for (const { error } of results) if (error) throw error;
-      }
-
-      await writeAll((i) => TMP_BASE + i);
-      await writeAll((i) => i);
-
+      const { error } = await supabase.rpc('reorder_sessions', {
+        p_week_id: weekId,
+        p_ids: orderedIds,
+      });
+      if (error) throw error;
       return { weekId };
     },
     onMutate: async ({ weekId, orderedIds }) => {
@@ -127,32 +193,15 @@ export function useReorderSessions() {
         if (!prog?.weeks?.some((w) => w.id === weekId)) continue;
         qc.setQueryData(key, {
           ...prog,
-          weeks: prog.weeks.map((w) => {
-            if (w.id !== weekId) return w;
-            const byId = new Map((w.sessions || []).map((sess) => [sess.id, sess]));
-            const reordered = orderedIds
-              .map((id, idx) => {
-                const sess = byId.get(id);
-                return sess ? { ...sess, sort_order: idx } : null;
-              })
-              .filter(Boolean);
-            return { ...w, sessions: reordered };
-          }),
+          weeks: prog.weeks.map((w) =>
+            w.id === weekId ? { ...w, sessions: placeSessions(w.sessions, orderedIds) } : w,
+          ),
         });
       }
       return { snapshots };
     },
-    onError: (_err, _vars, ctx) => {
-      if (!ctx) return;
-      for (const [key, data] of ctx.snapshots) qc.setQueryData(key, data);
-    },
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: ['program'] });
-      // The athlete's queue reads this order, and the roster's strip places
-      // sessions from the same tree.
-      qc.invalidateQueries({ queryKey: ['student-program-details'] });
-      invalidateCoachDashboard(qc);
-    },
+    onError: (_err, _vars, ctx) => restoreBlockOrder(qc, scope, ctx),
+    onSettled: () => refreshBlockOrder(qc, scope),
   });
 }
 
@@ -168,12 +217,23 @@ export function useReorderSessions() {
  *
  * Takes the FULL ordered id list of each affected week AFTER the move, same
  * contract as `useReorderSessions` — the client is holding the list, so the
- * ordering logic stays in one place.
+ * ordering logic stays in one place. It waits its turn in the scope of the
+ * block like the two reorders: sent side by side, a move and a reorder reach
+ * the database in either order, each with the full list of a phase the other
+ * one changes.
+ *
+ * And like them it draws the move at once. The next drag is made from the
+ * list on screen, and may be made before this one is answered: with the
+ * session still shown in the phase it left, a reorder of that phase would be
+ * refused (`reorder_ids_mismatch`) and a second move would renumber from
+ * lists that `move_session` does not check.
  */
-export function useMoveSession() {
+export function useMoveSession(blockId) {
   const qc = useQueryClient();
+  const scope = blockOrderScope(blockId);
 
   return useMutation({
+    scope,
     mutationFn: async ({ sessionId, destWeekId, sourceIds, destIds }) => {
       const { error } = await supabase.rpc('move_session', {
         p_session_id: sessionId,
@@ -184,13 +244,31 @@ export function useMoveSession() {
       if (error) throw error;
       return { sessionId, destWeekId };
     },
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: ['program'] });
-      qc.invalidateQueries({ queryKey: ['week'] });
-      // The athlete's queue reads this order and this grouping.
-      qc.invalidateQueries({ queryKey: ['student-program-details'] });
-      invalidateCoachDashboard(qc);
+    onMutate: async ({ sessionId, destWeekId, sourceIds, destIds }) => {
+      await qc.cancelQueries({ queryKey: ['program'] });
+      const snapshots = qc.getQueriesData({ queryKey: ['program'] });
+      for (const [key, prog] of snapshots) {
+        const weeks = prog?.weeks || [];
+        const source = weeks.find((w) => (w.sessions || []).some((sess) => sess.id === sessionId));
+        // Only a block that holds both ends of the move, and not a session
+        // that is in its destination already.
+        if (!source || source.id === destWeekId || !weeks.some((w) => w.id === destWeekId)) continue;
+        const moved = source.sessions.find((sess) => sess.id === sessionId);
+        qc.setQueryData(key, {
+          ...prog,
+          weeks: weeks.map((w) => {
+            if (w.id === source.id) return { ...w, sessions: placeSessions(w.sessions, sourceIds) };
+            if (w.id === destWeekId) {
+              return { ...w, sessions: placeSessions([...(w.sessions || []), moved], destIds) };
+            }
+            return w;
+          }),
+        });
+      }
+      return { snapshots };
     },
+    onError: (_err, _vars, ctx) => restoreBlockOrder(qc, scope, ctx),
+    onSettled: () => refreshBlockOrder(qc, scope),
   });
 }
 
@@ -265,35 +343,30 @@ export function useDeleteWeek() {
 }
 
 /**
- * Rewrite week_number for an ordered list of weeks within the same program.
- * Two-pass update to dodge the UNIQUE(program_id, week_number) constraint:
- *   1. Park every week at a temp number (base + idx, far above normal range).
- *   2. Assign each its final week_number (idx + 1).
- * `orderedIds` is the desired order; index 0 becomes week 1.
+ * Reorder the phases of a block. `orderedIds` is EVERY phase of the program in
+ * the order wanted; index 0 becomes `week_number` 1.
+ *
+ * One call of `reorder_weeks` (migration 2026_10_13_11), for the reason given
+ * at `useReorderSessions`: `UNIQUE (program_id, week_number)` is not
+ * deferrable, so the rows are parked and then placed, and both steps belong in
+ * one statement. A list that is not exactly the phases of the program is
+ * refused with `reorder_ids_mismatch`.
+ *
+ * `blockId` only names the scope a call waits in. The program whose phases
+ * are renumbered is the `programId` of each call, sent with its list.
  */
-export function useReorderWeeks() {
+export function useReorderWeeks(blockId) {
   const qc = useQueryClient();
+  const scope = blockOrderScope(blockId);
 
   return useMutation({
+    scope,
     mutationFn: async ({ programId, orderedIds }) => {
-      const TMP_BASE = 100000;
-
-      // The two passes must stay ordered relative to each other (that is what
-      // dodges the UNIQUE), but the writes WITHIN a pass are independent —
-      // every row gets a distinct number — so they go out together instead of
-      // costing one round trip each.
-      async function writeAll(numberFor) {
-        const results = await Promise.all(
-          orderedIds.map((id, i) =>
-            supabase.from('weeks').update({ week_number: numberFor(i) }).eq('id', id),
-          ),
-        );
-        for (const { error } of results) if (error) throw error;
-      }
-
-      await writeAll((i) => TMP_BASE + i);
-      await writeAll((i) => i + 1);
-
+      const { error } = await supabase.rpc('reorder_weeks', {
+        p_program_id: programId,
+        p_ids: orderedIds,
+      });
+      if (error) throw error;
       return { programId };
     },
     onMutate: async ({ programId, orderedIds }) => {
@@ -312,18 +385,8 @@ export function useReorderWeeks() {
       }
       return { snapshots };
     },
-    onError: (_err, _vars, ctx) => {
-      if (!ctx) return;
-      for (const [key, data] of ctx.snapshots) {
-        qc.setQueryData(key, data);
-      }
-    },
-    onSettled: (_d, _e, { programId }) => {
-      qc.invalidateQueries({ queryKey: ['program'] });
-      // Reordering rewrites week_number, which the Athletes roster renders
-      // ("W3 · Program") — without this it keeps the pre-reorder numbers.
-      invalidateCoachDashboard(qc);
-    },
+    onError: (_err, _vars, ctx) => restoreBlockOrder(qc, scope, ctx),
+    onSettled: () => refreshBlockOrder(qc, scope),
   });
 }
 

@@ -79,10 +79,19 @@ export default function StudentProgrammingSection() {
     );
   }
 
+  // The two `key`s below are what keeps a queued reorder alive. The switcher's
+  // reorder waits in a queue per athlete and the sheet's three in a queue per
+  // block (`mutationScope`), and a hook that is re-rendered with another id
+  // hands its new options — the queue's name with them — to the write it still
+  // has waiting: TanStack Query then looks for that write's turn in a queue it
+  // was never put in, and it is not sent. Mounted per athlete and per block, a
+  // hook keeps one queue for as long as it lives; the writes it leaves behind
+  // when it unmounts go out as they were made.
   return (
     <div className="sl-card p-3 md:p-4 space-y-3">
       {hasPrograms && (
         <ProgramSwitcher
+          key={studentId}
           studentId={studentId}
           programs={list}
           selectedId={selectedProgramId}
@@ -96,7 +105,7 @@ export default function StudentProgrammingSection() {
       {!selectedProgram ? (
         <div className="flex justify-center py-4"><Spinner /></div>
       ) : (
-        <ProgramSheet studentId={studentId} program={selectedProgram} />
+        <ProgramSheet key={selectedProgram.id} studentId={studentId} program={selectedProgram} />
       )}
     </div>
   );

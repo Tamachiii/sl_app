@@ -11,13 +11,19 @@ const mockReorder = { mutate: vi.fn(), isPending: false };
 const mockDuplicate = { mutate: vi.fn(), isPending: false };
 const mockApprove = { mutate: vi.fn(), isPending: false };
 const mockSendBack = { mutate: vi.fn(), isPending: false };
+// What the switcher hands `useReorderPrograms`: the athlete whose queue its
+// reorders wait in.
+let reorderHookArgs = null;
 
 vi.mock('../../hooks/useProgram', () => ({
   useCreateProgram: () => mockCreate,
   useRenameProgram: () => mockRename,
   useDeleteProgram: () => mockDelete,
   useSetActiveProgram: () => mockSetActive,
-  useReorderPrograms: () => mockReorder,
+  useReorderPrograms: (...args) => {
+    reorderHookArgs = args;
+    return mockReorder;
+  },
   useTrashedPrograms: () => ({ data: [], isLoading: false }),
   useRestoreProgram: () => ({ mutate: vi.fn(), isPending: false }),
   useHardDeleteProgram: () => ({ mutate: vi.fn(), isPending: false }),
@@ -54,6 +60,13 @@ function renderSwitcher(overrides = {}) {
 
 describe('ProgramSwitcher', () => {
   beforeEach(() => vi.clearAllMocks());
+
+  // Review finding P51: two drags of one athlete's list wait for each other,
+  // and the hook knows whose list it is from its argument.
+  it('gives the reorder hook the athlete, so that two drags do not cross', () => {
+    renderSwitcher();
+    expect(reorderHookArgs).toEqual(['s-1']);
+  });
 
   it('shows the selected program in the trigger', () => {
     renderSwitcher();

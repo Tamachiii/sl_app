@@ -70,9 +70,14 @@ export default function ProgramSheet({ studentId, program }) {
   const createSession = useCreateSession();
   const updateSession = useUpdateSession();
   const duplicateSession = useDuplicateSession();
-  const reorderWeeks = useReorderWeeks();
-  const reorderSessions = useReorderSessions();
-  const moveSession = useMoveSession();
+  // The three writes a drag can end in. Each takes the block so that they
+  // share one queue: two drags reach the database in the order they were made.
+  // A sheet shows ONE block for as long as it is mounted — its parent gives it
+  // `key={program.id}` — because a hook whose block changed under it would
+  // lose the write it has waiting (`blockOrderScope` in hooks/useWeek).
+  const reorderWeeks = useReorderWeeks(program.id);
+  const reorderSessions = useReorderSessions(program.id);
+  const moveSession = useMoveSession(program.id);
   const archiveSession = useArchiveSession();
   const archiveSessions = useArchiveSessions();
   const copySessions = useCopySessions();
@@ -191,6 +196,8 @@ export default function ProgramSheet({ studentId, program }) {
     const plan = planSessionDrag(weeks, active.id, over.id);
     if (!plan) return;
     if (plan.type === 'reorder') {
+      // The FULL list of the phase, archived sessions at its end: the database
+      // refuses a list that is not exactly the sessions of the phase.
       reorderSessions.mutate({ weekId: plan.weekId, orderedIds: plan.orderedIds });
     } else {
       // Crossing a divider re-homes the session AND renumbers both phases —

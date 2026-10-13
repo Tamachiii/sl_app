@@ -5,6 +5,7 @@ import {
   useDeleteWeek,
   useReorderWeeks,
   useReorderSessions,
+  useMoveSession,
   useUpdateWeek,
   useUpdateSession,
   useArchiveSession,
@@ -17,7 +18,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 
 vi.mock('../lib/supabase', () => ({
-  supabase: { from: vi.fn() },
+  supabase: { from: vi.fn(), rpc: vi.fn() },
 }));
 
 function withClient(qc) {
@@ -31,8 +32,34 @@ function createWrapper() {
   return { qc, wrapper: withClient(qc) };
 }
 
+// A client that keeps what a test seeds: the shared test client drops data
+// once nothing observes it, which would collect an entry before the test can
+// read what an optimistic write or a rollback left in it.
+function createKeepingWrapper() {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
+  });
+  return { qc, wrapper: withClient(qc) };
+}
+
+// A request the test answers when it chooses to.
+function deferred() {
+  let resolve;
+  const promise = new Promise((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+const OK = { data: null, error: null };
+// Long enough for a request that is not held back to have gone out.
+const settle = () => new Promise((r) => setTimeout(r, 25));
+
 beforeEach(() => {
   vi.clearAllMocks();
+  // Answers too, not only calls: a test here queues one answer per request
+  // (`mockReturnValueOnce`), and one left over would answer the next test.
+  supabase.rpc.mockReset();
 });
 
 describe('useWeek', () => {
@@ -283,189 +310,507 @@ describe('useCreateSession', () => {
   });
 });
 
-// Position became the block's order in 2026_08_22, so this is the coach's only
-// ordering control. It renumbers exactly like useReorderWeeks and for the same
-// reason: sessions_week_sort_order_unique is UNIQUE and NOT deferrable.
+// Review finding P51. Position became the block's order in 2026_08_22, so this
+// is the coach's only ordering control — and the athlete's queue reads it. It
+// used to be one request per row, in two passes (park at 100000+, then place):
+// a request that was lost left the phase parked. It is one call of
+// `reorder_sessions` now, which renumbers the whole phase or nothing.
 describe('useReorderSessions', () => {
-  function recordUpdates() {
-    const calls = [];
-    const chain = {
-      update: vi.fn(function (payload) {
-        this._payload = payload;
-        return this;
-      }),
-      eq: vi.fn(function (col, val) {
-        calls.push({ id: val, sort_order: this._payload.sort_order });
-        return Promise.resolve({ error: null });
-      }),
-    };
-    supabase.from.mockReturnValue(chain);
-    return calls;
-  }
+  const block = () => ({
+    id: 'p-1',
+    weeks: [
+      {
+        id: 'w-1',
+        sessions: [
+          { id: 'a', sort_order: 0 },
+          { id: 'b', sort_order: 1 },
+          { id: 'old', sort_order: 2, archived_at: '2026-01-01' },
+        ],
+      },
+      { id: 'w-2', sessions: [{ id: 'z', sort_order: 0 }] },
+    ],
+  });
 
-  it('parks every row before placing it, so the UNIQUE never collides', async () => {
-    const calls = recordUpdates();
+  it('is ONE reorder_sessions call with the full list, and no request per row', async () => {
+    supabase.rpc.mockResolvedValue(OK);
     const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useReorderSessions(), { wrapper });
+    const { result } = renderHook(() => useReorderSessions('p-1'), { wrapper });
 
-    result.current.mutate({ weekId: 'w-1', orderedIds: ['c', 'a', 'b'] });
+    // The archived session travels with the list: the unique key counts it,
+    // and the function refuses a list that is not every session of the phase.
+    result.current.mutate({ weekId: 'w-1', orderedIds: ['c', 'a', 'b', 'old'] });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(calls.length).toBe(6);
-    // Pass 1 parks all three far out of the target range…
-    expect(calls.slice(0, 3)).toEqual([
-      { id: 'c', sort_order: 100000 },
-      { id: 'a', sort_order: 100001 },
-      { id: 'b', sort_order: 100002 },
-    ]);
-    // …then pass 2 places them at 0..n-1 in the requested order.
-    expect(calls.slice(3)).toEqual([
-      { id: 'c', sort_order: 0 },
-      { id: 'a', sort_order: 1 },
-      { id: 'b', sort_order: 2 },
-    ]);
+    expect(supabase.rpc).toHaveBeenCalledTimes(1);
+    expect(supabase.rpc).toHaveBeenCalledWith('reorder_sessions', {
+      p_week_id: 'w-1',
+      p_ids: ['c', 'a', 'b', 'old'],
+    });
+    expect(supabase.from).not.toHaveBeenCalled();
   });
 
   it('refreshes the athlete queue too — it reads this exact order', async () => {
-    recordUpdates();
+    supabase.rpc.mockResolvedValue(OK);
     const { qc, wrapper } = createWrapper();
     const invalidate = vi.spyOn(qc, 'invalidateQueries');
-    const { result } = renderHook(() => useReorderSessions(), { wrapper });
+    const { result } = renderHook(() => useReorderSessions('p-1'), { wrapper });
 
     result.current.mutate({ weekId: 'w-1', orderedIds: ['a', 'b'] });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['program'] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['student-program-details'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['coach-dashboard-programs'] });
   });
 
-  it('rolls the optimistic order back when a write fails', async () => {
-    const chain = {
-      update: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({ error: { message: 'boom' } }),
-    };
-    supabase.from.mockReturnValue(chain);
+  it('draws the new order before the database has answered, numbered as it will be', async () => {
+    const answer = deferred();
+    supabase.rpc.mockReturnValue(answer.promise);
+    const { qc, wrapper } = createKeepingWrapper();
+    qc.setQueryData(['program', 'p-1'], block());
 
-    // gcTime: Infinity — the shared test client drops data once nothing
-    // observes it, which would garbage-collect the entry before we can assert
-    // the rollback restored it.
-    const qc = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
-    });
-    const wrapper = withClient(qc);
-    qc.setQueryData(['program', 'p-1'], {
-      id: 'p-1',
-      weeks: [{ id: 'w-1', sessions: [{ id: 'a', sort_order: 0 }, { id: 'b', sort_order: 1 }] }],
-    });
-
-    const { result } = renderHook(() => useReorderSessions(), { wrapper });
+    const { result } = renderHook(() => useReorderSessions('p-1'), { wrapper });
     act(() => {
-      result.current.mutate({ weekId: 'w-1', orderedIds: ['b', 'a'] });
+      result.current.mutate({ weekId: 'w-1', orderedIds: ['b', 'a', 'old'] });
+    });
+
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalledTimes(1));
+    const [first, second] = qc.getQueryData(['program', 'p-1']).weeks;
+    // 0 to n-1 in the order of the list: what reorder_sessions leaves behind.
+    expect(first.sessions.map((s) => [s.id, s.sort_order])).toEqual([['b', 0], ['a', 1], ['old', 2]]);
+    expect(second.sessions.map((s) => s.id)).toEqual(['z']);
+
+    answer.resolve(OK);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  });
+
+  // `reorder_ids_mismatch` is what a page loaded before a session was added,
+  // moved or deleted sends. Nothing was written: the order on screen goes back,
+  // and the lists are read again so the coach sees the phase as it is.
+  it('puts the order back when the database refuses the list, and reads the block again', async () => {
+    const refusal = { code: 'P0001', message: 'reorder_ids_mismatch' };
+    supabase.rpc.mockResolvedValue({ data: null, error: refusal });
+    const { qc, wrapper } = createKeepingWrapper();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    qc.setQueryData(['program', 'p-1'], block());
+
+    const { result } = renderHook(() => useReorderSessions('p-1'), { wrapper });
+    act(() => {
+      result.current.mutate({ weekId: 'w-1', orderedIds: ['b', 'a', 'old'] });
     });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-    const restored = qc.getQueryData(['program', 'p-1']);
-    expect(restored.weeks[0].sessions.map((x) => x.id)).toEqual(['a', 'b']);
+    expect(result.current.error).toBe(refusal);
+    expect(qc.getQueryData(['program', 'p-1'])).toEqual(block());
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['program'] });
+    // Once: a refusal is not sent again.
+    expect(supabase.rpc).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('useReorderWeeks', () => {
-  function makeUpdateRecorder() {
-    const calls = [];
-    const chain = {
-      update: vi.fn(function (payload) {
-        this._currentPayload = payload;
-        return this;
-      }),
-      eq: vi.fn(function (col, val) {
-        calls.push({ payload: this._currentPayload, where: { [col]: val } });
-        return Promise.resolve({ error: null });
-      }),
-    };
-    supabase.from.mockReturnValue(chain);
-    return calls;
-  }
+  const block = () => ({
+    id: 'p-1',
+    weeks: [
+      { id: 'w-a', week_number: 1 },
+      { id: 'w-b', week_number: 2 },
+      { id: 'w-c', week_number: 3 },
+    ],
+  });
 
-  it('parks then re-numbers in two passes', async () => {
-    const calls = makeUpdateRecorder();
+  it('is ONE reorder_weeks call with every phase of the block, and no request per row', async () => {
+    supabase.rpc.mockResolvedValue(OK);
+    const { qc, wrapper } = createWrapper();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useReorderWeeks('p-1'), { wrapper });
 
-    const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useReorderWeeks(), { wrapper });
-
-    result.current.mutate({ programId: 'p-1', orderedIds: ['w-a', 'w-b', 'w-c'] });
+    result.current.mutate({ programId: 'p-1', orderedIds: ['w-c', 'w-a', 'w-b'] });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(calls.length).toBe(6);
-    expect(calls.slice(0, 3).map((c) => c.payload.week_number)).toEqual([
-      100000,
-      100001,
-      100002,
-    ]);
-    expect(calls.slice(3).map((c) => c.payload.week_number)).toEqual([1, 2, 3]);
-    expect(calls.slice(0, 3).map((c) => c.where.id)).toEqual(['w-a', 'w-b', 'w-c']);
+    expect(supabase.rpc).toHaveBeenCalledTimes(1);
+    expect(supabase.rpc).toHaveBeenCalledWith('reorder_weeks', {
+      p_program_id: 'p-1',
+      p_ids: ['w-c', 'w-a', 'w-b'],
+    });
+    expect(supabase.from).not.toHaveBeenCalled();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['program'] });
+    // The athlete's queue runs through the phases in this order.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['student-program-details'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['coach-dashboard-programs'] });
   });
 
   it('optimistically rewrites the matching ["program", x] cache', async () => {
-    makeUpdateRecorder();
-    const qc = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
-    });
-    const wrapper = withClient(qc);
-    qc.setQueryData(['program', 'p-1'], {
-      id: 'p-1',
-      weeks: [
-        { id: 'w-a', week_number: 1 },
-        { id: 'w-b', week_number: 2 },
-        { id: 'w-c', week_number: 3 },
-      ],
-    });
+    const answer = deferred();
+    supabase.rpc.mockReturnValue(answer.promise);
+    const { qc, wrapper } = createKeepingWrapper();
+    qc.setQueryData(['program', 'p-1'], block());
     qc.setQueryData(['program', 'other'], {
       id: 'other',
       weeks: [{ id: 'x', week_number: 1 }],
     });
 
-    const { result } = renderHook(() => useReorderWeeks(), { wrapper });
+    const { result } = renderHook(() => useReorderWeeks('p-1'), { wrapper });
     act(() => {
       result.current.mutate({ programId: 'p-1', orderedIds: ['w-c', 'w-a', 'w-b'] });
     });
 
-    await waitFor(() => {
-      const data = qc.getQueryData(['program', 'p-1']);
-      expect(data.weeks.map((w) => w.id)).toEqual(['w-c', 'w-a', 'w-b']);
-    });
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalledTimes(1));
     const data = qc.getQueryData(['program', 'p-1']);
-    expect(data.weeks.map((w) => w.week_number)).toEqual([1, 2, 3]);
+    // 1 to n in the order of the list: what reorder_weeks leaves behind.
+    expect(data.weeks.map((w) => [w.id, w.week_number])).toEqual([['w-c', 1], ['w-a', 2], ['w-b', 3]]);
     // Other program left untouched.
     expect(qc.getQueryData(['program', 'other']).weeks[0].id).toBe('x');
+
+    answer.resolve(OK);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
   });
 
   it('rolls back on failure', async () => {
-    const chain = {
-      update: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({ error: { message: 'boom' } }),
-    };
-    supabase.from.mockReturnValue(chain);
+    const refusal = { code: 'P0001', message: 'reorder_ids_mismatch' };
+    supabase.rpc.mockResolvedValue({ data: null, error: refusal });
+    const { qc, wrapper } = createKeepingWrapper();
+    qc.setQueryData(['program', 'p-1'], block());
 
-    const qc = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
-    });
-    const wrapper = withClient(qc);
-    const original = {
-      id: 'p-1',
-      weeks: [
-        { id: 'w-a', week_number: 1 },
-        { id: 'w-b', week_number: 2 },
-      ],
-    };
-    qc.setQueryData(['program', 'p-1'], original);
-
-    const { result } = renderHook(() => useReorderWeeks(), { wrapper });
+    const { result } = renderHook(() => useReorderWeeks('p-1'), { wrapper });
     act(() => {
-      result.current.mutate({ programId: 'p-1', orderedIds: ['w-b', 'w-a'] });
+      result.current.mutate({ programId: 'p-1', orderedIds: ['w-b', 'w-a', 'w-c'] });
     });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-    const restored = qc.getQueryData(['program', 'p-1']);
-    expect(restored.weeks.map((w) => w.id)).toEqual(['w-a', 'w-b']);
+    expect(result.current.error).toBe(refusal);
+    expect(qc.getQueryData(['program', 'p-1'])).toEqual(block());
+  });
+});
+
+describe('useMoveSession', () => {
+  it('is one move_session call, and reads again everything that shows the order of the block', async () => {
+    supabase.rpc.mockResolvedValue(OK);
+    const { qc, wrapper } = createWrapper();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useMoveSession('p-1'), { wrapper });
+
+    result.current.mutate({
+      sessionId: 's-2',
+      destWeekId: 'w-2',
+      sourceIds: ['s-1', 's-old'],
+      destIds: ['s-2', 's-3'],
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(supabase.rpc).toHaveBeenCalledTimes(1);
+    expect(supabase.rpc).toHaveBeenCalledWith('move_session', {
+      p_session_id: 's-2',
+      p_dest_week_id: 'w-2',
+      p_source_ids: ['s-1', 's-old'],
+      p_dest_ids: ['s-2', 's-3'],
+    });
+    for (const queryKey of [['program'], ['week'], ['student-program-details'], ['coach-dashboard-programs']]) {
+      expect(invalidate).toHaveBeenCalledWith({ queryKey });
+    }
+  });
+
+  const block = () => ({
+    id: 'p-1',
+    weeks: [
+      {
+        id: 'w-1',
+        sessions: [
+          { id: 'a', title: 'Pull', sort_order: 0 },
+          { id: 'b', title: 'Push', sort_order: 1 },
+          { id: 'old', title: 'Old', sort_order: 2, archived_at: '2026-01-01' },
+        ],
+      },
+      { id: 'w-2', sessions: [{ id: 'c', title: 'Legs', sort_order: 0 }] },
+      { id: 'w-3', sessions: [{ id: 'z', title: 'Core', sort_order: 4 }] },
+    ],
+  });
+  // 'b' dropped on 'c': out of the first phase, in front of 'c' in the second.
+  const move = { sessionId: 'b', destWeekId: 'w-2', sourceIds: ['a', 'old'], destIds: ['b', 'c'] };
+
+  // The next drag is made from the list on screen, and may be made before this
+  // one is answered: the session has to be shown where it was dropped, with
+  // both phases numbered the way `move_session` leaves them.
+  it('draws the move before the database has answered, both phases numbered as they will be', async () => {
+    supabase.rpc.mockReturnValue(deferred().promise);
+    const { qc, wrapper } = createKeepingWrapper();
+    qc.setQueryData(['program', 'p-1'], block());
+    // Another block in the cache: it holds neither end of the move.
+    qc.setQueryData(['program', 'p-9'], { id: 'p-9', weeks: [{ id: 'w-9', sessions: [{ id: 'q', sort_order: 0 }] }] });
+
+    const { result } = renderHook(() => useMoveSession('p-1'), { wrapper });
+    act(() => {
+      result.current.mutate(move);
+    });
+
+    await waitFor(() => {
+      expect(qc.getQueryData(['program', 'p-1']).weeks.map((w) => w.sessions)).toEqual([
+        [
+          { id: 'a', title: 'Pull', sort_order: 0 },
+          { id: 'old', title: 'Old', sort_order: 1, archived_at: '2026-01-01' },
+        ],
+        [
+          { id: 'b', title: 'Push', sort_order: 0 },
+          { id: 'c', title: 'Legs', sort_order: 1 },
+        ],
+        // A phase the move does not touch keeps its numbers.
+        [{ id: 'z', title: 'Core', sort_order: 4 }],
+      ]);
+    });
+    expect(qc.getQueryData(['program', 'p-9']).weeks[0].sessions).toEqual([{ id: 'q', sort_order: 0 }]);
+    expect(result.current.isPending).toBe(true);
+  });
+
+  it('puts the session back where it was when the database refuses the move, and reads the block again', async () => {
+    const refusal = { code: 'P0001', message: 'cross_program_move' };
+    supabase.rpc.mockResolvedValue({ data: null, error: refusal });
+    const { qc, wrapper } = createKeepingWrapper();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    qc.setQueryData(['program', 'p-1'], block());
+
+    const { result } = renderHook(() => useMoveSession('p-1'), { wrapper });
+    act(() => {
+      result.current.mutate(move);
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error).toBe(refusal);
+    expect(qc.getQueryData(['program', 'p-1'])).toEqual(block());
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['program'] });
+  });
+
+  it('draws nothing for a session that is in its destination already', async () => {
+    supabase.rpc.mockResolvedValue(OK);
+    const { qc, wrapper } = createKeepingWrapper();
+    qc.setQueryData(['program', 'p-1'], block());
+
+    const { result } = renderHook(() => useMoveSession('p-1'), { wrapper });
+    // The same move twice over: the page still held the list from before.
+    result.current.mutate({ ...move, sessionId: 'c' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(qc.getQueryData(['program', 'p-1'])).toEqual(block());
+  });
+});
+
+// A drag sends the FULL list of ids as the sheet shows it, so the order it was
+// read from has to be the one the drag before it asked for. The three writes a
+// drag can end in — sessions within a phase, a session across phases, the
+// phases — therefore wait for each other, block by block.
+describe('the order of a block: one drag at a time', () => {
+  function renderOrderHooks(wrapper, blockId = 'p-1') {
+    return renderHook(
+      () => ({
+        sessions: useReorderSessions(blockId),
+        weeks: useReorderWeeks(blockId),
+        move: useMoveSession(blockId),
+      }),
+      { wrapper },
+    );
+  }
+
+  it('does not send the second reorder until the first has been answered', async () => {
+    const first = deferred();
+    supabase.rpc.mockReturnValueOnce(first.promise).mockResolvedValue(OK);
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useReorderSessions('p-1'), { wrapper });
+
+    act(() => {
+      result.current.mutate({ weekId: 'w-1', orderedIds: ['b', 'a', 'c'] });
+    });
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalledTimes(1));
+    act(() => {
+      result.current.mutate({ weekId: 'w-1', orderedIds: ['b', 'c', 'a'] });
+    });
+    await act(settle);
+    expect(supabase.rpc).toHaveBeenCalledTimes(1);
+
+    first.resolve(OK);
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalledTimes(2));
+    // In the order the drags were made: the last one is the one that stays.
+    expect(supabase.rpc.mock.calls.map(([, args]) => args.p_ids)).toEqual([
+      ['b', 'a', 'c'],
+      ['b', 'c', 'a'],
+    ]);
+  });
+
+  it('queues a reorder of sessions, a reorder of phases and a move of the same block together', async () => {
+    const first = deferred();
+    supabase.rpc.mockReturnValueOnce(first.promise).mockResolvedValue(OK);
+    const { wrapper } = createWrapper();
+    const { result } = renderOrderHooks(wrapper);
+
+    act(() => {
+      result.current.sessions.mutate({ weekId: 'w-1', orderedIds: ['b', 'a'] });
+    });
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalledTimes(1));
+    act(() => {
+      result.current.weeks.mutate({ programId: 'p-1', orderedIds: ['w-2', 'w-1'] });
+      result.current.move.mutate({ sessionId: 'b', destWeekId: 'w-2', sourceIds: ['a'], destIds: ['b'] });
+    });
+    await act(settle);
+    expect(supabase.rpc).toHaveBeenCalledTimes(1);
+
+    first.resolve(OK);
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalledTimes(3));
+    expect(supabase.rpc.mock.calls.map(([fn]) => fn)).toEqual([
+      'reorder_sessions',
+      'reorder_weeks',
+      'move_session',
+    ]);
+  });
+
+  it('lets two blocks go out side by side', async () => {
+    supabase.rpc.mockReturnValue(deferred().promise);
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(
+      () => ({ one: useReorderSessions('p-1'), other: useReorderSessions('p-2') }),
+      { wrapper },
+    );
+
+    act(() => {
+      result.current.one.mutate({ weekId: 'w-1', orderedIds: ['b', 'a'] });
+      result.current.other.mutate({ weekId: 'w-9', orderedIds: ['y', 'x'] });
+    });
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalledTimes(2));
+  });
+
+  // The first of two drags must not read the block again: the answer would be
+  // the order before the second one, on screen in place of the order the coach
+  // has just made — and the list a third drag would send.
+  it('leaves the refetch to the last drag of a run, so the order on screen stays the last one made', async () => {
+    const first = deferred();
+    const second = deferred();
+    supabase.rpc.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { qc, wrapper } = createKeepingWrapper();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    qc.setQueryData(['program', 'p-1'], {
+      id: 'p-1',
+      weeks: [{ id: 'w-1', sessions: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] }],
+    });
+    const shown = () => qc.getQueryData(['program', 'p-1']).weeks[0].sessions.map((s) => s.id);
+
+    const { result } = renderHook(() => useReorderSessions('p-1'), { wrapper });
+    act(() => {
+      result.current.mutate({ weekId: 'w-1', orderedIds: ['b', 'a', 'c'] });
+    });
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalledTimes(1));
+    act(() => {
+      result.current.mutate({ weekId: 'w-1', orderedIds: ['b', 'c', 'a'] });
+    });
+    await waitFor(() => expect(shown()).toEqual(['b', 'c', 'a']));
+
+    first.resolve(OK);
+    // The second request is out: the first one has settled.
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalledTimes(2));
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(shown()).toEqual(['b', 'c', 'a']);
+
+    second.resolve(OK);
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['program'] }));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['student-program-details'] });
+  });
+
+  it('sends the drag behind one that failed, and reads the block again after it', async () => {
+    const first = deferred();
+    supabase.rpc.mockReturnValueOnce(first.promise).mockResolvedValue(OK);
+    const { qc, wrapper } = createKeepingWrapper();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+
+    const { result } = renderHook(() => useReorderSessions('p-1'), { wrapper });
+    act(() => {
+      result.current.mutate({ weekId: 'w-1', orderedIds: ['b', 'a', 'c'] });
+    });
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalledTimes(1));
+    act(() => {
+      result.current.mutate({ weekId: 'w-1', orderedIds: ['b', 'c', 'a'] });
+    });
+    await act(settle);
+
+    first.resolve({ data: null, error: { message: 'Failed to fetch' } });
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['program'] }));
+  });
+
+  // A snapshot is the whole block from before its drag. Put back while a later
+  // drag waits, it takes that drag's order off the screen, and the next drag
+  // would send a list without it. The last drag reads the server again, which
+  // also settles what the failed one left on screen.
+  it('does not put the order back for a drag that failed while a later one waits', async () => {
+    const first = deferred();
+    const second = deferred();
+    supabase.rpc.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { qc, wrapper } = createKeepingWrapper();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    qc.setQueryData(['program', 'p-1'], {
+      id: 'p-1',
+      weeks: [
+        { id: 'w-1', sessions: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] },
+        { id: 'w-2', sessions: [{ id: 'x' }, { id: 'y' }] },
+      ],
+    });
+    const shown = () =>
+      qc.getQueryData(['program', 'p-1']).weeks.map((w) => w.sessions.map((s) => s.id));
+
+    const { result } = renderOrderHooks(wrapper);
+    act(() => {
+      result.current.sessions.mutate({ weekId: 'w-1', orderedIds: ['b', 'a', 'c'] });
+    });
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalledTimes(1));
+    act(() => {
+      result.current.sessions.mutate({ weekId: 'w-2', orderedIds: ['y', 'x'] });
+    });
+    await waitFor(() => expect(shown()).toEqual([['b', 'a', 'c'], ['y', 'x']]));
+
+    first.resolve({ data: null, error: { message: 'Failed to fetch' } });
+    // The second request is out: the first one has failed and settled.
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalledTimes(2));
+    expect(shown()).toEqual([['b', 'a', 'c'], ['y', 'x']]);
+    expect(invalidate).not.toHaveBeenCalled();
+
+    second.resolve(OK);
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['program'] }));
+  });
+
+  // The hooks keep one block for as long as they live — the sheet is mounted
+  // once per block — so a coach who picks another block unmounts hooks that
+  // may have a write waiting. It is in the cache as it was made: it is sent in
+  // its turn, and it reads the block again.
+  it('sends the write that was waiting when its hooks were unmounted, and reads the block again', async () => {
+    const first = deferred();
+    supabase.rpc.mockReturnValueOnce(first.promise).mockResolvedValue(OK);
+    const { qc, wrapper } = createKeepingWrapper();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result, unmount } = renderOrderHooks(wrapper);
+
+    act(() => {
+      result.current.sessions.mutate({ weekId: 'w-1', orderedIds: ['b', 'a'] });
+    });
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalledTimes(1));
+    act(() => {
+      result.current.move.mutate({ sessionId: 'b', destWeekId: 'w-2', sourceIds: ['a'], destIds: ['b'] });
+    });
+    await act(settle);
+    unmount();
+    // The sheet of another block, mounted in its place.
+    renderOrderHooks(wrapper, 'p-2');
+    expect(supabase.rpc).toHaveBeenCalledTimes(1);
+
+    first.resolve(OK);
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalledTimes(2));
+    expect(supabase.rpc.mock.calls[1][0]).toBe('move_session');
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['program'] }));
+  });
+
+  // The sheet always names its block. A caller that does not gets no queue:
+  // its writes go out at once, as a mutation without a scope always does.
+  it('holds nothing back for a hook that was given no block', async () => {
+    supabase.rpc.mockReturnValue(deferred().promise);
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useReorderSessions(), { wrapper });
+
+    act(() => {
+      result.current.mutate({ weekId: 'w-1', orderedIds: ['b', 'a'] });
+      result.current.mutate({ weekId: 'w-1', orderedIds: ['a', 'b'] });
+    });
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalledTimes(2));
   });
 });

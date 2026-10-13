@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 import { startOfWeekMonday } from '../lib/day';
 import { buildQueue, buildDayStrip } from '../lib/sessionQueue';
+import { mutationScope, laterWriteQueued } from '../lib/mutationScope';
 
 /**
  * List all programs for a student (periodization blocks), ordered by sort_order.
@@ -392,14 +393,29 @@ export function useSetActiveProgram() {
 
 /**
  * Rewrite sort_order for an ordered list of programs within the same student.
- * Two-pass update (park at TMP_BASE+idx, then assign idx) mirrors
- * `useReorderWeeks` — sort_order has no unique constraint but we keep the
- * same pattern so the code reads the same way.
+ *
+ * Still one request per program, in two passes (park at TMP_BASE+idx, then
+ * assign idx): `programs.sort_order` has no unique key, so no order of
+ * arrival can be refused and the database has no function for it — unlike
+ * the sessions of a phase and the phases of a block (`useReorderSessions`,
+ * `useReorderWeeks`). What two drags could still do is cross: the requests
+ * of the second landing among those of the first, for an order nobody chose.
+ * So the hook takes the athlete (`studentRowId`, the `students` row) and runs
+ * under one scope per athlete: a drag waits for the one before it. The list
+ * that is renumbered is the one each call sends, with its `studentId`.
+ *
+ * `studentRowId` MUST NOT CHANGE during the life of the hook, for the reason
+ * given at `blockOrderScope` in `useWeek.js`: a re-rendered hook re-points the
+ * write it has pending at the new scope, where it is never given its turn.
+ * `ProgramSwitcher` is mounted once per athlete (`key={studentId}` in
+ * `StudentProgrammingSection`).
  */
-export function useReorderPrograms() {
+export function useReorderPrograms(studentRowId) {
   const qc = useQueryClient();
+  const scope = mutationScope('program-order', studentRowId);
 
   return useMutation({
+    scope,
     mutationFn: async ({ studentId, orderedIds }) => {
       const TMP_BASE = 100000;
 
@@ -434,11 +450,17 @@ export function useReorderPrograms() {
       return { snapshot };
     },
     onError: (_err, { studentId }, ctx) => {
+      // Not while a later drag waits either: the snapshot is the list from
+      // before this drag, without the order the later one has put on screen.
+      if (laterWriteQueued(qc, scope)) return;
       if (ctx?.snapshot !== undefined) {
         qc.setQueryData(['programs', studentId], ctx.snapshot);
       }
     },
     onSettled: (_d, _e, { studentId }) => {
+      // Not while a later drag waits for its turn: its order is on screen
+      // already, and this refetch would put back the one before it.
+      if (laterWriteQueued(qc, scope)) return;
       qc.invalidateQueries({ queryKey: ['programs', studentId] });
     },
   });
