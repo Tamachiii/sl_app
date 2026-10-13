@@ -19,11 +19,14 @@ vi.mock('../../hooks/useSession', () => ({
   useSession: () => ({ refetch: mockRefetchSession, ...mockSessionData }),
 }));
 
-const mockEnsureLogs = { mutate: vi.fn() };
+// The page hands the completion of the session's sets over to this hook, with
+// what it shows and whether it may ask (see "missing set rows" below); what
+// the hook does with it is in hooks/useSetLogs.ensure.test.jsx.
+const mockEnsureSetLogs = vi.fn();
 
 vi.mock('../../hooks/useSetLogs', () => ({
   useSetLogs: () => mockSetLogsData,
-  useEnsureSetLogs: () => mockEnsureLogs,
+  useEnsureSetLogs: (...args) => mockEnsureSetLogs(...args),
   useToggleSetDone: () => ({ mutate: vi.fn() }),
   useSetFailed: () => ({ mutate: vi.fn() }),
   useSetRpe: () => ({ mutate: vi.fn() }),
@@ -1219,22 +1222,55 @@ describe('SessionView: a session the coach has reviewed', () => {
     });
   });
 
-  // The safety net that creates the missing set rows of a session writes to
-  // it. On a reviewed session those would be sets the coach never read.
+  // A prescribed set without its row is added by the database, through
+  // useEnsureSetLogs. The page hands the hook what it shows and says whether
+  // it may ask: on a reviewed session those would be sets the coach never
+  // read, and the function refuses a session that is closed.
   describe('missing set rows', () => {
-    it('are not created on a reviewed session', () => {
-      mockSessionData = session({ exercise_slots: [SLOT], reviewed_at: REVIEWED_AT });
-      renderSessionView();
-      expect(mockEnsureLogs.mutate).not.toHaveBeenCalled();
-    });
+    const handedOver = () => mockEnsureSetLogs.mock.calls.at(-1);
 
-    it('are created on a session that is not reviewed', () => {
+    it('are left to the hook, with the session, its exercises and the sets the page has read', () => {
+      mockSetLogsData = { data: [PENDING_LOG], isLoading: false };
       mockSessionData = session({ exercise_slots: [SLOT], reviewed_at: null });
       renderSessionView();
-      expect(mockEnsureLogs.mutate).toHaveBeenCalledWith({
-        sessionId: 'sess-1',
-        slots: [SLOT],
-      });
+      expect(handedOver()).toEqual(['sess-1', [SLOT], [PENDING_LOG], { enabled: true }]);
+    });
+
+    it('are not asked for on a reviewed session', () => {
+      mockSetLogsData = { data: [PENDING_LOG], isLoading: false };
+      mockSessionData = session({ exercise_slots: [SLOT], reviewed_at: REVIEWED_AT });
+      renderSessionView();
+      expect(handedOver()[3]).toEqual({ enabled: false });
+    });
+
+    it('nor on a session of a past program, nor on an archived one', () => {
+      mockSetLogsData = { data: [PENDING_LOG], isLoading: false };
+      mockSessionData = session({ exercise_slots: [SLOT], program_is_active: false });
+      renderSessionView().unmount();
+      expect(handedOver()[3]).toEqual({ enabled: false });
+
+      mockSessionData = session({ exercise_slots: [SLOT], archived_at: '2026-04-20T10:00:00Z' });
+      renderSessionView();
+      expect(handedOver()[3]).toEqual({ enabled: false });
+    });
+
+    // "Missing" is counted on the session and its sets: while one of the two
+    // is being read again, the other may be the older copy.
+    it('nor while the session or its sets are being read again', () => {
+      mockSetLogsData = { data: [PENDING_LOG], isLoading: false };
+      mockSessionData = { ...session({ exercise_slots: [SLOT] }), isFetching: true };
+      renderSessionView().unmount();
+      expect(handedOver()[3]).toEqual({ enabled: false });
+
+      mockSessionData = session({ exercise_slots: [SLOT] });
+      mockSetLogsData = { data: [PENDING_LOG], isLoading: false, isFetching: true };
+      const view = renderSessionView();
+      expect(handedOver()[3]).toEqual({ enabled: false });
+
+      // Both have answered.
+      mockSetLogsData = { data: [PENDING_LOG], isLoading: false, isFetching: false };
+      rerenderSessionView(view);
+      expect(handedOver()[3]).toEqual({ enabled: true });
     });
   });
 

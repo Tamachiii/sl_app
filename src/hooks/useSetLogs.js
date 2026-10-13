@@ -1,6 +1,7 @@
-import { useMemo } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef } from 'react';
+import { useQuery, useMutation, useQueryClient, onlineManager } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { useOnlineStatus } from './useOnlineStatus';
 import {
   MUTATION_KEYS,
   MUTATION_FNS,
@@ -8,6 +9,11 @@ import {
   patchForFailed,
   patchForSkipped,
 } from '../lib/offlineMutations';
+
+// The cached lists of sets, one per session: ['set-logs', sessionId, slotIds].
+const SET_LOGS = ['set-logs'];
+// What the five keys of MUTATION_KEYS that write a set start with.
+const SET_LOG_WRITES = ['set-log'];
 
 /**
  * The read of a session's sets, as an options object: `useSetLogs` mounts it,
@@ -43,52 +49,147 @@ export function useSetLogs(sessionId, slots) {
   return useQuery(setLogsQueryOptions(sessionId, slots));
 }
 
-// Safety net for legacy slots that pre-date the per-set-targets migration:
-// inserts any missing set_log rows and seeds them with the slot's uniform
-// targets. New slots created via useAddSlot already materialize their logs,
-// so this is mostly a no-op now.
-export function useEnsureSetLogs() {
+// The prescribed sets that have no row among `rows`: for every exercise, every
+// number from 1 to its number of sets — whatever the row on a number is, so an
+// extra set of the athlete standing on one counts as there. It is the rule of
+// `ensure_set_logs` in the database, word for word, and the two must stay one:
+// a set the device counts missing and the database does not is a call sent at
+// every opening of the session.
+function missingSets(slots, rows) {
+  const there = new Set((rows || []).map((row) => `${row.exercise_slot_id}:${row.set_number}`));
+  const missing = [];
+  for (const slot of slots || []) {
+    for (let setNumber = 1; setNumber <= (slot.sets ?? 0); setNumber++) {
+      if (!there.has(`${slot.id}:${setNumber}`)) missing.push({ slot, setNumber });
+    }
+  }
+  return missing;
+}
+
+// What PostgREST answers when it knows no function of that name and those
+// arguments: a database that does not have migration 2026_10_13_13.
+const NO_SUCH_FUNCTION = 'PGRST202';
+
+// What `ensure_set_logs` does, for a database without the function: the
+// exercises of the session and the sets they have are read THERE, then the
+// missing ones are inserted with the targets of their exercise — under the
+// athlete's own policies, which refuse a session that is closed. Nothing of it
+// comes from the device's cache either.
+async function insertMissingSetLogs(sessionId) {
+  const { data: slots, error: slotsError } = await supabase
+    .from('exercise_slots')
+    .select('id, sets, reps, duration_seconds, weight_kg, rest_seconds')
+    .eq('session_id', sessionId);
+  if (slotsError) throw slotsError;
+  if (!slots?.length) return 0;
+
+  const { data: existing, error: existingError } = await supabase
+    .from('set_logs')
+    .select('exercise_slot_id, set_number')
+    .in('exercise_slot_id', slots.map((slot) => slot.id));
+  if (existingError) throw existingError;
+
+  const rows = missingSets(slots, existing).map(({ slot, setNumber }) => ({
+    exercise_slot_id: slot.id,
+    set_number: setNumber,
+    done: false,
+    target_reps: slot.reps ?? null,
+    target_duration_seconds: slot.duration_seconds ?? null,
+    target_weight_kg: slot.weight_kg ?? null,
+    target_rest_seconds: slot.rest_seconds ?? null,
+  }));
+  if (rows.length === 0) return 0;
+
+  const { error } = await supabase.from('set_logs').insert(rows);
+  if (error) throw error;
+  return rows.length;
+}
+
+/**
+ * Completes the sets of a session the athlete has open: a prescribed set
+ * without its row — an exercise written before sets were rows, a request of
+ * the coach's editor that was lost — is added, by the database.
+ *
+ * The page calls it with what it shows: the session's exercises and the sets
+ * it has read (`logs`, `undefined` until they are). The hook decides by itself
+ * whether there is anything to ask:
+ *
+ *   - NOTHING IS SENT WHEN NOTHING IS MISSING, which is every opening of every
+ *     session but a handful. It used to cost each of them a read and a refresh
+ *     of the sets.
+ *   - NOTHING IS STARTED WITHOUT A NETWORK. A mutation started offline does not
+ *     fail: it is parked, counted as "1 change waiting to sync" over a workout
+ *     in which nothing was entered, stored with the queue, and — having no key
+ *     the queue knows — ends as "Couldn't save that" at the next launch. So
+ *     this one is not a write of the queue and never waits: it runs when the
+ *     device is online and something is missing, and again when the network
+ *     returns. `onlineManager` is asked as well as the device, because it is
+ *     the one that parks.
+ *   - THE DEVICE ONLY SAYS WHETHER TO ASK. `ensure_set_logs(p_session_id)` is
+ *     given the id of the session and reads the exercises in the database, so
+ *     a set the coach has removed since this device read the session does not
+ *     come back. The function adds the rows, with the coach's targets, and
+ *     answers how many.
+ *
+ * Its answer is what is read again. More than 0: the sets, which have new
+ * rows. 0: the database is short of nothing where the device counted a set
+ * missing, so the device's copy is behind — the session (its numbers of sets)
+ * and the sets are both asked again. A read of the sets is left to the one
+ * that follows the last set-log write when such a write is on its way
+ * (lib/offlineMutations.js): made in between, it comes back without it.
+ *
+ * A refusal says nothing to the athlete (`skipErrorToast`): they asked for
+ * nothing, and the sets that are there are on screen. Each list of missing
+ * sets is asked for once per opening of the page — an answer that changes
+ * nothing on the device must not be asked for again — and once more when the
+ * network returns.
+ *
+ * `enabled: false` is for a session the page shows read-only (the function
+ * refuses it) and for reads that are still on their way.
+ */
+export function useEnsureSetLogs(sessionId, slots, logs, { enabled = true } = {}) {
   const qc = useQueryClient();
+  const online = useOnlineStatus();
 
-  return useMutation({
-    mutationFn: async ({ sessionId, slots }) => {
-      const slotIds = slots.map((s) => s.id);
-      const { data: existing, error: existErr } = await supabase
-        .from('set_logs')
-        .select('exercise_slot_id, set_number')
-        .in('exercise_slot_id', slotIds);
-      if (existErr) throw existErr;
-
-      const existingSet = new Set(
-        (existing || []).map((l) => `${l.exercise_slot_id}-${l.set_number}`)
-      );
-
-      const toInsert = [];
-      for (const slot of slots) {
-        for (let i = 1; i <= slot.sets; i++) {
-          if (!existingSet.has(`${slot.id}-${i}`)) {
-            toInsert.push({
-              exercise_slot_id: slot.id,
-              set_number: i,
-              done: false,
-              target_reps: slot.reps ?? null,
-              target_duration_seconds: slot.duration_seconds ?? null,
-              target_weight_kg: slot.weight_kg ?? null,
-              target_rest_seconds: slot.rest_seconds ?? null,
-            });
-          }
-        }
-      }
-
-      if (toInsert.length > 0) {
-        const { error } = await supabase.from('set_logs').insert(toInsert);
-        if (error) throw error;
-      }
+  const mutation = useMutation({
+    mutationFn: async ({ sessionId: id }) => {
+      const { data, error } = await supabase.rpc('ensure_set_logs', { p_session_id: id });
+      if (!error) return data ?? 0;
+      if (error.code === NO_SUCH_FUNCTION) return insertMissingSetLogs(id);
+      throw error;
     },
-    onSuccess: (_d, vars) => {
-      qc.invalidateQueries({ queryKey: ['set-logs', vars.sessionId] });
+    meta: { skipErrorToast: true },
+    onSuccess: (added, { sessionId: id }) => {
+      if (!(added > 0)) qc.invalidateQueries({ queryKey: ['session', id] });
+      if (qc.isMutating({ mutationKey: SET_LOG_WRITES }) > 0) return;
+      qc.invalidateQueries({ queryKey: ['set-logs', id] });
     },
   });
+  const { mutate } = mutation;
+
+  // What there is to ask for, as a string: the effect below runs when it
+  // changes, not each time the page is handed the same sets again.
+  const wanted = useMemo(() => {
+    if (!enabled || !sessionId || logs === undefined) return null;
+    const missing = missingSets(slots, logs);
+    if (missing.length === 0) return null;
+    return `${sessionId}|${missing.map(({ slot, setNumber }) => `${slot.id}:${setNumber}`).join(',')}`;
+  }, [enabled, sessionId, slots, logs]);
+
+  // The lists already asked for since the page was opened.
+  const asked = useRef(new Set());
+  useEffect(() => {
+    if (!online || !onlineManager.isOnline()) {
+      // What was asked before the network went is asked again when it returns.
+      asked.current.clear();
+      return;
+    }
+    if (!wanted || asked.current.has(wanted)) return;
+    asked.current.add(wanted);
+    mutate({ sessionId });
+  }, [wanted, online, sessionId, mutate]);
+
+  return mutation;
 }
 
 // Per-row mutation scope: writes to the SAME set_log run strictly FIFO (a
@@ -101,11 +202,6 @@ export function useEnsureSetLogs() {
 function rowScope(logId) {
   return logId ? { scope: { id: `set-log-${logId}` } } : {};
 }
-
-// The cached lists of sets, one per session: ['set-logs', sessionId, slotIds].
-const SET_LOGS = ['set-logs'];
-// What the five keys of MUTATION_KEYS that write a set start with.
-const SET_LOG_WRITES = ['set-log'];
 
 // The row `logId` as the cache holds it now, in whichever list has it.
 function cachedRow(qc, logId) {

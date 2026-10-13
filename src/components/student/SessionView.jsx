@@ -24,6 +24,10 @@ import RestTimerBanner from './RestTimerBanner';
 import { useRestTimerEffects } from '../../hooks/useRestTimerEffects';
 import { useRestTimerPush } from '../../hooks/useRestTimerPush';
 
+// The exercises of a session that is not read yet: one array, so that what is
+// derived from the exercises is not derived again on every render.
+const NO_SLOTS = [];
+
 // A set no longer needs the student's attention iff it was skipped, failed,
 // completed with an RPE, or belongs to an exercise the student skip-deviated
 // (those logs are hidden by SlotGroupCard, so they could otherwise never
@@ -88,14 +92,12 @@ export default function SessionView() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
   const { t, lang } = useI18n();
-  const {
-    data: session,
-    isLoading: sessLoading,
-    refetch: refetchSession,
-  } = useSession(sessionId);
+  const sessionRead = useSession(sessionId);
+  const { data: session, refetch: refetchSession } = sessionRead;
   const { data: feedback } = useSessionFeedback(sessionId);
-  const slots = session?.exercise_slots || [];
-  const { data: logs, isLoading: logsLoading } = useSetLogs(sessionId, slots);
+  const slots = session?.exercise_slots || NO_SLOTS;
+  const logsRead = useSetLogs(sessionId, slots);
+  const { data: logs } = logsRead;
   const { data: slotComments } = useSlotComments(sessionId, slots);
   const { data: slotDeviations, isFetched: deviationsFetched } = useSlotDeviations(
     sessionId,
@@ -130,7 +132,6 @@ export default function SessionView() {
     }
     return offsets;
   }, [slotGroups]);
-  const ensureLogs = useEnsureSetLogs();
   const { data: confirmation, isLoading: confLoading } = useSessionConfirmation(sessionId);
   const confirmSession = useConfirmSession();
   const unconfirmSession = useUnconfirmSession();
@@ -202,18 +203,16 @@ export default function SessionView() {
     }
   }, [sessionId, hasSession, isReadOnly, isConfirmed, feedbackId, refetchSession]);
 
-  // Only run the safety-net materialization on writeable sessions. Past-
-  // program / coach-archived sessions reject INSERT under RLS, so calling
-  // ensureLogs would only generate silent failures. The backfill migration
-  // (2026_04_26_backfill_missing_set_logs.sql) covers legacy past-program
-  // slots once at deploy time. A reviewed session is not writeable either:
-  // rows added to it now would be sets the coach never read.
+  // A prescribed set without its row is added by the database, when the page
+  // can tell that one is missing — see useEnsureSetLogs, which sends nothing
+  // otherwise and nothing without a network. Not on a session shown read-only:
+  // the function refuses a past block and an archived session, and rows added
+  // to a reviewed one would be sets the coach never read. And not on a copy
+  // that is being read again: "missing" is counted on the session and its
+  // sets, and the two are only worth comparing once both have answered.
   const canMaterializeLogs = hasSession && !isReadOnly;
-  useEffect(() => {
-    if (canMaterializeLogs && slots.length > 0 && logs !== undefined) {
-      ensureLogs.mutate({ sessionId, slots });
-    }
-  }, [sessionId, slots.length, logs !== undefined, canMaterializeLogs]);
+  const readingAgain = !!sessionRead.isFetching || !!logsRead.isFetching;
+  useEnsureSetLogs(sessionId, slots, logs, { enabled: canMaterializeLogs && !readingAgain });
 
   // Slot ids the student skip-deviated: every log under them counts as
   // resolved (see isLogResolved).
@@ -252,7 +251,7 @@ export default function SessionView() {
     setOpenKey(null);
   }, [firstOpenIdx]);
 
-  if (sessLoading || logsLoading) {
+  if (sessionRead.isLoading || logsRead.isLoading) {
     return <div className="flex justify-center py-12"><Spinner /></div>;
   }
 

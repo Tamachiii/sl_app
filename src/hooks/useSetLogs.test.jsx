@@ -4,7 +4,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   setLogsQueryOptions,
   useSetLogs,
-  useEnsureSetLogs,
   useToggleSetDone,
   useSetFailed,
   useSetRpe,
@@ -121,73 +120,9 @@ describe('setLogsQueryOptions', () => {
   });
 });
 
-describe('useEnsureSetLogs', () => {
-  it('inserts only the missing (slot_id, set_number) combinations', async () => {
-    const selectChain = {
-      select: vi.fn().mockReturnThis(),
-      in: vi.fn().mockResolvedValue({
-        data: [{ exercise_slot_id: 'sl-1', set_number: 1 }],
-        error: null,
-      }),
-    };
-    const insertChain = {
-      insert: vi.fn().mockResolvedValue({ error: null }),
-    };
-    let call = 0;
-    supabase.from.mockImplementation(() => (call++ === 0 ? selectChain : insertChain));
-
-    const qc = makeClient();
-    const { result } = renderHook(() => useEnsureSetLogs(), { wrapper: withClient(qc) });
-
-    result.current.mutate({
-      sessionId: 'sess-1',
-      slots: [
-        {
-          id: 'sl-1',
-          sets: 3,
-          reps: 10,
-          duration_seconds: null,
-          weight_kg: 50,
-          rest_seconds: 60,
-        },
-      ],
-    });
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    const inserted = insertChain.insert.mock.calls[0][0];
-    expect(inserted).toHaveLength(2);
-    expect(inserted.map((r) => r.set_number)).toEqual([2, 3]);
-    expect(inserted[0].target_reps).toBe(10);
-    expect(inserted[0].target_weight_kg).toBe(50);
-    expect(inserted[0].target_rest_seconds).toBe(60);
-    expect(inserted[0].done).toBe(false);
-  });
-
-  it('does not insert when all logs already exist', async () => {
-    const selectChain = {
-      select: vi.fn().mockReturnThis(),
-      in: vi.fn().mockResolvedValue({
-        data: [
-          { exercise_slot_id: 'sl-1', set_number: 1 },
-          { exercise_slot_id: 'sl-1', set_number: 2 },
-        ],
-        error: null,
-      }),
-    };
-    const insertChain = { insert: vi.fn() };
-    let call = 0;
-    supabase.from.mockImplementation(() => (call++ === 0 ? selectChain : insertChain));
-
-    const qc = makeClient();
-    const { result } = renderHook(() => useEnsureSetLogs(), { wrapper: withClient(qc) });
-    result.current.mutate({
-      sessionId: 'sess-1',
-      slots: [{ id: 'sl-1', sets: 2 }],
-    });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(insertChain.insert).not.toHaveBeenCalled();
-  });
-});
+// `useEnsureSetLogs` — the sets a session is short of, asked of the database
+// when the page can tell that one is missing — has a file of its own:
+// useSetLogs.ensure.test.jsx.
 
 describe('useToggleSetDone', () => {
   function makeUpdateChain(result) {

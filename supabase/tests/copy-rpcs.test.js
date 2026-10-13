@@ -1785,8 +1785,9 @@ describe('migration 12 applied to the production baseline', () => {
     expect(await printedAudit(db)).toMatchObject(LEFT_BEHIND);
 
     // What the page says of line 12: the athlete's app adds the missing sets
-    // when the session is opened (useEnsureSetLogs) — every set alike.
-    expect(read('src/hooks/useSetLogs.js')).toContain('export function useEnsureSetLogs()');
+    // when the session is opened (useEnsureSetLogs, which asks ensure_set_logs)
+    // — every set alike.
+    expect(read('src/hooks/useSetLogs.js')).toContain('export function useEnsureSetLogs(');
     expect(page).toContain('the athlete\'s app adds the missing sets when the session is opened');
     // A copy made by the function adds nothing to either line.
     await asCoach(`select public.duplicate_program('${BLOCK}')`);
