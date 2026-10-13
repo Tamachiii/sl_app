@@ -165,6 +165,9 @@ export default function SessionView() {
 
   const [notes, setNotes] = useState('');
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  // The dialog has asked, since it was opened, whether a session without a
+  // single logged set is really to be confirmed.
+  const [askedAgain, setAskedAgain] = useState(false);
   const [undoDialogOpen, setUndoDialogOpen] = useState(false);
   // Accordion-style manual override:
   //   null      → no manual override; defer to auto (firstOpenIdx).
@@ -347,9 +350,19 @@ export default function SessionView() {
 
   function closeConfirmDialog() {
     setConfirmDialogOpen(false);
+    setAskedAgain(false);
   }
 
   function handleConfirm() {
+    // Nothing is logged: the first tap asks, the second confirms. A session
+    // can be confirmed without a set — the athlete trained and ticked nothing,
+    // or did not train and says so in the note — but not by a slip of the
+    // thumb on the way out of the page: the coach is notified, and the session
+    // leaves "Next" (live item N8).
+    if (nothingLogged && !askedAgain) {
+      setAskedAgain(true);
+      return;
+    }
     // Pin the training date HERE, from the set logs, rather than letting the
     // server's confirmed_at default stand in for it: a confirm queued offline
     // replays whenever connectivity returns, which can be days later.
@@ -390,6 +403,10 @@ export default function SessionView() {
   ).length;
   const totalCount = allLogs.length;
   const progress = totalCount > 0 ? Math.round((resolvedCount / totalCount) * 100) : 0;
+  // What the confirm dialog says before it is answered: the sets the athlete
+  // has dealt with — the ones the bar counts, so a session at 100% is not
+  // confirmed as "10 of 12". A session without a set has nothing to count.
+  const nothingLogged = totalCount > 0 && resolvedCount === 0;
 
   // Top-bar metadata: weekday + exercise count.
   const metaBits = [];
@@ -573,6 +590,11 @@ export default function SessionView() {
         onClose={closeConfirmDialog}
         title={t('student.session.confirmDialogTitle')}
       >
+        {totalCount > 0 && (
+          <p className="sl-mono text-[12px] text-gray-900 mb-1">
+            {t('sessionConfirm.summary', { n: resolvedCount, total: totalCount })}
+          </p>
+        )}
         <p className="sl-mono text-[12px] text-ink-400 mb-3 leading-relaxed">
           {t('student.session.confirmDialogBody')}
         </p>
@@ -587,13 +609,18 @@ export default function SessionView() {
           rows={4}
           className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[16px] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] mb-4"
         />
+        {askedAgain && (
+          <p role="alert" className="text-[13px] text-gray-900 mb-4 leading-relaxed">
+            {t('sessionConfirm.nothingLogged')}
+          </p>
+        )}
         <div className="flex gap-2">
           <button
             onClick={handleConfirm}
             className="flex-1 rounded-lg py-2.5 sl-display text-[13px] text-white"
             style={{ background: 'var(--color-accent)' }}
           >
-            {t('common.confirm')}
+            {askedAgain ? t('sessionConfirm.confirmAnyway') : t('common.confirm')}
           </button>
           <button
             onClick={closeConfirmDialog}

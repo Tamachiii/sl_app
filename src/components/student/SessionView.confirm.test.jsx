@@ -418,6 +418,7 @@ describe('a session confirmed without a network', () => {
     expect(screen.getByText('2 of 4 sets')).toBeInTheDocument();
 
     await user.click(confirmCta());
+    expect(screen.getByText('Sets logged: 2 of 4')).toBeInTheDocument();
     await user.type(notesField(), 'felt strong');
     await user.click(screen.getByRole('button', { name: /^confirm$/i }));
 

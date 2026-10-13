@@ -208,8 +208,8 @@ describe('SessionView', () => {
     mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
     mockSetLogsData = {
       data: [
-        { id: 'l-2', logged_at: new Date(2026, 7, 18, 19, 30).toISOString() },
-        { id: 'l-1', logged_at: new Date(2026, 7, 18, 18, 0).toISOString() },
+        { id: 'l-2', done: true, logged_at: new Date(2026, 7, 18, 19, 30).toISOString() },
+        { id: 'l-1', done: true, logged_at: new Date(2026, 7, 18, 18, 0).toISOString() },
       ],
       isLoading: false,
     };
@@ -363,6 +363,110 @@ describe('SessionView', () => {
       mockConfirmWaiting = true;
       renderSessionView();
       expect(screen.queryByText(/saved on this device/i)).toBeNull();
+    });
+  });
+
+  // Live item N8: "Confirm session" was offered at 0 of 12 sets, and the
+  // dialog said nothing about what was being confirmed.
+  describe('the confirm dialog says what is confirmed', () => {
+    const SLOT = {
+      id: 'slot-1',
+      sets: 3,
+      reps: 10,
+      weight_kg: 20,
+      sort_order: 0,
+      exercise: { name: 'Dip', type: 'push', difficulty: 2, volume_weight: 1 },
+    };
+    const setRow = (n, fields = {}) => ({
+      id: `log-${n}`,
+      exercise_slot_id: 'slot-1',
+      set_number: n,
+      done: false,
+      failed: false,
+      skipped: false,
+      rpe: null,
+      ...fields,
+    });
+    const dialog = () => screen.getByLabelText(/notes for your coach/i).closest('dialog');
+    const inDialog = () => within(dialog());
+
+    function openOn(user, logs) {
+      mockSessionData = { data: { title: 'Push Day', exercise_slots: [SLOT] }, isLoading: false };
+      mockSetLogsData = { data: logs, isLoading: false };
+      renderSessionView();
+      return user.click(screen.getByRole('button', { name: /^confirm session$/i }));
+    }
+
+    it('how many sets are logged, counted like the progress bar: done, failed and skipped', async () => {
+      const user = userEvent.setup();
+      await openOn(user, [setRow(1, { done: true }), setRow(2, { failed: true }), setRow(3)]);
+
+      expect(inDialog().getByText('Sets logged: 2 of 3')).toBeInTheDocument();
+      // Something is logged: one tap confirms.
+      await user.click(inDialog().getByRole('button', { name: /^confirm$/i }));
+      expect(mockConfirm.mutate).toHaveBeenCalledTimes(1);
+    });
+
+    it('the sets of an exercise the athlete skipped count as dealt with', async () => {
+      const user = userEvent.setup();
+      mockDeviations = { data: [{ exercise_slot_id: 'slot-1', kind: 'skip' }], isLoading: false };
+      await openOn(user, [setRow(1), setRow(2), setRow(3)]);
+
+      expect(inDialog().getByText('Sets logged: 3 of 3')).toBeInTheDocument();
+      await user.click(inDialog().getByRole('button', { name: /^confirm$/i }));
+      expect(mockConfirm.mutate).toHaveBeenCalledTimes(1);
+    });
+
+    it('with nothing logged it asks a second time before it confirms', async () => {
+      const user = userEvent.setup();
+      await openOn(user, [setRow(1), setRow(2), setRow(3)]);
+      expect(inDialog().getByText('Sets logged: 0 of 3')).toBeInTheDocument();
+      expect(inDialog().queryByRole('alert')).toBeNull();
+      await user.type(screen.getByLabelText(/notes for your coach/i), 'did it at home');
+
+      await user.click(inDialog().getByRole('button', { name: /^confirm$/i }));
+
+      // Asked, not sent — and the dialog is still there, with the note.
+      expect(mockConfirm.mutate).not.toHaveBeenCalled();
+      expect(inDialog().getByRole('alert')).toHaveTextContent(
+        /you haven’t logged a single set of this session\. confirm it anyway\?/i,
+      );
+      expect(screen.getByLabelText(/notes for your coach/i)).toHaveValue('did it at home');
+      expect(inDialog().queryByRole('button', { name: /^confirm$/i })).toBeNull();
+
+      await user.click(inDialog().getByRole('button', { name: /^confirm anyway$/i }));
+      expect(mockConfirm.mutate).toHaveBeenCalledTimes(1);
+      expect(mockConfirm.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 'sess-1', notes: 'did it at home' }),
+        expect.any(Object),
+      );
+      expect(screen.queryByLabelText(/notes for your coach/i)).toBeNull();
+    });
+
+    it('a dialog that was closed asks again from the start', async () => {
+      const user = userEvent.setup();
+      await openOn(user, [setRow(1), setRow(2), setRow(3)]);
+      await user.click(inDialog().getByRole('button', { name: /^confirm$/i }));
+      expect(inDialog().getByRole('alert')).toBeInTheDocument();
+      await user.click(inDialog().getByRole('button', { name: /^cancel$/i }));
+
+      await user.click(screen.getByRole('button', { name: /^confirm session$/i }));
+
+      expect(inDialog().queryByRole('alert')).toBeNull();
+      await user.click(inDialog().getByRole('button', { name: /^confirm$/i }));
+      expect(mockConfirm.mutate).not.toHaveBeenCalled();
+    });
+
+    it('a session without a set has nothing to count, and is confirmed in one tap', async () => {
+      const user = userEvent.setup();
+      mockSessionData = { data: { title: 'Mobility', exercise_slots: [] }, isLoading: false };
+      mockSetLogsData = { data: [], isLoading: false };
+      renderSessionView();
+      await user.click(screen.getByRole('button', { name: /^confirm session$/i }));
+
+      expect(inDialog().queryByText(/sets logged/i)).toBeNull();
+      await user.click(inDialog().getByRole('button', { name: /^confirm$/i }));
+      expect(mockConfirm.mutate).toHaveBeenCalledTimes(1);
     });
   });
 
