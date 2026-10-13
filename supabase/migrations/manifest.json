@@ -81,6 +81,15 @@
       "covers": ["P57", "L12"],
       "reversible": true,
       "summary": "An athlete changes or takes back a confirmation only while its session is neither archived nor reviewed, and not while the review is being written; a signed-in user marks a session as reviewed, or sends feedback on it, only once its athlete has confirmed it (session_is_confirmed) — sessions reviewed without a confirmation before stay as they are and can still be confirmed; a confirmation, a swap or a skip that is taken back takes its unread coach notifications with it, and the ones that are stale today are deleted; the push of a confirmation is tagged by session."
+    },
+    {
+      "name": "2026_10_13_10_goals_fk_coach_links",
+      "kind": "required",
+      "wave": 1,
+      "checkpoint": "A2",
+      "covers": ["P18", "L7", "P21", "B9"],
+      "reversible": true,
+      "summary": "A library exercise that a goal is set on cannot be deleted, nor the profile of a coach while an athlete is linked to it or a goal names it (goals.exercise_id, goals.coach_id and students.coach_id are ON DELETE RESTRICT); exercise_library has archived_at, which nothing reads yet; a coach reads the progress of a goal only while they coach its athlete (coach_profile_for_goal follows the link); transfer_student(athlete, new coach) moves the link and the athlete's goals together, for the owner of the database and the service role only."
     }
   ]
 }

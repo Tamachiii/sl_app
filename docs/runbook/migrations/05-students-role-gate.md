@@ -206,5 +206,5 @@ It returns one row: the link. The athlete sees their coach, and the coach sees t
 
 Two things this page does not cover, on purpose:
 
-- **Moving an athlete to another coach.** Do not rewrite `coach_id` by hand: the athlete's goals belong to the former coach, and so do the exercises in their programs. Migration 10 of this checkpoint brings a function for it; until it is applied, do not move an athlete.
+- **Moving an athlete to another coach.** Do not rewrite `coach_id` by hand: the athlete's goals belong to the former coach, and so do the exercises in their programs. Migration 10 of this checkpoint brings a function for it ([10, Moving an athlete to another coach](10-goals-fk-coach-links.md#moving-an-athlete-to-another-coach)); until it is applied, do not move an athlete.
 - **Removing an athlete.** `delete from public.students …` takes the athlete's programs with it, and is refused as soon as they have logged a set ([04, logged training](04-logged-history-guards.md)). Leave the link in place.

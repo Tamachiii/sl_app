@@ -180,7 +180,7 @@ It returns one row, with `coach` under `role`. The account opens on the coach's 
 | `profile … cannot be made a coach: it is the athlete of a coach` | the account trains under a coach, and an account is a coach or an athlete, not both. Nothing was written. Create a second account for coaching, with another address |
 | `permission denied for table users` | the SQL editor is not running as `postgres`: the role selector of the editor is set to a user of the app. Set it back to `postgres` and run the statement again |
 
-**Taking the role back** is the same statement with `'student'` in place of `'coach'`. It is refused — `profile … cannot stop being a coach: it has N athlete(s)` — as long as the account has athletes: they go to another coach first, with the function migration 10 of this checkpoint brings. Do not delete their links to get it through.
+**Taking the role back** is the same statement with `'student'` in place of `'coach'`. It is refused — `profile … cannot stop being a coach: it has N athlete(s)` — as long as the account has athletes: they go to another coach first, with the function migration 10 of this checkpoint brings ([10, Moving an athlete to another coach](10-goals-fk-coach-links.md#moving-an-athlete-to-another-coach)). Do not delete their links to get it through.
 
 Each coach has a roster, a library and messages of their own: a second coach sees none of the first one's athletes, and none of their exercises.
 

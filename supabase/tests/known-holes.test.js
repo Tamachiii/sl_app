@@ -311,12 +311,17 @@ describe('P13 — coach-owned session columns in a student draft', () => {
 });
 
 // ------------------------------------------------------------
-// P18 / L7 — goals.exercise_id is ON DELETE CASCADE (slots and deviations
-// are RESTRICT): tidying the library wipes the athletes' goals and the
-// progress they logged against them.
+// P18 / L7 — CLOSED by 2026_10_13_10_goals_fk_coach_links: this one is a plain
+// test now. goals.exercise_id was ON DELETE CASCADE (slots and deviations are
+// RESTRICT): tidying the library wiped the athletes' goals and the progress
+// they had logged against them. The foreign key is RESTRICT now, like the
+// other two, and the exercise is archived instead (exercise_library.archived_at).
+// Every other path — the owner of the database and the service role, a goal
+// that is deleted first, an archived exercise, the account of a coach, an
+// athlete who changes coach — is in goals.test.js.
 // ------------------------------------------------------------
 describe('P18/L7 — deleting a library exercise that a goal uses', () => {
-  it.fails('P18/L7 — deleting an exercise_library row used by a goal is restricted', () => scenario(async (q) => {
+  it('P18/L7 — deleting an exercise_library row used by a goal is restricted', () => scenario(async (q) => {
     const goal = await q.value(
       `insert into goals (student_id, coach_id, exercise_id, kind, target_weight_kg)
        values ($1, $2, $3, 'one_rm', 100) returning id`,

@@ -26,10 +26,15 @@ CREATE TABLE public.profiles (
 -- this table who coaches whom. No signed-in user inserts or deletes a row,
 -- and none moves a link; what a row may say is held by trg_check_students_link
 -- (section THE COACH ↔ ATHLETE LINK, 2026_10_11_05).
+--
+-- The two ends are not deleted alike (2026_10_13_10). The ATHLETE's account
+-- takes its own link with it, and through it their programs: CASCADE. A
+-- COACH's account does not take other people's training with it: RESTRICT —
+-- their athletes are moved first, with public.transfer_student().
 CREATE TABLE public.students (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   profile_id  uuid NOT NULL UNIQUE REFERENCES public.profiles(id) ON DELETE CASCADE,
-  coach_id    uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  coach_id    uuid NOT NULL REFERENCES public.profiles(id) ON DELETE RESTRICT,
   notes       text,
   created_at  timestamptz NOT NULL DEFAULT now()
 );
@@ -122,8 +127,21 @@ CREATE TABLE public.exercise_library (
   -- resistance; 'added' = logged weight is added on top of bodyweight (system
   -- load = bodyweight + added). See 2026_07_23_exercise_load_mode.sql.
   load_mode     text CHECK (load_mode IS NULL OR load_mode IN ('full','added')),
+  -- An exercise that a slot, a swap or a goal names cannot be deleted (three
+  -- RESTRICT foreign keys): it is archived instead (2026_10_13_10). Written by
+  -- its coach through "Coaches manage own library"; read by their athletes
+  -- like any other column. Nothing below refuses an archived exercise — a
+  -- slot that holds one is copied, a goal on one is still logged against:
+  -- leaving it out of the pickers is the client's rule.
+  archived_at   timestamptz,
   created_at    timestamptz NOT NULL DEFAULT now()
 );
+
+COMMENT ON COLUMN public.exercise_library.archived_at IS
+  'When its coach archived the exercise; NULL = in use. An archived exercise '
+  'is left out of the pickers and stays readable for the slots, swaps, goals '
+  'and history that name it. Nothing in the database refuses one: hiding it '
+  'is the client''s rule (2026_10_13_10).';
 
 -- Exercise slots (exercise placed in a session)
 CREATE TABLE public.exercise_slots (
@@ -745,6 +763,17 @@ CREATE POLICY "Coaches read confirmations for their students"
 -- GOALS
 -- Coach-set targets for a student (1RM or "sets x reps @ weight" format).
 -- Students track attempts via goal_progress and can mark goals achieved.
+--
+-- What a goal points at (2026_10_13_10):
+--   student_id   CASCADE — a goal is its athlete's, and goes with their account
+--   coach_id     RESTRICT — a coach's account is not deleted over the goals
+--                they set; public.transfer_student() hands them to the
+--                athlete's new coach, together with the link
+--   exercise_id  RESTRICT — like the exercise of a slot: tidying the library
+--                does not delete a goal and the attempts logged against it
+--                (review P18, L7). The exercise is archived instead.
+-- goal_progress follows its goal (CASCADE): deleting a GOAL is its coach's
+-- decision, and removes its attempts.
 -- ============================================================
 DO $$ BEGIN
   CREATE TYPE goal_kind AS ENUM ('one_rm', 'format');
@@ -754,8 +783,8 @@ END $$;
 CREATE TABLE IF NOT EXISTS public.goals (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   student_id       uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  coach_id         uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  exercise_id      uuid NOT NULL REFERENCES public.exercise_library(id) ON DELETE CASCADE,
+  coach_id         uuid NOT NULL REFERENCES public.profiles(id) ON DELETE RESTRICT,
+  exercise_id      uuid NOT NULL REFERENCES public.exercise_library(id) ON DELETE RESTRICT,
   kind             goal_kind NOT NULL,
   target_weight_kg numeric(6,2) NOT NULL,
   target_sets      int,
@@ -786,9 +815,21 @@ RETURNS uuid AS $$
   SELECT student_id FROM public.goals WHERE id = g
 $$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
+-- The coach of a goal: the profile that set it, WHILE public.students links
+-- that profile to the goal's athlete — NULL otherwise (2026_10_13_10, review
+-- P21). It used to answer goals.coach_id alone, and a coach went on reading
+-- the progress of an athlete who had moved to another one. The rule is the
+-- one "Coaches manage goals for their students" asks of the goal itself:
+-- coach_id = auth.uid() AND the link. A goal left with a former coach is read
+-- by its athlete alone until public.transfer_student() hands it over.
 CREATE OR REPLACE FUNCTION public.coach_profile_for_goal(g uuid)
 RETURNS uuid AS $$
-  SELECT coach_id FROM public.goals WHERE id = g
+  SELECT gl.coach_id
+    FROM public.goals gl
+    JOIN public.students s
+      ON s.profile_id = gl.student_id
+     AND s.coach_id = gl.coach_id
+   WHERE gl.id = g
 $$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
 ALTER TABLE public.goals         ENABLE ROW LEVEL SECURITY;
@@ -3655,6 +3696,97 @@ CREATE TRIGGER trg_check_deviation_substitute_in_coach_library
   FOR EACH ROW
   EXECUTE FUNCTION public.check_deviation_substitute_in_coach_library();
 
+-- Moving an athlete to another coach (2026_10_13_10, review P21): the link
+-- and the goals, together. students.coach_id says who coaches the athlete,
+-- goals.coach_id who manages each of their goals, and the policies on goals
+-- and on goal_progress ask for both — moved one without the other, the goals
+-- are managed by nobody.
+--
+--   p_student     the PROFILE id of the athlete (what auth.users, profiles
+--                 and goals.student_id hold) — not the id of the students row
+--   p_new_coach   the profile id of the coach they go to
+--
+--   select public.transfer_student(athlete.id, coach.id)
+--     from auth.users athlete, auth.users coach
+--    where athlete.email = '…' and coach.email = '…';
+-- (docs/runbook/migrations/10-goals-fk-coach-links.md — "Moving an athlete to
+-- another coach".)
+--
+-- Called with the coach the athlete already has, it moves no link and hands
+-- over the goals that were left with a former coach.
+--
+-- NOT FOR A SIGNED-IN USER, three times over: no EXECUTE for `authenticated`
+-- (it is not in the FUNCTION PRIVILEGES block: the owner and the service role
+-- call it); its first lines refuse a request that carries a user id; and
+-- trg_check_students_link, above, refuses with a user id any UPDATE that
+-- moves a link. SECURITY INVOKER for the same reason: it is given no right
+-- its caller does not have.
+--
+-- The new coach must be a profile with the role coach, and not the athlete
+-- themselves: that is trg_check_students_link's to say (23514). A profile
+-- that does not exist is the foreign key's (23503).
+--
+-- It does NOT move the exercises: the slots of the athlete's programs and
+-- their goals keep pointing at the library of the former coach. A table that
+-- gets a coach_id next to a student_id joins the body of this function, or
+-- says why it stays with the former coach.
+CREATE OR REPLACE FUNCTION public.transfer_student(p_student uuid, p_new_coach uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_link_id    uuid;
+  v_from_coach uuid;
+  v_goals      integer;
+BEGIN
+  IF auth.uid() IS NOT NULL THEN
+    RAISE EXCEPTION 'an athlete is moved to another coach by the owner of the database, not from the app'
+      USING ERRCODE = 'insufficient_privilege',
+            HINT = 'transfer_student is called from the SQL editor or with the service-role key.';
+  END IF;
+
+  IF p_student IS NULL OR p_new_coach IS NULL THEN
+    RAISE EXCEPTION 'transfer_student needs the profile id of the athlete and of the new coach'
+      USING ERRCODE = 'null_value_not_allowed',
+            HINT = 'One of the two is NULL: an e-mail address that is not an account gives no id.';
+  END IF;
+
+  -- The row is held until the end of the transaction: two transfers of the
+  -- same athlete wait for each other.
+  SELECT s.id, s.coach_id INTO v_link_id, v_from_coach
+    FROM public.students s
+   WHERE s.profile_id = p_student
+     FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'profile % is not the athlete of a coach: there is no link to move', p_student
+      USING ERRCODE = 'no_data_found',
+            HINT = 'A first link is made with: insert into public.students (profile_id, coach_id) values (…, …).';
+  END IF;
+
+  IF v_from_coach IS DISTINCT FROM p_new_coach THEN
+    UPDATE public.students
+       SET coach_id = p_new_coach
+     WHERE id = v_link_id;
+  END IF;
+
+  UPDATE public.goals
+     SET coach_id = p_new_coach
+   WHERE student_id = p_student
+     AND coach_id IS DISTINCT FROM p_new_coach;
+  GET DIAGNOSTICS v_goals = ROW_COUNT;
+
+  RETURN jsonb_build_object(
+    'student_id',    p_student,
+    'from_coach_id', v_from_coach,
+    'to_coach_id',   p_new_coach,
+    'link_moved',    v_from_coach IS DISTINCT FROM p_new_coach,
+    'goals_moved',   v_goals
+  );
+END;
+$$;
+
 -- ============================================================
 -- Client error telemetry (2026_07_13)
 -- Insert-only per authenticated user (own errors); coach-only read for
@@ -3939,4 +4071,5 @@ INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_11_06_pin_student_writes'),
   ('2026_10_11_07_profile_rules'),
   ('2026_10_12_08_session_write_gates'),
-  ('2026_10_13_09_review_lifecycle');
+  ('2026_10_13_09_review_lifecycle'),
+  ('2026_10_13_10_goals_fk_coach_links');
