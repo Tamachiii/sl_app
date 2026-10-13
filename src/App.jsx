@@ -6,7 +6,7 @@ import { AuthProvider, useAuth } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
 import { I18nProvider } from './hooks/useI18n';
 import { usePushAutoHeal } from './hooks/usePushAutoHeal';
-import { queryClient, queryPersister, persistOptions, replayQueuedWrites } from './lib/queryClient';
+import { queryClient, queryPersister, cacheOwner, persistOptions, replayQueuedWrites } from './lib/queryClient';
 import { routes } from './routes';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import { installGlobalErrorReporting } from './lib/errorReporter';
@@ -21,49 +21,79 @@ function AppRoutes() {
 // The cache belongs to one account: what it read, and the writes it still owes
 // the database. On a shared device the next account must find neither — the
 // reads would be shown to it, the writes sent under its name. So the cache in
-// memory and the blob in IndexedDB are both wiped when the account is not the
-// one they belong to. Two things say so:
-//   - the signed-in user changed while the app was open (sign-out, sign-in,
-//     another account);
-//   - the blob restored at launch names another owner than the account that
-//     is signed in. The persister writes that name with the blob
-//     (lib/persistence.js): what happened while the app was closed left no
-//     other trace.
+// memory and the blob in IndexedDB are both wiped, in exactly three cases:
+//   - ANOTHER account is signed in than the one the cache belongs to. The
+//     persister writes that owner with the blob (lib/persistence.js), so this
+//     is seen at launch as well — what happened while the app was closed left
+//     no other trace;
+//   - the user SIGNED OUT of this device (`signOuts` of useAuth);
+//   - the cache does not say whose it is, and NOBODY is signed in to claim it
+//     (below).
+//
+// "Nobody is signed in" is, for a cache that has an owner, none of these. It
+// is also what a session looks like that went away without anyone asking: a
+// token the server refused to refresh, a sign-out on another device. The cache
+// used to be wiped on any change of the signed-in user, that one included —
+// and with it the unsynced workout of an athlete who then signed in again, as
+// the same person. What nobody signed out of stays, labelled with its owner:
+// the same account finds it again, and another one falls under the first case.
+//
+// That rests on the label, and a cache can be without one: every blob written
+// by the app as it was deployed before the label, and whatever was read since
+// the last wipe. Opened by the account this device is signed in as, such a
+// cache is taken for that account's and labelled — nothing says otherwise, and
+// it is what that app did. With nobody signed in there is no one to take it
+// for, and no way to tell the account that signs in next from a stranger: it
+// is wiped. At once, not when that account arrives: a sign-in replays the
+// queue from the auth listener, before this effect has run, and an unlabelled
+// write is held back by nothing (`ownsQueue` in lib/offlineMutations.js) — it
+// would leave under the newcomer's session on its way to being wiped.
+//
 // Nothing is decided while the blob is still being read: a wipe would be
-// followed by the restore it was meant to prevent. A change of user seen in
-// that moment is remembered and acted on once the restore is over. (The queue
-// does not go out in the meantime: a write is sent only under the session of
-// the account the cache belongs to — `ownsQueue` in lib/offlineMutations.js.)
+// followed by the restore it was meant to prevent. A sign-out seen in that
+// moment is remembered and acted on once the restore is over, and so is the
+// fact that nobody was signed in. (A labelled queue does not go out in the
+// meantime: a write is sent only under the session of the account the cache
+// belongs to.)
 //
 // The version of the stored reads is not handled here: that is `CACHE_BUSTER`
 // in lib/persistence.js, which drops the reads of an older blob and keeps its
 // queued writes.
 export function ClearOnUserChange() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, signOuts = 0 } = useAuth();
   const isRestoring = useIsRestoring();
-  const prevUserId = useRef(undefined);
+  const signOutsSeen = useRef(signOuts);
+  // Nobody was signed in at some moment since the last decision.
+  const nobodySeen = useRef(false);
   const wipeDue = useRef(false);
   useEffect(() => {
+    if (signOuts !== signOutsSeen.current) {
+      signOutsSeen.current = signOuts;
+      wipeDue.current = true;
+    }
     if (isLoading) return;
     const currentId = user?.id ?? null;
-    if (prevUserId.current !== undefined && prevUserId.current !== currentId) wipeDue.current = true;
-    prevUserId.current = currentId;
+    if (currentId === null) nobodySeen.current = true;
     if (isRestoring) return;
 
-    const owner = queryPersister?.getOwner() ?? null;
-    if (currentId !== null && owner !== null && owner !== currentId) wipeDue.current = true;
+    // Whose the cache is: the persister's word, or the app's own on a browser
+    // without IndexedDB (lib/queryClient.js).
+    const owner = cacheOwner.get();
+    if (owner === null ? nobodySeen.current : currentId !== null && owner !== currentId) {
+      wipeDue.current = true;
+    }
+    nobodySeen.current = false;
     if (wipeDue.current) {
       wipeDue.current = false;
       queryClient.clear();
-      // Also forgets the owner: what is stored from here on is nobody's until
-      // the line below says whose.
+      // What is held from here on is nobody's until the lines below say whose.
       queryPersister?.removeClient();
+      cacheOwner.set(null);
     }
-    // Only a known account is written down. "Nobody signed in" is also what a
-    // token that could not be refreshed looks like, and the cache is still
-    // that account's.
-    if (currentId !== null) queryPersister?.setOwner(currentId);
-  }, [user, isLoading, isRestoring]);
+    // Only a known account is written down. With nobody signed in a cache that
+    // has an owner is still its owner's.
+    if (currentId !== null) cacheOwner.set(currentId);
+  }, [user, isLoading, isRestoring, signOuts]);
   return null;
 }
 

@@ -150,6 +150,30 @@ export const persistOptions = queryStorage
 
 export const queryPersister = persistOptions?.persister ?? null;
 
+// Whose cache this is — the reads, and the writes of the queue. The persister
+// knows: it reads the owner off the stored blob and writes it back with every
+// save (lib/persistence.js). A browser without IndexedDB has no persister, and
+// its cache lives for as long as the page: the owner is then kept here.
+//
+// It is ONE answer because two parts of the app ask, and must hear the same:
+// `ClearOnUserChange` (App.jsx), which wipes a cache that is not the signed-in
+// account's, and the gate of the queue (`ownsQueue`, lib/offlineMutations.js),
+// which holds every write back until that wipe has happened. The second asks
+// first: a sign-in replays the queue from the auth listener, before React has
+// rendered anything. Kept inside the component, the owner of a cache without a
+// persister was unknown to the gate, and one account's queued set could leave
+// under the session of the next.
+let ownerInMemory = null;
+export const cacheOwner = {
+  /** The account the cache belongs to, or null when that is not known. */
+  get: () => (queryPersister ? queryPersister.getOwner() : ownerInMemory),
+  /** Say whose it is, or — null — that it is nobody's. It only labels. */
+  set(userId) {
+    if (queryPersister) queryPersister.setOwner(userId);
+    else ownerInMemory = userId ?? null;
+  },
+};
+
 // A draft whose edits the database does not have (lib/draftTree.js): the tree
 // that carries the marker, and the pointer to it — for a draft created without
 // a network the server has no row at all, and without the pointer the builder
@@ -294,11 +318,9 @@ export const queryClient = new QueryClient({
   },
 });
 
-// The queue is replayed for the account it belongs to and for no other: the
-// persisted cache knows whose it is (`owner`, lib/persistence.js).
-registerOfflineMutationDefaults(queryClient, {
-  queueOwner: () => queryPersister?.getOwner() ?? null,
-});
+// The queue is replayed for the account it belongs to and for no other
+// (`cacheOwner` above).
+registerOfflineMutationDefaults(queryClient, { queueOwner: cacheOwner.get });
 
 // --- what is read again, and when ----------------------------------------------
 //

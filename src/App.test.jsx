@@ -4,9 +4,10 @@ import { IsRestoringProvider, QueryClient, QueryClientProvider, dehydrate } from
 import { persistQueryClientRestore, persistQueryClientSave } from '@tanstack/react-query-persist-client';
 
 // `ClearOnUserChange`: the one thing between what an account left on a device
-// and the next account that uses it. Tested on the app's real client and its
-// real persister — what is asserted is what is in memory and what is in the
-// store, not which function was called. (The provider of the same file,
+// and the next account that uses it — and the one thing that can throw an
+// unsynced workout away. Tested on the app's real client and its real
+// persister — what is asserted is what is in memory and what is in the store,
+// not which function was called. (The provider of the same file,
 // `CacheBoundary`, is in lib/persistence.test.js with the queue it stores.)
 
 // --- the device's store: one Map per test ------------------------------------------
@@ -51,9 +52,15 @@ vi.mock('./lib/errorReporter', () => ({
 
 const A = 'u-athlete-a';
 const B = 'u-athlete-b';
-const signedIn = (id) => ({ user: { id }, isLoading: false });
-const signedOut = { user: null, isLoading: false };
-const loading = { user: null, isLoading: true };
+// What useAuth hands over. `signOuts` counts the times the user signed out of
+// this device; a session that went away by itself leaves it where it was.
+const signedIn = (id, signOuts = 0) => ({ user: { id }, isLoading: false, signOuts });
+// Nobody is signed in, and nobody signed out: the token could not be
+// refreshed, the server ended the session, another device signed out.
+const sessionGone = { user: null, isLoading: false, signOuts: 0 };
+// The user tapped "Sign out" here.
+const signedOut = { user: null, isLoading: false, signOuts: 1 };
+const loading = { user: null, isLoading: true, signOuts: 0 };
 
 // The app as a page load finds it, on a browser that has IndexedDB.
 async function launchApp() {
@@ -171,7 +178,7 @@ describe('the app is opened on what a device holds', () => {
   });
 
   it('by nobody — the token could not be refreshed: the cache waits, and is still its owner\'s', async () => {
-    const { app } = await openOn({ owner: A, as: signedOut });
+    const { app } = await openOn({ owner: A, as: sessionGone });
     await turn();
 
     expect(inMemory(app)).toEqual({ reads: 1, writes: 1 });
@@ -180,6 +187,34 @@ describe('the app is opened on what a device holds', () => {
     expect(app.queryPersister.getOwner()).toBe(A);
     await save(app);
     expect(onDevice().owner).toBe(A);
+  });
+
+  // The trace of review P5: an installed app opened offline on an expired
+  // token reported nobody, then — the network back, the token refreshed — its
+  // owner. "Nobody, then A" was taken for a change of user, and the workout
+  // logged in the basement was wiped on the reconnect that should have sent it.
+  it('by nobody, and then the session comes back: the reads and the queued set are still there', async () => {
+    const { app, view } = await openOn({ owner: A, as: sessionGone });
+    await turn();
+
+    view.auth(signedIn(A));
+    await turn();
+
+    expect(inMemory(app)).toEqual({ reads: 1, writes: 1 });
+    expect(device.store.has(BLOB)).toBe(true);
+    expect(app.queryPersister.getOwner()).toBe(A);
+  });
+
+  it('by nobody, and then ANOTHER account signs in: wiped', async () => {
+    const { app, view } = await openOn({ owner: A, as: sessionGone });
+    await turn();
+
+    view.auth(signedIn(B));
+    await turn();
+
+    expect(inMemory(app)).toEqual({ reads: 0, writes: 0 });
+    expect(device.store.has(BLOB)).toBe(false);
+    expect(app.queryPersister.getOwner()).toBe(B);
   });
 
   it('a blob that does not say whose it is is kept, as before, and labelled with the account that opens it', async () => {
@@ -191,6 +226,61 @@ describe('the app is opened on what a device holds', () => {
     await save(app);
     expect(onDevice().owner).toBe(A);
     expect(onDevice().clientState.mutations).toHaveLength(1);
+  });
+
+  // The same blob on a device where nobody is signed in: whose it is cannot be
+  // known, so it cannot be kept for anybody. The app deployed before the label
+  // wiped it at the next sign-in, whoever signed in.
+  it('a blob that does not say whose it is, opened by nobody: wiped, and the account that signs in next finds nothing of it', async () => {
+    const { app, view } = await openOn({ owner: undefined, as: sessionGone });
+    await turn();
+
+    // At once — not when somebody signs in: the replay a sign-in starts must
+    // find nothing to send.
+    expect(inMemory(app)).toEqual({ reads: 0, writes: 0 });
+    expect(device.store.has(BLOB)).toBe(false);
+    expect(app.queryPersister.getOwner()).toBeNull();
+
+    view.auth(signedIn(B));
+    await turn();
+
+    expect(inMemory(app)).toEqual({ reads: 0, writes: 0 });
+    expect(device.store.has(BLOB)).toBe(false);
+    expect(app.queryPersister.getOwner()).toBe(B);
+  });
+
+  it('…also when that account signs in before the blob has been read', async () => {
+    const { CACHE_BUSTER } = await import('./lib/persistence');
+    leftOnDevice({ owner: undefined, buster: CACHE_BUSTER });
+    auth.now = sessionGone;
+    const app = await launchApp();
+    const view = mount(app, { restoring: true });
+
+    view.auth(signedIn(B));
+    await restore(app);
+    expect(inMemory(app)).toEqual({ reads: 1, writes: 1 });
+    view.restored();
+    await turn();
+
+    expect(inMemory(app)).toEqual({ reads: 0, writes: 0 });
+    expect(device.store.has(BLOB)).toBe(false);
+    expect(app.queryPersister.getOwner()).toBe(B);
+  });
+
+  it('a labelled blob is not touched by the same moment: nobody, then its owner, before it has been read', async () => {
+    const { CACHE_BUSTER } = await import('./lib/persistence');
+    leftOnDevice({ owner: A, buster: CACHE_BUSTER });
+    auth.now = sessionGone;
+    const app = await launchApp();
+    const view = mount(app, { restoring: true });
+
+    view.auth(signedIn(A));
+    await restore(app);
+    view.restored();
+    await turn();
+
+    expect(inMemory(app)).toEqual({ reads: 1, writes: 1 });
+    expect(app.queryPersister.getOwner()).toBe(A);
   });
 
   it('nothing is decided while auth is still loading, and the first account it reports is not a change', async () => {
@@ -206,8 +296,50 @@ describe('the app is opened on what a device holds', () => {
   });
 });
 
-describe('the signed-in user changes while the app is open', () => {
-  it('sign-out: memory and device are wiped, and what is stored next is nobody\'s', async () => {
+describe('the session goes away while the app is open, and nobody signed out', () => {
+  it('nothing is wiped: what the device holds is still its owner\'s', async () => {
+    const { app, view } = await openOn({ owner: A, as: signedIn(A) });
+
+    view.auth(sessionGone);
+    await turn();
+
+    expect(inMemory(app)).toEqual({ reads: 1, writes: 1 });
+    expect(device.store.has(BLOB)).toBe(true);
+    expect(app.queryPersister.getOwner()).toBe(A);
+    await save(app);
+    expect(onDevice().owner).toBe(A);
+    expect(onDevice().clientState.mutations).toHaveLength(1);
+  });
+
+  it('A, nobody, A: the same account signs in again and finds its cache and its queue', async () => {
+    const { app, view } = await openOn({ owner: A, as: signedIn(A) });
+
+    view.auth(sessionGone);
+    await turn();
+    view.auth(signedIn(A));
+    await turn();
+
+    expect(inMemory(app)).toEqual({ reads: 1, writes: 1 });
+    expect(device.store.has(BLOB)).toBe(true);
+    expect(app.queryPersister.getOwner()).toBe(A);
+  });
+
+  it('A, nobody, B: another account signs in instead and finds nothing', async () => {
+    const { app, view } = await openOn({ owner: A, as: signedIn(A) });
+
+    view.auth(sessionGone);
+    await turn();
+    view.auth(signedIn(B));
+    await turn();
+
+    expect(inMemory(app)).toEqual({ reads: 0, writes: 0 });
+    expect(device.store.has(BLOB)).toBe(false);
+    expect(app.queryPersister.getOwner()).toBe(B);
+  });
+});
+
+describe('the user signs out of the device', () => {
+  it('memory and device are wiped, and what is stored next is nobody\'s', async () => {
     const { app, view } = await openOn({ owner: A, as: signedIn(A) });
 
     view.auth(signedOut);
@@ -218,12 +350,24 @@ describe('the signed-in user changes while the app is open', () => {
     expect(app.queryPersister.getOwner()).toBeNull();
   });
 
+  it('the same account signs in again: it starts from nothing — a sign-out is not undone', async () => {
+    const { app, view } = await openOn({ owner: A, as: signedIn(A) });
+    view.auth(signedOut);
+    await turn();
+
+    view.auth(signedIn(A, 1));
+    await turn();
+
+    expect(inMemory(app)).toEqual({ reads: 0, writes: 0 });
+    expect(app.queryPersister.getOwner()).toBe(A);
+  });
+
   it('then another account signs in: it starts from nothing, and what it reads is stored under its name', async () => {
     const { app, view } = await openOn({ owner: A, as: signedIn(A) });
     view.auth(signedOut);
     await turn();
 
-    view.auth(signedIn(B));
+    view.auth(signedIn(B, 1));
     app.queryClient.setQueryData(['session', 's-9'], { id: 's-9', title: 'Pull' });
     await save(app);
 
@@ -233,31 +377,23 @@ describe('the signed-in user changes while the app is open', () => {
     expect(onDevice().clientState.mutations).toEqual([]);
   });
 
-  it('one account straight after the other, without a sign-out in between: wiped all the same', async () => {
+  it('is acted on once: what the next account reads afterwards is not wiped by the sign-out before it', async () => {
     const { app, view } = await openOn({ owner: A, as: signedIn(A) });
+    view.auth(signedOut);
+    await turn();
+    view.auth(signedIn(B, 1));
+    app.queryClient.setQueryData(['session', 's-9'], { id: 's-9', title: 'Pull' });
 
-    view.auth(signedIn(B));
+    // A token refresh, a profile that arrives: useAuth hands over the same again.
+    view.auth(signedIn(B, 1));
+    view.auth({ ...signedIn(B, 1), isLoading: true });
+    view.auth(signedIn(B, 1));
     await turn();
 
-    expect(inMemory(app)).toEqual({ reads: 0, writes: 0 });
-    expect(device.store.has(BLOB)).toBe(false);
-    expect(app.queryPersister.getOwner()).toBe(B);
+    expect(inMemory(app)).toEqual({ reads: 1, writes: 0 });
   });
 
-  it('the same account again is not a change: a token refresh or a return to the tab hands over a new user object', async () => {
-    const { app, view } = await openOn({ owner: A, as: signedIn(A) });
-
-    view.auth(signedIn(A));
-    view.auth({ ...signedIn(A), isLoading: true });
-    view.auth(signedIn(A));
-    await turn();
-
-    expect(inMemory(app)).toEqual({ reads: 1, writes: 1 });
-    expect(device.store.has(BLOB)).toBe(true);
-    expect(app.queryPersister.getOwner()).toBe(A);
-  });
-
-  it('a change seen while the stored blob is still being read is acted on once it is there: the restore cannot bring back what the wipe was for', async () => {
+  it('a sign-out seen while the stored blob is still being read is acted on once it is there: the restore cannot bring back what the wipe was for', async () => {
     const { CACHE_BUSTER } = await import('./lib/persistence');
     leftOnDevice({ owner: A, buster: CACHE_BUSTER });
     auth.now = signedIn(A);
@@ -280,15 +416,83 @@ describe('the signed-in user changes while the app is open', () => {
   });
 });
 
+describe('another account, while the app is open', () => {
+  it('one account straight after the other, without a sign-out in between: wiped', async () => {
+    const { app, view } = await openOn({ owner: A, as: signedIn(A) });
+
+    view.auth(signedIn(B));
+    await turn();
+
+    expect(inMemory(app)).toEqual({ reads: 0, writes: 0 });
+    expect(device.store.has(BLOB)).toBe(false);
+    expect(app.queryPersister.getOwner()).toBe(B);
+  });
+
+  it('the same account again is not a change: a token refresh or a return to the tab hands over a new user object', async () => {
+    const { app, view } = await openOn({ owner: A, as: signedIn(A) });
+
+    view.auth(signedIn(A));
+    view.auth({ ...signedIn(A), isLoading: true });
+    view.auth(signedIn(A));
+    await turn();
+
+    expect(inMemory(app)).toEqual({ reads: 1, writes: 1 });
+    expect(device.store.has(BLOB)).toBe(true);
+    expect(app.queryPersister.getOwner()).toBe(A);
+  });
+});
+
 describe('on a browser without IndexedDB', () => {
-  it('there is no persister, and a change of user still empties the cache in memory', async () => {
+  async function openWithoutStore() {
     vi.unstubAllGlobals();
     auth.now = signedIn(A);
     const app = await launchApp();
     expect(app.queryPersister).toBeNull();
     app.queryClient.setQueryData(['session', 's-1'], { id: 's-1' });
-    const view = mount(app);
+    return { app, view: mount(app) };
+  }
 
+  it('there is no persister, and another account still empties the cache in memory', async () => {
+    const { app, view } = await openWithoutStore();
+
+    view.auth(signedIn(B));
+
+    expect(inMemory(app)).toEqual({ reads: 0, writes: 0 });
+  });
+
+  it('so does a sign-out', async () => {
+    const { app, view } = await openWithoutStore();
+
+    view.auth(signedOut);
+
+    expect(inMemory(app)).toEqual({ reads: 0, writes: 0 });
+  });
+
+  // The gate of the queue asks the same owner as the wipe (`cacheOwner`), and
+  // asks first: App.offline.test.jsx has the set that waits in memory.
+  it('whose the cache is is known all the same, and outside the component', async () => {
+    const { app, view } = await openWithoutStore();
+    expect(app.cacheOwner.get()).toBe(A);
+
+    view.auth(sessionGone);
+    expect(app.cacheOwner.get()).toBe(A);
+
+    view.auth(signedOut);
+    expect(app.cacheOwner.get()).toBeNull();
+
+    view.auth(signedIn(B, 1));
+    expect(app.cacheOwner.get()).toBe(B);
+  });
+
+  it('and a session that went away and came back does not', async () => {
+    const { app, view } = await openWithoutStore();
+
+    view.auth(sessionGone);
+    view.auth(signedIn(A));
+
+    expect(inMemory(app)).toEqual({ reads: 1, writes: 0 });
+
+    view.auth(sessionGone);
     view.auth(signedIn(B));
 
     expect(inMemory(app)).toEqual({ reads: 0, writes: 0 });

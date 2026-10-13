@@ -376,6 +376,90 @@ describe('what signs the user out', () => {
   });
 });
 
+describe('signing out of the device', () => {
+  async function openAsA() {
+    deviceStores({ user: A, profile: ROW_A });
+    supabase.auth.getSession.mockResolvedValue(sessionAnswer(A));
+    profileReads(row(ROW_A));
+    const app = openApp();
+    await waitFor(() => expect(app.now().profile).toEqual(ROW_A));
+    return app;
+  }
+  const sessionOnDevice = () => localStorage.getItem(STORAGE_KEY);
+  const signOut = (app) =>
+    act(async () => {
+      await app.now().signOut();
+    });
+
+  it('with a server that answers: auth-js ends the session, and the sign-out is counted', async () => {
+    supabase.auth.signOut.mockResolvedValue({ error: null });
+    const app = await openAsA();
+    expect(app.now().signOuts).toBe(0);
+
+    await signOut(app);
+
+    expect(supabase.auth.signOut).toHaveBeenCalledTimes(1);
+    expect(app.now()).toMatchObject({ user: null, profile: null, role: null, signOuts: 1 });
+    expect(localStorage.getItem(PROFILE_CACHE_KEY)).toBeNull();
+  });
+
+  it('without a network: the server is not asked, and the device forgets the session itself', async () => {
+    const app = await openAsA();
+    deviceIs(false);
+
+    await signOut(app);
+
+    expect(supabase.auth.signOut).not.toHaveBeenCalled();
+    expect(sessionOnDevice()).toBeNull();
+    expect(app.now()).toMatchObject({ user: null, profile: null, signOuts: 1 });
+  });
+
+  it('with a server that does not answer: auth-js leaves the session, the device forgets it', async () => {
+    // What auth-js returns when the logout request got no answer. The stored
+    // session is still there at that point (lib/storedSession.test.js).
+    supabase.auth.signOut.mockResolvedValue({ error: new AuthRetryableFetchError('Failed to fetch', 0) });
+    const app = await openAsA();
+
+    await signOut(app);
+
+    expect(sessionOnDevice()).toBeNull();
+    expect(app.now()).toMatchObject({ user: null, signOuts: 1 });
+  });
+
+  it('with an auth-js that throws: signed out all the same', async () => {
+    supabase.auth.signOut.mockRejectedValue(new Error('lock stolen'));
+    const app = await openAsA();
+
+    await signOut(app);
+
+    expect(sessionOnDevice()).toBeNull();
+    expect(app.now()).toMatchObject({ user: null, signOuts: 1 });
+  });
+
+  it('the next launch of a device signed out offline finds nobody — not the account that "signed out"', async () => {
+    const app = await openAsA();
+    deviceIs(false);
+    await signOut(app);
+    app.unmount();
+
+    // auth-js reads the same storage: nothing there.
+    supabase.auth.getSession.mockResolvedValue(NO_SESSION);
+    const next = openApp();
+
+    expect(firstRender(next)).toMatchObject({ user: null, role: null });
+    await waitFor(() => expect(next.now().isLoading).toBe(false));
+    expect(next.now().user).toBeNull();
+  });
+
+  it('a session that goes away by itself is not a sign-out', async () => {
+    const app = await openAsA();
+
+    await emit('SIGNED_OUT', null);
+
+    expect(app.now()).toMatchObject({ user: null, signOuts: 0 });
+  });
+});
+
 describe('another account signs in', () => {
   it('is never shown the profile of the previous one', async () => {
     deviceStores({ user: A, profile: ROW_A });

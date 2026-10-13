@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, useMemo, useCallback, u
 import { supabase } from '../lib/supabase';
 import { setErrorReporterUser } from '../lib/errorReporter';
 import { replayQueuedWrites } from '../lib/queryClient';
-import { readStoredUser } from '../lib/storedSession';
+import { readStoredUser, forgetStoredSession } from '../lib/storedSession';
 import { readCachedProfile, writeCachedProfile, forgetCachedProfile } from '../lib/profileCache';
 
 const AuthContext = createContext(null);
@@ -63,6 +63,9 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(known.user);
   const [profile, setProfile] = useState(known.profile);
   const [isLoading, setIsLoading] = useState(() => !(known.user && (known.profile || isOffline())));
+  // How many times the user signed out of this device since the app was
+  // opened — see `signOut`.
+  const [signOuts, setSignOuts] = useState(0);
 
   // The same three, for what runs outside a render: the answers of auth-js and
   // of the profile read arrive in callbacks, where state is a render behind.
@@ -240,9 +243,38 @@ export function AuthProvider({ children }) {
     return { error };
   }, []);
 
+  /**
+   * Sign this device out, at the user's request. It always ends signed out:
+   * the next launch finds no session, with or without a network now.
+   *
+   * `auth.signOut()` asks the server to end the session and removes the stored
+   * one only once the server has answered. Without an answer it returns an
+   * error and the device stays signed in — the app used to ignore that error
+   * and show the login page all the same: the cache and the unsynced writes
+   * were wiped for a sign-out that had not happened, and the next person to
+   * open the app on that device was signed in as the previous one. So the
+   * error is read, and a device that could not tell the server forgets the
+   * session itself. Offline the server is not asked at all: the call would
+   * first wait for a token refresh that cannot be made.
+   *
+   * `signOuts` counts these. It is how the rest of the app tells a sign-out
+   * from a session that merely went away (a refresh the server refused, a
+   * sign-out on another device): the first discards what the device holds for
+   * the account, the second does not — `ClearOnUserChange` in App.jsx.
+   */
   const signOut = useCallback(async () => {
-    await supabase.auth.signOut();
+    let serverTold = false;
+    if (!isOffline()) {
+      try {
+        const { error } = await supabase.auth.signOut();
+        serverTold = !error;
+      } catch {
+        // No answer is no answer, thrown or returned.
+      }
+    }
+    if (!serverTold) forgetStoredSession();
     nobody();
+    setSignOuts((count) => count + 1);
   }, [nobody]);
 
   /**
@@ -287,8 +319,8 @@ export function AuthProvider({ children }) {
   }, [user, role]);
 
   const value = useMemo(
-    () => ({ user, profile, role, isLoading, signIn, signOut, updateProfile, updatePassword }),
-    [user, profile, role, isLoading, signIn, signOut, updateProfile, updatePassword]
+    () => ({ user, profile, role, isLoading, signOuts, signIn, signOut, updateProfile, updatePassword }),
+    [user, profile, role, isLoading, signOuts, signIn, signOut, updateProfile, updatePassword]
   );
 
   return (

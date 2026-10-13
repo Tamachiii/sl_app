@@ -364,7 +364,10 @@ const queueClients = new WeakSet();
 // does without a session. It does not wait long: `ClearOnUserChange` in
 // App.jsx wipes a cache that is not the signed-in account's, and a wiped
 // write never runs (`abandoned`). An owner that is not known — null: nothing
-// was restored, or the blob predates the label — holds nothing back.
+// was restored, or the blob predates the label — holds nothing back. That is
+// why the same component does not let such a cache wait for a sign-in: opened
+// by a signed-in account it is labelled as theirs, opened by nobody it is
+// wiped there and then.
 const queueOwners = new WeakMap();
 
 function ownsQueue(client, session) {
