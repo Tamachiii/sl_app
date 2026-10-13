@@ -53,6 +53,16 @@ export default function OfflineBanner() {
       data-testid="offline-banner-wrapper"
       aria-hidden={!visible}
       style={{
+        // Stuck to the top of the scrolling <main> it is mounted in, so the
+        // notice is still there half-way down a session. `top: 0` is not the
+        // top of the screen: a sticky box is held inside its scroller's
+        // CONTENT box, and main pads its top by the safe-area inset — so the
+        // banner stays where it sits before any scroll, under the notch.
+        // (The inset as `top` would add it a second time.) Above the popovers
+        // of a page (z-10 to z-30), below the toasts (z-50).
+        position: 'sticky',
+        top: 0,
+        zIndex: 40,
         maxHeight: visible ? 48 : 0,
         opacity: visible ? 1 : 0,
         overflow: 'hidden',
