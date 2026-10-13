@@ -132,6 +132,34 @@ describe('useStudentHistoricalSessions', () => {
     expect(qc.getQueryData(['my-student-id', 'u-1'])).toBe('st-1');
   });
 
+  // The overlay is drawn in one scope of the Stats page only; in the others
+  // the page holds the read back.
+  it('sends nothing while it is held back, and reads once it is asked for', async () => {
+    const db = wire({});
+    const { result, rerender } = renderHook(
+      ({ enabled }) => useStudentHistoricalSessions({ enabled }),
+      { wrapper: withClient(makeClient()), initialProps: { enabled: false } },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(db.requests).toHaveLength(0);
+
+    rerender({ enabled: true });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(db.requests.map((r) => r.table)).toEqual(['students', 'programs']);
+  });
+
+  it('stays off without a user, whatever the caller passes', async () => {
+    useAuth.mockReturnValue({ user: null });
+    const db = wire({});
+    const { result } = renderHook(() => useStudentHistoricalSessions({ enabled: true }), {
+      wrapper: withClient(makeClient()),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(db.requests).toHaveLength(0);
+  });
+
   it('sends no students request when the id is already in the cache', async () => {
     const db = wire({});
     const qc = makeClient();

@@ -12,6 +12,7 @@ import { useI18n } from '../../hooks/useI18n';
 import {
   exerciseStorageKey,
   readStatsPrefs,
+  resolveStatsScope,
   statsPrefsKey,
   writeStatsPref,
 } from '../../lib/statsPrefs';
@@ -48,13 +49,26 @@ export default function StudentDashboard() {
   const { profile, signOut } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Scope is persisted in the URL as ?scope= for refresh-while-on-page, AND
-  // mirrored to localStorage so it survives a tab switch (the new URL has no
-  // search params). Stale ids fall back to 'all' rather than fetching ∅.
-  const { data: myStudentId } = useMyStudentId();
-  const { data: programs } = useProgramsForStudent(myStudentId);
+  // Scope: the URL (`?scope=`) wins, else what the athlete picked last time
+  // (localStorage, which survives a tab switch — the new URL has no search
+  // params). Both are read DURING RENDER, so the first render already knows
+  // what to compute, and the stats query waits until it does: a saved program
+  // id is only known once the programs list says the block still exists.
+  // Stale ids fall back to 'all' rather than fetching ∅.
+  const studentIdQuery = useMyStudentId();
+  const programsQuery = useProgramsForStudent(studentIdQuery.data);
+  const programs = programsQuery.data;
   const rawScope = searchParams.get('scope') || '';
+  const { scope, resolved: scopeResolved } = resolveStatsScope({
+    urlScope: rawScope,
+    // Not memoized: picking "All" clears it, and the next render must see that.
+    savedScope: readStatsPrefs(STATS_PREFS_KEY)?.scope,
+    programs,
+    listUnavailable: [studentIdQuery, programsQuery].some((q) => q.isError || q.isPaused),
+  });
 
+  // Mirrors the saved scope into the address, so the URL names what the page
+  // shows. Nothing waits for it: the scope above is already the saved one.
   useEffect(() => {
     if (rawScope) return;
     const saved = readStatsPrefs(STATS_PREFS_KEY)?.scope;
@@ -66,13 +80,6 @@ export default function StudentDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const effectiveScope = rawScope || 'all';
-  const scopeIsValid =
-    effectiveScope === 'all'
-    || effectiveScope === 'active'
-    || (Array.isArray(programs) && programs.some((p) => p.id === effectiveScope));
-  const scope = scopeIsValid ? effectiveScope : 'all';
-
   function handleScopeChange(next) {
     const sp = new URLSearchParams(searchParams);
     if (next === 'all') sp.delete('scope');
@@ -81,12 +88,19 @@ export default function StudentDashboard() {
     writeStatsPref(STATS_PREFS_KEY, 'scope', next === 'all' ? null : next);
   }
 
-  const { data, isLoading } = useStudentProgressStats(undefined, scope);
+  const statsQuery = useStudentProgressStats(undefined, scope, { enabled: scopeResolved });
+  const { data } = statsQuery;
+  // A query that is held back is not "loading" for React Query, and the page
+  // has nothing to show yet either way.
+  const isLoading = !scopeResolved || statsQuery.isLoading;
   // Historical-sessions overlay only adds value when stats are scoped to the
   // active block — in 'all' or specific-program scope, the calendar already
   // includes everything in scope, so the overlay would be redundant noise.
-  const { data: historicalSessions } = useStudentHistoricalSessions();
-  const showHistoricalOverlay = scope === 'active';
+  // It is only READ in that scope too.
+  const showHistoricalOverlay = scopeResolved && scope === 'active';
+  const { data: historicalSessions } = useStudentHistoricalSessions({
+    enabled: showHistoricalOverlay,
+  });
 
   const recentWeeklyVolume = useMemo(
     () => (data?.weeklyVolume || []).slice(-4),

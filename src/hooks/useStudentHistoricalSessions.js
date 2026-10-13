@@ -14,8 +14,11 @@ import { fetchAllRows } from '../lib/supabasePaging';
  * Returns an array of `{ session_id, title, date, completed, historical: true }`
  * — the same shape as `stats.sessionCalendar` plus a `historical` flag so the
  * calendar can style these days distinctly.
+ *
+ * `enabled: false` sends nothing. The overlay is only drawn when the Stats
+ * page is scoped to the active block, and the page asks for it only then.
  */
-export function useStudentHistoricalSessions() {
+export function useStudentHistoricalSessions({ enabled = true } = {}) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
@@ -87,6 +90,6 @@ export function useStudentHistoricalSessions() {
         historical: true,
       }));
     },
-    enabled: !!user?.id,
+    enabled: enabled && !!user?.id,
   });
 }

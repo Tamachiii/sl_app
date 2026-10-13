@@ -1079,3 +1079,57 @@ describe('useStudentProgressStats — the three flat lists go out together', () 
     expect(result.current.data.totalSessions).toBe(0);
   });
 });
+
+// A page that does not know its scope yet holds the read back: every scope is
+// a full read and a cache entry of its own.
+describe('useStudentProgressStats — enabled', () => {
+  it('sends nothing while it is held back, then reads the scope it is given', async () => {
+    const setup = setupChains({ programsData: [] });
+    setup.register();
+    const qc = makeClient();
+    const { result, rerender } = renderHook(
+      ({ enabled }) => useStudentProgressStats(undefined, 'p-2', { enabled }),
+      { wrapper: withClient(qc), initialProps: { enabled: false } },
+    );
+    // Long enough for a query that was going to start to have started.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.data).toBeUndefined();
+    expect(setup.db.requests).toHaveLength(0);
+
+    rerender({ enabled: true });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(setup.db.requestsTo('programs')).toHaveLength(1);
+    expect(setup.db.requestsTo('programs')[0].filters).toContainEqual(['eq', 'id', 'p-2']);
+    // One entry, under the key every invalidation of the app addresses.
+    expect(
+      qc.getQueryCache().findAll({ queryKey: ['student-progress-stats'] }).map((q) => q.queryKey),
+    ).toEqual([['student-progress-stats', 'u-1', 'p-2']]);
+  });
+
+  it('is held back in the coach flow too', async () => {
+    const setup = setupChains({ programsData: [] });
+    setup.register();
+    const { result } = renderHook(
+      () => useStudentProgressStats('st-1', 'all', { enabled: false }),
+      { wrapper: withClient(makeClient()) },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(setup.db.requests).toHaveLength(0);
+  });
+
+  it('stays off without a user, whatever the caller passes', async () => {
+    useAuth.mockReturnValue({ user: null });
+    const setup = setupChains({ programsData: [] });
+    setup.register();
+    const { result } = renderHook(
+      () => useStudentProgressStats(undefined, 'all', { enabled: true }),
+      { wrapper: withClient(makeClient()) },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(setup.db.requests).toHaveLength(0);
+  });
+});

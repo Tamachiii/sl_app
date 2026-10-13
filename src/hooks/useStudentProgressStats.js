@@ -36,8 +36,13 @@ import { fetchAllRows } from '../lib/supabasePaging';
  *
  * Pass a `studentId` (students.id row id) to stat any student — used by the
  * coach Students view. Omit it to stat the signed-in user (student flow).
+ *
+ * `enabled: false` holds the read back. A page passes it while it does not
+ * know its scope yet (`resolveStatsScope` in lib/statsPrefs): every scope is a
+ * cache entry of its own and a full read, so a page that started with the
+ * default and switched a moment later would compute 'all' for nothing.
  */
-export function useStudentProgressStats(studentId, scope = 'all') {
+export function useStudentProgressStats(studentId, scope = 'all', { enabled = true } = {}) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
@@ -554,6 +559,6 @@ export function useStudentProgressStats(studentId, scope = 'all') {
         exerciseProgress,
       };
     },
-    enabled: !!(studentId || user?.id),
+    enabled: enabled && !!(studentId || user?.id),
   });
 }

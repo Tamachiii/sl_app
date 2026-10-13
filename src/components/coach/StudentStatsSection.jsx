@@ -6,6 +6,7 @@ import { useProgramsForStudent } from '../../hooks/useProgram';
 import {
   exerciseStorageKey,
   readStatsPrefs,
+  resolveStatsScope,
   statsPrefsKey,
   writeStatsPref,
 } from '../../lib/statsPrefs';
@@ -32,7 +33,8 @@ export default function StudentStatsSection() {
   const studentId = student.id;
   const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { data: programs } = useProgramsForStudent(studentId);
+  const programsQuery = useProgramsForStudent(studentId);
+  const programs = programsQuery.data;
 
   const prefsKey = useMemo(
     () => statsPrefsKey({ surface: 'coach', studentId }),
@@ -42,11 +44,24 @@ export default function StudentStatsSection() {
 
   // `statsScope` (separate from `program`, which the editor's ProgramSwitcher
   // already owns) so the coach's "what program am I editing" and "what scope
-  // am I viewing stats for" stay independent. URL holds it for refresh-on-page;
-  // localStorage mirrors it so it survives a tab switch (which drops the URL
-  // search params).
+  // am I viewing stats for" stay independent. The URL wins, else what the
+  // coach picked last time for THIS athlete (localStorage, which survives a
+  // tab switch — that drops the URL search params). Both are read DURING
+  // RENDER, so the first render already knows what to compute, and the stats
+  // query waits until it does: a saved program id is only known once the
+  // programs list says the block still exists.
   const rawScope = searchParams.get('statsScope') || '';
+  const { scope, resolved: scopeResolved } = resolveStatsScope({
+    urlScope: rawScope,
+    // Not memoized: picking "All" clears it, and the next render must see that.
+    savedScope: readStatsPrefs(prefsKey)?.scope,
+    programs,
+    listUnavailable: !!(programsQuery.isError || programsQuery.isPaused),
+  });
 
+  // Mirrors the saved scope into the address, so the URL names what the
+  // section shows. Nothing waits for it: the scope above is already the saved
+  // one.
   useEffect(() => {
     if (rawScope) return;
     const saved = readStatsPrefs(prefsKey)?.scope;
@@ -58,13 +73,6 @@ export default function StudentStatsSection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefsKey]);
 
-  const effectiveScope = rawScope || 'all';
-  const scopeIsValid =
-    effectiveScope === 'all'
-    || effectiveScope === 'active'
-    || (Array.isArray(programs) && programs.some((p) => p.id === effectiveScope));
-  const scope = scopeIsValid ? effectiveScope : 'all';
-
   function handleScopeChange(next) {
     const sp = new URLSearchParams(searchParams);
     if (next === 'all') sp.delete('statsScope');
@@ -73,7 +81,11 @@ export default function StudentStatsSection() {
     writeStatsPref(prefsKey, 'scope', next === 'all' ? null : next);
   }
 
-  const { data, isLoading } = useStudentProgressStats(studentId, scope);
+  const statsQuery = useStudentProgressStats(studentId, scope, { enabled: scopeResolved });
+  const { data } = statsQuery;
+  // A query that is held back is not "loading" for React Query, and the
+  // section has nothing to show yet either way.
+  const isLoading = !scopeResolved || statsQuery.isLoading;
 
   const recentWeeklyVolume = useMemo(
     () => (data?.weeklyVolume || []).slice(-4),
