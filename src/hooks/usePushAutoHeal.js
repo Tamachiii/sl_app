@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
 import {
   getActivePushSubscription,
+  isPushResumable,
   isPushSupported,
   pushPermission,
   reconcilePushSubscription,
+  resumePushSubscription,
 } from '../lib/pushNotifications';
 import { useAuth } from './useAuth';
 
@@ -49,9 +51,11 @@ async function deviceEndpoint() {
 }
 
 // Whether a request is due for this user. Within the hour after a heal only
-// one thing calls for another: the push service gave the device a new address
+// two things call for another: the push service gave the device a new address
 // (the worker re-subscribes on `pushsubscriptionchange`, but it is this page
-// that knows who is signed in and can write the row).
+// that knows who is signed in and can write the row), and the account signed
+// out of this device and is back — its notifications left with it, and are to
+// come back with it.
 async function isDue(userId) {
   const stamp = readStamp();
   if (!stamp || stamp.userId !== userId) return true;
@@ -60,6 +64,7 @@ async function isDue(userId) {
   if (age < 0) return true;
   if (!stamp.ok) return age >= HEAL_RETRY_MS;
   if (age >= HEAL_EVERY_MS) return true;
+  if (isPushResumable(userId)) return true;
   const endpoint = await deviceEndpoint();
   return endpoint !== null && endpoint !== stamp.endpoint;
 }
@@ -106,9 +111,12 @@ async function heal(userId) {
   healing.add(userId);
   try {
     if (!(await isDue(userId))) return;
-    // False: notifications are off on this device, nothing was sent, and there
-    // is nothing to space out.
-    if (await reconcilePushSubscription(userId)) {
+    // The subscription the device holds is registered for this account — or,
+    // when it holds none because this account signed out of it with
+    // notifications on, they are switched on again. False twice: notifications
+    // are off on this device, nothing was sent, and there is nothing to space
+    // out.
+    if ((await reconcilePushSubscription(userId)) || (await resumePushSubscription(userId))) {
       writeStamp({ userId, endpoint: await deviceEndpoint(), at: Date.now(), ok: true });
     }
   } catch (error) {
@@ -135,14 +143,18 @@ async function heal(userId) {
  *
  * It looks on load and whenever the tab regains focus, and it WRITES at most
  * once an hour (HEAL_EVERY_MS): an athlete unlocks the phone after every rest,
- * and each unlock used to be an upsert. Two things are not made to wait for
- * the hour: another account on this device, and an address that is no longer
- * the one last written. A write that failed is tried again after
+ * and each unlock used to be an upsert. Three things are not made to wait for
+ * the hour: another account on this device, an address that is no longer the
+ * one last written, and an account that is back on a device it signed out of
+ * with notifications on. A write that failed is tried again after
  * HEAL_RETRY_MS.
  *
- * Role-agnostic and best-effort: reconcilePushSubscription is permission-gated
- * and registers only a subscription the browser already holds, so this never
- * subscribes or prompts.
+ * Role-agnostic and best-effort, and it never prompts. reconcilePushSubscription
+ * registers only a subscription the browser already holds;
+ * resumePushSubscription asks the browser for one only for an account that had
+ * one here when it signed out, and only while the permission still stands. An
+ * account that never switched notifications on, on this device, is never
+ * enrolled by a look.
  */
 export function usePushAutoHeal() {
   const { user } = useAuth();

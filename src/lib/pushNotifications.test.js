@@ -46,8 +46,11 @@ const {
   disablePush,
   isPushEnabled,
   releasePushSubscription,
+  resumePushSubscription,
+  isPushResumable,
   pushErrorKey,
   PUSH_ERROR_KEYS,
+  PUSH_RESUME_KEY,
 } = await import('./pushNotifications');
 const { messages, getMessage, LANGUAGES } = await import('./i18n');
 
@@ -123,7 +126,12 @@ const refused = (error) => ({ data: null, error });
 const claims = () => db.rpc.mock.calls.filter(([name]) => name === 'claim_push_subscription').map(([, args]) => args);
 const requestsOf = (op) => db.requests.filter((made) => made.op === op);
 
+// The accounts the device remembers as having left it with notifications on.
+const remembered = () => JSON.parse(localStorage.getItem(PUSH_RESUME_KEY)) ?? [];
+const remember = (...ids) => localStorage.setItem(PUSH_RESUME_KEY, JSON.stringify(ids));
+
 beforeEach(() => {
+  localStorage.removeItem(PUSH_RESUME_KEY);
   db.requests.length = 0;
   db.rpc = vi.fn().mockResolvedValue({ data: CREATED, error: null });
   db.answer = () => ({ data: { id: 'row-1' }, error: null });
@@ -580,6 +588,164 @@ describe('releasePushSubscription', () => {
 
     Object.defineProperty(global.navigator, 'serviceWorker', { value: {}, configurable: true });
     await expect(releasePushSubscription()).resolves.toBeUndefined();
+  });
+});
+
+// A sign-out releases the device. Without more, the account that signs in
+// again — the same athlete, or the owner of a phone two accounts share, at
+// every switch — has lost its notifications without a word.
+describe('notifications come back with the account that had them on', () => {
+  describe('what the device remembers', () => {
+    it('the account that leaves a device it received on', async () => {
+      setEnv();
+
+      await releasePushSubscription({ userId: 'u-1' });
+
+      expect(remembered()).toEqual(['u-1']);
+      expect(isPushResumable('u-1')).toBe(true);
+      expect(isPushResumable('u-2')).toBe(false);
+    });
+
+    it('not one that leaves a device without a subscription: it never asked for them here, or switched them off', async () => {
+      setEnv({ sub: null });
+
+      await releasePushSubscription({ userId: 'u-1' });
+
+      expect(remembered()).toEqual([]);
+      expect(isPushResumable('u-1')).toBe(false);
+    });
+
+    it('each account once, the last to leave last — two accounts that share a phone are both there', async () => {
+      for (const userId of ['u-1', 'u-2', 'u-1']) {
+        setEnv();
+        await releasePushSubscription({ userId });
+      }
+      expect(remembered()).toEqual(['u-2', 'u-1']);
+    });
+
+    it('a handful at most', async () => {
+      for (let n = 1; n <= 12; n += 1) {
+        setEnv();
+        await releasePushSubscription({ userId: `u-${n}` });
+      }
+      expect(remembered()).toHaveLength(8);
+      expect(remembered().at(-1)).toBe('u-12');
+      expect(isPushResumable('u-1')).toBe(false);
+    });
+
+    it('nothing that is not a list of ids is taken for one', () => {
+      for (const junk of ['{not json', '"u-1"', '{"u-1":true}', '[1,null,""]']) {
+        localStorage.setItem(PUSH_RESUME_KEY, junk);
+        expect(isPushResumable('u-1')).toBe(false);
+      }
+      expect(isPushResumable(undefined)).toBe(false);
+    });
+
+    it('switching them off takes the account off the list, and so does having them back', async () => {
+      remember('u-1', 'u-2');
+      setEnv();
+      await disablePush('u-1');
+      expect(remembered()).toEqual(['u-2']);
+
+      setEnv();
+      await enablePush('u-2');
+      expect(remembered()).toEqual([]);
+
+      remember('u-1');
+      setEnv();
+      await reconcilePushSubscription('u-1');
+      expect(remembered()).toEqual([]);
+    });
+  });
+
+  describe('resumePushSubscription', () => {
+    it('the account that is back: the browser takes a subscription, it is registered, and the account is off the list', async () => {
+      remember('u-1');
+      const device = setEnv({ sub: null });
+
+      await expect(resumePushSubscription('u-1')).resolves.toBe(true);
+
+      expect(device.subscribe).toHaveBeenCalledTimes(1);
+      expect(claims()).toEqual([
+        {
+          p_endpoint: 'https://fcm.googleapis.com/fcm/send/fresh',
+          p_p256dh: 'p256-fresh',
+          p_auth: 'auth-fresh',
+          p_user_agent: navigator.userAgent,
+        },
+      ]);
+      expect(remembered()).toEqual([]);
+    });
+
+    // The point of the list: a look never enrolls an account that did not ask.
+    it('another account is never enrolled: nothing is asked of the browser or the database', async () => {
+      remember('u-1');
+      const device = setEnv({ sub: null });
+
+      await expect(resumePushSubscription('u-2')).resolves.toBe(false);
+
+      expect(device.subscribe).not.toHaveBeenCalled();
+      expect(db.rpc).not.toHaveBeenCalled();
+      expect(remembered()).toEqual(['u-1']);
+    });
+
+    it('never prompts: without the permission nothing happens, and the account stays on the list', async () => {
+      remember('u-1');
+      const device = setEnv({ sub: null, permission: 'default' });
+      global.Notification.requestPermission = vi.fn();
+
+      await expect(resumePushSubscription('u-1')).resolves.toBe(false);
+
+      expect(global.Notification.requestPermission).not.toHaveBeenCalled();
+      expect(device.subscribe).not.toHaveBeenCalled();
+      expect(remembered()).toEqual(['u-1']);
+    });
+
+    it('a subscription that is there is left to reconcilePushSubscription', async () => {
+      remember('u-1');
+      const device = setEnv();
+
+      await expect(resumePushSubscription('u-1')).resolves.toBe(false);
+
+      expect(device.subscribe).not.toHaveBeenCalled();
+      expect(db.rpc).not.toHaveBeenCalled();
+    });
+
+    it('a browser that wants the user\'s own tap is not asked twice: the toggle is the way', async () => {
+      remember('u-1');
+      const device = setEnv({ sub: null });
+      device.subscribe.mockRejectedValue(new DOMException('needs a user gesture', 'NotAllowedError'));
+
+      await expect(resumePushSubscription('u-1')).rejects.toMatchObject({ code: 'permission_denied' });
+
+      expect(remembered()).toEqual([]);
+      await expect(resumePushSubscription('u-1')).resolves.toBe(false);
+      expect(device.subscribe).toHaveBeenCalledTimes(1);
+    });
+
+    it('what else fails is thrown with a code, and the account stays on the list for the next look', async () => {
+      remember('u-1');
+      const device = setEnv({ sub: null });
+      device.subscribe.mockRejectedValueOnce(new DOMException('push service error', 'AbortError'));
+      await expect(resumePushSubscription('u-1')).rejects.toMatchObject({ code: 'generic' });
+      expect(remembered()).toEqual(['u-1']);
+
+      deviceIs(false);
+      await expect(resumePushSubscription('u-1')).rejects.toMatchObject({ code: 'offline' });
+      expect(remembered()).toEqual(['u-1']);
+    });
+
+    it('a subscription the database did not take is registered by the next look, and the list is cleared then', async () => {
+      remember('u-1');
+      setEnv({ sub: null });
+      db.rpc.mockResolvedValueOnce(refused(NO_ANSWER));
+      await expect(resumePushSubscription('u-1')).rejects.toMatchObject({ code: 'offline' });
+      expect(remembered()).toEqual(['u-1']);
+
+      // The browser holds the subscription now.
+      await expect(reconcilePushSubscription('u-1')).resolves.toBe(true);
+      expect(remembered()).toEqual([]);
+    });
   });
 });
 

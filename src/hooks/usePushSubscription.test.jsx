@@ -22,8 +22,10 @@ vi.mock('../lib/pushNotifications', async () => {
     isPushSupported: () => lib.supported,
     pushPermission: () => lib.permission,
     getActivePushSubscription: async () => (lib.endpoint ? { endpoint: lib.endpoint } : null),
-    // usePushAutoHeal's own request: the hook under test never makes it.
+    // usePushAutoHeal's own requests: the hook under test never makes them.
     reconcilePushSubscription: vi.fn(),
+    resumePushSubscription: vi.fn(),
+    isPushResumable: () => false,
     isPushEnabled: (...args) => lib.isPushEnabled(...args),
     enablePush: (...args) => lib.enablePush(...args),
     disablePush: (...args) => lib.disablePush(...args),

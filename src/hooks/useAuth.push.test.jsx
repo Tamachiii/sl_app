@@ -35,7 +35,7 @@ vi.mock('../lib/queryClient', () => ({ replayQueuedWrites: vi.fn() }));
 
 import { AuthProvider, useAuth } from './useAuth';
 import { supabase } from '../lib/supabase';
-import { RELEASE_TIMEOUT_MS } from '../lib/pushNotifications';
+import { RELEASE_TIMEOUT_MS, PUSH_RESUME_KEY, isPushResumable } from '../lib/pushNotifications';
 import { PROFILE_CACHE_KEY } from '../lib/profileCache';
 
 const A = { id: 'u-a', email: 'a@example.test' };
@@ -228,6 +228,49 @@ describe('a sign-out releases the device before the session ends', () => {
     expect(world.log).toEqual([]);
     expect(held.unsubscribe).not.toHaveBeenCalled();
     expect(app.now().user).toMatchObject({ id: 'u-a' });
+  });
+});
+
+// The device gives the account its notifications back when it signs in here
+// again (`resumePushSubscription`, lib/pushNotifications.test.js) — for which
+// it has to know who left.
+describe('the device remembers which account left it with notifications on', () => {
+  it('the account that signs out of a device it received on', async () => {
+    const app = await openAsA();
+
+    await signOut(app);
+
+    expect(JSON.parse(localStorage.getItem(PUSH_RESUME_KEY))).toEqual(['u-a']);
+    expect(isPushResumable('u-a')).toBe(true);
+  });
+
+  it('also when it signs out without a network', async () => {
+    const app = await openAsA();
+    deviceIs(false);
+
+    await signOut(app);
+
+    expect(isPushResumable('u-a')).toBe(true);
+  });
+
+  it('not an account that had them off', async () => {
+    deviceHolds(null);
+    const app = await openAsA();
+
+    await signOut(app);
+
+    expect(localStorage.getItem(PUSH_RESUME_KEY)).toBeNull();
+  });
+
+  it('nor one whose sign-out was held back', async () => {
+    const app = await openAsA();
+    act(() => {
+      app.now().guardSignOut(() => false);
+    });
+
+    await signOut(app);
+
+    expect(localStorage.getItem(PUSH_RESUME_KEY)).toBeNull();
   });
 });
 

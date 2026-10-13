@@ -18,6 +18,12 @@
 // that let an account write its own rows only: on a shared device the second
 // account was refused, and the device went on receiving the first one's
 // notifications.
+//
+// A sign-out releases the device (`releasePushSubscription`: the row and the
+// browser's subscription both go), and the account that had notifications on
+// here finds them on again when it signs back in (`resumePushSubscription`).
+// Nothing else asks the browser for a subscription but the toggle: an account
+// that never switched notifications on, on this device, gets none made for it.
 
 import { supabase } from './supabase';
 import { isNetworkError } from './networkErrors';
@@ -112,6 +118,51 @@ function refusal(error) {
 // the access token has expired — for a token refresh that cannot be made
 // either.
 const noNetwork = () => pushError('No network: the push subscription was not written', 'offline');
+
+// --- the accounts that had notifications on here ------------------------------
+// localStorage: the ids of the accounts that had notifications on, on this
+// device, at the moment they signed out of it — newest last. It is what tells
+// "this account switched them on here, and only left" from "this account never
+// asked for them here" once the sign-out has released the device: the first
+// gets them back at its next sign-in (`resumePushSubscription`), the second is
+// never enrolled. An id leaves the list as soon as the device is registered
+// for that account again, and when the account switches notifications off.
+// Ids only: nothing of an account is kept here.
+export const PUSH_RESUME_KEY = 'sl_push_resume';
+const RESUME_MAX = 8;
+
+function readResume() {
+  try {
+    const ids = JSON.parse(localStorage.getItem(PUSH_RESUME_KEY));
+    return Array.isArray(ids) ? ids.filter((id) => typeof id === 'string' && id !== '') : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeResume(ids) {
+  try {
+    if (ids.length === 0) localStorage.removeItem(PUSH_RESUME_KEY);
+    else localStorage.setItem(PUSH_RESUME_KEY, JSON.stringify(ids.slice(-RESUME_MAX)));
+  } catch {
+    // Storage full or refused: the account switches notifications on again by
+    // hand, as it did the first time.
+  }
+}
+
+function rememberResume(userId) {
+  writeResume([...readResume().filter((id) => id !== userId), userId]);
+}
+
+function forgetResume(userId) {
+  const ids = readResume();
+  if (ids.includes(userId)) writeResume(ids.filter((id) => id !== userId));
+}
+
+/** True when this account left the device with notifications on, and has not had them back since. */
+export function isPushResumable(userId) {
+  return typeof userId === 'string' && userId !== '' && readResume().includes(userId);
+}
 
 // Convert a Base64-URL VAPID public key into the Uint8Array PushManager
 // wants for applicationServerKey. Standard incantation.
@@ -222,8 +273,9 @@ export async function enablePush(userId) {
   }
 
   const sub = await ensurePushSubscription();
+  let answer;
   try {
-    return await claimSubscription(sub);
+    answer = await claimSubscription(sub);
   } catch (error) {
     if (error.code !== 'keys_mismatch') throw error;
     // Another account holds this address under keys that are not this
@@ -231,8 +283,10 @@ export async function enablePush(userId) {
     // cannot be taken over, and it must not keep this device from being
     // registered — the browser gives the address up (the push service then
     // answers 410 for it, and send-push drops that row) and takes a new one.
-    return claimSubscription(await renewPushSubscription(sub));
+    answer = await claimSubscription(await renewPushSubscription(sub));
   }
+  forgetResume(userId);
+  return answer;
 }
 
 // A new address and new keys from the push service. Only on the user's own
@@ -278,6 +332,45 @@ export async function reconcilePushSubscription(userId) {
   const sub = await getActivePushSubscription();
   if (!sub) return false;
   await claimSubscription(sub);
+  forgetResume(userId);
+  return true;
+}
+
+/**
+ * Notifications come back with the account that had them on. A sign-out
+ * releases the device (`releasePushSubscription`): without this, an athlete
+ * who signs out and in again — or the owner of a phone two accounts share,
+ * at every switch — would have lost them without a word, until somebody
+ * thought of the toggle.
+ *
+ * Only for an account `releasePushSubscription` wrote down: one that had a
+ * subscription on this device when it left. Another account is never enrolled
+ * by this, and an account that switched notifications off is not either
+ * (`disablePush` takes it off the list). Only while the browser still grants
+ * the permission — nothing is prompted. And only when the device holds no
+ * subscription: one that is there is `reconcilePushSubscription`'s.
+ *
+ * Returns true when the device is registered again, false when there was
+ * nothing to do. Throws, with a `.code`, when it could not be done; a browser
+ * that wants the user's own tap for a subscription is not asked twice — the
+ * toggle is the way then.
+ */
+export async function resumePushSubscription(userId) {
+  if (!isPushSupported() || !isPushResumable(userId)) return false;
+  if (pushPermission() !== 'granted') return false;
+  const reg = await getRegistration();
+  if (!reg) return false;
+  if (await reg.pushManager.getSubscription()) return false;
+  if (isOffline()) throw noNetwork();
+  let sub;
+  try {
+    sub = await subscribe(reg);
+  } catch (error) {
+    if (error.code === 'permission_denied') forgetResume(userId);
+    throw error;
+  }
+  await claimSubscription(sub);
+  forgetResume(userId);
   return true;
 }
 
@@ -294,6 +387,8 @@ export async function reconcilePushSubscription(userId) {
  */
 export async function disablePush(userId) {
   if (!userId) return;
+  // Switched off by the account itself: nothing brings them back but the toggle.
+  forgetResume(userId);
   const sub = await getActivePushSubscription();
   if (!sub) {
     if (isOffline()) throw noNetwork();
@@ -351,15 +446,19 @@ export const RELEASE_TIMEOUT_MS = 4000;
  *
  * Only THIS device: the row is found by the address of the browser's own
  * subscription. The account's other phones and browsers keep theirs.
+ *
+ * `userId` is the account that leaves. When the device held a subscription it
+ * is written down (`sl_push_resume`), so that the same account gets its
+ * notifications back when it signs in here again — `resumePushSubscription`.
  */
-export async function releasePushSubscription({ timeoutMs = RELEASE_TIMEOUT_MS } = {}) {
+export async function releasePushSubscription({ userId, timeoutMs = RELEASE_TIMEOUT_MS } = {}) {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
   let timer;
   const gaveUp = new Promise((resolve) => {
     timer = setTimeout(resolve, timeoutMs);
   });
   try {
-    await Promise.race([releaseDevice(), gaveUp]);
+    await Promise.race([releaseDevice(userId), gaveUp]);
   } catch {
     // Best-effort: see above.
   } finally {
@@ -367,12 +466,13 @@ export async function releasePushSubscription({ timeoutMs = RELEASE_TIMEOUT_MS }
   }
 }
 
-async function releaseDevice() {
+async function releaseDevice(userId) {
   // `getRegistration()`, not `ready`: `ready` never settles in a browser where
   // no worker was registered, and the sign-out would wait for it.
   const reg = await navigator.serviceWorker.getRegistration();
   const sub = await reg?.pushManager?.getSubscription();
   if (!sub) return;
+  if (userId) rememberResume(userId);
   const { endpoint } = sub;
   const removeRow = async () => {
     if (isOffline()) return;

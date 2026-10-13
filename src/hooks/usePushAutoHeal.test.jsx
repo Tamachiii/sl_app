@@ -1,12 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 
-// The device: what the browser holds, without a request.
-const device = { supported: true, permission: 'granted', endpoint: 'https://push.example/first' };
-// The one call that reaches the database.
+// The device: what the browser holds, without a request — and the accounts it
+// remembers as having signed out of it with notifications on.
+const device = { supported: true, permission: 'granted', endpoint: 'https://push.example/first', resumable: [] };
+// The calls that reach the database.
 const reconcile = vi.fn();
+const resume = vi.fn();
 vi.mock('../lib/pushNotifications', () => ({
   reconcilePushSubscription: (...args) => reconcile(...args),
+  resumePushSubscription: (...args) => resume(...args),
+  isPushResumable: (userId) => device.resumable.includes(userId),
   isPushSupported: () => device.supported,
   pushPermission: () => device.permission,
   getActivePushSubscription: async () => (device.endpoint ? { endpoint: device.endpoint } : null),
@@ -71,8 +75,15 @@ beforeEach(() => {
   vi.setSystemTime(NOW);
   reconcile.mockReset();
   reconcile.mockResolvedValue(true);
+  resume.mockReset();
+  resume.mockResolvedValue(false);
   mockUser = { id: 'u-1' };
-  Object.assign(device, { supported: true, permission: 'granted', endpoint: 'https://push.example/first' });
+  Object.assign(device, {
+    supported: true,
+    permission: 'granted',
+    endpoint: 'https://push.example/first',
+    resumable: [],
+  });
   deviceIs(true);
 });
 
@@ -367,6 +378,81 @@ describe('noteHealed: the toggle registered the device itself', () => {
   it('notes nothing for a device without a subscription', async () => {
     device.endpoint = null;
     await noteHealed('u-1');
+    expect(stamp()).toBeNull();
+  });
+});
+
+// A sign-out releases the device (lib/pushNotifications.js). The account that
+// had notifications on here gets them back when it signs in again.
+describe('an account that is back on a device it signed out of with notifications on', () => {
+  // The device after the sign-out: no subscription, and the account written down.
+  function signedOutAndBack() {
+    device.endpoint = null;
+    device.resumable = ['u-1'];
+    reconcile.mockResolvedValue(false);
+    resume.mockImplementation(async () => {
+      device.endpoint = 'https://push.example/again';
+      device.resumable = [];
+      return true;
+    });
+  }
+
+  it('gets them back at its first look — also within the hour of the last one', async () => {
+    const before = await openApp();
+    before.unmount();
+    signedOutAndBack();
+
+    vi.setSystemTime(NOW + 10 * MINUTE);
+    await openApp();
+
+    expect(resume).toHaveBeenCalledTimes(1);
+    expect(resume).toHaveBeenCalledWith('u-1');
+    expect(stamp()).toEqual({
+      userId: 'u-1',
+      endpoint: 'https://push.example/again',
+      at: NOW + 10 * MINUTE,
+      ok: true,
+    });
+  });
+
+  it('once: the returns to the app that follow send nothing', async () => {
+    signedOutAndBack();
+    await openApp();
+    reconcile.mockResolvedValue(true);
+
+    for (let rest = 0; rest < 5; rest += 1) await unlockAfter(3 * MINUTE);
+
+    expect(resume).toHaveBeenCalledTimes(1);
+    expect(reconcile).toHaveBeenCalledTimes(1);
+  });
+
+  it('a device that holds a subscription is registered as it is: nothing new is asked of the browser', async () => {
+    device.resumable = ['u-1'];
+    await openApp();
+
+    expect(reconcile).toHaveBeenCalledTimes(1);
+    expect(resume).not.toHaveBeenCalled();
+  });
+
+  it('a browser that could not: written down, and tried again after five minutes — not at every unlock', async () => {
+    signedOutAndBack();
+    resume.mockRejectedValue(coded('generic'));
+    await openApp();
+
+    expect(stamp()).toEqual({ userId: 'u-1', endpoint: null, at: NOW, ok: false, code: 'generic' });
+    await unlockAfter(MINUTE);
+    expect(resume).toHaveBeenCalledTimes(1);
+
+    await unlockAfter(HEAL_RETRY_MS);
+    expect(resume).toHaveBeenCalledTimes(2);
+  });
+
+  it('nothing is noted for an account the device has nothing to give back to', async () => {
+    device.endpoint = null;
+    reconcile.mockResolvedValue(false);
+    await openApp();
+
+    expect(resume).toHaveBeenCalledWith('u-1');
     expect(stamp()).toBeNull();
   });
 });

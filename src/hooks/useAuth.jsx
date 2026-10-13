@@ -335,13 +335,16 @@ export function AuthProvider({ children }) {
    * the row is the account's own, and nothing can delete it afterwards. That
    * step is best-effort and bounded, and the sign-out goes on whatever became
    * of it: without a network the browser alone gives the subscription up.
+   * The account is named, so that the device can give it its notifications
+   * back when it signs in here again (`resumePushSubscription`, made by the
+   * look of hooks/usePushAutoHeal.js) — and nobody else's.
    */
   const signOut = useCallback(async () => {
     const mayGoAhead = signOutGuard.current;
     if (mayGoAhead && !(await mayGoAhead())) return;
 
     try {
-      await releasePushSubscription();
+      await releasePushSubscription({ userId: who.current?.id });
     } catch {
       // It does not throw. A sign-out is not what finds out otherwise.
     }
