@@ -163,64 +163,199 @@ describe('SetRow', () => {
     expect(mockSetFailed.mutate).not.toHaveBeenCalled();
   });
 
-  it('auto-expands the RPE selector when the set transitions to done', () => {
-    const { rerender } = render(<SetRow log={baseLog} />);
-    // RpeInput is identifiable by its 1..10 grid; before transition, none are
-    // visible because rpeOpen is false.
-    expect(screen.queryByRole('button', { name: /^RPE 5$/i })).not.toBeInTheDocument();
+  // The RPE selector and the rest timer follow what the athlete DOES on the
+  // row — a tap, a swipe — and never what the row turns into. The hooks are
+  // mocked here, so a gesture changes nothing of `log`; a change of `log` is a
+  // `rerender`, which is what a replayed write, a read or a rollback is to the
+  // row. RpeInput is identifiable by its 1..10 grid.
+  const rpeGrid = () => screen.queryByRole('button', { name: /^RPE 5$/i });
 
-    rerender(<SetRow log={{ ...baseLog, done: true }} />);
-    // Auto-open: the 10-button RPE grid is now mounted.
-    expect(screen.getByRole('button', { name: /^RPE 5$/i })).toBeInTheDocument();
+  describe('the RPE selector opens on the gesture that marks the set done', () => {
+    it('a tap on a pending set opens it', async () => {
+      const user = userEvent.setup();
+      renderSetRow();
+      expect(rpeGrid()).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: /mark set done/i }));
+
+      expect(rpeGrid()).toBeInTheDocument();
+    });
+
+    it('so does a swipe to done', () => {
+      renderSetRow();
+      swipe(rowFor(/mark set done/i), -80);
+      expect(rpeGrid()).toBeInTheDocument();
+    });
+
+    it('and a swipe from failed to done, once the row shows it', () => {
+      const { rerender } = render(<SetRow log={{ ...baseLog, failed: true }} />);
+      swipe(rowFor(/clear failed/i), -80);
+      // Still shown as failed until the write is: RPE is locked there.
+      expect(rpeGrid()).not.toBeInTheDocument();
+
+      rerender(<SetRow log={{ ...baseLog, done: true }} />);
+
+      expect(rpeGrid()).toBeInTheDocument();
+    });
+
+    it('marking the set failed opens nothing: RPE is locked there', () => {
+      renderSetRow();
+      swipe(rowFor(/mark set done/i), 80);
+      expect(mockSetFailed.mutate).toHaveBeenCalledTimes(1);
+      expect(rpeGrid()).not.toBeInTheDocument();
+    });
+
+    it('a set that turns done without a gesture opens nothing', () => {
+      const { rerender } = render(<SetRow log={baseLog} />);
+      rerender(<SetRow log={{ ...baseLog, done: true }} />);
+      expect(rpeGrid()).not.toBeInTheDocument();
+    });
+
+    it('closes once a value is selected', async () => {
+      const user = userEvent.setup();
+      renderSetRow();
+      await user.click(screen.getByRole('button', { name: /mark set done/i }));
+
+      await user.click(screen.getByRole('button', { name: /^RPE 7$/i }));
+
+      expect(mockSetRpe.mutate).toHaveBeenCalledWith({ logId: 'log-1', rpe: 7 });
+      // After selection the panel closes — the inner RpeInput grid is gone.
+      expect(rpeGrid()).not.toBeInTheDocument();
+    });
+
+    it('and stays closed when the row is read again: a tick that leaves the screen and comes back', async () => {
+      const user = userEvent.setup();
+      const { rerender } = render(<SetRow log={baseLog} />);
+      await user.click(screen.getByRole('button', { name: /mark set done/i }));
+      rerender(<SetRow log={{ ...baseLog, done: true }} />);
+      await user.click(screen.getByRole('button', { name: /^RPE 7$/i }));
+      rerender(<SetRow log={{ ...baseLog, done: true, rpe: 7 }} />);
+      expect(rpeGrid()).not.toBeInTheDocument();
+
+      // A read that was sent before the tick reached the database, then the
+      // tick landing: pending again, then done again.
+      rerender(<SetRow log={baseLog} />);
+      rerender(<SetRow log={{ ...baseLog, done: true, rpe: 7 }} />);
+
+      expect(rpeGrid()).not.toBeInTheDocument();
+    });
   });
 
-  it('does NOT auto-expand the RPE selector when the set is marked failed', () => {
-    const { rerender } = render(<SetRow log={baseLog} />);
-    rerender(<SetRow log={{ ...baseLog, failed: true }} />);
-    expect(screen.queryByRole('button', { name: /^RPE 5$/i })).not.toBeInTheDocument();
-  });
-
-  it('starts the rest timer on pending → done transition', () => {
+  describe('the rest timer starts and stops on the gesture', () => {
     const log = { ...baseLog, target_rest_seconds: 90 };
-    const { rerender } = render(<SetRow log={log} />);
-    expect(startRestTimer).not.toHaveBeenCalled();
-    rerender(<SetRow log={{ ...log, done: true }} />);
-    expect(startRestTimer).toHaveBeenCalledWith('log-1', 90);
-  });
 
-  it('starts the rest timer on pending → failed transition', () => {
-    const log = { ...baseLog, target_rest_seconds: 90 };
-    const { rerender } = render(<SetRow log={log} />);
-    expect(startRestTimer).not.toHaveBeenCalled();
-    rerender(<SetRow log={{ ...log, failed: true }} />);
-    expect(startRestTimer).toHaveBeenCalledWith('log-1', 90);
-  });
+    it('a tap that marks a pending set done starts the rest of that set', async () => {
+      const user = userEvent.setup();
+      renderSetRow(log);
+      expect(startRestTimer).not.toHaveBeenCalled();
 
-  it('clears the rest timer on failed → pending transition', () => {
-    const log = { ...baseLog, target_rest_seconds: 90, failed: true };
-    const { rerender } = render(<SetRow log={log} />);
-    rerender(<SetRow log={{ ...log, failed: false }} />);
-    expect(clearRestTimer).toHaveBeenCalledWith('log-1');
-  });
+      await user.click(screen.getByRole('button', { name: /mark set done/i }));
 
-  it('does NOT restart the rest timer on done → failed (timer already running)', () => {
-    const log = { ...baseLog, target_rest_seconds: 90, done: true };
-    const { rerender } = render(<SetRow log={log} />);
-    expect(startRestTimer).not.toHaveBeenCalled();
-    rerender(<SetRow log={{ ...log, done: false, failed: true }} />);
-    expect(startRestTimer).not.toHaveBeenCalled();
-    expect(clearRestTimer).not.toHaveBeenCalled();
-  });
+      expect(startRestTimer).toHaveBeenCalledTimes(1);
+      expect(startRestTimer).toHaveBeenCalledWith('log-1', 90);
+    });
 
-  it('auto-collapses the RPE selector after a value is selected', async () => {
-    const user = userEvent.setup();
-    const { rerender } = render(<SetRow log={baseLog} />);
-    rerender(<SetRow log={{ ...baseLog, done: true }} />);
-    const rpe7 = screen.getByRole('button', { name: /^RPE 7$/i });
-    await user.click(rpe7);
-    expect(mockSetRpe.mutate).toHaveBeenCalledWith({ logId: 'log-1', rpe: 7 });
-    // After selection the panel closes — the inner RpeInput grid is gone.
-    expect(screen.queryByRole('button', { name: /^RPE 5$/i })).not.toBeInTheDocument();
+    it('once per gesture: whatever the row turns into afterwards starts nothing', async () => {
+      const user = userEvent.setup();
+      const { rerender } = render(<SetRow log={log} />);
+      await user.click(screen.getByRole('button', { name: /mark set done/i }));
+      expect(startRestTimer).toHaveBeenCalledTimes(1);
+
+      // The optimistic tick, a read that comes back without it, the write
+      // landing, a refresh.
+      rerender(<SetRow log={{ ...log, done: true }} />);
+      rerender(<SetRow log={log} />);
+      rerender(<SetRow log={{ ...log, done: true }} />);
+      rerender(<SetRow log={{ ...log, done: true, logged_at: '2026-10-09T18:02:11+00:00' }} />);
+
+      expect(startRestTimer).toHaveBeenCalledTimes(1);
+      expect(clearRestTimer).not.toHaveBeenCalled();
+    });
+
+    it('a set that turns done or failed without a gesture starts no rest', () => {
+      const { rerender } = render(<SetRow log={log} />);
+      rerender(<SetRow log={{ ...log, done: true }} />);
+      rerender(<SetRow log={log} />);
+      rerender(<SetRow log={{ ...log, failed: true }} />);
+      expect(startRestTimer).not.toHaveBeenCalled();
+    });
+
+    it('a swipe to done starts it', () => {
+      renderSetRow(log);
+      swipe(rowFor(/mark set done/i), -80);
+      expect(startRestTimer).toHaveBeenCalledTimes(1);
+      expect(startRestTimer).toHaveBeenCalledWith('log-1', 90);
+    });
+
+    it('marking a pending set failed starts it too: the athlete recovers whatever the outcome', () => {
+      renderSetRow(log);
+      swipe(rowFor(/mark set done/i), 80);
+      expect(startRestTimer).toHaveBeenCalledTimes(1);
+      expect(startRestTimer).toHaveBeenCalledWith('log-1', 90);
+    });
+
+    it('done → failed does not restart it (that rest is already running)', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...log, done: true });
+
+      await user.click(screen.getByRole('button', { name: /mark set failed/i }));
+
+      expect(mockSetFailed.mutate).toHaveBeenCalledWith({ logId: 'log-1', failed: true });
+      expect(startRestTimer).not.toHaveBeenCalled();
+      expect(clearRestTimer).not.toHaveBeenCalled();
+    });
+
+    it('failed → done by a swipe does not restart it either', () => {
+      renderSetRow({ ...log, failed: true });
+      swipe(rowFor(/clear failed/i), -80);
+      expect(mockToggleDone.mutate).toHaveBeenCalledWith({ logId: 'log-1', done: true });
+      expect(startRestTimer).not.toHaveBeenCalled();
+      expect(clearRestTimer).not.toHaveBeenCalled();
+    });
+
+    it('clearing a failed mark clears the rest of that set', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...log, failed: true });
+
+      await user.click(screen.getByRole('button', { name: /clear failed/i }));
+
+      expect(clearRestTimer).toHaveBeenCalledTimes(1);
+      expect(clearRestTimer).toHaveBeenCalledWith('log-1');
+    });
+
+    it('a set that goes back to pending without a gesture clears nothing', () => {
+      // A write that was taken back, or a read that does not have it yet.
+      const { rerender } = render(<SetRow log={{ ...log, failed: true }} />);
+      rerender(<SetRow log={log} />);
+      expect(clearRestTimer).not.toHaveBeenCalled();
+    });
+
+    it('skipping the set clears its rest', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...log, done: true, target_reps: 10 });
+      await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
+
+      await user.click(screen.getByRole('button', { name: /^skip$/i }));
+
+      expect(mockSetSkipped.mutate).toHaveBeenCalledWith({ logId: 'log-1', skipped: true });
+      expect(clearRestTimer).toHaveBeenCalledWith('log-1');
+    });
+
+    it('a set without a prescribed rest starts none', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...baseLog, target_rest_seconds: null });
+      await user.click(screen.getByRole('button', { name: /mark set done/i }));
+      expect(mockToggleDone.mutate).toHaveBeenCalledTimes(1);
+      expect(startRestTimer).not.toHaveBeenCalled();
+    });
+
+    it('a locked row writes nothing and starts nothing', () => {
+      renderSetRow(log, { locked: true });
+      swipe(rowFor(/mark set done/i), -80);
+      fireEvent.click(screen.getByRole('button', { name: /mark set done/i }));
+      expect(mockToggleDone.mutate).not.toHaveBeenCalled();
+      expect(startRestTimer).not.toHaveBeenCalled();
+    });
   });
 
   describe('off-plan actual logging', () => {

@@ -102,6 +102,47 @@ function rowScope(logId) {
   return logId ? { scope: { id: `set-log-${logId}` } } : {};
 }
 
+// The cached lists of sets, one per session: ['set-logs', sessionId, slotIds].
+const SET_LOGS = ['set-logs'];
+// What the five keys of MUTATION_KEYS that write a set start with.
+const SET_LOG_WRITES = ['set-log'];
+
+// The row `logId` as the cache holds it now, in whichever list has it.
+function cachedRow(qc, logId) {
+  for (const [, rows] of qc.getQueriesData({ queryKey: SET_LOGS })) {
+    const row = Array.isArray(rows) ? rows.find((r) => r.id === logId) : undefined;
+    if (row) return row;
+  }
+  return undefined;
+}
+
+// Merges `change(row)` onto the row `logId`, in the lists that hold it and in
+// no other. An updater that answers `undefined` writes nothing — and a write,
+// even of the same rows, stamps its list as read just now: the lists of the
+// other sessions would look fresh after every tap of this one.
+function writeRow(qc, logId, change) {
+  qc.setQueriesData({ queryKey: SET_LOGS }, (rows) => {
+    if (!Array.isArray(rows)) return undefined;
+    const index = rows.findIndex((row) => row.id === logId);
+    if (index === -1) return undefined;
+    const fields = change(rows[index]);
+    if (!fields || Object.keys(fields).length === 0) return undefined;
+    const next = rows.slice();
+    next[index] = { ...rows[index], ...fields };
+    return next;
+  });
+}
+
+// Is another write to the row of `variables` still on its way? React Query
+// hands a handler the variables object of its own mutation, so identity tells
+// this write from the others.
+function hasPendingSibling(qc, variables) {
+  return qc
+    .getMutationCache()
+    .findAll({ mutationKey: SET_LOG_WRITES, status: 'pending' })
+    .some((m) => m.state.variables !== variables && m.state.variables?.logId === variables.logId);
+}
+
 // The moment of the gesture, put into the variables when `mutate` is called —
 // the tap — and not when the request leaves: a set ticked without signal is
 // sent hours later. The variables are what the device stores with a queued
@@ -112,12 +153,26 @@ function atTheTap(variables) {
 }
 
 /**
- * Every single-row set-log write shares one protocol: `mutate` stamps the
- * variables with the moment of the gesture (`at`), then patch the row into all
- * ['set-logs'] caches so the change shows instantly (including while parked
- * offline), restore the snapshot on error, and invalidate once the write
- * settles. `buildPatch` receives the mutation's variables and returns the
- * fields to merge onto the matching row.
+ * Every single-row set-log write shares one protocol, and each step of it
+ * touches ONE row — the athlete ticks the next set while the last one is still
+ * on its way, so several of these writes are usually alive at once:
+ *
+ *   - `mutate` stamps the variables with the moment of the gesture (`at`);
+ *   - `onMutate` merges `buildPatch(variables)` onto the row so the change
+ *     shows at once (including while parked offline), and keeps what those
+ *     fields held before — a few values, not the lists;
+ *   - `onError` takes back what this write put there, field by field and only
+ *     where it is still there: a newer write to the same row, and every other
+ *     row, keep what they show;
+ *   - `onSuccess` puts the row the database answered into the cache, unless
+ *     another write to that row is still pending — its optimistic state is
+ *     newer than this answer, and its own answer will carry both.
+ *
+ * There is NO `onSettled`: reading the sets again once the queue has drained
+ * belongs to the defaults `registerOfflineMutationDefaults` registers for the
+ * key, which also serve a write replayed after a relaunch, with no hook around
+ * it. An option set here replaces the default of the same name — it does not
+ * run next to it.
  *
  * The mutationKey / mutationFn wiring stays explicit at each call site: those
  * are what `registerOfflineMutationDefaults` looks up to revive a mutation
@@ -132,23 +187,31 @@ function useOptimisticSetLogMutation(logId, { mutationKey, mutationFn, buildPatc
     mutationFn,
     ...rowScope(logId),
     onMutate: async (variables) => {
-      await qc.cancelQueries({ queryKey: ['set-logs'] });
-      const previousQueries = qc.getQueriesData({ queryKey: ['set-logs'] });
-      const patch = buildPatch(variables);
-      qc.setQueriesData({ queryKey: ['set-logs'] }, (old) => {
-        if (!old) return old;
-        return old.map((log) =>
-          log.id === variables.logId ? { ...log, ...patch } : log,
-        );
-      });
-      return { previousQueries };
+      // A read on its way was sent before this write: it would land on top of it.
+      await qc.cancelQueries({ queryKey: SET_LOGS });
+      const written = buildPatch(variables);
+      const row = cachedRow(qc, variables.logId);
+      writeRow(qc, variables.logId, () => written);
+      return {
+        written,
+        previous: row ? Object.fromEntries(Object.keys(written).map((f) => [f, row[f]])) : null,
+      };
     },
-    onError: (_err, _vars, context) => {
-      context?.previousQueries?.forEach(([queryKey, oldData]) => {
-        qc.setQueryData(queryKey, oldData);
+    onError: (_error, variables, context) => {
+      const { written, previous } = context ?? {};
+      if (!written || !previous) return;
+      writeRow(qc, variables.logId, (row) => {
+        const undo = {};
+        for (const field of Object.keys(written)) {
+          if (Object.is(row[field], written[field])) undo[field] = previous[field];
+        }
+        return undo;
       });
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: ['set-logs'] }),
+    onSuccess: (row, variables) => {
+      if (!row?.id || hasPendingSibling(qc, variables)) return;
+      writeRow(qc, row.id, () => row);
+    },
   });
 
   const { mutate, mutateAsync } = mutation;
@@ -180,8 +243,8 @@ export function useSetFailed(logId) {
 
 // Records the student's off-plan actuals (reps performed / load used) on a
 // single set_log. Same offline-safe shape as the other set-log writes: an
-// UPDATE of a pre-existing row, optimistic patch into every ['set-logs'] cache,
-// rollback on error. Callers pass already-normalized values (a dimension equal
+// UPDATE of a pre-existing row, shown at once on that row and taken back from
+// it on error. Callers pass already-normalized values (a dimension equal
 // to its prescribed target is sent as null) so a stored actual_* always means
 // a genuine deviation.
 export function useLogActual(logId) {

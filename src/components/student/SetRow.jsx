@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useRef, useState } from 'react';
 import {
   useToggleSetDone,
   useSetFailed,
@@ -68,8 +68,6 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
   const repsApplies = log.target_reps != null || log.target_duration_seconds == null;
   const loggedActual = hasLoggedActual(log);
   const isExtra = !!log.is_student_added;
-  const prevDone = useRef(log.done);
-  const prevFailed = useRef(!!log.failed);
 
   // Swipe state lives in a ref to avoid re-rendering on every touchmove;
   // the visible offset/intent are mirrored into useState only when intent
@@ -77,35 +75,48 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
   const swipe = useRef({ active: false, startX: 0, startY: 0, dx: 0, dy: 0, captured: false });
   const [swipeOffset, setSwipeOffset] = useState(0);
 
-  // Rest timer is rendered globally by RestTimerBanner (mounted in
-  // SessionView). SetRow only writes to the singleton on outcome transitions
-  // — it doesn't read or display remaining time itself, so the indicator
-  // survives exercise-card transitions.
   const failed = !!log.failed;
-
-  useEffect(() => {
-    const wasResolved = prevDone.current || prevFailed.current;
-    const isResolved = log.done || failed;
-
-    // Pending → resolved (either done OR failed): start the rest timer. The
-    // student needs to recover regardless of outcome.
-    if (!wasResolved && isResolved && restSeconds && restSeconds > 0) {
-      startRestTimer(log.id, restSeconds);
-    }
-    // Resolved → pending: clear the timer.
-    if (wasResolved && !isResolved) {
-      clearRestTimer(log.id);
-    }
-    // Auto-expand the RPE selector only for the done transition — RPE is
-    // locked for failed sets, so opening it would just show a disabled UI.
-    if (!prevDone.current && log.done) {
-      setRpeOpen(true);
-    }
-    prevDone.current = log.done;
-    prevFailed.current = failed;
-  }, [log.done, failed, log.id, restSeconds]);
-
   const rpeLocked = locked || failed;
+
+  // The three outcome gestures. The rest timer and the RPE selector follow
+  // THEM — what the athlete just did — and never a change of `log`. The row
+  // changes for other reasons than a tap: a queued write that lands, a read
+  // that comes back without it, a write that is taken back. Driven by an
+  // effect on `log.done`, each of those restarted the rest, reopened a selector
+  // the athlete had closed and scheduled a rest push — once per set when a
+  // workout logged offline was replayed.
+  //
+  // The timer itself is rendered globally by RestTimerBanner (mounted in
+  // SessionView): SetRow only writes to the singleton, it doesn't read or
+  // display remaining time, so the indicator survives exercise-card
+  // transitions.
+
+  // Pending → done or failed starts the rest: the student needs to recover
+  // whatever the outcome. Between done and failed nothing moves — that rest is
+  // already running.
+  function startRest() {
+    if (restSeconds && restSeconds > 0) startRestTimer(log.id, restSeconds);
+  }
+
+  function markDone() {
+    toggleDone.mutate({ logId: log.id, done: true });
+    if (!failed) startRest();
+    // Only with "done": RPE is locked for a failed set, so opening it there
+    // would just show a disabled UI.
+    setRpeOpen(true);
+  }
+
+  function markFailed() {
+    setFailed.mutate({ logId: log.id, failed: true });
+    if (!log.done) startRest();
+  }
+
+  // Back to pending: the rest this set started is over. clearRestTimer leaves
+  // a timer that belongs to a later set alone.
+  function clearFailed() {
+    setFailed.mutate({ logId: log.id, failed: false });
+    clearRestTimer(log.id);
+  }
 
   // Tap cycles neutral → done → failed → neutral, mirroring the swipe outcomes
   // so both interactions reach every state. The done → failed step is one
@@ -113,9 +124,9 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
   // CHECK set_logs_done_xor_failed never sees an intermediate both-true row.
   function handleIndicatorTap() {
     if (locked) return;
-    if (log.done) setFailed.mutate({ logId: log.id, failed: true });
-    else if (failed) setFailed.mutate({ logId: log.id, failed: false });
-    else toggleDone.mutate({ logId: log.id, done: true });
+    if (log.done) markFailed();
+    else if (failed) clearFailed();
+    else markDone();
   }
 
   // Seed the inputs from the logged actual when present, else from the
@@ -154,8 +165,11 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
     setActualOpen(false);
   }
 
+  // A skipped set is neither done nor failed any more, so its rest goes like
+  // the one of a cleared outcome.
   function handleSkip() {
     setSkipped.mutate({ logId: log.id, skipped: true });
+    clearRestTimer(log.id);
     setActualOpen(false);
   }
 
@@ -205,10 +219,10 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
     if (!captured || locked) return;
 
     if (dx <= -SWIPE_COMMIT_PX) {
-      if (!log.done) toggleDone.mutate({ logId: log.id, done: true });
+      if (!log.done) markDone();
       maybeVibrate();
     } else if (dx >= SWIPE_COMMIT_PX) {
-      if (!failed) setFailed.mutate({ logId: log.id, failed: true });
+      if (!failed) markFailed();
       maybeVibrate();
     }
   }

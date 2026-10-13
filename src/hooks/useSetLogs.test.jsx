@@ -230,7 +230,7 @@ describe('useToggleSetDone', () => {
     expect('failed' in payload).toBe(false);
   });
 
-  it('optimistically flips done across all matching ["set-logs"] caches', async () => {
+  it('optimistically flips done on the row, in the ["set-logs"] cache that holds it', async () => {
     // Resolve the mutation manually so we can inspect the cache during onMutate.
     let resolveUpdate;
     const chain = {
@@ -384,7 +384,9 @@ describe('useSetFailed', () => {
 });
 
 describe('useSetRpe', () => {
-  it('writes rpe and invalidates ["set-logs"]', async () => {
+  // The hook asks for no read of the sets itself: that is the `onSettled` the
+  // mutation defaults register for the key — useSetLogs.optimistic.test.jsx.
+  it('writes rpe, and reads nothing again by itself', async () => {
     const chain = {
       update: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
@@ -401,7 +403,7 @@ describe('useSetRpe', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(chain.update).toHaveBeenCalledWith({ rpe: 8 });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['set-logs'] });
+    expect(invalidate).not.toHaveBeenCalled();
   });
 });
 
