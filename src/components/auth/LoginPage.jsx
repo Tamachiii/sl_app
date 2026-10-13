@@ -217,7 +217,7 @@ export default function LoginPage() {
             </button>
             <div
               className="flex justify-between sl-mono"
-              style={{ marginTop: 24, fontSize: 10, color: 'var(--color-ink-500)' }}
+              style={{ marginTop: 24, fontSize: 10, color: 'var(--color-ink-400)' }}
             >
               <span>EST. 2026</span>
               <span>BUILT FOR THE BAR</span>
@@ -401,7 +401,7 @@ export default function LoginPage() {
 
           <div
             className="flex justify-between sl-mono"
-            style={{ marginTop: 24, fontSize: 10, color: 'var(--color-ink-500)' }}
+            style={{ marginTop: 24, fontSize: 10, color: 'var(--color-ink-400)' }}
           >
             <span>EST. 2026</span>
             <span>BUILT FOR THE BAR</span>

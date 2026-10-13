@@ -159,6 +159,15 @@ body {
 .dark {
   color-scheme: dark;
   background-color: var(--color-ink-900);
+  /* Muted text. ink-400 is the one step of the scale that is text colour
+     without a class remap: `text-ink-400`, `.sl-label`, `.dark .text-gray-400`,
+     inline `var(--color-ink-400)` and the chart fills all read the token. So
+     the dark value is set on the token, not on a class, and reaches every one
+     of them. The scale's #807a6e gives small text 4.43:1 on the page and
+     3.99:1 on a pill; this value is at least 4.5:1 on every ink surface the
+     remaps below paint, ink-900 to ink-700, and stays darker than ink-300,
+     the step secondary copy uses. src/test/contrast.test.js recomputes it. */
+  --color-ink-400: #948e82;
 }
 
 .dark body {
