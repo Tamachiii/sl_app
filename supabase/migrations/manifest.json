@@ -99,6 +99,15 @@
       "covers": ["P16", "P51"],
       "reversible": true,
       "summary": "Three functions a signed-in user calls with the rights they already have (SECURITY INVOKER): activate_program(program) switches the athlete's other programs off and this one on in one statement, and refuses a draft and a program in the trash; reorder_sessions(phase, ids) and reorder_weeks(program, ids) renumber every session of a phase (0 to n-1) or every phase of a program (1 to n) in the order of the list, and refuse a list that is not exactly the children of the parent, archived sessions included. Nothing else: no table, no policy, no row."
+    },
+    {
+      "name": "2026_10_13_12_copy_rpcs",
+      "kind": "required",
+      "wave": 1,
+      "checkpoint": "A3",
+      "covers": ["P52"],
+      "reversible": true,
+      "summary": "Four functions a signed-in user calls with the rights they already have (SECURITY INVOKER), each of which makes a whole copy or none: duplicate_session(session, title suffix) puts the copy right after its source; copy_sessions(ids, phase) adds one copy per entry at the end of a phase; duplicate_week(phase, program, label suffix) adds the phase with its sessions as the last phase of a program; duplicate_program(program, athlete, name suffix) makes an inactive block for the athlete or for another one of the coach. A copy is the prescription only — the targets of the sets, nothing that was trained — and leaves out, and counts, an exercise that is not in the library of the coach it is made for. Nothing else: no table, no policy, no row."
     }
   ]
 }
