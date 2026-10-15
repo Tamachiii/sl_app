@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { ThemeProvider } from '../../hooks/useTheme';
 
 const mockAddSlot = { mutate: vi.fn(), isPending: false };
 const mockUpdateSlot = { mutate: vi.fn(), mutateAsync: vi.fn().mockResolvedValue({}) };
+const mockReorderSlots = { mutate: vi.fn(), isPending: false };
+const mockUseReorderSlots = vi.fn(() => mockReorderSlots);
 const mockDeleteSlot = { mutate: vi.fn() };
 const mockDuplicateSession = { mutate: vi.fn(), isPending: false };
 let mockSessionData = { data: null, isLoading: false };
@@ -56,7 +58,29 @@ vi.mock('../../hooks/useSession', () => ({
   useUpdateSetTarget: () => ({ mutate: vi.fn(), isPending: false }),
   useResetSlotToUniform: () => ({ mutate: vi.fn(), isPending: false }),
   useRemoveSet: () => ({ mutate: vi.fn(), isPending: false }),
+  useReorderSlots: (...args) => mockUseReorderSlots(...args),
 }));
+
+// dnd-kit measures the page to follow a pointer, and jsdom lays nothing out: a
+// drag cannot be made here. The context is the real one, inside an element
+// that carries its `onDragEnd`, which `drop()` calls.
+vi.mock('@dnd-kit/core', async (importOriginal) => {
+  const actual = await importOriginal();
+  const RealContext = actual.DndContext;
+  return {
+    ...actual,
+    DndContext: (props) => (
+      <div
+        data-dnd
+        ref={(el) => {
+          if (el) el.onDrop = props.onDragEnd;
+        }}
+      >
+        <RealContext {...props} />
+      </div>
+    ),
+  };
+});
 
 vi.mock('../../hooks/useExerciseLibrary', () => ({
   useExerciseLibrary: () => mockLibraryData,
@@ -332,6 +356,73 @@ describe('SessionEditor', () => {
       expect(screen.queryByRole('note')).toBeNull();
       expect(screen.getByText('+ ADD EXERCISE')).toBeInTheDocument();
       expect(screen.getByLabelText('Recommended date')).toBeEnabled();
+    });
+  });
+
+  // Review item B27: a drag sent one update per moved slot, with no cache
+  // write — the list snapped back until the refetches landed — and a drop
+  // between two members of a superset could split it.
+  describe('moving an exercise', () => {
+    const ex = { name: 'Pull Up', type: 'pull', difficulty: 2, volume_weight: 1 };
+    const slot = (id, sortOrder, group = null) => ({
+      id, sets: 3, reps: 10, sort_order: sortOrder, superset_group: group, exercise: ex, set_logs: [],
+    });
+
+    function drop(activeId, overId) {
+      const context = document.querySelector('[data-dnd]');
+      act(() => context.onDrop({ active: { id: activeId }, over: { id: overId } }));
+    }
+
+    it('sends ONE write for the drag, with the whole new order', () => {
+      mockSessionData = {
+        data: { title: 'Day 1', exercise_slots: [slot('a', 0), slot('b', 1), slot('c', 2)] },
+        isLoading: false,
+      };
+      renderEditor();
+      drop('c', 'a');
+
+      expect(mockReorderSlots.mutate).toHaveBeenCalledTimes(1);
+      expect(mockReorderSlots.mutate).toHaveBeenCalledWith({
+        orderedIds: ['c', 'a', 'b'],
+        changes: [
+          { id: 'c', sort_order: 0, superset_group: null },
+          { id: 'a', sort_order: 1, superset_group: null },
+          { id: 'b', sort_order: 2, superset_group: null },
+        ],
+      });
+      expect(mockUpdateSlot.mutate).not.toHaveBeenCalled();
+      expect(mockUpdateSlot.mutateAsync).not.toHaveBeenCalled();
+    });
+
+    it('joins the superset it is dropped into, rather than splitting it', () => {
+      mockSessionData = {
+        data: { title: 'Day 1', exercise_slots: [slot('x', 0), slot('a', 1, 'g'), slot('b', 2, 'g')] },
+        isLoading: false,
+      };
+      renderEditor();
+      drop('x', 'a');
+
+      const [{ orderedIds, changes }] = mockReorderSlots.mutate.mock.calls[0];
+      expect(orderedIds).toEqual(['a', 'x', 'b']);
+      expect(changes).toContainEqual({ id: 'x', sort_order: 1, superset_group: 'g' });
+    });
+
+    it('sends nothing for a drop on itself', () => {
+      mockSessionData = {
+        data: { title: 'Day 1', exercise_slots: [slot('a', 0), slot('b', 1)] },
+        isLoading: false,
+      };
+      renderEditor();
+      drop('a', 'a');
+      drop('a', null);
+
+      expect(mockReorderSlots.mutate).not.toHaveBeenCalled();
+    });
+
+    it('runs the writes of each session under that session', () => {
+      mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
+      renderEditor();
+      expect(mockUseReorderSlots).toHaveBeenCalledWith('sess-1');
     });
   });
 

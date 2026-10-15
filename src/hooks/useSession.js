@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { mutationScope, laterWriteQueued } from '../lib/mutationScope';
 import {
   LOGGED_SET_COLUMNS,
   LOGGED_SET_OR_FILTER,
@@ -380,6 +381,76 @@ export function useUpdateSlot() {
       qc.invalidateQueries({ queryKey: ['session', sessionId] });
       qc.invalidateQueries({ queryKey: ['set-logs'] });
       qc.invalidateQueries({ queryKey: ['week'] });
+    },
+  });
+}
+
+/**
+ * The order of a session's exercises, and their supersets, after a drag in
+ * the editor: ONE mutation per drag (review item B27). `changes` is what
+ * `planSlotDrag` (lib/slotOrder.js) answers — only the slots whose
+ * `sort_order` or `superset_group` changes — and `orderedIds` the whole order.
+ *
+ * The order is drawn at once (`onMutate`). The editor used to send one
+ * `useUpdateSlot` per moved row, with no cache write: the list snapped back
+ * until three refetches per row came in.
+ *
+ * One write per changed row, sent together: `exercise_slots` has no unique
+ * constraint on (session_id, sort_order), so no order of arrival can collide.
+ * Each asks for its row back, so a row the database would not update (a
+ * session that became read-only meanwhile) is an error, not a silent no-op.
+ *
+ * Drags of one session run one after the other (`mutationScope`), and the
+ * same three rules as the block's order (useWeek.js): each draws its order at
+ * once, none puts an order back while a later drag waits, and only the last
+ * one reads the session again. `sessionId` MUST NOT CHANGE during the life of
+ * the hook — see `blockOrderScope` in useWeek.js — hence the editor mounted
+ * once per session.
+ */
+export function useReorderSlots(sessionId) {
+  const qc = useQueryClient();
+  const scope = mutationScope('slot-order', sessionId);
+  const key = ['session', sessionId];
+
+  return useMutation({
+    scope,
+    mutationFn: async ({ changes }) => {
+      const results = await Promise.all(
+        changes.map(({ id, sort_order, superset_group }) =>
+          supabase
+            .from('exercise_slots')
+            .update({ sort_order, superset_group })
+            .eq('id', id)
+            .select('id')
+            .single(),
+        ),
+      );
+      const failed = results.find((r) => r.error);
+      if (failed) throw failed.error;
+    },
+    onMutate: async ({ changes, orderedIds }) => {
+      await qc.cancelQueries({ queryKey: key });
+      const snapshot = qc.getQueryData(key);
+      if (snapshot?.exercise_slots) {
+        const byId = new Map(changes.map((c) => [c.id, c]));
+        const position = new Map((orderedIds || []).map((id, i) => [id, i]));
+        const slots = snapshot.exercise_slots
+          .map((slot) => (byId.has(slot.id) ? { ...slot, ...byId.get(slot.id) } : slot))
+          .sort(
+            (a, b) =>
+              (position.get(a.id) ?? a.sort_order ?? 0) - (position.get(b.id) ?? b.sort_order ?? 0),
+          );
+        qc.setQueryData(key, { ...snapshot, exercise_slots: slots });
+      }
+      return { snapshot };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (!ctx?.snapshot || laterWriteQueued(qc, scope)) return;
+      qc.setQueryData(key, ctx.snapshot);
+    },
+    onSettled: () => {
+      if (laterWriteQueued(qc, scope)) return;
+      qc.invalidateQueries({ queryKey: key });
     },
   });
 }

@@ -14,7 +14,6 @@ import {
   SortableContext,
   verticalListSortingStrategy,
   sortableKeyboardCoordinates,
-  arrayMove,
 } from '@dnd-kit/sortable';
 import {
   useSession,
@@ -24,6 +23,7 @@ import {
   useUpdateSetTarget,
   useResetSlotToUniform,
   useRemoveSet,
+  useReorderSlots,
 } from '../../hooks/useSession';
 import { useUpdateSession, useDeleteSession } from '../../hooks/useWeek';
 import { useSessionConfirmation } from '../../hooks/useSessionConfirmation';
@@ -39,9 +39,19 @@ import { useI18n } from '../../hooks/useI18n';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useForgetCoachStudentsPath } from '../../hooks/useRememberCoachStudentsPath';
 import { readState } from '../../lib/readState';
+import { planSlotDrag } from '../../lib/slotOrder';
 import { CoachNotFound, CoachReadProblem } from './CoachPageState';
 
+// One mount per session. The route `s/:sessionId` keeps this component
+// mounted from one session to the next, and `useReorderSlots` runs under a
+// scope named after the session, which must not change while the hook lives
+// (see useReorderSlots).
 export default function SessionEditor() {
+  const { sessionId } = useParams();
+  return <SessionEditorPage key={sessionId} />;
+}
+
+function SessionEditorPage() {
   const { sessionId, studentId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -58,6 +68,7 @@ export default function SessionEditor() {
   const updateSetTarget = useUpdateSetTarget();
   const resetSlotToUniform = useResetSlotToUniform();
   const removeSet = useRemoveSet();
+  const reorderSlots = useReorderSlots(sessionId);
   const updateSession = useUpdateSession();
   const deleteSession = useDeleteSession();
 
@@ -204,25 +215,14 @@ export default function SessionEditor() {
     }
   }
 
-  async function handleDragEnd(event) {
+  // One write per drag, drawn at once. The order is renumbered 0..n-1 (safe
+  // over legacy tied sort_orders), and where the slot lands decides its
+  // superset: between two members it joins, beside its own it stays,
+  // elsewhere it leaves — so no superset is ever split in two.
+  function handleDragEnd(event) {
     const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const oldIdx = slots.findIndex((s) => s.id === active.id);
-    const newIdx = slots.findIndex((s) => s.id === over.id);
-    if (oldIdx === -1 || newIdx === -1) return;
-    // Renumber 0..n-1 so the write is safe even if legacy data has tied
-    // sort_orders. No UNIQUE(session_id, sort_order) index → parallel updates
-    // are fine.
-    const reordered = arrayMove(slots, oldIdx, newIdx);
-    await Promise.all(
-      reordered
-        .map((slot, i) =>
-          slot.sort_order === i
-            ? null
-            : updateSlot.mutateAsync({ id: slot.id, sessionId, sort_order: i })
-        )
-        .filter(Boolean)
-    );
+    const plan = planSlotDrag(slots, active?.id, over?.id);
+    if (plan) reorderSlots.mutate(plan);
   }
 
   const inputCls =

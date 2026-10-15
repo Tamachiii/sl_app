@@ -15,6 +15,7 @@ import {
   useDeleteSlot,
   useMarkSessionReviewed,
   useProgramLoggedSessionIds,
+  useReorderSlots,
 } from './useSession';
 import { supabase } from '../lib/supabase';
 import { mutationErrorKey } from '../lib/mutationErrors';
@@ -636,6 +637,152 @@ describe('useUpdateSlot', () => {
     // …and the extra lands contiguously after the new prescription.
     expect(placeChain.update).toHaveBeenCalledWith({ set_number: 4 });
     expect(placeChain.eq).toHaveBeenCalledWith('id', 'l-extra');
+  });
+});
+
+// Review item B27: a drag in the editor is one mutation, drawn at once.
+describe('useReorderSlots', () => {
+  const KEY = ['session', 'sess-1'];
+  const cached = () => ({
+    id: 'sess-1',
+    exercise_slots: [
+      { id: 'a', sort_order: 0, superset_group: null, sets: 3 },
+      { id: 'b', sort_order: 1, superset_group: 'g', sets: 3 },
+      { id: 'c', sort_order: 2, superset_group: 'g', sets: 3 },
+    ],
+  });
+  // `c` dragged to the top: it leaves g, and b is a superset of one.
+  const DRAG = {
+    orderedIds: ['c', 'a', 'b'],
+    changes: [
+      { id: 'c', sort_order: 0, superset_group: null },
+      { id: 'a', sort_order: 1, superset_group: null },
+      { id: 'b', sort_order: 2, superset_group: null },
+    ],
+  };
+
+  // One chain per row written; each answers when `answer` says so.
+  function rowWrites(answer = () => ({ data: { id: 'x' }, error: null })) {
+    const chains = [];
+    supabase.from.mockImplementation(() => {
+      const chain = {
+        update: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        select: vi.fn().mockReturnThis(),
+        single: vi.fn(() => answer(chain)),
+      };
+      chains.push(chain);
+      return chain;
+    });
+    return chains;
+  }
+
+  function setup() {
+    const qc = makeClient();
+    qc.setQueryData(KEY, cached());
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useReorderSlots('sess-1'), { wrapper: withClient(qc) });
+    return { qc, invalidate, result };
+  }
+
+  it('writes each changed row once: its order and its superset', async () => {
+    const chains = rowWrites();
+    const { result } = setup();
+
+    await result.current.mutateAsync(DRAG);
+
+    expect(supabase.from).toHaveBeenCalledTimes(3);
+    expect(supabase.from).toHaveBeenCalledWith('exercise_slots');
+    expect(chains.map((c) => c.update.mock.calls[0][0])).toEqual([
+      { sort_order: 0, superset_group: null },
+      { sort_order: 1, superset_group: null },
+      { sort_order: 2, superset_group: null },
+    ]);
+    expect(chains.map((c) => c.eq.mock.calls[0])).toEqual([['id', 'c'], ['id', 'a'], ['id', 'b']]);
+  });
+
+  it('draws the new order before the database answers', async () => {
+    let release;
+    const held = new Promise((r) => { release = r; });
+    rowWrites(() => held.then(() => ({ data: { id: 'x' }, error: null })));
+    const { qc, result } = setup();
+
+    result.current.mutate(DRAG);
+
+    await waitFor(() =>
+      expect(qc.getQueryData(KEY).exercise_slots.map((sl) => sl.id)).toEqual(['c', 'a', 'b']),
+    );
+    const slots = qc.getQueryData(KEY).exercise_slots;
+    expect(slots.map((sl) => sl.sort_order)).toEqual([0, 1, 2]);
+    expect(slots.map((sl) => sl.superset_group)).toEqual([null, null, null]);
+    // The rest of the slot is kept.
+    expect(slots[0].sets).toBe(3);
+    release();
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  });
+
+  it('reads the session again once, after the drag', async () => {
+    rowWrites();
+    const { invalidate, result } = setup();
+
+    await result.current.mutateAsync(DRAG);
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(1));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: KEY });
+  });
+
+  it('puts the order back when a write is refused', async () => {
+    rowWrites((chain) =>
+      chain.eq.mock.calls[0][1] === 'a'
+        ? { data: null, error: { code: 'PGRST116', message: 'no row' } }
+        : { data: { id: 'x' }, error: null },
+    );
+    const { qc, result } = setup();
+
+    await expect(result.current.mutateAsync(DRAG)).rejects.toMatchObject({ code: 'PGRST116' });
+
+    expect(qc.getQueryData(KEY)).toEqual(cached());
+  });
+
+  // A refetch started by the first of two drags would answer with the order
+  // before the second: the row just dropped would jump back.
+  it('reads the session again after the LAST of two quick drags only', async () => {
+    let release;
+    const held = new Promise((r) => { release = r; });
+    let first = true;
+    rowWrites(() => {
+      if (!first) return { data: { id: 'x' }, error: null };
+      return held.then(() => ({ data: { id: 'x' }, error: null }));
+    });
+    const { qc, invalidate, result } = setup();
+
+    result.current.mutate(DRAG);
+    await waitFor(() => expect(supabase.from).toHaveBeenCalledTimes(3));
+    first = false;
+    result.current.mutate({
+      orderedIds: ['a', 'c', 'b'],
+      changes: [
+        { id: 'a', sort_order: 0, superset_group: null },
+        { id: 'c', sort_order: 1, superset_group: null },
+      ],
+    });
+    // The second drag is drawn at once, over the first.
+    await waitFor(() =>
+      expect(qc.getQueryData(KEY).exercise_slots.map((sl) => sl.id)).toEqual(['a', 'c', 'b']),
+    );
+    release();
+
+    await waitFor(() => expect(qc.isMutating()).toBe(0));
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    expect(qc.getQueryData(KEY).exercise_slots.map((sl) => sl.id)).toEqual(['a', 'c', 'b']);
+  });
+
+  it('runs the drags of a session one after the other', () => {
+    rowWrites();
+    const { qc, result } = setup();
+    result.current.mutate(DRAG);
+    const [mutation] = qc.getMutationCache().getAll();
+    expect(mutation.options.scope).toEqual({ id: 'slot-order-sess-1' });
   });
 });
 
