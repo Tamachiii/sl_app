@@ -693,6 +693,22 @@ describe('ProgramSheet', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
+  // Review item P11, the coach's half: an archived session is the coach's
+  // cleanup, not a session done. Its row in the drawer says "archived" and
+  // nothing else, trained or not — no ✓, no "started" ring.
+  it('marks an archived session as archived, and as nothing else', async () => {
+    const user = userEvent.setup();
+    mockConfirmed = { data: new Set(['sess-old']) };
+    mockLogged = { data: new Set(['sess-old']) };
+    renderSheet();
+    await user.click(screen.getByRole('button', { name: /show 1 archived/i }));
+    const row = screen.getByRole('button', { name: /open archived session/i }).parentElement;
+    expect(within(row).getByText('archived')).toBeInTheDocument();
+    expect(within(row).queryByLabelText(/confirmed by student/i)).toBeNull();
+    expect(within(row).queryByRole('img')).toBeNull();
+    expect(within(row).queryByText(/done/i)).toBeNull();
+  });
+
   it('excludes archived sessions from the active list', () => {
     renderSheet();
     expect(screen.queryByText('Old')).not.toBeInTheDocument();

@@ -453,6 +453,10 @@ export function useArchiveSession() {
       qc.invalidateQueries({ queryKey: ['all-confirmations'] });
       // …and pulls it out of the athlete's queue, which reads its own tree.
       qc.invalidateQueries({ queryKey: ['student-program-details'] });
+      // The athlete's stats count sessions by `archived_at` (planned, done,
+      // the calendar): Stats open in the next section must not keep the
+      // count from before the archive (review item P11).
+      qc.invalidateQueries({ queryKey: ['student-progress-stats'] });
       invalidateCoachDashboard(qc);
     },
   });
@@ -524,6 +528,8 @@ export function useArchiveSessions() {
       qc.invalidateQueries({ queryKey: ['program'] });
       qc.invalidateQueries({ queryKey: ['all-confirmations'] });
       qc.invalidateQueries({ queryKey: ['student-program-details'] });
+      // The stats read `archived_at` too (review item P11).
+      qc.invalidateQueries({ queryKey: ['student-progress-stats'] });
       invalidateCoachDashboard(qc);
     },
   });

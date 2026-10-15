@@ -233,6 +233,8 @@ describe('useArchiveSession', () => {
     // out of the dashboard week strip, so both roll-ups have to drop.
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['all-confirmations'] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['coach-dashboard-programs'] });
+    // The athlete's stats count sessions by `archived_at` (review item P11).
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['student-progress-stats'] });
 
     // Now unarchive — should pass null.
     mockUpdate.single.mockResolvedValueOnce({
@@ -274,7 +276,15 @@ describe('useArchiveSessions', () => {
   }
 
   const FIVE = ['a', 'b', 'c', 'd', 'e'];
-  const READ_AGAIN = [['program'], ['all-confirmations'], ['student-program-details'], ['coach-dashboard-programs']];
+  // `['student-progress-stats']`: the athlete's stats count sessions by
+  // `archived_at` (review item P11).
+  const READ_AGAIN = [
+    ['program'],
+    ['all-confirmations'],
+    ['student-program-details'],
+    ['student-progress-stats'],
+    ['coach-dashboard-programs'],
+  ];
 
   it('archives each session of the selection, in its order, with one timestamp', async () => {
     const sent = sessionsTable();
