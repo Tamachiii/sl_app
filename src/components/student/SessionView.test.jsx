@@ -619,7 +619,7 @@ describe('SessionView', () => {
 
     // Student goes "back" into the completed exercise by clicking the header.
     await user.click(screen.getByRole('button', { expanded: false, name: /Dip/i }));
-    // The done set's indicator now reads "mark set failed" (cycle: done → failed).
+    // The done set's indicator is shown: "Done. Hold to mark set failed".
     expect(screen.getByRole('button', { name: /mark set failed/i })).toBeInTheDocument();
 
     // Student cancels/undoes the set. firstOpenIdx flips from -1 → 0,

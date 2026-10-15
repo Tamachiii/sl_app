@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mockToggleDone = { mutate: vi.fn() };
@@ -70,14 +70,20 @@ describe('SetRow', () => {
     expect(mockToggleDone.mutate).toHaveBeenCalledWith({ logId: 'log-1', done: true });
   });
 
-  it('tap on indicator advances done → failed', async () => {
+  // P68: a tap on a done set used to mark it failed — and drop its RPE.
+  it('a tap on a done set marks nothing: it says that a hold marks it failed', async () => {
     const user = userEvent.setup();
-    renderSetRow({ ...baseLog, done: true });
+    renderSetRow({ ...baseLog, done: true, rpe: 8 });
 
     const indicator = screen.getByRole('button', { name: /mark set failed/i });
+    expect(indicator).toHaveAccessibleName('Done. Hold to mark set failed');
     await user.click(indicator);
-    expect(mockSetFailed.mutate).toHaveBeenCalledWith({ logId: 'log-1', failed: true });
+
+    expect(mockSetFailed.mutate).not.toHaveBeenCalled();
     expect(mockToggleDone.mutate).not.toHaveBeenCalled();
+    const hint = screen.getByRole('status');
+    expect(hint).toHaveTextContent('Hold to mark this set failed.');
+    expect(indicator).toHaveAttribute('aria-describedby', hint.id);
   });
 
   it('tap on indicator clears failed → pending', async () => {
@@ -89,7 +95,7 @@ describe('SetRow', () => {
     expect(mockSetFailed.mutate).toHaveBeenCalledWith({ logId: 'log-1', failed: false });
   });
 
-  it('tap cycles neutral → done → failed → neutral over successive renders', async () => {
+  it('the indicator reaches every state: a tap to done, a hold to failed, a tap back to pending', async () => {
     const user = userEvent.setup();
 
     const { rerender } = render(<SetRow log={baseLog} />);
@@ -97,7 +103,8 @@ describe('SetRow', () => {
     expect(mockToggleDone.mutate).toHaveBeenLastCalledWith({ logId: 'log-1', done: true });
 
     rerender(<SetRow log={{ ...baseLog, done: true }} />);
-    await user.click(screen.getByRole('button', { name: /mark set failed/i }));
+    // The menu of the indicator is its hold for a mouse or a keyboard.
+    fireEvent.contextMenu(screen.getByRole('button', { name: /mark set failed/i }));
     expect(mockSetFailed.mutate).toHaveBeenLastCalledWith({ logId: 'log-1', failed: true });
 
     rerender(<SetRow log={{ ...baseLog, failed: true }} />);
@@ -161,6 +168,180 @@ describe('SetRow', () => {
     renderSetRow({ ...baseLog, failed: true });
     swipe(rowFor(/clear failed/i), 80);
     expect(mockSetFailed.mutate).not.toHaveBeenCalled();
+  });
+
+  // P68. Failed is a hold on the indicator (500 ms), no longer a tap: the tap
+  // turned a set done a moment ago into a failure at the brush of a thumb.
+  // jsdom has PointerEvent; the clock is a fake one.
+  describe('a hold on the indicator marks the set failed', () => {
+    const log = { ...baseLog, done: true, rpe: 8, target_rest_seconds: 90 };
+    const indicator = () =>
+      screen.getByRole('button', { name: /mark set failed|mark set done|clear failed/i });
+    const press = (el, at = { clientX: 10, clientY: 10 }) =>
+      fireEvent.pointerDown(el, { ...at, button: 0, isPrimary: true, pointerType: 'touch' });
+    const wait = (ms) => act(() => vi.advanceTimersByTime(ms));
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('held 500 ms, a done set is marked failed, once, and its rest goes on', () => {
+      renderSetRow(log);
+      const el = indicator();
+
+      press(el);
+      wait(499);
+      expect(mockSetFailed.mutate).not.toHaveBeenCalled();
+      wait(1);
+
+      expect(mockSetFailed.mutate).toHaveBeenCalledTimes(1);
+      expect(mockSetFailed.mutate).toHaveBeenCalledWith({ logId: 'log-1', failed: true });
+      expect(mockToggleDone.mutate).not.toHaveBeenCalled();
+      expect(startRestTimer).not.toHaveBeenCalled();
+      expect(clearRestTimer).not.toHaveBeenCalled();
+    });
+
+    it('the click that ends the hold is not a tap', () => {
+      // A pending set: a tap there would mark it done.
+      renderSetRow({ ...baseLog, target_rest_seconds: 90 });
+      const el = indicator();
+
+      press(el);
+      wait(500);
+      fireEvent.pointerUp(el);
+      fireEvent.click(el);
+
+      expect(mockSetFailed.mutate).toHaveBeenCalledTimes(1);
+      expect(mockToggleDone.mutate).not.toHaveBeenCalled();
+      // Pending → failed: the rest of the set starts, as with the swipe.
+      expect(startRestTimer).toHaveBeenCalledWith('log-1', 90);
+      // The next tap is a tap again.
+      press(el);
+      fireEvent.pointerUp(el);
+      fireEvent.click(el);
+      expect(mockToggleDone.mutate).toHaveBeenCalledWith({ logId: 'log-1', done: true });
+    });
+
+    it('a finger lifted before 500 ms holds nothing', () => {
+      renderSetRow(log);
+      const el = indicator();
+
+      press(el);
+      wait(300);
+      fireEvent.pointerUp(el);
+      fireEvent.click(el);
+      wait(1000);
+
+      expect(mockSetFailed.mutate).not.toHaveBeenCalled();
+      expect(screen.getByRole('status')).toHaveTextContent(/hold to mark this set failed/i);
+    });
+
+    it('a finger that travels — a swipe, a scroll — holds nothing', () => {
+      renderSetRow(log);
+      const el = indicator();
+
+      press(el, { clientX: 10, clientY: 10 });
+      fireEvent.pointerMove(el, { clientX: 30, clientY: 12, isPrimary: true });
+      wait(600);
+      expect(mockSetFailed.mutate).not.toHaveBeenCalled();
+
+      // The browser takes a vertical pan for itself and cancels the pointer.
+      press(el);
+      fireEvent.pointerCancel(el);
+      wait(600);
+      expect(mockSetFailed.mutate).not.toHaveBeenCalled();
+    });
+
+    it('a finger that trembles a few pixels still holds', () => {
+      renderSetRow(log);
+      const el = indicator();
+
+      press(el, { clientX: 10, clientY: 10 });
+      fireEvent.pointerMove(el, { clientX: 15, clientY: 14, isPrimary: true });
+      wait(500);
+
+      expect(mockSetFailed.mutate).toHaveBeenCalledTimes(1);
+    });
+
+    it('Android opens the context menu on the same hold: one write, no menu', () => {
+      renderSetRow(log);
+      const el = indicator();
+
+      press(el);
+      wait(500);
+      const shown = fireEvent.contextMenu(el);
+      fireEvent.pointerUp(el);
+      fireEvent.click(el);
+
+      expect(shown).toBe(false);
+      expect(mockSetFailed.mutate).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    it('the menu key or a right click marks it failed too, and the next tap is a tap (WCAG 2.1.1)', () => {
+      renderSetRow(log);
+      const el = indicator();
+
+      const shown = fireEvent.contextMenu(el);
+      expect(shown).toBe(false);
+      expect(mockSetFailed.mutate).toHaveBeenCalledTimes(1);
+
+      // No click follows a menu key: the next one is the athlete's.
+      fireEvent.click(el);
+      expect(screen.getByRole('status')).toBeInTheDocument();
+    });
+
+    it('a failed set, a locked row and a second finger hold nothing', () => {
+      const { rerender } = render(<SetRow log={{ ...baseLog, failed: true }} />);
+      press(indicator());
+      wait(600);
+      fireEvent.contextMenu(indicator());
+      expect(mockSetFailed.mutate).not.toHaveBeenCalled();
+
+      rerender(<SetRow log={log} locked />);
+      press(indicator());
+      wait(600);
+      fireEvent.contextMenu(indicator());
+      expect(mockSetFailed.mutate).not.toHaveBeenCalled();
+
+      rerender(<SetRow log={log} />);
+      fireEvent.pointerDown(indicator(), { clientX: 0, clientY: 0, button: 0, isPrimary: false });
+      wait(600);
+      expect(mockSetFailed.mutate).not.toHaveBeenCalled();
+    });
+
+    it('a row that goes away while held marks nothing', () => {
+      const { unmount } = renderSetRow(log);
+      press(indicator());
+      unmount();
+      wait(600);
+      expect(mockSetFailed.mutate).not.toHaveBeenCalled();
+    });
+
+    it('the line that says how goes away by itself', () => {
+      renderSetRow(log);
+      fireEvent.click(indicator());
+      expect(screen.getByRole('status')).toBeInTheDocument();
+
+      wait(4000);
+
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+      expect(indicator()).not.toHaveAttribute('aria-describedby');
+    });
+
+    it('a swipe from the indicator is still a swipe', () => {
+      renderSetRow({ ...baseLog });
+      const el = indicator();
+      press(el, { clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(el, { clientX: 80, clientY: 0, isPrimary: true });
+      swipe(rowFor(/mark set done/i), 80);
+      wait(600);
+      // One write: the swipe's.
+      expect(mockSetFailed.mutate).toHaveBeenCalledTimes(1);
+    });
   });
 
   // The RPE selector and the rest timer follow what the athlete DOES on the
@@ -296,11 +477,10 @@ describe('SetRow', () => {
       expect(startRestTimer).toHaveBeenCalledWith('log-1', 90);
     });
 
-    it('done → failed does not restart it (that rest is already running)', async () => {
-      const user = userEvent.setup();
+    it('done → failed does not restart it (that rest is already running)', () => {
       renderSetRow({ ...log, done: true });
 
-      await user.click(screen.getByRole('button', { name: /mark set failed/i }));
+      fireEvent.contextMenu(screen.getByRole('button', { name: /mark set failed/i }));
 
       expect(mockSetFailed.mutate).toHaveBeenCalledWith({ logId: 'log-1', failed: true });
       expect(startRestTimer).not.toHaveBeenCalled();

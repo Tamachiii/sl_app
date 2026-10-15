@@ -1,4 +1,4 @@
-import { memo, useId, useRef, useState } from 'react';
+import { memo, useEffect, useId, useRef, useState } from 'react';
 import {
   useToggleSetDone,
   useSetFailed,
@@ -33,6 +33,16 @@ const SWIPE_COMMIT_PX = 64;
 const SWIPE_INTENT_PX = 8;
 const SWIPE_H_OVER_V = 1.4;
 const SWIPE_MAX_OFFSET = 96;
+
+// Failed is a HOLD on the indicator, not a tap (P68). The tap cycled done →
+// failed: a brush of the thumb turned the set done a moment ago into a failure
+// and dropped its rating. A press held LONG_PRESS_MS marks a pending or a done
+// set failed; a finger that travels more than LONG_PRESS_SLOP_PX first is a
+// swipe or a scroll, and holds nothing. A tap on a done set says how, for
+// HOLD_HINT_MS.
+const LONG_PRESS_MS = 500;
+const LONG_PRESS_SLOP_PX = 10;
+const HOLD_HINT_MS = 4000;
 
 // An extra set has no prescription: it says what was done, or it is not done.
 // Reps (none on a duration exercise: there is no column for an actual
@@ -80,6 +90,7 @@ const SetRow = memo(function SetRow({
 }) {
   const { t } = useI18n();
   const hintId = useId();
+  const holdHintId = useId();
   // log.id feeds the per-row mutation scope: same-row writes stay FIFO,
   // different rows don't block each other. See useSetLogs.rowScope.
   const toggleDone = useToggleSetDone(log.id);
@@ -110,6 +121,23 @@ const SetRow = memo(function SetRow({
   // is established or released.
   const swipe = useRef({ active: false, startX: 0, startY: 0, dx: 0, dy: 0, captured: false });
   const [swipeOffset, setSwipeOffset] = useState(0);
+
+  // The hold on the indicator: its timer, where it started, and whether it
+  // fired — the click that ends a press that fired is not a tap.
+  const press = useRef({ timer: null, down: false, x: 0, y: 0, fired: false });
+  const [holdHint, setHoldHint] = useState(false);
+
+  useEffect(() => {
+    if (!holdHint) return undefined;
+    const timer = setTimeout(() => setHoldHint(false), HOLD_HINT_MS);
+    return () => clearTimeout(timer);
+  }, [holdHint]);
+
+  // A hold still counting when the row goes away marks nothing.
+  useEffect(() => {
+    const current = press.current;
+    return () => clearTimeout(current.timer);
+  }, []);
 
   const failed = !!log.failed;
   const rpeLocked = locked || failed;
@@ -169,15 +197,86 @@ const SetRow = memo(function SetRow({
     clearRestTimer(log.id);
   }
 
-  // Tap cycles neutral → done → failed → neutral, mirroring the swipe outcomes
-  // so both interactions reach every state. The done → failed step is one
-  // write: patchForFailed(true) clears `done` in the same UPDATE, so the DB
-  // CHECK set_logs_done_xor_failed never sees an intermediate both-true row.
+  // A tap marks a pending set done and clears a failed one. On a done set it
+  // writes nothing: it says that a hold marks the set failed.
   function handleIndicatorTap() {
     if (locked) return;
-    if (log.done) markFailed();
+    if (log.done) setHoldHint(true);
     else if (failed) clearFailed();
     else markDone();
+  }
+
+  // A pending or a done set can be held to failed; a failed one is cleared by
+  // a tap. The done → failed step is one write: patchForFailed(true) clears
+  // `done` in the same UPDATE, so the DB CHECK set_logs_done_xor_failed never
+  // sees an intermediate both-true row.
+  const canHoldToFail = !locked && !failed;
+
+  function holdToFail() {
+    press.current.fired = true;
+    setHoldHint(false);
+    markFailed();
+    maybeVibrate();
+  }
+
+  function stopPress() {
+    const p = press.current;
+    clearTimeout(p.timer);
+    p.timer = null;
+    p.down = false;
+  }
+
+  function handleIndicatorPointerDown(e) {
+    const p = press.current;
+    p.fired = false;
+    stopPress();
+    // A second mouse button or a second finger holds nothing.
+    if (!canHoldToFail || e.button > 0 || e.isPrimary === false) return;
+    p.down = true;
+    p.x = e.clientX;
+    p.y = e.clientY;
+    p.timer = setTimeout(() => {
+      p.timer = null;
+      holdToFail();
+    }, LONG_PRESS_MS);
+  }
+
+  // The row's swipe starts on the indicator too, and the row lets the browser
+  // pan vertically only (`touch-action: pan-y`): a horizontal drag is never
+  // cancelled by the browser, so the travel itself ends the hold.
+  function handleIndicatorPointerMove(e) {
+    const p = press.current;
+    if (!p.timer) return;
+    if (Math.hypot(e.clientX - p.x, e.clientY - p.y) > LONG_PRESS_SLOP_PX) stopPress();
+  }
+
+  function handleIndicatorClick() {
+    if (press.current.fired) {
+      // The click that ends a hold: the hold has done its work.
+      press.current.fired = false;
+      return;
+    }
+    handleIndicatorTap();
+  }
+
+  // The context menu is the hold for those who cannot hold: a right click, the
+  // menu key or Shift+F10 on a keyboard (WCAG 2.1.1) — and Android, which
+  // opens it on a long press. It marks the set failed and shows no menu.
+  function handleIndicatorContextMenu(e) {
+    e.preventDefault();
+    const p = press.current;
+    if (p.fired) return; // the hold got there first
+    const pressing = p.down;
+    stopPress();
+    if (!canHoldToFail) return;
+    holdToFail();
+    // Only a press still down ends in a click to swallow.
+    if (!pressing) p.fired = false;
+  }
+
+  // A key press is never the end of a hold.
+  function handleIndicatorKeyDown() {
+    press.current.fired = false;
   }
 
   // Seed the inputs from the logged actual when present, else from the
@@ -409,7 +508,7 @@ const SetRow = memo(function SetRow({
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
       </svg>
     );
-    indicatorAriaLabel = 'Mark set failed';
+    indicatorAriaLabel = t('sessionTouchUndo.doneIndicatorLabel');
   } else if (failed) {
     indicatorBg = 'text-white';
     indicatorContent = (
@@ -466,13 +565,26 @@ const SetRow = memo(function SetRow({
       >
         <div className="flex items-center flex-wrap gap-x-3 gap-y-2">
           <button
-            onClick={handleIndicatorTap}
+            onClick={handleIndicatorClick}
+            onPointerDown={handleIndicatorPointerDown}
+            onPointerMove={handleIndicatorPointerMove}
+            onPointerUp={stopPress}
+            onPointerCancel={stopPress}
+            onPointerLeave={stopPress}
+            onContextMenu={handleIndicatorContextMenu}
+            onKeyDown={handleIndicatorKeyDown}
             disabled={locked}
             aria-label={indicatorAriaLabel}
-            className={`w-11 h-11 rounded-lg flex items-center justify-center shrink-0 transition-colors sl-display text-[15px] font-extrabold ${indicatorBg} ${
+            aria-describedby={holdHint && log.done ? holdHintId : undefined}
+            // select-none and no touch callout: iOS selects text and opens a
+            // callout under a finger held this long.
+            className={`w-11 h-11 rounded-lg flex items-center justify-center shrink-0 transition-colors sl-display text-[15px] font-extrabold select-none ${indicatorBg} ${
               locked ? 'opacity-70 cursor-not-allowed' : ''
             }`}
-            style={failed ? { background: 'var(--color-danger)' } : undefined}
+            style={{
+              WebkitTouchCallout: 'none',
+              ...(failed ? { background: 'var(--color-danger)' } : null),
+            }}
           >
             {indicatorContent}
           </button>
@@ -558,6 +670,12 @@ const SetRow = memo(function SetRow({
             {log.rpe != null ? `RPE ${log.rpe}` : 'RPE'}
           </button>
         </div>
+
+        {holdHint && log.done && (
+          <p id={holdHintId} role="status" className="pt-2 sl-mono text-[11px] text-ink-500">
+            {t('sessionTouchUndo.holdToFail')}
+          </p>
+        )}
 
         {rpeOpen && !failed && (
           <div className="pt-2">
