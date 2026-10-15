@@ -84,7 +84,7 @@ function Sets({ read }) {
   return (data || []).map((log) => <SetRow key={log.id} log={log} />);
 }
 
-const rpeGrids = () => screen.queryAllByRole('button', { name: /^RPE 5$/i });
+const rpeGrids = () => screen.queryAllByRole('button', { name: /^RPE 6\.5$/i });
 
 beforeEach(() => {
   vi.clearAllMocks();

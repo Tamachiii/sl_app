@@ -16,7 +16,7 @@ import { pushToast, dismissToast } from '../../lib/toast';
 import { formatSetTarget, formatActual, hasLoggedActual } from '../../lib/volume';
 import { decimalText, parseDecimalInput } from '../../lib/number';
 import DecimalInput from '../ui/DecimalInput';
-import RpeInput from './RpeInput';
+import RpeInput, { formatRpe } from './RpeInput';
 import VideoUploadButton from './VideoUploadButton';
 
 // What the Actual editor's two fields accept: what their columns hold
@@ -106,7 +106,7 @@ const SetRow = memo(function SetRow({
   seedWeightKg = null,
   durationBased = false,
 }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const hintId = useId();
   const holdHintId = useId();
   // log.id feeds the per-row mutation scope: same-row writes stay FIFO,
@@ -751,7 +751,7 @@ const SetRow = memo(function SetRow({
               failed
                 ? 'RPE disabled — set is failed'
                 : log.rpe != null
-                  ? `RPE ${log.rpe}, tap to change`
+                  ? `RPE ${formatRpe(log.rpe, lang)}, tap to change`
                   : 'Set RPE'
             }
             className={`sl-pill shrink-0 min-h-11 px-3.5 ${
@@ -761,7 +761,7 @@ const SetRow = memo(function SetRow({
             } ${rpeLocked ? 'opacity-60 cursor-not-allowed' : 'hover:brightness-95'}`}
             style={log.rpe != null ? { color: 'var(--color-accent)' } : undefined}
           >
-            {log.rpe != null ? `RPE ${log.rpe}` : 'RPE'}
+            {log.rpe != null ? `RPE ${formatRpe(log.rpe, lang)}` : 'RPE'}
           </button>
         </div>
 

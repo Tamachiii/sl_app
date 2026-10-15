@@ -358,8 +358,8 @@ describe('SetRow', () => {
   // row — a tap, a swipe — and never what the row turns into. The hooks are
   // mocked here, so a gesture changes nothing of `log`; a change of `log` is a
   // `rerender`, which is what a replayed write, a read or a rollback is to the
-  // row. RpeInput is identifiable by its 1..10 grid.
-  const rpeGrid = () => screen.queryByRole('button', { name: /^RPE 5$/i });
+  // row. RpeInput is identifiable by a half step of its grid.
+  const rpeGrid = () => screen.queryByRole('button', { name: /^RPE 6\.5$/i });
 
   describe('the RPE selector opens on the gesture that marks the set done', () => {
     it('a tap on a pending set opens it', async () => {
@@ -672,6 +672,41 @@ describe('SetRow', () => {
 
       expect(mockSetRpe.mutate).toHaveBeenCalledWith({ logId: 'log-1', rpe: 9 });
       expect(startRestTimer).not.toHaveBeenCalled();
+    });
+
+    // L34. Half steps from 6 to 10: the rating is sent as the number it is.
+    it('a half-step RPE on a pending set is sent as it is, with the set done', async () => {
+      const user = userEvent.setup();
+      renderSetRow(log);
+
+      await user.click(screen.getByRole('button', { name: /^set rpe$/i }));
+      await user.click(screen.getByRole('button', { name: /^RPE 7\.5$/i }));
+
+      expect(mockSetRpe.mutate).toHaveBeenCalledTimes(1);
+      expect(mockSetRpe.mutate).toHaveBeenCalledWith({ logId: 'log-1', rpe: 7.5, done: true });
+    });
+
+    it('a set rated 7.5 says so on its pill and in its selector', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...log, done: true, rpe: 7.5 });
+
+      const pill = screen.getByRole('button', { name: /^RPE 7\.5, tap to change$/i });
+      expect(pill).toHaveTextContent(/^RPE 7\.5$/);
+      await user.click(pill);
+      expect(screen.getByRole('button', { name: /^RPE 7\.5$/i })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    // A rating below 6 — logged before half steps, or by an older build —
+    // is not offered any more; it stays on screen and can still be taken back.
+    it('a rating that is not offered any more is shown, pressed, and can be taken back', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...log, done: true, rpe: 4 });
+
+      await user.click(screen.getByRole('button', { name: /^RPE 4, tap to change$/i }));
+      const old = screen.getByRole('button', { name: /^RPE 4$/i });
+      expect(old).toHaveAttribute('aria-pressed', 'true');
+      await user.click(old);
+      expect(mockSetRpe.mutate).toHaveBeenCalledWith({ logId: 'log-1', rpe: null });
     });
 
     it('a rating taken back marks nothing done', async () => {
