@@ -1,49 +1,59 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import Dialog from '../ui/Dialog';
+import DecimalInput from '../ui/DecimalInput';
 import { useI18n } from '../../hooks/useI18n';
 import { useBodyweightLogs, useLogBodyweight } from '../../hooks/useBodyweight';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { parseISODate } from '../../lib/day';
+import { decimalText, parseDecimalInput } from '../../lib/number';
+
+// What a bodyweight may be: the "between 1 and 500 kg" of the copy, and what
+// `bodyweight_logs.weight_kg` takes — a numeric(5,2) under 500, so 500 itself
+// is refused and 499.99 is the last value in.
+const BODYWEIGHT_RULES = { min: 1, max: 499.99, allowEmpty: false };
 
 function LogDialog({ open, onClose, current }) {
   const { t } = useI18n();
   const log = useLogBodyweight();
-  const [value, setValue] = useState(current != null ? String(current) : '');
+  const errId = useId();
+  const [value, setValue] = useState(decimalText(current));
   const [err, setErr] = useState('');
 
   function handleSubmit(e) {
     e.preventDefault();
-    const kg = Number(value);
-    // Match the "between 1 and 500 kg" copy and the input's min=1.
-    if (!(kg >= 1) || kg >= 500) {
+    // "82,5" is 82.5 whatever the language of the browser (P31): a number
+    // field read it as 825 in an English Chromium, and saved it.
+    const parsed = parseDecimalInput(value, BODYWEIGHT_RULES);
+    if (!parsed.ok) {
       setErr(t('student.profile.bodyweight.invalid'));
       return;
     }
     log.mutate(
-      { weightKg: Math.round(kg * 100) / 100 },
+      { weightKg: Math.round(parsed.value * 100) / 100 },
       { onSuccess: () => onClose(), onError: () => setErr(t('errors.generic')) }
     );
   }
 
   return (
     <Dialog open={open} onClose={onClose} title={t('student.profile.bodyweight.logTitle')}>
-      <form onSubmit={handleSubmit} className="space-y-3">
+      {/* noValidate: the field's `pattern` would have the browser refuse the
+          submit with its own bubble, and the alert below would never show. */}
+      <form onSubmit={handleSubmit} noValidate className="space-y-3">
         <label className="block">
           <span className="sl-label text-ink-400 block mb-1.5">
             {t('student.profile.bodyweight.weightLabel')}
           </span>
-          <input
-            type="number"
-            inputMode="decimal"
-            step="0.1"
-            min="1"
+          <DecimalInput
+            {...BODYWEIGHT_RULES}
             value={value}
             onChange={(e) => { setValue(e.target.value); setErr(''); }}
+            // Marked by a refused weight, not by a save that failed.
+            invalid={!!err && !parseDecimalInput(value, BODYWEIGHT_RULES).ok}
+            aria-describedby={err ? errId : undefined}
             autoFocus
-            className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
           />
         </label>
-        {err && <p role="alert" className="sl-mono text-[11px] text-danger">{err}</p>}
+        {err && <p id={errId} role="alert" className="sl-mono text-[11px] text-danger">{err}</p>}
         <div className="flex gap-2">
           <button
             type="submit"
