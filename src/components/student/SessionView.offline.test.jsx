@@ -56,8 +56,6 @@ vi.mock('../../hooks/useMessages', () => ({
   useSessionFeedback: () => ({ data: null }),
   formatMessageStamp: () => 'stamp',
 }));
-vi.mock('../../hooks/useRestTimerEffects', () => ({ useRestTimerEffects: () => {} }));
-vi.mock('../../hooks/useRestTimerPush', () => ({ useRestTimerPush: () => {} }));
 
 import SessionView from './SessionView';
 import OfflineBanner from '../ui/OfflineBanner';

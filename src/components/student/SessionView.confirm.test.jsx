@@ -62,8 +62,6 @@ vi.mock('../../hooks/useMessages', () => ({
   useMyFeedbackSessionIds: () => ({ data: new Set() }),
   formatMessageStamp: () => 'stamp',
 }));
-vi.mock('../../hooks/useRestTimerEffects', () => ({ useRestTimerEffects: () => {} }));
-vi.mock('../../hooks/useRestTimerPush', () => ({ useRestTimerPush: () => {} }));
 vi.mock('../ui/UserMenu', () => ({ default: () => <div data-testid="user-menu" /> }));
 
 import SessionView from './SessionView';

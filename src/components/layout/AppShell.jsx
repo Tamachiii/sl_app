@@ -6,6 +6,8 @@ import SideNav from './SideNav';
 import OfflineBanner from '../ui/OfflineBanner';
 import ToastHost from '../ui/ToastHost';
 import UpdatePrompt from '../ui/UpdatePrompt';
+import RestTimerHost from '../student/RestTimerHost';
+import { useAuth } from '../../hooks/useAuth';
 import { useMessagesRealtime } from '../../hooks/useMessages';
 import { useNotificationsRealtime } from '../../hooks/useNotifications';
 import { resumeMutationsAndReconcileDrafts } from '../../lib/offlineMutations';
@@ -114,6 +116,7 @@ function useScrollRestoration(ref, pathname) {
 export default function AppShell() {
   const mainRef = useRef(null);
   const { pathname } = useLocation();
+  const { role } = useAuth();
 
   // Single global realtime channel for messages — every page sees fresh
   // threads + nav-tab badges without each having to subscribe individually.
@@ -152,6 +155,10 @@ export default function AppShell() {
         </div>
       </main>
       <BottomNav />
+      {/* The rest timer's beep, wake lock and push, for every page of a
+          student: a change of tab in the middle of a rest no longer ends
+          them. Unmounted with the shell, at sign-out. */}
+      {role === 'student' && <RestTimerHost />}
       {/* A new version of the app: applied by itself at a safe moment, offered
           here otherwise. Before ToastHost, so a toast is drawn over the offer
           and not under it — both sit above the bottom nav. */}

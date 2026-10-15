@@ -61,10 +61,6 @@ vi.mock('../../hooks/useSetVideo', () => ({
   useSetVideoSignedUrl: () => ({ data: null, isLoading: false }),
 }));
 
-// Not part of what is tested, and both reach for the Supabase client.
-vi.mock('../../hooks/useRestTimerPush', () => ({ useRestTimerPush: () => {} }));
-vi.mock('../../hooks/useRestTimerEffects', () => ({ useRestTimerEffects: () => {} }));
-
 let mockConfirmation = { data: null, isLoading: false };
 
 vi.mock('../../hooks/useSessionConfirmation', () => ({

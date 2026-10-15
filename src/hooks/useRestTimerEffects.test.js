@@ -647,3 +647,31 @@ describe('useRestTimerEffects: the beep and the ring/silent switch (navigator.au
     expect(vibrateCalls.length).toBe(1);
   });
 });
+
+// The hook is mounted by the student shell's host, and its module is in the
+// bundle every signed-in user loads: the tap that unlocks audio is listened
+// for once a hook is mounted, not as soon as the module is read — a coach's
+// first tap builds no AudioContext.
+describe('useRestTimerEffects: the audio unlock', () => {
+  it('is armed by the first mount of the hook, once, and not by loading the module', async () => {
+    vi.resetModules();
+    const add = vi.spyOn(window, 'addEventListener');
+    try {
+      const fresh = await import('./useRestTimerEffects');
+      const armed = () =>
+        add.mock.calls
+          .map(([type]) => type)
+          .filter((type) => type === 'pointerdown' || type === 'touchstart');
+      expect(armed()).toEqual([]);
+
+      const first = renderHook(() => fresh.useRestTimerEffects());
+      expect(armed()).toEqual(['pointerdown', 'touchstart']);
+
+      first.unmount();
+      renderHook(() => fresh.useRestTimerEffects());
+      expect(armed()).toEqual(['pointerdown', 'touchstart']);
+    } finally {
+      add.mockRestore();
+    }
+  });
+});

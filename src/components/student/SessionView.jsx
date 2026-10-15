@@ -26,8 +26,6 @@ import { DAY_FULL, performedOnFromLogs } from '../../lib/day';
 import SlotGroupCard from './SlotGroupCard';
 import Unavailable from './Unavailable';
 import RestTimerBanner from './RestTimerBanner';
-import { useRestTimerEffects } from '../../hooks/useRestTimerEffects';
-import { useRestTimerPush } from '../../hooks/useRestTimerPush';
 
 // The exercises of a session that is not read yet: one array, so that what is
 // derived from the exercises is not derived again on every render.
@@ -161,14 +159,9 @@ export default function SessionView() {
   const confirmInFlight = confirmSession.isPending && !confirmSession.isPaused;
   const undoInFlight = unconfirmSession.isPending && !unconfirmSession.isPaused;
 
-  // Out-of-band rest-timer side effects (wake lock + audio cue + vibrate +
-  // hidden-title countdown). Mounted exactly here so the singleton timer
-  // has one driver site, mirroring RestTimerBanner. See useRestTimerEffects.
-  useRestTimerEffects();
-  // Background push bridge: schedules a "Rest done" Web Push on the server
-  // for users who opted in (StudentProfile → Rest end notifications).
-  // No-op when push isn't supported or the user hasn't enabled it.
-  useRestTimerPush();
+  // The rest timer's wake lock, beep and push are not run here: they live in
+  // RestTimerHost, in the student shell, so that leaving this page in the
+  // middle of a rest does not end them.
 
   const [notes, setNotes] = useState('');
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);

@@ -3,9 +3,11 @@ import { useRestTimer } from './useRestTimer';
 
 // useRestTimerEffects — out-of-band side effects that ride on top of the
 // app-wide rest-timer singleton (hooks/useRestTimer). Kept separate so the
-// store stays a pure timestamp holder and so SessionView is the only place
-// these run. Mount this hook exactly once, inside the student SessionView,
-// when a rest timer can be active.
+// store stays a pure timestamp holder. Mount this hook exactly once:
+// components/student/RestTimerHost does, in the student shell (AppShell), so
+// that a rest keeps its beep and its wake lock while the athlete looks at
+// another tab. Mounted in the session page, it was cleaned up on every change
+// of tab while the timer ran on.
 //
 // What it does, while a timer is active:
 //   1. Acquires `navigator.wakeLock('screen')` so the phone screen doesn't
@@ -22,9 +24,10 @@ import { useRestTimer } from './useRestTimer';
 //      `document.title` so an app-switcher / back-of-app glance still
 //      shows the countdown. Restores the original title on expiry/cleanup.
 //
-// All effects clean up when endsAt/logId changes (new set starts) or when
-// SessionView unmounts. The expiry timeout also releases the wake lock so
-// the screen can lock again the moment rest is over.
+// All effects clean up when endsAt/logId changes (a new set starts, the rest
+// is skipped or given 30 s more) or when the shell unmounts (sign-out). The
+// expiry timeout also releases the wake lock so the screen can lock again the
+// moment rest is over.
 
 let audioCtx = null;
 
@@ -46,7 +49,17 @@ function getAudioContext() {
 // the time a rest timer expires the context is unlocked. Student always
 // taps a set to start the timer in the first place, so this almost
 // always fires well before expiry.
-if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+//
+// Armed by the first mount of the hook, not when this module is loaded: the
+// module is in the bundle every signed-in user loads (the student shell's
+// host is imported by AppShell), and the first tap of a coach would otherwise
+// build an AudioContext nobody plays.
+let unlockArmed = false;
+
+function armAudioUnlock() {
+  if (unlockArmed) return;
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+  unlockArmed = true;
   const unlock = () => {
     const ac = getAudioContext();
     if (ac && ac.state === 'suspended') {
@@ -149,6 +162,10 @@ function formatMMSS(seconds) {
 
 export function useRestTimerEffects() {
   const { endsAt, logId } = useRestTimer();
+
+  useEffect(() => {
+    armAudioUnlock();
+  }, []);
 
   useEffect(() => {
     if (endsAt == null) return undefined;
