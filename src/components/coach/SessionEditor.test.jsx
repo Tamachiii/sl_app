@@ -82,7 +82,10 @@ vi.mock('@dnd-kit/core', async (importOriginal) => {
   };
 });
 
-vi.mock('../../hooks/useExerciseLibrary', () => ({
+// The real module underneath, for `isActiveExercise`: the picker leaves out
+// what the library page counts as archived.
+vi.mock('../../hooks/useExerciseLibrary', async () => ({
+  ...(await vi.importActual('../../hooks/useExerciseLibrary')),
   useExerciseLibrary: () => mockLibraryData,
 }));
 
@@ -517,6 +520,51 @@ describe('SessionEditor', () => {
     );
   });
 
+
+  // Review decision P18: an exercise in use is archived instead of deleted,
+  // and an archived one is not offered for new work.
+  describe('an archived exercise', () => {
+    const ARCHIVED_AT = '2026-10-15T08:00:00.000Z';
+    beforeEach(() => {
+      mockLibraryData = {
+        data: [
+          { id: 'ex-1', name: 'Pull Up', type: 'pull', difficulty: 2, volume_weight: 1, archived_at: null },
+          { id: 'ex-2', name: 'Dip', type: 'push', difficulty: 2, volume_weight: 1, archived_at: ARCHIVED_AT },
+          // A row read before the column existed is on offer.
+          { id: 'ex-3', name: 'Row', type: 'pull', difficulty: 1, volume_weight: 1 },
+        ],
+      };
+    });
+
+    it('is not offered when an exercise is added', async () => {
+      const user = userEvent.setup();
+      mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
+      renderEditor();
+      await user.click(screen.getByText('+ ADD EXERCISE'));
+      const values = [...screen.getByRole('combobox').options].map((o) => o.value);
+      expect(values).toEqual(['', 'ex-1', 'ex-3']);
+    });
+
+    it('still shows on the slot that holds it, which stays editable', () => {
+      mockSessionData = {
+        data: {
+          title: 'Day 1',
+          exercise_slots: [
+            {
+              id: 'slot-1', sets: 3, reps: 10, sort_order: 0, set_logs: [],
+              exercise: { id: 'ex-2', name: 'Dip', type: 'push', difficulty: 2, volume_weight: 1, archived_at: ARCHIVED_AT },
+            },
+          ],
+        },
+        isLoading: false,
+      };
+      renderEditor();
+      // The slot, and the "last time" panel that lists the session's exercises.
+      expect(screen.getAllByText('Dip')).toHaveLength(2);
+      expect(screen.queryByText('Exercise unavailable')).toBeNull();
+      expect(screen.getAllByRole('button', { name: /remove exercise/i })).toHaveLength(1);
+    });
+  });
 
   // Duplicate and "copy to…" left this header: the sheet carries both now — a
   // duplicate button on every row, copy behind its selection bar — so keeping

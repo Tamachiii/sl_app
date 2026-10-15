@@ -5,19 +5,23 @@ import { MemoryRouter, Routes, Route, Outlet } from 'react-router-dom';
 
 const mockCreateGoal = { mutate: vi.fn(), isPending: false };
 
+let mockGoals = [];
+
 vi.mock('../../hooks/useGoals', () => ({
-  useStudentGoals: () => ({ data: [], isLoading: false }),
+  useStudentGoals: () => ({ data: mockGoals, isLoading: false }),
   useStudentProfileId: () => ({ data: 'profile-s1', isLoading: false }),
   useCreateGoal: () => mockCreateGoal,
   useDeleteGoal: () => ({ mutate: vi.fn() }),
   formatGoalTarget: () => '',
 }));
 
-vi.mock('../../hooks/useExerciseLibrary', () => ({
-  useExerciseLibrary: () => ({
-    data: [{ id: 'ex-1', name: 'Pull Up', type: 'pull' }],
-    isLoading: false,
-  }),
+let mockLibrary = [{ id: 'ex-1', name: 'Pull Up', type: 'pull' }];
+
+// The real module underneath, for `isActiveExercise`: the picker leaves out
+// what the library page counts as archived.
+vi.mock('../../hooks/useExerciseLibrary', async () => ({
+  ...(await vi.importActual('../../hooks/useExerciseLibrary')),
+  useExerciseLibrary: () => ({ data: mockLibrary, isLoading: false }),
 }));
 
 import StudentGoalsSection from './StudentGoalsSection';
@@ -51,6 +55,8 @@ async function fillGoal(user, weight) {
 describe('StudentGoalsSection — the goal weight', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGoals = [];
+    mockLibrary = [{ id: 'ex-1', name: 'Pull Up', type: 'pull' }];
   });
 
   it('is a text field with the decimal keypad', async () => {
@@ -141,5 +147,45 @@ describe('StudentGoalsSection — the goal weight', () => {
       expect.objectContaining({ kind: 'format', target_sets: 3, target_reps: 5, target_weight_kg: 82.5 }),
       expect.any(Object),
     );
+  });
+});
+
+// Review decision P18: an exercise in use is archived instead of deleted, and
+// no new goal is set on an archived one.
+describe('StudentGoalsSection — an archived exercise', () => {
+  const ARCHIVED_AT = '2026-10-15T08:00:00.000Z';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGoals = [];
+    mockLibrary = [
+      { id: 'ex-1', name: 'Pull Up', type: 'pull', archived_at: null },
+      { id: 'ex-2', name: 'Dip', type: 'push', archived_at: ARCHIVED_AT },
+    ];
+  });
+
+  it('is not offered for a new goal', async () => {
+    const user = userEvent.setup();
+    renderSection();
+    await user.click(screen.getByRole('button', { name: '+ ADD GOAL' }));
+    const values = [...screen.getByRole('combobox').options].map((o) => o.value);
+    expect(values).toEqual(['', 'ex-1']);
+  });
+
+  it('still names the goal set on it', () => {
+    mockGoals = [
+      {
+        id: 'g-1',
+        exercise_id: 'ex-2',
+        exercise: { id: 'ex-2', name: 'Dip', type: 'push', archived_at: ARCHIVED_AT },
+        kind: 'one_rm',
+        target_weight_kg: 40,
+        target_reps: 1,
+        achieved: false,
+        goal_progress: [],
+      },
+    ];
+    renderSection();
+    expect(screen.getByText('Dip')).toBeInTheDocument();
   });
 });

@@ -5,7 +5,7 @@ import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import DecimalInput from '../ui/DecimalInput';
 import { parseDecimalInput } from '../../lib/number';
-import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
+import { useExerciseLibrary, isActiveExercise } from '../../hooks/useExerciseLibrary';
 import {
   useStudentGoals,
   useStudentProfileId,
@@ -144,7 +144,9 @@ export default function StudentGoalsSection() {
               required
             >
               <option value="">Select exercise…</option>
-              {(library || []).map((ex) => (
+              {/* No new goal on an archived exercise; the goals already set on
+                  one keep it (each goal embeds its exercise). */}
+              {(library || []).filter(isActiveExercise).map((ex) => (
                 <option key={ex.id} value={ex.id}>
                   {ex.name} ({ex.type})
                 </option>

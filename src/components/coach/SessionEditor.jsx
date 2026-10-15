@@ -27,7 +27,7 @@ import {
 } from '../../hooks/useSession';
 import { useUpdateSession, useDeleteSession } from '../../hooks/useWeek';
 import { useSessionConfirmation } from '../../hooks/useSessionConfirmation';
-import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
+import { useExerciseLibrary, isActiveExercise } from '../../hooks/useExerciseLibrary';
 import { groupSlotsBySuperset } from '../../lib/volume';
 import { isLoggedSet } from '../../lib/loggedSets';
 import ExerciseSlotRow from './ExerciseSlotRow';
@@ -424,7 +424,10 @@ function SessionEditorPage() {
             className={inputCls}
           >
             <option value="">{t('coach.editor.selectExercise')}</option>
-            {(library || []).map((ex) => (
+            {/* An archived exercise is not offered for new work; the slots
+                that already hold one still show it (their `exercise` is
+                embedded by the session read, not looked up here). */}
+            {(library || []).filter(isActiveExercise).map((ex) => (
               <option key={ex.id} value={ex.id}>
                 {t('coach.editor.exerciseOption', {
                   name: ex.name,
