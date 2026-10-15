@@ -59,6 +59,14 @@ describe('StudentOverview', () => {
     expect(screen.getByTestId('goals')).toBeInTheDocument();
   });
 
+  // Review item L15: a section header was 36px tall.
+  it('has section headers a thumb can hit: 44px', () => {
+    render(<StudentOverview />);
+    for (const name of [/programming/i, /goals/i, /stats/i]) {
+      expect(screen.getByRole('button', { name })).toHaveClass('min-h-11');
+    }
+  });
+
   it('marks section headers with aria-expanded for assistive tech', async () => {
     const user = userEvent.setup();
     render(<StudentOverview />);
@@ -105,6 +113,16 @@ describe('StudentOverview', () => {
       expect(within(nav).getAllByRole('link')).toHaveLength(2);
       const programming = screen.getByRole('button', { name: /programming/i });
       expect(nav.compareDocumentPosition(programming) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    // Review item L15: the two were 36px tall (`min-h-9`).
+    it('are pill buttons, 44px', () => {
+      renderWithStudent(alice);
+      for (const name of ['Message', 'Sessions']) {
+        const link = screen.getByRole('link', { name });
+        expect(link).toHaveClass('sl-pill', 'sl-pill-btn');
+        expect(link).not.toHaveClass('min-h-9');
+      }
     });
 
     it('offers no thread link for an athlete row without a profile id', () => {

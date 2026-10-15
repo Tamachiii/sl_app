@@ -50,7 +50,7 @@ function Section({ id, title, defaultOpen = false, children }) {
           onClick={toggle}
           aria-expanded={open}
           aria-controls={panelId}
-          className="w-full flex items-center gap-2 py-2 text-left group"
+          className="w-full min-h-11 flex items-center gap-2 py-2 text-left group"
         >
           <span className="sl-label text-ink-400 group-hover:text-ink-700 transition-colors">
             {title}
@@ -87,7 +87,7 @@ function AthleteActions({ student }) {
   if (!student) return null;
   const name = student.profile?.full_name || '';
   const cls =
-    'sl-pill min-h-9 px-3.5 bg-ink-100 text-ink-700 hover:bg-ink-200 transition-colors';
+    'sl-pill sl-pill-btn bg-ink-100 text-ink-700 hover:bg-ink-200 transition-colors';
 
   return (
     <nav

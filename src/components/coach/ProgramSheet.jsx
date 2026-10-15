@@ -224,7 +224,7 @@ export default function ProgramSheet({ studentId, program }) {
           <button
             type="button"
             onClick={() => { setReorderingPhases(false); setReorderingSessions(false); }}
-            className="sl-pill shrink-0"
+            className="sl-pill sl-pill-btn shrink-0"
             style={{ background: 'var(--color-accent)', color: 'var(--color-ink-900)' }}
           >
             {t('common.done')}
@@ -239,7 +239,7 @@ export default function ProgramSheet({ studentId, program }) {
             type="button"
             onClick={handleAddFirstSession}
             disabled={createWeek.isPending || createSession.isPending}
-            className="w-full border border-dashed border-ink-200 text-ink-400 rounded-xl py-3 sl-mono text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
+            className="w-full min-h-11 border border-dashed border-ink-200 text-ink-400 rounded-xl py-3 sl-mono text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
           >
             {t('coach.week.addSession')}
           </button>
@@ -331,7 +331,7 @@ export default function ProgramSheet({ studentId, program }) {
                 <button
                   type="button"
                   onClick={() => setShowArchived((v) => !v)}
-                  className="w-full text-ink-400 py-2 sl-mono text-[10px] hover:text-ink-700 underline"
+                  className="w-full min-h-11 text-ink-400 sl-mono text-[10px] hover:text-ink-700 underline"
                 >
                   {showArchived
                     ? t('coach.week.hideArchived', { n: model.archived.length })
@@ -352,7 +352,7 @@ export default function ProgramSheet({ studentId, program }) {
                         })
                       }
                       aria-label={t('coach.week.openArchivedSession')}
-                      className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 text-left"
+                      className="flex-1 min-w-0 min-h-11 flex items-center gap-2 px-3 text-left"
                     >
                       <span className="sl-display text-[13px] text-ink-600 flex-1 truncate">
                         {s.title || t('coach.week.sessionN', { n: i + 1 })}
@@ -373,7 +373,7 @@ export default function ProgramSheet({ studentId, program }) {
                       disabled={archiveSession.isPending}
                       aria-label={t('coach.sheet.unarchiveSession')}
                       title={t('coach.sheet.unarchiveSession')}
-                      className="shrink-0 px-3 py-2 sl-mono text-[10px] text-ink-400 hover:text-[var(--color-accent)] transition-colors"
+                      className="shrink-0 min-h-11 px-3 sl-mono text-[10px] text-ink-400 hover:text-[var(--color-accent)] transition-colors"
                     >
                       {t('coach.sheet.unarchive')}
                     </button>
@@ -386,7 +386,7 @@ export default function ProgramSheet({ studentId, program }) {
                 phase, so archiving or resequencing a whole mesocycle is one
                 gesture instead of one per week card. */}
             {selecting ? (
-              <div className="flex items-center gap-2 px-3 py-2 border-t border-ink-100 bg-ink-50">
+              <div className="flex items-center gap-1 pl-3 border-t border-ink-100 bg-ink-50">
                 <span className="sl-mono text-[11px] text-ink-400 flex-1">
                   {t('coach.sheet.nSelected', { n: selectedIds.size })}
                 </span>
@@ -399,7 +399,7 @@ export default function ProgramSheet({ studentId, program }) {
                       { onSuccess: exitSelect },
                     )
                   }
-                  className="sl-mono text-[11px] text-ink-700 hover:text-[var(--color-accent)] disabled:opacity-40 transition-colors"
+                  className="min-h-11 px-3 sl-mono text-[11px] text-ink-700 hover:text-[var(--color-accent)] disabled:opacity-40 transition-colors"
                 >
                   {t('coach.sheet.archiveSelected')}
                 </button>
@@ -407,7 +407,7 @@ export default function ProgramSheet({ studentId, program }) {
                   type="button"
                   disabled={selectedIds.size === 0}
                   onClick={() => setShowCopySelection(true)}
-                  className="sl-mono text-[11px] text-ink-700 hover:text-[var(--color-accent)] disabled:opacity-40 transition-colors"
+                  className="min-h-11 px-3 sl-mono text-[11px] text-ink-700 hover:text-[var(--color-accent)] disabled:opacity-40 transition-colors"
                 >
                   {t('coach.week.copyTo')}
                 </button>
@@ -415,7 +415,7 @@ export default function ProgramSheet({ studentId, program }) {
                   type="button"
                   onClick={exitSelect}
                   aria-label={t('common.cancel')}
-                  className="sl-mono text-[13px] text-ink-400 hover:text-gray-900 px-1 transition-colors"
+                  className="w-11 h-11 shrink-0 flex items-center justify-center sl-mono text-[13px] text-ink-400 hover:text-gray-900 transition-colors"
                 >
                   &times;
                 </button>
@@ -429,7 +429,7 @@ export default function ProgramSheet({ studentId, program }) {
                   type="button"
                   onClick={() => addSessionTo(weeks[weeks.length - 1])}
                   disabled={createSession.isPending}
-                  className="flex-1 text-ink-400 py-2.5 sl-mono text-[11px] hover:text-[var(--color-accent)] transition-colors"
+                  className="flex-1 min-h-11 text-ink-400 sl-mono text-[11px] hover:text-[var(--color-accent)] transition-colors"
                 >
                   {t('coach.week.addSession')}
                 </button>
@@ -437,7 +437,7 @@ export default function ProgramSheet({ studentId, program }) {
                   <button
                     type="button"
                     onClick={() => setSelecting(true)}
-                    className="px-4 py-2.5 sl-mono text-[11px] text-ink-400 border-l border-ink-100 hover:text-[var(--color-accent)] transition-colors"
+                    className="min-h-11 px-4 sl-mono text-[11px] text-ink-400 border-l border-ink-100 hover:text-[var(--color-accent)] transition-colors"
                   >
                     {t('coach.sheet.select')}
                   </button>
@@ -446,7 +446,7 @@ export default function ProgramSheet({ studentId, program }) {
                   <button
                     type="button"
                     onClick={() => setReorderingSessions(true)}
-                    className="px-4 py-2.5 sl-mono text-[11px] text-ink-400 border-l border-ink-100 hover:text-[var(--color-accent)] transition-colors"
+                    className="min-h-11 px-4 sl-mono text-[11px] text-ink-400 border-l border-ink-100 hover:text-[var(--color-accent)] transition-colors"
                   >
                     {t('coach.sheet.reorderSessions')}
                   </button>
@@ -464,7 +464,7 @@ export default function ProgramSheet({ studentId, program }) {
           type="button"
           onClick={handleAddPhase}
           disabled={createWeek.isPending}
-          className="w-full text-ink-400 py-2 sl-mono text-[11px] hover:text-[var(--color-accent)] transition-colors"
+          className="w-full min-h-11 text-ink-400 sl-mono text-[11px] hover:text-[var(--color-accent)] transition-colors"
         >
           {t('coach.sheet.addPhase')}
         </button>

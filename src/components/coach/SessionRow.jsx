@@ -112,13 +112,13 @@ export function SortableSessionRow({ session, position, t }) {
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
-      className="flex items-center gap-2 px-3 py-2 border-t border-ink-100 bg-ink-50"
+      className="flex items-center gap-2 min-h-11 px-3 border-t border-ink-100 bg-ink-50"
     >
       <button
         {...attributes}
         {...listeners}
         aria-label={t('coach.sheet.reorderSession', { name: session.title || String(position) })}
-        className="text-ink-400 hover:text-ink-700 cursor-grab active:cursor-grabbing touch-none shrink-0 p-1"
+        className="w-11 h-11 -ml-3 flex items-center justify-center text-ink-400 hover:text-ink-700 cursor-grab active:cursor-grabbing touch-none shrink-0"
       >
         <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true">
           <circle cx="2.5" cy="3" r="1.25" /><circle cx="7.5" cy="3" r="1.25" />
@@ -180,7 +180,7 @@ export default function SessionRow({
         type="button"
         onClick={onToggleSelect}
         aria-pressed={selected}
-        className={`w-full flex items-center gap-3 px-3 py-2.5 border-t border-ink-100 text-left transition-colors ${
+        className={`w-full flex items-center gap-3 min-h-11 px-3 py-2 border-t border-ink-100 text-left transition-colors ${
           selected ? 'bg-ink-100' : 'hover:bg-ink-50'
         }`}
       >
@@ -216,15 +216,20 @@ export default function SessionRow({
         type="button"
         onClick={open}
         aria-label={opensReview ? t('coachLoggedHistory.sheet.openReview') : t('coach.week.openSession')}
-        className="flex-1 min-w-0 text-left flex items-baseline gap-2 group"
+        // The whole height of the row, between the day pill and the duplicate
+        // button: it was the height of its text, 15px, with a write on either
+        // side of it (live review N15).
+        className="flex-1 min-w-0 self-stretch min-h-11 text-left flex items-center group"
       >
-        <span className="sl-display text-[14px] text-gray-900 truncate group-hover:text-[var(--color-accent)] transition-colors">
-          {/* Position in the list, not the weekday: day_number is optional
-              advice now, so an untitled session must not be named after it. */}
-          {session.title || t('coach.week.sessionN', { n: position })}
-        </span>
-        <span className="sl-mono text-[10px] text-ink-400 shrink-0">
-          {t('coach.week.exCount', { n: exCount })}
+        <span className="min-w-0 flex items-baseline gap-2">
+          <span className="sl-display text-[14px] text-gray-900 truncate group-hover:text-[var(--color-accent)] transition-colors">
+            {/* Position in the list, not the weekday: day_number is optional
+                advice now, so an untitled session must not be named after it. */}
+            {session.title || t('coach.week.sessionN', { n: position })}
+          </span>
+          <span className="sl-mono text-[10px] text-ink-400 shrink-0">
+            {t('coach.week.exCount', { n: exCount })}
+          </span>
         </span>
       </button>
       {/* Started, not confirmed: a hollow ring where the ✓ will be, so the row
@@ -256,7 +261,7 @@ export default function SessionRow({
         disabled={duplicating}
         aria-label={t('coach.sheet.duplicateSession')}
         title={t('coach.sheet.duplicateSession')}
-        className="w-7 h-7 rounded-lg text-ink-400 hover:bg-ink-100 hover:text-ink-700 flex items-center justify-center transition-colors shrink-0 disabled:opacity-40"
+        className="w-11 h-11 -mr-2 rounded-lg text-ink-400 hover:bg-ink-100 hover:text-ink-700 flex items-center justify-center transition-colors shrink-0 disabled:opacity-40"
       >
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <rect x="9" y="9" width="11" height="11" rx="2" strokeWidth={2} />

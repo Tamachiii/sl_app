@@ -98,13 +98,13 @@ export function SortablePhaseDivider({ week, sessionCount, t }) {
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
-      className="flex items-center gap-2 px-3 py-2.5 border-t border-ink-100 first:border-t-0 bg-ink-50"
+      className="flex items-center gap-2 min-h-11 px-3 border-t border-ink-100 first:border-t-0 bg-ink-50"
     >
       <button
         {...attributes}
         {...listeners}
         aria-label={t('coach.sheet.reorderPhase', { name: week.label || t('coach.sheet.unnamedPhase') })}
-        className="text-ink-400 hover:text-ink-700 cursor-grab active:cursor-grabbing touch-none shrink-0 p-1"
+        className="w-11 h-11 -ml-3 flex items-center justify-center text-ink-400 hover:text-ink-700 cursor-grab active:cursor-grabbing touch-none shrink-0"
       >
         <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true">
           <circle cx="2.5" cy="3" r="1.25" /><circle cx="7.5" cy="3" r="1.25" />
@@ -145,8 +145,8 @@ export default function PhaseDivider({
           ariaLabel={t('coach.week.editLabelAria')}
           className={
             week.label
-              ? 'sl-label text-ink-500 truncate'
-              : 'sl-mono text-[10px] text-ink-300 truncate'
+              ? 'sl-label text-ink-500 truncate max-w-full min-h-11'
+              : 'sl-mono text-[10px] text-ink-300 truncate max-w-full min-h-11'
           }
         />
       </div>

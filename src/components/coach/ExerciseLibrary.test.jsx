@@ -265,4 +265,35 @@ describe('ExerciseLibrary', () => {
     renderLibrary();
     expect(screen.getByText(/\+BW/)).toBeInTheDocument();
   });
+
+  // Review item L15 and live finding N18: the filter pills were 23px tall,
+  // "+ Add" 32px, and "edit" and "del" two words 4px apart, "del" 29×16. jsdom
+  // lays nothing out (src/test/hitTargets.test.js holds the classes to 44px).
+  describe('44px targets', () => {
+    it('filter pills are pill buttons', () => {
+      renderLibrary();
+      for (const name of [/^all$/i, /^pull$/i, /^push$/i]) {
+        expect(screen.getByRole('button', { name })).toHaveClass('sl-pill', 'sl-pill-btn');
+      }
+    });
+
+    it('edit and delete are two 44px boxes on every exercise', () => {
+      renderLibrary();
+      for (const name of ['Edit Pull Up', 'Delete Pull Up', 'Edit Dip', 'Delete Dip']) {
+        const button = screen.getByRole('button', { name });
+        expect(button).toHaveClass('min-h-11', 'min-w-11');
+        expect(button).not.toHaveClass('px-1');
+      }
+    });
+
+    it('+ Add, and the two buttons of its form, are 44px tall', async () => {
+      const user = userEvent.setup();
+      renderLibrary();
+      const add = screen.getByRole('button', { name: '+ ADD' });
+      expect(add).toHaveClass('min-h-11');
+      await user.click(add);
+      expect(screen.getByRole('button', { name: 'Create' })).toHaveClass('min-h-11');
+      expect(screen.getByRole('button', { name: 'Cancel' })).toHaveClass('min-h-11');
+    });
+  });
 });

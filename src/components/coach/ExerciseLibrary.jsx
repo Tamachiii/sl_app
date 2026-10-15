@@ -22,7 +22,7 @@ function FilterPill({ label, active, onClick }) {
     <button
       onClick={onClick}
       aria-pressed={active}
-      className="sl-pill transition-colors"
+      className="sl-pill sl-pill-btn transition-colors"
       style={
         active
           ? {
@@ -104,7 +104,7 @@ function ExerciseForm({ initial, onSubmit, onCancel, submitLabel, pending, pendi
         <button
           type="submit"
           disabled={pending}
-          className="flex-1 sl-btn-primary text-[13px] disabled:opacity-50"
+          className="flex-1 min-h-11 sl-btn-primary text-[13px] disabled:opacity-50"
           style={{ padding: '10px 16px' }}
         >
           {pending && pendingLabel ? pendingLabel : submitLabel}
@@ -113,7 +113,7 @@ function ExerciseForm({ initial, onSubmit, onCancel, submitLabel, pending, pendi
           <button
             type="button"
             onClick={onCancel}
-            className="flex-1 rounded-lg bg-ink-100 text-ink-700 hover:bg-ink-200 py-2 sl-mono text-[12px]"
+            className="flex-1 min-h-11 rounded-lg bg-ink-100 text-ink-700 hover:bg-ink-200 py-2 sl-mono text-[12px]"
           >
             {t('common.cancel')}
           </button>
@@ -212,7 +212,7 @@ export default function ExerciseLibrary() {
             )}
             <button
               onClick={() => setShowAdd(true)}
-              className={`sl-btn-primary text-[12px] px-3 py-2 shrink-0${hasExercises ? '' : ' ml-auto'}`}
+              className={`sl-btn-primary min-h-11 text-[12px] px-3 py-2 shrink-0${hasExercises ? '' : ' ml-auto'}`}
             >
               {t('coach.library.add')}
             </button>
@@ -279,18 +279,21 @@ export default function ExerciseLibrary() {
                     {ex.load_mode === 'added' ? ' · +BW' : ex.load_mode === 'full' ? ' · FULL' : ''}
                   </span>
                 </div>
-                <div className="flex gap-1 shrink-0">
+                {/* Two 44px boxes side by side, not two words 4px apart: "del"
+                    was 29×16 (live review N18). `-my-3` keeps the card as tall
+                    as its name. */}
+                <div className="flex gap-1 shrink-0 -my-3 -mr-2">
                   <button
                     onClick={() => setEditingId(ex.id)}
                     aria-label={`Edit ${ex.name}`}
-                    className="sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)] px-1"
+                    className="min-h-11 min-w-11 px-2 sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)]"
                   >
                     {t('coach.library.edit')}
                   </button>
                   <button
                     onClick={() => setDeleting(ex)}
                     aria-label={`Delete ${ex.name}`}
-                    className="sl-mono text-[11px] text-ink-400 hover:text-danger px-1"
+                    className="min-h-11 min-w-11 px-2 sl-mono text-[11px] text-ink-400 hover:text-danger"
                   >
                     {t('coach.library.del')}
                   </button>

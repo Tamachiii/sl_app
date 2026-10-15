@@ -334,6 +334,79 @@ describe('ProgramSheet', () => {
     });
   });
 
+  // Review item L15 and live finding N15: the button that opens a session was
+  // the height of its text, 15px, between two writes on a tap (the day pill
+  // and the duplicate button, 28px). jsdom lays nothing out, so these check
+  // the classes (src/test/hitTargets.test.js holds `sl-pill-btn` to 44px).
+  describe('44px targets', () => {
+    it('in a session row: the whole row height opens it, and its neighbours are 44px boxes', () => {
+      renderSheet();
+      const open = screen.getAllByRole('button', { name: /open session/i })[0];
+      expect(open).toHaveClass('self-stretch', 'min-h-11', 'flex-1');
+      const duplicate = screen.getAllByRole('button', { name: /duplicate session/i })[0];
+      expect(duplicate).toHaveClass('w-11', 'h-11');
+      expect(duplicate).not.toHaveClass('w-7');
+      // Three boxes side by side, none of them an enlarged area that would
+      // lie over the next one.
+      for (const button of [open, duplicate, screen.getByRole('button', { name: /day: mon/i })]) {
+        expect(button).not.toHaveClass('sl-hit');
+      }
+    });
+
+    it('in the footer and under it', () => {
+      renderSheet();
+      expect(screen.getByRole('button', { name: /add session/i })).toHaveClass('min-h-11');
+      expect(screen.getByRole('button', { name: /^select$/i })).toHaveClass('min-h-11');
+      expect(screen.getByRole('button', { name: /^reorder$/i })).toHaveClass('min-h-11');
+      expect(screen.getByRole('button', { name: /\+ phase/i })).toHaveClass('min-h-11');
+    });
+
+    it('in the selection bar', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(screen.getByRole('button', { name: /^select$/i }));
+      expect(screen.getByRole('button', { name: /Pull/ })).toHaveClass('min-h-11');
+      expect(screen.getByRole('button', { name: /^archive$/i })).toHaveClass('min-h-11');
+      expect(screen.getByRole('button', { name: /copy to/i })).toHaveClass('min-h-11');
+      expect(screen.getByRole('button', { name: /cancel/i })).toHaveClass('w-11', 'h-11');
+    });
+
+    it('in the archived drawer', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      const toggle = screen.getByRole('button', { name: /show 1 archived/i });
+      expect(toggle).toHaveClass('min-h-11');
+      await user.click(toggle);
+      expect(screen.getByRole('button', { name: /open archived session/i })).toHaveClass('min-h-11');
+      expect(screen.getByRole('button', { name: /restore this session/i })).toHaveClass('min-h-11');
+    });
+
+    it('in both reorder modes: the handles and the Done pill', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(screen.getByRole('button', { name: /^reorder$/i }));
+      expect(screen.getByRole('button', { name: /reorder pull/i })).toHaveClass('w-11', 'h-11');
+      expect(screen.getByRole('button', { name: /^done$/i })).toHaveClass('sl-pill', 'sl-pill-btn');
+      await user.click(screen.getByRole('button', { name: /^done$/i }));
+
+      await user.click(screen.getAllByRole('button', { name: /phase options/i })[0]);
+      await user.click(screen.getByRole('button', { name: /reorder phases/i }));
+      expect(screen.getByRole('button', { name: /reorder intro/i })).toHaveClass('w-11', 'h-11');
+    });
+
+    it('on a phase name', () => {
+      renderSheet();
+      for (const namer of screen.getAllByRole('button', { name: /edit week label/i })) {
+        expect(namer).toHaveClass('min-h-11');
+      }
+    });
+
+    it('for the first session of an empty block', () => {
+      renderSheet({ id: 'prog-1', weeks: [] });
+      expect(screen.getByRole('button', { name: /add session/i })).toHaveClass('min-h-11');
+    });
+  });
+
   // The sheet lists sessions in the POSITION the coach put them in, and that is
   // the same order the athlete's queue reads. Weekdays used to rank first,
   // which made the day pill the only real reorder control.
