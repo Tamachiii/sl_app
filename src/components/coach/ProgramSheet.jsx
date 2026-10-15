@@ -309,8 +309,20 @@ export default function ProgramSheet({ studentId, program }) {
                           trained={!!loggedIds?.has(s.id)}
                           position={positions[i]}
                           onSetDay={(day) => updateSession.mutate({ id: s.id, day_number: day })}
-                          onDuplicate={() => duplicateSession.mutate({ sessionId: s.id })}
-                          duplicating={duplicateSession.isPending}
+                          onDuplicate={() => duplicateSession.mutate({
+                            sessionId: s.id,
+                            // The copy's title in the coach's language. An
+                            // untitled session gets no suffix, so its copy
+                            // stays untitled and is named by its position
+                            // too: the function would write "Session (copy)",
+                            // in English and frozen.
+                            titleSuffix: s.title?.trim() ? ` ${t('coachSheetUx.copySuffix')}` : '',
+                          })}
+                          // Only the row being copied waits: one copy on its
+                          // way used to grey out the button of every row.
+                          duplicating={
+                            duplicateSession.isPending && duplicateSession.variables?.sessionId === s.id
+                          }
                           selecting={selecting}
                           selected={selectedIds.has(s.id)}
                           onToggleSelect={() => toggleSelected(s.id)}

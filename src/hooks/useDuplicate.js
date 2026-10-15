@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { pushToast } from '../lib/toast';
 import { invalidateCoachDashboard } from './useProgram';
 import { useI18n } from './useI18n';
+import { useDeleteSession } from './useWeek';
 
 /**
  * Duplicating a session, a phase or a block, and copying sessions into another
@@ -190,26 +191,50 @@ export function useCopySessions() {
 
 /**
  * Duplicate a session in its own phase. The copy stands RIGHT AFTER its
- * source — the sessions that follow move down by one — is never archived, and
- * is titled with the suffix of the function (" (copy)", after "Session" when
- * the source has no title).
+ * source — the sessions that follow move down by one — and is never archived.
+ *
+ * `titleSuffix` is what the copy's title gets after the source's, in the
+ * coach's language: the sheet sends " (copie)" for a French coach, and `''`
+ * for a source without a title, whose copy then stays untitled and is named
+ * by its position like its source. Without it the function's own " (copy)"
+ * applies, in English, after "Session" when the source has no title.
+ *
+ * A copy made is announced with a way back: the toast's Undo deletes it. The
+ * toast is pushed here, in the hook's own options, because a callback given to
+ * `mutate()` is not called once the sheet that made it is gone; the delete is
+ * a mutation of this hook too, so a tap on Undo after the coach left the
+ * sheet still sends it. A copy has no logged set, so the database lets it go;
+ * one that the athlete has started in the meantime is refused, and the toast
+ * of the mutation cache says so.
  *
  * Answer: `{ session_id, week_id, sort_order, title, slots, set_logs,
  * slots_left_out }`.
  */
 export function useDuplicateSession() {
   const qc = useQueryClient();
+  const { t } = useI18n();
   const sayLeftOut = useLeftOutNotice();
+  const deleteSession = useDeleteSession();
 
   return useMutation({
-    mutationFn: async ({ sessionId }) => {
-      const { data, error } = await supabase.rpc('duplicate_session', {
-        p_session_id: sessionId,
-      });
+    mutationFn: async ({ sessionId, titleSuffix }) => {
+      const args = { p_session_id: sessionId };
+      // Absent, not `undefined`: the function's default is the suffix then.
+      if (titleSuffix !== undefined) args.p_title_suffix = titleSuffix;
+      const { data, error } = await supabase.rpc('duplicate_session', args);
       if (error) throw error;
       return data;
     },
-    onSuccess: (answer) => sayLeftOut(answer),
+    onSuccess: (answer) => {
+      const copyId = answer?.session_id;
+      if (copyId) {
+        pushToast(t('coachSheetUx.duplicated'), {
+          kind: 'info',
+          action: { label: 'uiSharedHelpers.undo', onClick: () => deleteSession.mutate(copyId) },
+        });
+      }
+      sayLeftOut(answer);
+    },
     onSettled: () => refreshBlocks(qc),
   });
 }

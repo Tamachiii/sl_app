@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider, MutationCache } from '@tanstack/react-query';
 
 vi.mock('../lib/supabase', () => ({ supabase: { from: vi.fn(), rpc: vi.fn() } }));
@@ -36,8 +36,8 @@ function withClient(qc) {
 function setup(useHook) {
   const qc = makeClient();
   const invalidate = vi.spyOn(qc, 'invalidateQueries');
-  const { result } = renderHook(() => useHook(), { wrapper: withClient(qc) });
-  return { qc, invalidate, result };
+  const { result, unmount } = renderHook(() => useHook(), { wrapper: withClient(qc) });
+  return { qc, invalidate, result, unmount };
 }
 
 // What each function answers (migration 2026_10_13_12_copy_rpcs).
@@ -92,7 +92,14 @@ const BLOCKS = [
 // is a block, and counts its phases.
 const LISTS = [['programs']];
 
-// The four hooks side by side: the call each one makes, and what it answers.
+// A session duplicated is announced with a way back (review item L15).
+const UNDO_TOAST = [
+  'Session duplicated',
+  { kind: 'info', action: { label: 'uiSharedHelpers.undo', onClick: expect.any(Function) } },
+];
+
+// The four hooks side by side: the call each one makes, what it answers, and
+// what it says when the copy is complete.
 const HOOKS = [
   {
     name: 'useDuplicateSession',
@@ -101,6 +108,7 @@ const HOOKS = [
     rpc: ['duplicate_session', { p_session_id: 's-1' }],
     answer: SESSION_ANSWER,
     readAgain: BLOCKS,
+    madeToasts: [UNDO_TOAST],
   },
   {
     name: 'useCopySessions',
@@ -109,6 +117,7 @@ const HOOKS = [
     rpc: ['copy_sessions', { p_session_ids: ['s-2', 's-1', 's-2'], p_dest_week_id: 'w-dest' }],
     answer: COPY_ANSWER,
     readAgain: BLOCKS,
+    madeToasts: [],
   },
   {
     name: 'useDuplicateWeek',
@@ -117,6 +126,7 @@ const HOOKS = [
     rpc: ['duplicate_week', { p_week_id: 'w-1', p_dest_program_id: null }],
     answer: WEEK_ANSWER,
     readAgain: [...BLOCKS, ...LISTS],
+    madeToasts: [],
   },
   {
     name: 'useDuplicateProgram',
@@ -125,6 +135,7 @@ const HOOKS = [
     rpc: ['duplicate_program', { p_program_id: 'p-1' }],
     answer: PROGRAM_ANSWER,
     readAgain: [...BLOCKS, ...LISTS],
+    madeToasts: [],
   },
 ];
 
@@ -140,7 +151,7 @@ beforeEach(() => {
   supabase.rpc.mockReset();
 });
 
-describe.each(HOOKS)('$name', ({ useHook, vars, rpc, answer, readAgain }) => {
+describe.each(HOOKS)('$name', ({ useHook, vars, rpc, answer, readAgain, madeToasts }) => {
   // One request, so one transaction: the copy is whole or is not there. The
   // requests this replaced — one per row or per table — left a session without
   // its exercises when one of them was lost.
@@ -210,18 +221,19 @@ describe.each(HOOKS)('$name', ({ useHook, vars, rpc, answer, readAgain }) => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(pushToast.mock.calls).toEqual([
+      ...madeToasts,
       ['Exercises left out of the copy: 2 — not in your library.', { kind: 'info' }],
     ]);
   });
 
-  it('says nothing about a copy that is complete', async () => {
+  it('says nothing more about a copy that is complete', async () => {
     answers(answer);
     const { result } = setup(useHook);
 
     result.current.mutate(vars);
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(pushToast).not.toHaveBeenCalled();
+    expect(pushToast.mock.calls).toEqual(madeToasts);
   });
 });
 
@@ -356,5 +368,95 @@ describe('useDuplicateProgram and the list of programs', () => {
     await waitFor(() => expect(result.current.isError).toBe(true));
 
     expect(qc.getQueryData(['programs', 'st-1'])).toEqual(LIST);
+  });
+});
+
+describe('useDuplicateSession', () => {
+  // Review item B26: the function's suffix is English, " (copy)". The sheet
+  // sends the coach's.
+  it('sends the suffix it is given', async () => {
+    answers({ ...SESSION_ANSWER, title: 'Pull (copie)' });
+    const { result } = setup(useDuplicateSession);
+
+    result.current.mutate({ sessionId: 's-1', titleSuffix: ' (copie)' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(supabase.rpc.mock.calls).toStrictEqual([
+      ['duplicate_session', { p_session_id: 's-1', p_title_suffix: ' (copie)' }],
+    ]);
+  });
+
+  // An empty suffix copies the title as it is, null included: the copy of an
+  // untitled session stays untitled instead of "Session (copy)".
+  it('sends an empty suffix as it is', async () => {
+    answers({ ...SESSION_ANSWER, title: null });
+    const { result } = setup(useDuplicateSession);
+
+    result.current.mutate({ sessionId: 's-1', titleSuffix: '' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(supabase.rpc.mock.calls).toStrictEqual([
+      ['duplicate_session', { p_session_id: 's-1', p_title_suffix: '' }],
+    ]);
+  });
+
+  describe('Undo', () => {
+    // The `sessions` table as useDeleteSession reads and deletes it.
+    function sessionsTable() {
+      const deleted = [];
+      supabase.from.mockImplementation(() => ({
+        select: () => ({
+          eq: () => ({ single: () => Promise.resolve({ data: { week_id: 'w-1' }, error: null }) }),
+        }),
+        delete: () => ({
+          eq: (column, id) => {
+            deleted.push([column, id]);
+            return Promise.resolve({ error: null });
+          },
+        }),
+      }));
+      return deleted;
+    }
+
+    async function duplicate() {
+      answers(SESSION_ANSWER);
+      const made = setup(useDuplicateSession);
+      made.result.current.mutate({ sessionId: 's-1', titleSuffix: ' (copy)' });
+      await waitFor(() => expect(made.result.current.isSuccess).toBe(true));
+      const [, { action }] = pushToast.mock.calls.find(([message]) => message === 'Session duplicated');
+      return { ...made, undo: action.onClick };
+    }
+
+    it('deletes the copy, and nothing else, and reads the sheet again', async () => {
+      const deleted = sessionsTable();
+      const { undo, invalidate } = await duplicate();
+      invalidate.mockClear();
+
+      act(() => undo());
+      await waitFor(() => expect(deleted).toEqual([['id', 's-copy']]));
+      await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['program'] }));
+      expect(supabase.rpc).toHaveBeenCalledTimes(1);
+    });
+
+    // A callback given to `mutate()` dies with the sheet; the toast stays 8 s
+    // and the coach may have left by then.
+    it('still deletes the copy once the sheet that made it is gone', async () => {
+      const deleted = sessionsTable();
+      const { undo, unmount } = await duplicate();
+      unmount();
+
+      act(() => undo());
+      await waitFor(() => expect(deleted).toEqual([['id', 's-copy']]));
+    });
+
+    it('is not offered for a copy that was refused', async () => {
+      refuses({ code: 'P0001', message: 'session_not_found' });
+      const { result } = setup(useDuplicateSession);
+
+      result.current.mutate({ sessionId: 's-gone', titleSuffix: ' (copy)' });
+      await waitFor(() => expect(result.current.isError).toBe(true));
+
+      expect(pushToast.mock.calls.some(([, options]) => options?.action)).toBe(false);
+    });
   });
 });

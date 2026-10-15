@@ -829,7 +829,54 @@ describe('ProgramSheet', () => {
     const user = userEvent.setup();
     renderSheet();
     await user.click(screen.getAllByRole('button', { name: /duplicate session/i })[0]);
-    expect(mockDuplicateSession.mutate).toHaveBeenCalledWith({ sessionId: 'sess-1' });
+    expect(mockDuplicateSession.mutate).toHaveBeenCalledTimes(1);
+    expect(mockDuplicateSession.mutate.mock.calls[0][0].sessionId).toBe('sess-1');
+  });
+
+  // Review item B26: the copy was titled by the function, " (copy)" in
+  // English whatever the coach's language — and "Session (copy)", frozen, for
+  // a source without a title.
+  describe('the title of a copy', () => {
+    it('takes the suffix in the coach’s language', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(screen.getAllByRole('button', { name: /duplicate session/i })[0]);
+      expect(mockDuplicateSession.mutate).toHaveBeenCalledWith({ sessionId: 'sess-1', titleSuffix: ' (copy)' });
+    });
+
+    it('stays empty for a source without a title, which is named by its position', async () => {
+      const user = userEvent.setup();
+      renderSheet({
+        ...program,
+        weeks: [{ ...program.weeks[0], sessions: [
+          { id: 'blank', title: null, day_number: null, sort_order: 0, archived_at: null, exercise_slots: [] },
+          { id: 'spaces', title: '  ', day_number: null, sort_order: 1, archived_at: null, exercise_slots: [] },
+        ] }],
+      });
+      const buttons = screen.getAllByRole('button', { name: /duplicate session/i });
+      await user.click(buttons[0]);
+      await user.click(buttons[1]);
+      expect(mockDuplicateSession.mutate.mock.calls).toEqual([
+        [{ sessionId: 'blank', titleSuffix: '' }],
+        [{ sessionId: 'spaces', titleSuffix: '' }],
+      ]);
+    });
+  });
+
+  // One copy on its way used to disable the duplicate button of every row.
+  it('waits on the row being copied, and on no other', () => {
+    mockDuplicateSession.isPending = true;
+    mockDuplicateSession.variables = { sessionId: 'sess-2', titleSuffix: ' (copy)' };
+    try {
+      renderSheet();
+      const [pull, push, legs] = screen.getAllByRole('button', { name: /duplicate session/i });
+      expect(pull).toBeEnabled();
+      expect(push).toBeDisabled();
+      expect(legs).toBeEnabled();
+    } finally {
+      mockDuplicateSession.isPending = false;
+      delete mockDuplicateSession.variables;
+    }
   });
 
   it('keeps destructive session delete off the sheet rows', () => {
