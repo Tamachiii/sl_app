@@ -7,5 +7,10 @@ export default {
     setRemoved: 'Zusatzsatz entfernt.',
     undoNeedsNetwork: 'Offline: Der Satz konnte nicht wiederhergestellt werden.',
     setSkipped: 'Satz ausgelassen.',
+    skipExerciseTitle: '{name} auslassen?',
+    skipExerciseTitleNoName: 'Diese Übung auslassen?',
+    skipExerciseMessage:
+      'Dein Coach wird benachrichtigt. Ihre Sätze sind in dieser Einheit ausgeblendet, bis du das rückgängig machst.',
+    skipExerciseConfirm: 'Übung auslassen',
   },
 };

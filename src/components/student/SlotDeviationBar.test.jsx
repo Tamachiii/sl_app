@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mockSave = { mutate: vi.fn(), isPending: false };
@@ -41,11 +41,56 @@ describe('SlotDeviationBar', () => {
     expect(screen.getByRole('button', { name: /^skip$/i })).toBeInTheDocument();
   });
 
-  it('skips the exercise', async () => {
-    const user = userEvent.setup();
-    renderBar();
-    await user.click(screen.getByRole('button', { name: /^skip$/i }));
-    expect(mockSave.mutate).toHaveBeenCalledWith({ sessionId: 'sess-1', slotId: 'sl-1', kind: 'skip' });
+  // L12. A skip notifies the coach (bell and push) the moment it is written,
+  // and the Skip pill wrote it at the first tap.
+  describe('skipping the exercise asks first, and says the coach will be told', () => {
+    const askSkip = async (user) => {
+      await user.click(screen.getByRole('button', { name: /^skip$/i }));
+      return screen.getByRole('dialog', { name: 'Skip Back Squat?' });
+    };
+
+    it('the pill opens the question and writes nothing', async () => {
+      const user = userEvent.setup();
+      renderBar();
+
+      const dialog = await askSkip(user);
+
+      expect(mockSave.mutate).not.toHaveBeenCalled();
+      expect(dialog).toHaveTextContent('Your coach will be notified.');
+    });
+
+    it('the answer skips it', async () => {
+      const user = userEvent.setup();
+      renderBar();
+      const dialog = await askSkip(user);
+
+      await user.click(within(dialog).getByRole('button', { name: /^skip exercise$/i }));
+
+      expect(mockSave.mutate).toHaveBeenCalledTimes(1);
+      expect(mockSave.mutate).toHaveBeenCalledWith({ sessionId: 'sess-1', slotId: 'sl-1', kind: 'skip' });
+      expect(screen.queryByRole('dialog', { name: 'Skip Back Squat?' })).not.toBeInTheDocument();
+    });
+
+    it('Cancel writes nothing and closes it', async () => {
+      const user = userEvent.setup();
+      renderBar();
+      const dialog = await askSkip(user);
+
+      await user.click(within(dialog).getByRole('button', { name: /^cancel$/i }));
+
+      expect(mockSave.mutate).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog', { name: 'Skip Back Squat?' })).not.toBeInTheDocument();
+    });
+
+    it('an exercise that could not be read is asked about without a name', async () => {
+      const user = userEvent.setup();
+      renderBar({ slot: { id: 'sl-1', exercise: null } });
+
+      await user.click(screen.getByRole('button', { name: /^skip$/i }));
+
+      expect(screen.getByRole('dialog', { name: 'Skip this exercise?' })).toBeInTheDocument();
+      expect(mockSave.mutate).not.toHaveBeenCalled();
+    });
   });
 
   it('swaps to a library exercise (excluding the prescribed one) via the picker', async () => {

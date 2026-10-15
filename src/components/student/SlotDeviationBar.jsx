@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
 import Dialog from '../ui/Dialog';
+import ConfirmDialog from '../ui/ConfirmDialog';
 import { useSaveSlotDeviation, useRequestPromote } from '../../hooks/useSlotDeviations';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { useI18n } from '../../hooks/useI18n';
 
 /**
  * Per-slot off-script controls: swap the prescribed exercise for another from
@@ -12,6 +14,12 @@ import { useOnlineStatus } from '../../hooks/useOnlineStatus';
  * The substitute is library-only (no free-text) so every swap stays a known
  * exercise. `exerciseLibrary` is the coach's catalogue (students have read
  * access); we resolve the substitute's name from it for display.
+ *
+ * Skip asks first (L12): a new deviation notifies the coach, bell and push, as
+ * soon as it is written (`notify_coach_on_slot_deviation`, AFTER INSERT), and
+ * the pill sat next to Swap. The dialog says the coach will be told. Undo
+ * deletes the row, which takes back the coach's unread notification
+ * (`retract_slot_deviation_notifications`) — not a push already delivered.
  */
 export default function SlotDeviationBar({
   sessionId,
@@ -20,10 +28,12 @@ export default function SlotDeviationBar({
   exerciseLibrary,
   locked = false,
 }) {
+  const { t } = useI18n();
   const saveDeviation = useSaveSlotDeviation();
   const requestPromote = useRequestPromote();
   const online = useOnlineStatus();
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [skipAsked, setSkipAsked] = useState(false);
   const [query, setQuery] = useState('');
 
   const kind = deviation?.kind || null;
@@ -142,7 +152,7 @@ export default function SlotDeviationBar({
       </button>
       <button
         type="button"
-        onClick={applySkip}
+        onClick={() => setSkipAsked(true)}
         className="sl-pill sl-pill-btn bg-ink-100 text-ink-600 hover:bg-ink-200"
       >
         Skip
@@ -154,6 +164,19 @@ export default function SlotDeviationBar({
         query={query}
         setQuery={setQuery}
         onPick={applySwap}
+      />
+      <ConfirmDialog
+        open={skipAsked}
+        onClose={() => setSkipAsked(false)}
+        onConfirm={applySkip}
+        title={
+          slot.exercise?.name
+            ? t('sessionTouchUndo.skipExerciseTitle', { name: slot.exercise.name })
+            : t('sessionTouchUndo.skipExerciseTitleNoName')
+        }
+        message={t('sessionTouchUndo.skipExerciseMessage')}
+        confirmText={t('sessionTouchUndo.skipExerciseConfirm')}
+        isDestructive={false}
       />
     </div>
   );

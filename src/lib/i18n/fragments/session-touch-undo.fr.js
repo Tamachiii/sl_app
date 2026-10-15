@@ -7,5 +7,10 @@ export default {
     setRemoved: 'Série en plus supprimée.',
     undoNeedsNetwork: 'Hors ligne : la série n’a pas pu être rétablie.',
     setSkipped: 'Série sautée.',
+    skipExerciseTitle: 'Sauter {name} ?',
+    skipExerciseTitleNoName: 'Sauter cet exercice ?',
+    skipExerciseMessage:
+      'Ton coach en sera averti. Ses séries sont masquées dans cette séance tant que tu n’annules pas.',
+    skipExerciseConfirm: 'Sauter l’exercice',
   },
 };
