@@ -367,10 +367,40 @@ export function useSetSkipped(logId) {
   });
 }
 
+// What PostgreSQL answers when an INSERT breaks a UNIQUE constraint.
+const UNIQUE_VIOLATION = '23505';
+
+// An extra set the athlete removed, as it is put back by Undo: its own id, and
+// what it said was done. Its targets are NULL — an extra set has none — and it
+// is never skipped (SetRow offers no Skip on an extra set).
+function restoredExtraSet(removed) {
+  return {
+    id: removed.id,
+    done: !!removed.done,
+    failed: !!removed.failed,
+    rpe: removed.rpe ?? null,
+    logged_at: removed.logged_at ?? null,
+    failed_at: removed.failed_at ?? null,
+    actual_reps: removed.actual_reps ?? null,
+    actual_weight_kg: removed.actual_weight_kg ?? null,
+  };
+}
+
+function insertSetLog(row) {
+  return supabase.from('set_logs').insert(row).select().single();
+}
+
 // Appends an extra set the student did beyond the prescription (NULL targets,
 // is_student_added=true). It is inserted empty: what was done goes into its
 // actual_* columns when the athlete saves its editor (SetRow), which also marks
 // it done — a row with values is a logged set, which the coach's editor locks.
+//
+// `restore` — the row `useRemoveStudentSet` answered — puts a removed extra set
+// back, with its id and its values: the Undo of the toast that follows a
+// removal (SetRow). Its number may have been taken in between by "+ Add set";
+// the set then comes back after the last set of the exercise. A row with its
+// id already there is the set back already.
+//
 // ONLINE-ONLY: a brand-new-row INSERT can't be safely queued offline (the
 // offline lane only UPDATE/UPSERT/DELETEs existing rows, and two offline adds
 // would collide on UNIQUE(exercise_slot_id, set_number)).
@@ -379,38 +409,54 @@ export function useAddStudentSet() {
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ slotId, setNumber }) => {
-      const { data, error } = await supabase
+    mutationFn: async ({ slotId, setNumber, restore = null }) => {
+      const row = {
+        exercise_slot_id: slotId,
+        set_number: setNumber,
+        is_student_added: true,
+        done: false,
+        failed: false,
+        ...(restore ? restoredExtraSet(restore) : null),
+      };
+      const { data, error } = await insertSetLog(row);
+      if (!error) return data;
+      if (!restore || error.code !== UNIQUE_VIOLATION) throw error;
+
+      const { data: sets, error: readError } = await supabase
         .from('set_logs')
-        .insert({
-          exercise_slot_id: slotId,
-          set_number: setNumber,
-          is_student_added: true,
-          done: false,
-          failed: false,
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
+        .select('id, set_number')
+        .eq('exercise_slot_id', slotId);
+      if (readError) throw readError;
+      const back = (sets || []).find((set) => set.id === row.id);
+      if (back) return back;
+      const last = (sets || []).reduce((max, set) => Math.max(max, set.set_number), 0);
+      const retry = await insertSetLog({ ...row, set_number: last + 1 });
+      if (retry.error) throw retry.error;
+      return retry.data;
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ['set-logs'] }),
   });
 }
 
 // Removes a student-added extra set. Online-only for symmetry with the add.
+//
+// Answers `{ logId, removed }`: `removed` is the row as the database deleted
+// it — what an Undo puts back (`useAddStudentSet`'s `restore`) — or null when
+// nothing was deleted. The policy filters a DELETE it refuses (a session closed
+// since the page read it): no error, and no row.
 export function useRemoveStudentSet() {
   const qc = useQueryClient();
 
   return useMutation({
     mutationFn: async ({ logId }) => {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('set_logs')
         .delete()
         .eq('id', logId)
-        .eq('is_student_added', true);
+        .eq('is_student_added', true)
+        .select();
       if (error) throw error;
-      return { logId };
+      return { logId, removed: data?.[0] ?? null };
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ['set-logs'] }),
   });

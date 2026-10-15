@@ -552,17 +552,148 @@ describe('useAddStudentSet', () => {
       failed: false,
     });
   });
+
+  // P68: the Undo of a removed extra set.
+  describe('with `restore`, the set the athlete removed', () => {
+    const removed = {
+      id: 'l-extra',
+      exercise_slot_id: 'sl-1',
+      set_number: 4,
+      is_student_added: true,
+      done: true,
+      failed: false,
+      rpe: 8,
+      logged_at: '2026-10-15T18:02:11+00:00',
+      failed_at: null,
+      actual_reps: 8,
+      actual_weight_kg: 100,
+      target_reps: null,
+      created_at: '2026-10-15T18:00:00+00:00',
+    };
+    const conflict = { code: '23505', message: 'duplicate key value violates unique constraint' };
+
+    // Each `from('set_logs')` is one request, answered in turn.
+    function setLogsAnswering(...answers) {
+      const requests = [];
+      supabase.from.mockImplementation(() => {
+        const request = { answer: answers[requests.length] };
+        requests.push(request);
+        const chain = {
+          insert: vi.fn((row) => {
+            request.insert = row;
+            return chain;
+          }),
+          select: vi.fn((columns) => {
+            request.select = columns;
+            return chain;
+          }),
+          eq: vi.fn((column, value) => {
+            request.eq = [column, value];
+            return chain;
+          }),
+          single: vi.fn(async () => request.answer),
+          then: (resolve) => resolve(request.answer),
+        };
+        return chain;
+      });
+      return requests;
+    }
+
+    async function restore() {
+      const qc = makeClient();
+      const { result } = renderHook(() => useAddStudentSet(), { wrapper: withClient(qc) });
+      let answer;
+      await act(async () => {
+        answer = await result.current.mutateAsync({ slotId: 'sl-1', setNumber: 4, restore: removed });
+      });
+      return answer;
+    }
+
+    it('inserts it again with its id and what it said was done — no target, no date of creation', async () => {
+      const requests = setLogsAnswering({ data: { ...removed }, error: null });
+
+      await restore();
+
+      expect(requests).toHaveLength(1);
+      expect(requests[0].insert).toEqual({
+        id: 'l-extra',
+        exercise_slot_id: 'sl-1',
+        set_number: 4,
+        is_student_added: true,
+        done: true,
+        failed: false,
+        rpe: 8,
+        logged_at: '2026-10-15T18:02:11+00:00',
+        failed_at: null,
+        actual_reps: 8,
+        actual_weight_kg: 100,
+      });
+    });
+
+    it('its number taken by a set added meanwhile, it comes back after the last set', async () => {
+      const requests = setLogsAnswering(
+        { data: null, error: conflict },
+        {
+          data: [
+            { id: 'l-1', set_number: 1 },
+            { id: 'l-2', set_number: 2 },
+            { id: 'l-3', set_number: 3 },
+            { id: 'l-new', set_number: 4 },
+          ],
+          error: null,
+        },
+        { data: { ...removed, set_number: 5 }, error: null },
+      );
+
+      const answer = await restore();
+
+      expect(requests).toHaveLength(3);
+      expect(requests[1].eq).toEqual(['exercise_slot_id', 'sl-1']);
+      expect(requests[2].insert).toMatchObject({ id: 'l-extra', set_number: 5, done: true, rpe: 8 });
+      expect(answer.set_number).toBe(5);
+    });
+
+    it('already back — its id is there — it is not inserted twice', async () => {
+      const requests = setLogsAnswering(
+        { data: null, error: conflict },
+        { data: [{ id: 'l-extra', set_number: 4 }], error: null },
+      );
+
+      const answer = await restore();
+
+      expect(requests).toHaveLength(2);
+      expect(answer).toEqual({ id: 'l-extra', set_number: 4 });
+    });
+
+    it('a new extra set whose number is taken is refused, as it was', async () => {
+      const requests = setLogsAnswering({ data: null, error: conflict });
+      const qc = makeClient();
+      const { result } = renderHook(() => useAddStudentSet(), { wrapper: withClient(qc) });
+
+      await act(async () => {
+        await expect(result.current.mutateAsync({ slotId: 'sl-1', setNumber: 4 })).rejects.toBe(conflict);
+      });
+      expect(requests).toHaveLength(1);
+    });
+  });
 });
 
 describe('useRemoveStudentSet', () => {
-  it('deletes only the student-added row by id', async () => {
-    // The query builder is thenable; delete().eq().eq() resolves to {error}.
+  // The query builder is thenable; delete().eq().eq().select() resolves to
+  // the deleted rows.
+  function deleteChain(answer) {
     const chain = {
       delete: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
-      then: (resolve) => resolve({ error: null }),
+      select: vi.fn().mockReturnThis(),
+      then: (resolve) => resolve(answer),
     };
     supabase.from.mockReturnValue(chain);
+    return chain;
+  }
+
+  it('deletes only the student-added row by id', async () => {
+    const chain = deleteChain({ data: [{ id: 'l-extra' }], error: null });
 
     const qc = makeClient();
     const { result } = renderHook(() => useRemoveStudentSet(), { wrapper: withClient(qc) });
@@ -572,5 +703,36 @@ describe('useRemoveStudentSet', () => {
     expect(chain.delete).toHaveBeenCalled();
     expect(chain.eq).toHaveBeenCalledWith('id', 'l-extra');
     expect(chain.eq).toHaveBeenCalledWith('is_student_added', true);
+  });
+
+  // What an Undo puts back is what the database deleted, not the row of the
+  // device's cache.
+  it('answers the row as the database deleted it', async () => {
+    const row = { id: 'l-extra', exercise_slot_id: 'sl-1', set_number: 4, done: true, rpe: 8, actual_reps: 8 };
+    const chain = deleteChain({ data: [row], error: null });
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useRemoveStudentSet(), { wrapper: withClient(qc) });
+    let answer;
+    await act(async () => {
+      answer = await result.current.mutateAsync({ logId: 'l-extra' });
+    });
+
+    expect(chain.select).toHaveBeenCalled();
+    expect(answer).toEqual({ logId: 'l-extra', removed: row });
+  });
+
+  // A DELETE the policy refuses is filtered: no error, no row.
+  it('answers no row when nothing was deleted', async () => {
+    deleteChain({ data: [], error: null });
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useRemoveStudentSet(), { wrapper: withClient(qc) });
+    let answer;
+    await act(async () => {
+      answer = await result.current.mutateAsync({ logId: 'l-extra' });
+    });
+
+    expect(answer).toEqual({ logId: 'l-extra', removed: null });
   });
 });

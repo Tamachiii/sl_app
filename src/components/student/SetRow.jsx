@@ -1,15 +1,18 @@
 import { memo, useEffect, useId, useRef, useState } from 'react';
+import { onlineManager } from '@tanstack/react-query';
 import {
   useToggleSetDone,
   useSetFailed,
   useSetRpe,
   useLogActual,
   useSetSkipped,
+  useAddStudentSet,
   useRemoveStudentSet,
 } from '../../hooks/useSetLogs';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useI18n } from '../../hooks/useI18n';
 import { startRestTimer, clearRestTimer } from '../../hooks/useRestTimer';
+import { pushToast } from '../../lib/toast';
 import { formatSetTarget, formatActual, hasLoggedActual } from '../../lib/volume';
 import { decimalText, parseDecimalInput } from '../../lib/number';
 import DecimalInput from '../ui/DecimalInput';
@@ -99,6 +102,8 @@ const SetRow = memo(function SetRow({
   const logActual = useLogActual(log.id);
   const setSkipped = useSetSkipped(log.id);
   const removeStudentSet = useRemoveStudentSet();
+  // The way back of a removed extra set: the toast's Undo inserts it again.
+  const addStudentSet = useAddStudentSet();
   const online = useOnlineStatus();
   const restSeconds = log.target_rest_seconds ?? null;
 
@@ -415,8 +420,39 @@ const SetRow = memo(function SetRow({
     setSkipped.mutate({ logId: log.id, skipped: false });
   }
 
+  // Removing an extra set deletes what it said was done (P68): the toast that
+  // says it is gone carries an Undo, which puts the row back as the database
+  // answered it — id, outcome, RPE, actual values. The toast is pushed from the
+  // promise, not from a per-call `onSuccess`: the row is gone by the time the
+  // removal settles (its `onSettled` reads the sets again first), and a
+  // per-call callback of an unmounted row is never called. Nothing removed,
+  // nothing to undo; a refusal has its own toast (the MutationCache's).
   function handleRemoveExtra() {
-    removeStudentSet.mutate({ logId: log.id });
+    removeStudentSet.mutateAsync({ logId: log.id }).then(
+      ({ removed }) => {
+        if (!removed) return;
+        pushToast('sessionTouchUndo.setRemoved', {
+          kind: 'info',
+          action: { label: 'uiSharedHelpers.undo', onClick: () => bringBackExtra(removed) },
+        });
+      },
+      () => {},
+    );
+  }
+
+  // Called by the toast, on a row that may be gone. The insert is online-only:
+  // started without a network it would wait, stored nowhere, and land whenever
+  // the network returns — or never.
+  function bringBackExtra(removed) {
+    if (!onlineManager.isOnline() || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+      pushToast('sessionTouchUndo.undoNeedsNetwork');
+      return;
+    }
+    addStudentSet.mutate({
+      slotId: removed.exercise_slot_id,
+      setNumber: removed.set_number,
+      restore: removed,
+    });
   }
 
   function handleTouchStart(e) {

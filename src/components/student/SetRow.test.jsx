@@ -1,13 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { onlineManager } from '@tanstack/react-query';
+import { getToasts, dismissToast } from '../../lib/toast';
 
 const mockToggleDone = { mutate: vi.fn() };
 const mockSetFailed = { mutate: vi.fn() };
 const mockSetRpe = { mutate: vi.fn() };
 const mockLogActual = { mutate: vi.fn() };
 const mockSetSkipped = { mutate: vi.fn() };
-const mockRemoveStudentSet = { mutate: vi.fn(), isPending: false };
+// The removal answers the row as the database deleted it (see the Undo tests).
+const mockRemoveStudentSet = {
+  mutate: vi.fn(),
+  mutateAsync: vi.fn(async ({ logId }) => ({ logId, removed: { id: logId } })),
+  isPending: false,
+};
+const mockAddStudentSet = { mutate: vi.fn(), isPending: false };
 
 vi.mock('../../hooks/useSetLogs', () => ({
   useToggleSetDone: () => mockToggleDone,
@@ -15,6 +23,7 @@ vi.mock('../../hooks/useSetLogs', () => ({
   useSetRpe: () => mockSetRpe,
   useLogActual: () => mockLogActual,
   useSetSkipped: () => mockSetSkipped,
+  useAddStudentSet: () => mockAddStudentSet,
   useRemoveStudentSet: () => mockRemoveStudentSet,
 }));
 
@@ -898,7 +907,7 @@ describe('SetRow', () => {
       const removeBtn = screen.getByRole('button', { name: /remove extra set/i });
       expect(removeBtn).toHaveTextContent(/extra/i);
       await user.click(removeBtn);
-      expect(mockRemoveStudentSet.mutate).toHaveBeenCalledWith({ logId: 'log-1' });
+      expect(mockRemoveStudentSet.mutateAsync).toHaveBeenCalledWith({ logId: 'log-1' });
     });
 
     // P68. jsdom lays nothing out: the 44 px are read from the classes.
@@ -923,6 +932,99 @@ describe('SetRow', () => {
       renderSetRow({ ...baseLog, is_student_added: true });
       await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
       expect(screen.queryByRole('button', { name: /^skip$/i })).not.toBeInTheDocument();
+    });
+  });
+
+  // P68. One tap on "Extra ✕" deleted the set, its outcome, its RPE and what
+  // it said was done. The removal is now followed by a toast whose Undo puts
+  // the row back as the database answered it.
+  describe('a removed extra set comes back with Undo', () => {
+    const removed = {
+      id: 'log-4',
+      exercise_slot_id: 'slot-1',
+      set_number: 4,
+      is_student_added: true,
+      done: true,
+      failed: false,
+      rpe: 8,
+      logged_at: '2026-10-15T18:02:11+00:00',
+      failed_at: null,
+      actual_reps: 8,
+      actual_weight_kg: 100,
+    };
+    const extraLog = { ...baseLog, ...removed };
+    const clearToasts = () => {
+      for (const toast of getToasts()) dismissToast(toast.id);
+    };
+
+    beforeEach(clearToasts);
+    afterEach(() => {
+      clearToasts();
+      onlineManager.setOnline(true);
+    });
+
+    it('the removal says so, and its Undo inserts the set again — the row gone or not', async () => {
+      const user = userEvent.setup();
+      mockRemoveStudentSet.mutateAsync.mockResolvedValueOnce({ logId: 'log-4', removed });
+      const { unmount } = renderSetRow(extraLog);
+
+      await user.click(screen.getByRole('button', { name: /remove extra set/i }));
+
+      await waitFor(() => expect(getToasts()).toHaveLength(1));
+      const [toast] = getToasts();
+      expect(toast).toMatchObject({
+        kind: 'info',
+        message: 'sessionTouchUndo.setRemoved',
+        action: { label: 'uiSharedHelpers.undo' },
+      });
+      expect(mockAddStudentSet.mutate).not.toHaveBeenCalled();
+
+      // The list read again without the set: the row is gone.
+      unmount();
+      toast.action.onClick();
+
+      expect(mockAddStudentSet.mutate).toHaveBeenCalledTimes(1);
+      expect(mockAddStudentSet.mutate).toHaveBeenCalledWith({
+        slotId: 'slot-1',
+        setNumber: 4,
+        restore: removed,
+      });
+    });
+
+    it('nothing removed — a session closed meanwhile — offers nothing to undo', async () => {
+      const user = userEvent.setup();
+      mockRemoveStudentSet.mutateAsync.mockResolvedValueOnce({ logId: 'log-4', removed: null });
+      renderSetRow(extraLog);
+
+      await user.click(screen.getByRole('button', { name: /remove extra set/i }));
+      await act(async () => {});
+
+      expect(getToasts()).toEqual([]);
+    });
+
+    it('a refused removal offers nothing to undo either (its error has its own toast)', async () => {
+      const user = userEvent.setup();
+      mockRemoveStudentSet.mutateAsync.mockRejectedValueOnce(new Error('refused'));
+      renderSetRow(extraLog);
+
+      await user.click(screen.getByRole('button', { name: /remove extra set/i }));
+      await act(async () => {});
+
+      expect(getToasts()).toEqual([]);
+    });
+
+    it('without a network, Undo inserts nothing and says why', async () => {
+      const user = userEvent.setup();
+      mockRemoveStudentSet.mutateAsync.mockResolvedValueOnce({ logId: 'log-4', removed });
+      renderSetRow(extraLog);
+      await user.click(screen.getByRole('button', { name: /remove extra set/i }));
+      await waitFor(() => expect(getToasts()).toHaveLength(1));
+
+      onlineManager.setOnline(false);
+      getToasts()[0].action.onClick();
+
+      expect(mockAddStudentSet.mutate).not.toHaveBeenCalled();
+      expect(getToasts().at(-1)).toMatchObject({ kind: 'error', message: 'sessionTouchUndo.undoNeedsNetwork' });
     });
   });
 

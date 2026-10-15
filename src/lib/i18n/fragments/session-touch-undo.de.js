@@ -4,5 +4,7 @@ export default {
   sessionTouchUndo: {
     doneIndicatorLabel: 'Erledigt. Gedrückt halten, um den Satz als nicht geschafft zu markieren',
     holdToFail: 'Gedrückt halten, um diesen Satz als nicht geschafft zu markieren.',
+    setRemoved: 'Zusatzsatz entfernt.',
+    undoNeedsNetwork: 'Offline: Der Satz konnte nicht wiederhergestellt werden.',
   },
 };
