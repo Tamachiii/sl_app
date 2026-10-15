@@ -38,6 +38,34 @@ function LastTimeHint({ perf, label, lang }) {
   );
 }
 
+// What the Actual editor of each set of a swapped exercise opens with (P59):
+// the substitute's last performance, set by set — the last of its sets for any
+// set beyond them. The rows' targets are the original exercise's and are never
+// a load to start from. Without a last performance, a set starts from the one
+// before it in this session, as it was done: the substitute done for the first
+// time is entered once and carried down.
+//
+// Returns Map(log id → { reps, weightKg }). The sets come in set order.
+function swapSeeds(slotLogs, lastPerf) {
+  const prior = Array.isArray(lastPerf?.sets) && lastPerf.sets.length > 0 ? lastPerf.sets : null;
+  const seeds = new Map();
+  let before = { reps: null, weightKg: null };
+  slotLogs.forEach((log, index) => {
+    const last = prior ? prior[Math.min(index, prior.length - 1)] : null;
+    const seed = last
+      ? { reps: last.reps ?? null, weightKg: last.weight ?? null }
+      : { reps: before.reps ?? log.target_reps ?? null, weightKg: before.weightKg };
+    seeds.set(log.id, seed);
+    if (!log.skipped) {
+      before = {
+        reps: log.actual_reps ?? seed.reps,
+        weightKg: log.actual_weight_kg != null ? Number(log.actual_weight_kg) : seed.weightKg,
+      };
+    }
+  });
+  return seeds;
+}
+
 function SlotBody({
   slot,
   slotLogs,
@@ -59,13 +87,15 @@ function SlotBody({
   const setsLocked = isConfirmed || isReadOnly;
   const deviation = (slotDeviations || []).find((d) => d.exercise_slot_id === slot.id) || null;
   const isExerciseSkipped = deviation?.kind === 'skip';
+  // The athlete does another exercise in this slot — the same test as the
+  // history's (lib/doneSetHistory), so what the row stores and what records and
+  // "Last time" read agree.
+  const swapped = deviation?.kind === 'swap' && !!deviation.substitute_exercise_id;
   // Key the hint on the exercise the student is actually about to do: the
   // substitute when this slot is swapped, otherwise the prescribed exercise.
-  const effectiveExerciseId =
-    deviation?.kind === 'swap' && deviation.substitute_exercise_id
-      ? deviation.substitute_exercise_id
-      : slot.exercise?.id;
+  const effectiveExerciseId = swapped ? deviation.substitute_exercise_id : slot.exercise?.id;
   const lastPerf = lastPerformance ? lastPerformance[effectiveExerciseId] : null;
+  const seeds = swapped ? swapSeeds(slotLogs, lastPerf) : null;
   const online = useOnlineStatus();
   const addSet = useAddStudentSet();
 
@@ -105,15 +135,21 @@ function SlotBody({
             <LastTimeHint perf={lastPerf} label={t('student.session.lastTime')} lang={lang} />
           )}
           <div className="space-y-1.5">
-            {slotLogs.map((log) => (
-              <SetRow
-                key={log.id}
-                log={log}
-                locked={setsLocked}
-                recordVideo={(slot.record_video_set_numbers || []).includes(log.set_number)}
-                video={getVideoForLog ? getVideoForLog(log.id) : null}
-              />
-            ))}
+            {slotLogs.map((log) => {
+              const seed = seeds?.get(log.id);
+              return (
+                <SetRow
+                  key={log.id}
+                  log={log}
+                  locked={setsLocked}
+                  recordVideo={(slot.record_video_set_numbers || []).includes(log.set_number)}
+                  video={getVideoForLog ? getVideoForLog(log.id) : null}
+                  swapped={swapped}
+                  seedReps={seed?.reps ?? null}
+                  seedWeightKg={seed?.weightKg ?? null}
+                />
+              );
+            })}
           </div>
           {!setsLocked && (
             online ? (

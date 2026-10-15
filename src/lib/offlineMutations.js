@@ -197,10 +197,12 @@ async function setRpeFn(variables, { madeAt } = {}) {
   return data;
 }
 
-// Records the student's off-plan actuals. Pass null on a dimension to mean
-// "did it as prescribed" — callers normalize a value equal to the target down
-// to null so a stored actual_* always denotes a real deviation. With
-// `done: true` the same UPDATE marks the set done (see `patchForActual`).
+// Records what the athlete actually did on a set. Pass null on a dimension to
+// mean "did it as prescribed": on a set of the exercise the coach wrote, SetRow
+// normalizes a value equal to the target down to null so a stored actual_*
+// denotes a real deviation. On a swapped exercise both values are stored as
+// entered — the targets there are the original exercise's. With `done: true`
+// the same UPDATE marks the set done (see `patchForActual`).
 // An UPDATE on a pre-existing row, so it parks-and-replays offline like the
 // other set_log writes; the coach-owned target_* columns are never in the
 // payload (and the pin_set_log_targets_for_student trigger would revert them

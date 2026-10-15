@@ -586,6 +586,105 @@ describe('SetRow', () => {
     });
   });
 
+  // P59. On a swapped exercise the pinned targets are the ORIGINAL exercise's.
+  // The editor collapsed a value equal to one of them to null, so a swap done
+  // with the same scheme stored nothing — and the substitute's records and
+  // "Last time", which only read logged actuals, never had a set.
+  describe('a swapped exercise stores what was done, as entered', () => {
+    // Prescribed 8 × 100 kg on the original exercise.
+    const log = { ...baseLog, done: true, target_reps: 8, target_weight_kg: 100 };
+
+    it('values equal to the original targets are stored, both of them', async () => {
+      const user = userEvent.setup();
+      renderSetRow(log, { swapped: true, seedReps: 8, seedWeightKg: 100 });
+
+      await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+      expect(mockLogActual.mutate).toHaveBeenCalledWith({
+        logId: 'log-1',
+        actualReps: 8,
+        actualWeightKg: 100,
+      });
+    });
+
+    it('the editor opens on the seeds it is given: the substitute\'s last performance', async () => {
+      const user = userEvent.setup();
+      renderSetRow(log, { swapped: true, seedReps: 6, seedWeightKg: 32.5 });
+
+      await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
+
+      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue(6);
+      expect(screen.getByLabelText(/actual weight in kilograms/i)).toHaveValue(32.5);
+    });
+
+    it('without seeds, the reps start from the prescribed ones and the load from nothing', async () => {
+      const user = userEvent.setup();
+      renderSetRow(log, { swapped: true });
+
+      await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
+
+      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue(8);
+      expect(screen.getByLabelText(/actual weight in kilograms/i)).toHaveValue(null);
+    });
+
+    it('what the set already holds comes before the seeds', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...log, actual_reps: 7, actual_weight_kg: 40 }, { swapped: true, seedReps: 6, seedWeightKg: 32.5 });
+
+      await user.click(screen.getByRole('button', { name: /logged actual/i }));
+
+      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue(7);
+      expect(screen.getByLabelText(/actual weight in kilograms/i)).toHaveValue(40);
+    });
+
+    it('a load left empty is no load, not the original exercise\'s', async () => {
+      const user = userEvent.setup();
+      renderSetRow(log, { swapped: true });
+
+      await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+      expect(mockLogActual.mutate).toHaveBeenCalledWith({
+        logId: 'log-1',
+        actualReps: 8,
+        actualWeightKg: 0,
+      });
+    });
+
+    it('on a pending set, the same Save marks it done (P27)', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...log, done: false }, { swapped: true, seedReps: 8, seedWeightKg: 100 });
+
+      await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+      expect(mockLogActual.mutate).toHaveBeenCalledWith({
+        logId: 'log-1',
+        actualReps: 8,
+        actualWeightKg: 100,
+        done: true,
+      });
+    });
+
+    it('the exercise as the coach wrote it keeps the rule: a value equal to its target is nulled', async () => {
+      const user = userEvent.setup();
+      renderSetRow(log, { seedReps: 6, seedWeightKg: 32.5 });
+
+      await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
+      // Seeds are for a swap: this editor opens on the targets.
+      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue(8);
+      expect(screen.getByLabelText(/actual weight in kilograms/i)).toHaveValue(100);
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+      expect(mockLogActual.mutate).toHaveBeenCalledWith({
+        logId: 'log-1',
+        actualReps: null,
+        actualWeightKg: null,
+      });
+    });
+  });
+
   describe('skip + extra sets', () => {
     const repLog = { ...baseLog, target_reps: 10, target_weight_kg: 80 };
 

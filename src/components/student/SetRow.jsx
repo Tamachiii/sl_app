@@ -45,8 +45,26 @@ const SWIPE_MAX_OFFSET = 96;
  * It overlaps with the slot-header summary on uniform slots, but a row
  * with only an indicator and an RPE pill reads as empty — repeating the
  * target keeps the row scannable.
+ *
+ * What SlotGroupCard tells it about the exercise, as primitives (it is memo):
+ *   - `swapped`: the athlete does another exercise in this slot. The pinned
+ *     targets are the ORIGINAL exercise's, so the Actual editor stores both
+ *     values as entered and never collapses one equal to a target to null —
+ *     the substitute's records and "Last time" only read logged actuals
+ *     (lib/doneSetHistory), and a same-scheme swap used to store nothing (P59).
+ *   - `seedReps` / `seedWeightKg`: what the Actual editor opens with on a
+ *     swapped exercise (the substitute's last performance). Ignored on a set of
+ *     an exercise that was not swapped, whose editor opens on its targets.
  */
-const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, video = null }) {
+const SetRow = memo(function SetRow({
+  log,
+  locked = false,
+  recordVideo = false,
+  video = null,
+  swapped = false,
+  seedReps = null,
+  seedWeightKg = null,
+}) {
   // log.id feeds the per-row mutation scope: same-row writes stay FIFO,
   // different rows don't block each other. See useSetLogs.rowScope.
   const toggleDone = useToggleSetDone(log.id);
@@ -134,30 +152,60 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
   // Seed the inputs from the logged actual when present, else from the
   // prescribed target, so the common "did it as written" case is one tap
   // (open → Save) and the student only edits the dimension that differed.
-  function toggleActualOpen() {
-    if (locked) return;
-    setActualOpen((open) => {
-      const next = !open;
-      if (next) {
-        const repsSeed = log.actual_reps ?? log.target_reps;
-        const weightSeed = log.actual_weight_kg ?? log.target_weight_kg;
-        setActualReps(repsSeed != null ? String(repsSeed) : '');
-        setActualWeight(weightSeed != null ? String(Number(weightSeed)) : '');
-      }
-      return next;
-    });
+  // A swapped exercise opens on what SlotGroupCard worked out (`seedReps` /
+  // `seedWeightKg`): the targets on its rows are another exercise's. Its reps
+  // fall back on the prescribed ones (the same scheme, as Stats reads it); its
+  // load never does.
+  function editorSeed() {
+    if (swapped) {
+      return {
+        reps: log.actual_reps ?? seedReps ?? log.target_reps ?? null,
+        weightKg: log.actual_weight_kg ?? seedWeightKg ?? null,
+      };
+    }
+    return {
+      reps: log.actual_reps ?? log.target_reps ?? null,
+      weightKg: log.actual_weight_kg ?? log.target_weight_kg ?? null,
+    };
   }
 
+  // Opens the editor on its seeds. Already open: what the athlete typed stays.
+  function openActual() {
+    if (actualOpen) return;
+    const seed = editorSeed();
+    setActualReps(repsApplies && seed.reps != null ? String(seed.reps) : '');
+    setActualWeight(seed.weightKg != null ? String(Number(seed.weightKg)) : '');
+    setActualOpen(true);
+  }
+
+  function toggleActualOpen() {
+    if (locked) return;
+    if (actualOpen) setActualOpen(false);
+    else openActual();
+  }
+
+  // What the inputs hold now.
+  const typedReps = repsApplies ? parseIntOrNull(actualReps) : null;
+  const typedWeight = parseFloatOrNull(actualWeight);
+
   function handleSaveActual() {
-    const repsVal = parseIntOrNull(actualReps);
-    const weightVal = parseFloatOrNull(actualWeight);
-    // Normalize a value that matches the prescription back to null so a stored
-    // actual_* always denotes a genuine deviation. The target_* columns are
-    // never written here — they stay the coach's source of truth.
-    const tgtReps = log.target_reps ?? null;
-    const tgtWeight = log.target_weight_kg == null ? null : Number(log.target_weight_kg);
-    const nextReps = repsApplies && repsVal != null && repsVal !== tgtReps ? repsVal : null;
-    const nextWeight = weightVal != null && weightVal !== tgtWeight ? weightVal : null;
+    let nextReps;
+    let nextWeight;
+    if (swapped) {
+      // Stored as entered: the targets on the row are not what was done. A
+      // swapped exercise left without a load is done without one — null would
+      // read as the original exercise's load (formatActual, Stats).
+      nextReps = typedReps;
+      nextWeight = typedWeight ?? 0;
+    } else {
+      // Normalize a value that matches the prescription back to null so a
+      // stored actual_* always denotes a genuine deviation. The target_*
+      // columns are never written here — they stay the coach's source of truth.
+      const tgtReps = log.target_reps ?? null;
+      const tgtWeight = log.target_weight_kg == null ? null : Number(log.target_weight_kg);
+      nextReps = typedReps != null && typedReps !== tgtReps ? typedReps : null;
+      nextWeight = typedWeight != null && typedWeight !== tgtWeight ? typedWeight : null;
+    }
     // Saved on a pending set, what was done marks it done: one write (P27).
     // A done set is not dated again; a failed one stays failed.
     logActual.mutate(

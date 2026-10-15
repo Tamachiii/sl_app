@@ -339,13 +339,14 @@ export function useSetFailed(logId) {
   });
 }
 
-// Records the student's off-plan actuals (reps performed / load used) on a
+// Records what the student actually did (reps performed / load used) on a
 // single set_log. Same offline-safe shape as the other set-log writes: an
 // UPDATE of a pre-existing row, shown at once on that row and taken back from
-// it on error. Callers pass already-normalized values (a dimension equal
-// to its prescribed target is sent as null) so a stored actual_* always means
-// a genuine deviation. `done: true` marks a pending set done in the same
-// write, dated at the tap (P27, `patchForActual`).
+// it on error. Callers pass the values to store: on a set of the exercise the
+// coach wrote, a dimension equal to its target is sent as null, so a stored
+// actual_* means a genuine deviation; on a swapped exercise both are sent as
+// entered. `done: true` marks a pending set done in the same write, dated at
+// the tap (P27, `patchForActual`).
 export function useLogActual(logId) {
   return useOptimisticSetLogMutation(logId, {
     mutationKey: MUTATION_KEYS.logActual,
