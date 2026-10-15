@@ -583,7 +583,7 @@ describe('the file', () => {
     const kinds = new Set(lines.map((line) => Object.keys(JSON.parse(line))[0]));
     expect([...kinds].sort()).toEqual(['end', 'header', 'row', 'table', 'trailer']);
     // A value is the text PostgreSQL prints, or null — never a JSON number.
-    const row = lines.map((line) => JSON.parse(line).row).find((value) => value?.rpe === '8');
+    const row = lines.map((line) => JSON.parse(line).row).find((value) => value?.rpe === '8.0');
     expect(row).toMatchObject({ weight_kg: '22.50', done: 'true', actual_reps: null, logged_at: '2026-09-29 17:05:03.123456+00' });
     for (const line of lines) {
       const { row: value } = JSON.parse(line);
@@ -1095,8 +1095,9 @@ describe('a dump cannot write, and reads one moment', () => {
     // Two other sessions, one statement each.
     const statements = [
       `truncate public.client_errors`,
-      // What migration 21 of the plan does to rpe: every row is written again.
-      `alter table public.set_logs alter column rpe type numeric(3,1)`,
+      // What a migration that changes the scale of a column does — migration
+      // 21 made rpe numeric(3,1): every row is written again.
+      `alter table public.set_logs alter column rpe type numeric(4,2)`,
     ];
     const sessions = await Promise.all(statements.map(() => copy.session()));
     let sent = null;
@@ -1124,13 +1125,13 @@ describe('a dump cannot write, and reads one moment', () => {
       expect(await copy.rowsIn('public.client_errors')).toBe(0);
       expect(await copy.query.value(
         `select format_type(atttypid, atttypmod) from pg_attribute where attrelid = 'public.set_logs'::regclass and attname = 'rpe'`,
-      )).toBe('numeric(3,1)');
+      )).toBe('numeric(4,2)');
 
       // And the file holds every row the two tables had when it began.
       const dumped = Object.fromEntries(result.tables.map(({ name, rows }) => [name, rows]));
       expect(dumped).toMatchObject({ 'public.client_errors': before.errors, 'public.set_logs': before.sets });
       const header = result.header.tables.find(({ name }) => name === 'public.set_logs');
-      expect(header.columns.find(({ name }) => name === 'rpe').type).toBe('integer');
+      expect(header.columns.find(({ name }) => name === 'rpe').type).toBe('numeric(3,1)');
     } finally {
       await sent;
       await Promise.all(sessions.map((client) => client.end()));
@@ -1379,13 +1380,15 @@ describe('what a restore refuses', () => {
 
   it('a column whose type changed is loaded, and compared by count because its text differs', async () => {
     const newer = await emptyTarget();
-    // What migration 21 of the plan does to rpe.
-    await newer.query(`alter table public.set_logs alter column rpe type numeric(3,1)`);
+    // What a later migration that changes the scale of a column does — as
+    // migration 21 made rpe numeric(3,1), which a backup from before it
+    // holds as an integer.
+    await newer.query(`alter table public.set_logs alter column rpe type numeric(4,2)`);
     const result = await restore(['--db-url', newer.url]);
     expect(result.all).not.toContain('FAILED');
     expect(result.code).toBe(0);
-    expect(result.stdout).toMatch(/public\.set_logs +\d+ {2}row count only — rpe is integer in the backup and numeric\(3,1\) in the target/);
-    expect(await newer.query.value(`select rpe::text from public.set_logs where rpe = 8`)).toBe('8.0');
+    expect(result.stdout).toMatch(/public\.set_logs +\d+ {2}row count only — rpe is numeric\(3,1\) in the backup and numeric\(4,2\) in the target/);
+    expect(await newer.query.value(`select rpe::text from public.set_logs where rpe = 8`)).toBe('8.00');
   });
 
   it('rows that load and read back differently: nothing is kept', async () => {

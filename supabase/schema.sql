@@ -97,6 +97,7 @@ CREATE TABLE public.sessions (
   -- Recommended WEEKDAY (1 = Monday … 7 = Sunday), never an ordinal position.
   -- NULL = no recommendation (2026_08_21). Advisory only: order comes from
   -- sort_order, and nothing is "missed" for being trained on another day.
+  -- sessions_day_number_weekday holds it to 1..7 (2026_10_16_21, review B12).
   day_number     int,
   title          text,
   sort_order     int  NOT NULL DEFAULT 0,
@@ -113,7 +114,12 @@ CREATE TABLE public.sessions (
   -- copy (2026_07_13). Not deferrable: a renumbering parks every session,
   -- then places it — reorder_sessions() and move_session() do, in one
   -- statement each.
-  CONSTRAINT sessions_week_sort_order_unique UNIQUE (week_id, sort_order)
+  CONSTRAINT sessions_week_sort_order_unique UNIQUE (week_id, sort_order),
+  -- A weekday, or none (2026_10_16_21, review B12). The values that were
+  -- not one — positions written by the athlete's draft builder before
+  -- 2026_08_22 — were cleared by that migration, with every weekday of a
+  -- block an athlete wrote: the builder has no weekday control.
+  CONSTRAINT sessions_day_number_weekday CHECK (day_number IS NULL OR day_number BETWEEN 1 AND 7)
 );
 
 CREATE INDEX IF NOT EXISTS sessions_reviewed_idx
@@ -188,7 +194,10 @@ CREATE TABLE public.set_logs (
   set_number               int  NOT NULL CHECK (set_number > 0),
   done                     boolean NOT NULL DEFAULT false,
   failed                   boolean NOT NULL DEFAULT false,
-  rpe                      int CHECK (rpe IS NULL OR (rpe BETWEEN 1 AND 10)),
+  -- From 1 to 10 in steps of 0.5 (2026_10_16_21, review L34):
+  -- set_logs_rpe_check and set_logs_rpe_half_step. numeric(3,1) rounds what
+  -- is sent to one decimal before the rules are asked.
+  rpe                      numeric(3,1) CHECK (rpe IS NULL OR (rpe BETWEEN 1 AND 10)),
   weight_kg                numeric(6,2),
   -- Student-recorded "what I actually did" when they go off-script. NULL on
   -- either column means "followed the prescription" for that dimension, so a
@@ -213,6 +222,7 @@ CREATE TABLE public.set_logs (
   ),
   CONSTRAINT set_logs_done_xor_failed CHECK (NOT (done AND failed)),
   CONSTRAINT set_logs_no_rpe_when_failed CHECK (NOT (failed AND rpe IS NOT NULL)),
+  CONSTRAINT set_logs_rpe_half_step CHECK (rpe IS NULL OR rpe * 2 = trunc(rpe * 2)),
   CONSTRAINT set_logs_actual_reps_nonneg CHECK (actual_reps IS NULL OR actual_reps >= 0),
   CONSTRAINT set_logs_actual_weight_nonneg CHECK (actual_weight_kg IS NULL OR actual_weight_kg >= 0),
   CONSTRAINT set_logs_skipped_not_resolved CHECK (NOT (skipped AND (done OR failed)))
@@ -3261,7 +3271,10 @@ BEGIN
   SELECT (s->>'id')::uuid, (s->>'week_id')::uuid,
          COALESCE(NULLIF(s->>'title',''),'Session'),
          -- No weekday chosen stays NULL (2026_08_22): sort_order is the order.
-         (s->>'day_number')::int,
+         -- A number that is no weekday — what a phone that cached its draft
+         -- before 2026_10_16_21 may still send — is written as none, instead
+         -- of failing the whole tree on sessions_day_number_weekday.
+         CASE WHEN (s->>'day_number')::int BETWEEN 1 AND 7 THEN (s->>'day_number')::int END,
          COALESCE((s->>'sort_order')::int,0)
     FROM jsonb_array_elements(COALESCE(p_tree->'sessions','[]'::jsonb)) s;
   GET DIAGNOSTICS v_sessions = ROW_COUNT;
@@ -6693,7 +6706,8 @@ INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_13_16_rest_push_scheduling'),
   ('2026_10_13_17_replay_grace_window'),
   ('2026_10_13_18_retention'),
-  ('2026_10_16_20_drafts_coach_readonly');
+  ('2026_10_16_20_drafts_coach_readonly'),
+  ('2026_10_16_21_rpe_half_steps_day_check');
 
 -- An optional migration that needs an extension is on record where its block
 -- above ran, and nowhere else: a project that switches pg_cron on later must

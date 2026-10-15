@@ -181,6 +181,15 @@
       "covers": ["P53"],
       "reversible": true,
       "summary": "The phases, sessions, exercises and sets of a draft are written by its author alone: four triggers named block_draft_tree_write, on weeks, sessions, exercise_slots and set_logs, refuse (P0001, draft_read_only) a write that carries a user id other than the draft's author when the row belongs to a program whose status is draft — in the trash or not, its parent as it was and as it would be; a request without a user id, the author, and a row whose parent is gone (the cascade of a delete) go through. The row of the program is not judged: the coach still approves, sends back, renames, trashes and deletes a draft. approve_program marks the program approved first, then clears the four columns of its sessions as before, drops the sets without a target (prescribed, neither reps nor a duration, not logged, without a video) and adds the missing sets from the values of each exercise; it answers as before. No row is written."
+    },
+    {
+      "name": "2026_10_16_21_rpe_half_steps_day_check",
+      "kind": "required",
+      "wave": 3,
+      "checkpoint": "C1",
+      "covers": ["L34", "B12"],
+      "reversible": true,
+      "summary": "set_logs.rpe is numeric(3,1), from 1 to 10 in steps of 0.5 (set_logs_rpe_check, written again for the new type, and set_logs_rpe_half_step); every RPE logged so far keeps its value. sessions.day_number is a weekday from 1 to 7 or nothing (sessions_day_number_weekday): the file first clears the values outside 1 to 7 and every weekday of a block an athlete wrote — drafts and approved blocks, trained sessions included; run after SET app.day_number_clearing = 'drafts', it keeps those of the approved blocks — and save_draft_tree writes a number outside 1 to 7 as no weekday instead of failing the whole tree. The weekdays it cleared do not come back with the rollback, which rounds an RPE in a half step away from zero."
     }
   ]
 }

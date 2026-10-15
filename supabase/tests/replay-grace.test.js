@@ -237,7 +237,8 @@ const NOT_TRAINED = {
   pull_up: '1 to do, 2 to do, 3 to do', dip: '1 to do, 2 to do, 3 to do', notes: null, deviations: null, confirmed_for: null, dated: false,
 };
 const THE_WORKOUT = {
-  pull_up: '1 done rpe 8, 2 done did 4@22.50, 3 failed',
+  // numeric(3,1) since 2026_10_16_21: an RPE of 8 prints as 8.0.
+  pull_up: '1 done rpe 8.0, 2 done did 4@22.50, 3 failed',
   dip: '1 skipped, 2 to do, 3 to do',
   notes: 'Felt fine',
   deviations: 'swap',

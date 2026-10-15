@@ -147,14 +147,15 @@ describe('a logged set', () => {
     expect((await asUser(ids.coach, (coach) => coach(`delete from set_logs where id = $1`, [setLog]))).rowCount).toBe(1);
   }));
 
-  // The predicate takes the row type of the table. The migrations to come
-  // change that table (a column added, RPE in half steps, a dead column
-  // dropped): none of it may be held up by the function, or break it.
+  // The predicate takes the row type of the table. Migrations change that
+  // table (a column added, the type of rpe — numeric(3,1) since migration 21
+  // —, a dead column dropped): none of it may be held up by the function, or
+  // break it.
   it('set_logs can still be altered under the function, and the function follows', () => scenario(async (q) => {
     const slot = pullUp(0);
     await athleteLogs(slot.setLogs[0], 'an RPE alone');
     await q(`alter table public.set_logs add column target_rpe numeric(3,1)`);
-    await q(`alter table public.set_logs alter column rpe type numeric(3,1)`);
+    await q(`alter table public.set_logs alter column rpe type numeric(4,2)`);
     await q(`alter table public.set_logs drop column weight_kg`);
     expect(await q.rows(
       `select sl.set_number, public.set_log_is_logged(sl) as logged from set_logs sl where sl.exercise_slot_id = $1 order by 1`,
