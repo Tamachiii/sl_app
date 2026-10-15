@@ -1,19 +1,24 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Dialog from '../ui/Dialog';
+import DecimalInput from '../ui/DecimalInput';
 import Spinner from '../ui/Spinner';
 import UserMenu from '../ui/UserMenu';
 import { useAuth } from '../../hooks/useAuth';
+import { useI18n } from '../../hooks/useI18n';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
 import { useMyDraft, useDraftTree, useCreateDraft, useDraftActions } from '../../hooks/useAuthoring';
+import { decimalText, parseDecimalInput } from '../../lib/number';
 
 /**
  * Phase 3.4d — student program authoring, OFFLINE-CAPABLE. A student drafts a
  * whole program (weeks → sessions → exercise slots + slot-level targets) that
  * stays inert until the coach approves it. Every edit is an optimistic local
  * cache write that syncs as one idempotent whole-tree snapshot when online (or
- * on reconnect). English-only, matching the other student off-script surfaces.
+ * on reconnect). English-only, matching the other student off-script surfaces —
+ * except what a slot's number fields say when they refuse a value, which is
+ * the app's shared wording, in the athlete's language.
  */
 export default function StudentProgramAuthor() {
   const navigate = useNavigate();
@@ -245,32 +250,71 @@ function SessionCard({ session, library, canEdit, actions }) {
   );
 }
 
-function SlotRow({ slot, canEdit, actions }) {
-  const [sets, setSets] = useState(String(slot.sets ?? 3));
-  const [reps, setReps] = useState(String(slot.reps ?? 5));
-  const [weight, setWeight] = useState(slot.weight_kg != null ? String(Number(slot.weight_kg)) : '');
+// What the three fields of a slot take: the columns of `exercise_slots`.
+// `sets` is NOT NULL and above 0; `reps` is above 0 and never null here — this
+// UI never writes a duration, and a slot with neither aborts the whole-tree
+// save at sync (XOR). `weight_kg` is a numeric(6,2), empty for bodyweight.
+const SLOT_COUNT_RULES = { integer: true, min: 1, max: 2147483647, allowEmpty: false };
+const SLOT_WEIGHT_RULES = { max: 9999.99 };
 
+function SlotRow({ slot, canEdit, actions }) {
+  const { t } = useI18n();
+  const alertId = useId();
+  const [sets, setSets] = useState(decimalText(slot.sets ?? 3));
+  const [reps, setReps] = useState(decimalText(slot.reps ?? 5));
+  const [weight, setWeight] = useState(decimalText(slot.weight_kg));
+  // A commit was refused; the fields still wrong are marked until they are not.
+  const [refused, setRefused] = useState(false);
+
+  // Read as typed: "62,5" and "62.5" are 62.5 kg in every browser (P31). A
+  // number field gave "" in WebKit — saved as null, bodyweight — and 625 in an
+  // English Chromium, and garbage in sets or reps was quietly made 1.
+  const setsInput = parseDecimalInput(sets, SLOT_COUNT_RULES);
+  const repsInput = parseDecimalInput(reps, SLOT_COUNT_RULES);
+  const weightInput = parseDecimalInput(weight, SLOT_WEIGHT_RULES);
+
+  // On the blur of any field. Nothing is written while one of them says
+  // something the slot cannot hold: the draft keeps the slot as it was.
   function commit() {
+    if (!setsInput.ok || !repsInput.ok || !weightInput.ok) {
+      setRefused(true);
+      return;
+    }
+    setRefused(false);
     actions.updateSlot(slot.id, {
-      sets: Math.max(1, parseInt(sets, 10) || 1),
-      // XOR safety: this UI never sets a duration, so reps must stay non-null
-      // (a both-null slot would abort the whole-tree upsert at sync). Clamp ≥ 1.
-      reps: Math.max(1, parseInt(reps, 10) || 1),
-      weight_kg: weight.trim() === '' ? null : parseFloat(weight),
+      sets: setsInput.value,
+      reps: repsInput.value,
+      weight_kg: weightInput.value,
     });
   }
+
+  // One message, for the first field on the line that is wrong; the fields it
+  // is about point at it.
+  const countWrong = refused && (!setsInput.ok || !repsInput.ok);
+  const weightWrong = refused && !countWrong && !weightInput.ok;
+  const message = countWrong
+    ? t('sessionDecimalInput.wholeNumberAtLeastOne')
+    : weightWrong
+      ? t('uiSharedHelpers.decimalInvalid')
+      : null;
+  const describe = (wrong) => (wrong ? alertId : undefined);
 
   return (
     <div className="rounded-lg bg-ink-50 px-3 py-2 flex items-center gap-2 flex-wrap">
       <span className="sl-display text-[14px] text-gray-900 flex-1 min-w-0 truncate">{slot.exercise?.name || 'Exercise'}</span>
       {canEdit ? (
         <>
-          <NumberField label="sets" value={sets} onChange={setSets} onBlur={commit} width="w-12" />
-          <NumberField label="reps" value={reps} onChange={setReps} onBlur={commit} width="w-12" />
-          <NumberField label="kg" value={weight} onChange={setWeight} onBlur={commit} width="w-16" step="0.5" />
+          <NumberField label="sets" value={sets} onChange={setSets} onBlur={commit} width="w-12" rules={SLOT_COUNT_RULES} invalid={refused && !setsInput.ok} describedBy={describe(countWrong && !setsInput.ok)} />
+          <NumberField label="reps" value={reps} onChange={setReps} onBlur={commit} width="w-12" rules={SLOT_COUNT_RULES} invalid={refused && !repsInput.ok} describedBy={describe(countWrong && !repsInput.ok)} />
+          <NumberField label="kg" value={weight} onChange={setWeight} onBlur={commit} width="w-16" rules={SLOT_WEIGHT_RULES} invalid={refused && !weightInput.ok} describedBy={describe(weightWrong)} />
           <button type="button" onClick={() => actions.deleteRow('exercise_slots', slot.id)} aria-label="Remove exercise" className="sl-pill bg-ink-100 text-ink-500 hover:bg-ink-200 px-2.5">
             ✕
           </button>
+          {message && (
+            <p id={alertId} role="alert" className="basis-full sl-mono text-[11px] text-danger">
+              {message}
+            </p>
+          )}
         </>
       ) : (
         <span className="sl-mono text-[12px] text-ink-500">
@@ -281,19 +325,18 @@ function SlotRow({ slot, canEdit, actions }) {
   );
 }
 
-function NumberField({ label, value, onChange, onBlur, width, step }) {
+function NumberField({ label, value, onChange, onBlur, width, rules, invalid, describedBy }) {
   return (
     <label className="flex items-center gap-1 text-[13px] text-ink-500">
-      <input
-        type="number"
-        inputMode={step ? 'decimal' : 'numeric'}
-        min="0"
-        step={step}
+      <DecimalInput
+        {...rules}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onBlur={onBlur}
+        invalid={invalid}
         aria-label={label}
-        className={`${width} rounded-lg bg-white border border-ink-200 px-2 py-1.5 text-[16px] text-gray-900`}
+        aria-describedby={describedBy}
+        className={`${width} rounded-lg bg-white border border-ink-200 px-2 py-1.5 text-gray-900`}
       />
       <span className="sl-label normal-case">{label}</span>
     </label>
