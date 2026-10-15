@@ -25,8 +25,10 @@ import {
 import {
   MUTATION_KEYS,
   MUTATION_FNS,
+  patchForActual,
   patchForDone,
   patchForFailed,
+  patchForRpe,
   patchForSkipped,
   registerOfflineMutationDefaults,
   resumeMutationsAndReconcileDrafts,
@@ -267,6 +269,34 @@ describe('patch helpers', () => {
     it('taking a set back carries no moment at all', () => {
       expect(patchForDone(false, TAP)).toEqual({ done: false, logged_at: null });
       expect(patchForFailed(false, TAP)).toEqual({ failed: false, failed_at: null });
+    });
+  });
+
+  // P27 — an RPE or an Actual given on a pending set is the set done.
+  describe('a rating or an actual that marks the set done', () => {
+    const TAP = '2026-10-09T18:02:11.000Z';
+    const DONE = { done: true, failed: false, logged_at: TAP, failed_at: null };
+
+    it('with the mark, the value and the done fields of a tick at that moment', () => {
+      expect(patchForRpe(8, { done: true, at: TAP })).toEqual({ ...DONE, rpe: 8 });
+      expect(patchForActual(6, null, { done: true, at: TAP })).toEqual({
+        ...DONE,
+        actual_reps: 6,
+        actual_weight_kg: null,
+      });
+    });
+
+    it('without it, the value alone — what a write queued by an older build carries', () => {
+      expect(patchForRpe(8)).toEqual({ rpe: 8 });
+      expect(patchForRpe(null, { at: TAP })).toEqual({ rpe: null });
+      expect(patchForActual(6, 90, { at: TAP })).toEqual({ actual_reps: 6, actual_weight_kg: 90 });
+      expect(patchForActual(undefined, undefined)).toEqual({ actual_reps: null, actual_weight_kg: null });
+    });
+
+    it('only `true` is the mark', () => {
+      for (const done of [false, 'true', 1, null, undefined]) {
+        expect(patchForRpe(8, { done, at: TAP })).toEqual({ rpe: 8 });
+      }
     });
   });
 });
@@ -1274,6 +1304,65 @@ describe('a set is dated at the tap, whenever it is sent', () => {
 
     expect(observer.getCurrentResult().status).toBe('success');
     expect(api.table.get('l-1').logged_at).toBe(TAP);
+  });
+
+  // P27 — the rating or the actual that marks a pending set done is dated
+  // like a tick: by the variables, whenever it leaves.
+  it.each([
+    ['an RPE', MUTATION_KEYS.setRpe, { logId: 'l-1', rpe: 8, done: true, at: TAP }, { rpe: 8 }],
+    [
+      'an Actual',
+      MUTATION_KEYS.logActual,
+      { logId: 'l-1', actualReps: 6, actualWeightKg: 90, done: true, at: TAP },
+      { actual_reps: 6, actual_weight_kg: 90 },
+    ],
+  ])('%s that marks the set done, replayed two days later after a relaunch, is one request dated at the tap', async (_what, key, variables, value) => {
+    const api = fakeSetLogsApi();
+    goOffline();
+    const phone = offlineQueue();
+    enqueue(phone, key, variables);
+    await pass();
+
+    const qc = relaunch(phone);
+    await pass(TWO_DAYS);
+    comeBackOnline();
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(api.attempts).toHaveLength(1);
+    expect(api.table.get('l-1')).toEqual({ id: 'l-1', ...value, done: true, failed: false, logged_at: TAP, failed_at: null });
+  });
+
+  it('a marked rating that lost its tap time is dated when the write was made', async () => {
+    const api = fakeSetLogsApi();
+    goOffline();
+    const phone = offlineQueue();
+    enqueue(phone, MUTATION_KEYS.setRpe, { logId: 'l-1', rpe: 8, done: true });
+    await pass();
+
+    const qc = relaunch(phone);
+    await pass(TWO_DAYS);
+    comeBackOnline();
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(api.table.get('l-1')).toMatchObject({ done: true, rpe: 8, logged_at: TAP });
+  });
+
+  it('a rating queued by an older build, without the mark, is the rating alone', async () => {
+    const api = fakeSetLogsApi();
+    goOffline();
+    const phone = offlineQueue();
+    enqueue(phone, MUTATION_KEYS.setRpe, { logId: 'l-1', rpe: 8 });
+    await pass();
+
+    const qc = relaunch(phone);
+    await pass(TWO_DAYS);
+    comeBackOnline();
+    await qc.resumePausedMutations();
+    await pass();
+
+    expect(api.table.get('l-1')).toEqual({ id: 'l-1', done: false, failed: false, logged_at: null, rpe: 8 });
   });
 
   it('the function called with nothing to go by reads the clock', async () => {

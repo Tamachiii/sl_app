@@ -202,6 +202,21 @@ describe('a write that fails takes back what it wrote, and nothing else', () => 
     });
   });
 
+  it('a rating that marked the set done and is refused takes back the rating AND the tick (P27)', async () => {
+    const api = fakeSetLogs();
+    const { qc, result } = mount(api);
+
+    act(() => result.current.rpeA.mutate({ logId: 'a', rpe: 8, done: true }));
+    await sent(api, 1);
+    expect(shown(qc, 'a')).toMatchObject({ done: true, failed: false, rpe: 8, logged_at: expect.any(String) });
+    expect(api.requests[0].patch).toMatchObject({ done: true, rpe: 8 });
+
+    act(() => api.requests[0].refuse());
+    await waitFor(() => expect(result.current.rpeA.isError).toBe(true));
+
+    expect(qc.getQueryData(KEY)).toEqual(ROWS);
+  });
+
   it('a write that fails with nothing after it puts its row back exactly as it was', async () => {
     const api = fakeSetLogs();
     const { qc, result } = mount(api);

@@ -340,6 +340,33 @@ describe('useSetRpe', () => {
     expect(chain.update).toHaveBeenCalledWith({ rpe: 8 });
     expect(invalidate).not.toHaveBeenCalled();
   });
+
+  // P27 — a rating given on a pending set marks it done: SetRow says so with
+  // `done: true`, and the rating and the done fields leave in ONE update.
+  it('with `done: true`, writes the rating and the set done in one update', async () => {
+    const chain = {
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: { id: 'l-1', rpe: 8, done: true }, error: null }),
+    };
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useSetRpe(), { wrapper: withClient(qc) });
+    result.current.mutate({ logId: 'l-1', rpe: 8, done: true });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(chain.update).toHaveBeenCalledTimes(1);
+    expect(chain.update).toHaveBeenCalledWith({
+      rpe: 8,
+      done: true,
+      failed: false,
+      logged_at: expect.any(String),
+      failed_at: null,
+    });
+    expect(chain.eq).toHaveBeenCalledWith('id', 'l-1');
+  });
 });
 
 describe('useLogActual', () => {
@@ -364,6 +391,26 @@ describe('useLogActual', () => {
     const payload = chain.update.mock.calls[0][0];
     expect(payload).toEqual({ actual_reps: 8, actual_weight_kg: 100 });
     expect(chain.eq).toHaveBeenCalledWith('id', 'l-1');
+  });
+
+  it('with `done: true`, writes the values and the set done in one update (P27)', async () => {
+    const chain = makeUpdateChain({ data: { id: 'l-1' }, error: null });
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useLogActual(), { wrapper: withClient(qc) });
+    result.current.mutate({ logId: 'l-1', actualReps: 8, actualWeightKg: null, done: true });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(chain.update).toHaveBeenCalledTimes(1);
+    expect(chain.update.mock.calls[0][0]).toEqual({
+      actual_reps: 8,
+      actual_weight_kg: null,
+      done: true,
+      failed: false,
+      logged_at: expect.any(String),
+      failed_at: null,
+    });
   });
 
   it('coerces undefined/missing values to null so a clear persists', async () => {

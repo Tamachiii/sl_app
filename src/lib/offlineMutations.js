@@ -117,6 +117,28 @@ export function patchForFailed(failed, at) {
     : { failed: false, failed_at: null };
 }
 
+// P27 — an RPE or an Actual given on a set that is still PENDING is the set
+// done: the athlete who rates set 3, or writes down what it was, has done it.
+// The two used to be written alone, so a session rated set by set was confirmed
+// with no set done — no volume, no record, no "Last time", and the coach saw
+// every set as not done. The hook says so with `done: true` in the variables
+// (SetRow sets it only on a pending set), and the same UPDATE carries the done
+// fields, dated at the tap like a tick: one write, one row the database checks
+// once (`set_logs_done_xor_failed` and `set_logs_no_rpe_when_failed` hold — the
+// set is done, not failed). Without the marker the patch is the value alone, as
+// it was: a rating changed on a done set does not date it again, and a write
+// queued by an older build, which carries no marker, is sent as it was made.
+// These two build the hooks' optimistic patch AND the request, so the row on
+// screen and the row in the database are the same.
+export function patchForRpe(rpe, { done, at } = {}) {
+  return done === true ? { ...patchForDone(true, at), rpe } : { rpe };
+}
+
+export function patchForActual(actualReps, actualWeightKg, { done, at } = {}) {
+  const actual = { actual_reps: actualReps ?? null, actual_weight_kg: actualWeightKg ?? null };
+  return done === true ? { ...patchForDone(true, at), ...actual } : actual;
+}
+
 export function patchForSkipped(skipped) {
   // A skipped set is neither done nor failed (DB CHECK set_logs_skipped_not_
   // _resolved). Clear every outcome + actual so the row reads as a clean skip;
@@ -157,11 +179,18 @@ async function setFailedFn({ logId, failed, at }, { madeAt } = {}) {
   return data;
 }
 
-async function setRpeFn({ logId, rpe }) {
+// The moment a combined write marks its set done: only read when it does.
+function doneAt({ done, at }, madeAt) {
+  return done === true ? { done, at: tapTime(at, madeAt) } : {};
+}
+
+// The rating, and with `done: true` the set done in the same UPDATE (see
+// `patchForRpe`).
+async function setRpeFn(variables, { madeAt } = {}) {
   const { data, error } = await supabase
     .from('set_logs')
-    .update({ rpe })
-    .eq('id', logId)
+    .update(patchForRpe(variables.rpe, doneAt(variables, madeAt)))
+    .eq('id', variables.logId)
     .select()
     .single();
   if (error) throw error;
@@ -170,18 +199,17 @@ async function setRpeFn({ logId, rpe }) {
 
 // Records the student's off-plan actuals. Pass null on a dimension to mean
 // "did it as prescribed" — callers normalize a value equal to the target down
-// to null so a stored actual_* always denotes a real deviation. An UPDATE on a
-// pre-existing row, so it parks-and-replays offline like the other set_log
-// writes; the coach-owned target_* columns are never in the payload (and the
-// pin_set_log_targets_for_student trigger would revert them anyway).
-async function logActualFn({ logId, actualReps, actualWeightKg }) {
+// to null so a stored actual_* always denotes a real deviation. With
+// `done: true` the same UPDATE marks the set done (see `patchForActual`).
+// An UPDATE on a pre-existing row, so it parks-and-replays offline like the
+// other set_log writes; the coach-owned target_* columns are never in the
+// payload (and the pin_set_log_targets_for_student trigger would revert them
+// anyway).
+async function logActualFn(variables, { madeAt } = {}) {
   const { data, error } = await supabase
     .from('set_logs')
-    .update({
-      actual_reps: actualReps ?? null,
-      actual_weight_kg: actualWeightKg ?? null,
-    })
-    .eq('id', logId)
+    .update(patchForActual(variables.actualReps, variables.actualWeightKg, doneAt(variables, madeAt)))
+    .eq('id', variables.logId)
     .select()
     .single();
   if (error) throw error;

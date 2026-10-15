@@ -77,6 +77,8 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
 
   const failed = !!log.failed;
   const rpeLocked = locked || failed;
+  // Neither done nor failed (a skipped set renders without these controls).
+  const pending = !log.done && !failed;
 
   // The three outcome gestures. The rest timer and the RPE selector follow
   // THEM — what the athlete just did — and never a change of `log`. The row
@@ -156,8 +158,31 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
     const tgtWeight = log.target_weight_kg == null ? null : Number(log.target_weight_kg);
     const nextReps = repsApplies && repsVal != null && repsVal !== tgtReps ? repsVal : null;
     const nextWeight = weightVal != null && weightVal !== tgtWeight ? weightVal : null;
-    logActual.mutate({ logId: log.id, actualReps: nextReps, actualWeightKg: nextWeight });
+    // Saved on a pending set, what was done marks it done: one write (P27).
+    // A done set is not dated again; a failed one stays failed.
+    logActual.mutate(
+      pending
+        ? { logId: log.id, actualReps: nextReps, actualWeightKg: nextWeight, done: true }
+        : { logId: log.id, actualReps: nextReps, actualWeightKg: nextWeight },
+    );
     setActualOpen(false);
+    if (pending) {
+      // The gesture that marked the set done: its rest, and its rating.
+      startRest();
+      setRpeOpen(true);
+    }
+  }
+
+  // A rating given on a pending set is the set done, in the same write (P27).
+  // Taking a rating back (null) is never a reason to date the set.
+  function handleRpe(rpe) {
+    if (rpe != null && pending) {
+      setRpe.mutate({ logId: log.id, rpe, done: true });
+      startRest();
+    } else {
+      setRpe.mutate({ logId: log.id, rpe });
+    }
+    if (rpe != null) setRpeOpen(false);
   }
 
   function handleClearActual() {
@@ -422,14 +447,7 @@ const SetRow = memo(function SetRow({ log, locked = false, recordVideo = false, 
 
         {rpeOpen && !failed && (
           <div className="pt-2">
-            <RpeInput
-              value={log.rpe}
-              disabled={locked}
-              onChange={(rpe) => {
-                setRpe.mutate({ logId: log.id, rpe });
-                if (rpe != null) setRpeOpen(false);
-              }}
-            />
+            <RpeInput value={log.rpe} disabled={locked} onChange={handleRpe} />
           </div>
         )}
 

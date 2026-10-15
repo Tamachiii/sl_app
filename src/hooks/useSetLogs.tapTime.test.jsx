@@ -102,7 +102,13 @@ describe('a set-log write carries the moment of its gesture', () => {
     ['useToggleSetDone', useToggleSetDone, { logId: 'l-1', done: true }],
     ['useSetFailed', useSetFailed, { logId: 'l-1', failed: true }],
     ['useSetRpe', useSetRpe, { logId: 'l-1', rpe: 8 }],
+    ['useSetRpe, marking the set done', useSetRpe, { logId: 'l-1', rpe: 8, done: true }],
     ['useLogActual', useLogActual, { logId: 'l-1', actualReps: 6, actualWeightKg: 90 }],
+    [
+      'useLogActual, marking the set done',
+      useLogActual,
+      { logId: 'l-1', actualReps: 6, actualWeightKg: 90, done: true },
+    ],
     ['useSetSkipped', useSetSkipped, { logId: 'l-1', skipped: true }],
   ])('%s puts `at` into the variables of the mutation', async (_name, useHook, variables) => {
     answerUpdates();
@@ -247,6 +253,50 @@ describe('the row on screen is dated by the same moment', () => {
     await waitFor(() => expect(row(qc).failed).toBe(true));
     expect(patchForFailed).toHaveBeenCalledWith(true, TAP);
     expect(row(qc).failed_at).toBe(TAP);
+  });
+
+  // P27 — an RPE or an Actual given on a pending set marks it done in the same
+  // write: dated by the same moment as a tick, on screen and in the request.
+  it.each([
+    ['an RPE', useSetRpe, { logId: 'l-1', rpe: 8, done: true }, { rpe: 8 }],
+    [
+      'an Actual',
+      useLogActual,
+      { logId: 'l-1', actualReps: 6, actualWeightKg: 90, done: true },
+      { actual_reps: 6, actual_weight_kg: 90 },
+    ],
+  ])('%s that marks a pending set done dates it at the tap, at once and two days later', async (_what, useHook, variables, value) => {
+    const sent = answerUpdates();
+    const qc = makeClient();
+    seed(qc);
+    onlineManager.setOnline(false);
+    const { result } = renderHook(() => useHook('l-1'), { wrapper: withClient(qc) });
+
+    act(() => result.current.mutate(variables));
+
+    await waitFor(() => expect(row(qc).done).toBe(true));
+    expect(row(qc)).toMatchObject({ ...value, done: true, failed: false, logged_at: TAP, failed_at: null });
+
+    vi.setSystemTime(new Date(new Date(TAP).getTime() + TWO_DAYS));
+    onlineManager.setOnline(true);
+    await act(() => qc.resumePausedMutations());
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(sent).toHaveLength(1);
+    expect(sent[0].patch).toEqual({ ...value, done: true, failed: false, logged_at: TAP, failed_at: null });
+  });
+
+  it('an RPE without the mark dates nothing', async () => {
+    const sent = answerUpdates();
+    const qc = makeClient();
+    seed(qc);
+    const { result } = renderHook(() => useSetRpe('l-1'), { wrapper: withClient(qc) });
+
+    act(() => result.current.mutate({ logId: 'l-1', rpe: 8 }));
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(sent[0].patch).toEqual({ rpe: 8 });
+    expect(row(qc)).toMatchObject({ done: false, logged_at: null, rpe: 8 });
   });
 
   it('taking a mark back needs no moment, and still carries the one of its own gesture', async () => {

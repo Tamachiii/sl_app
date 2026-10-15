@@ -213,8 +213,10 @@ describe('SetRow', () => {
 
     it('closes once a value is selected', async () => {
       const user = userEvent.setup();
-      renderSetRow();
+      const { rerender } = render(<SetRow log={baseLog} />);
       await user.click(screen.getByRole('button', { name: /mark set done/i }));
+      // The tick on screen, as the optimistic cache shows it before the rating.
+      rerender(<SetRow log={{ ...baseLog, done: true }} />);
 
       await user.click(screen.getByRole('button', { name: /^RPE 7$/i }));
 
@@ -371,7 +373,7 @@ describe('SetRow', () => {
 
     it('stores only the dimension that differs; a value equal to target is nulled', async () => {
       const user = userEvent.setup();
-      renderSetRow(repLog);
+      renderSetRow({ ...repLog, done: true });
       await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
       // Drop reps to 8, leave weight at the prescribed 80.
       const reps = screen.getByLabelText(/actual reps performed/i);
@@ -387,7 +389,7 @@ describe('SetRow', () => {
 
     it('stores an added load against a bodyweight prescription', async () => {
       const user = userEvent.setup();
-      renderSetRow({ ...baseLog, target_reps: 12, target_weight_kg: null });
+      renderSetRow({ ...baseLog, done: true, target_reps: 12, target_weight_kg: null });
       await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
       const weight = screen.getByLabelText(/actual weight in kilograms/i);
       await user.type(weight, '20');
@@ -433,6 +435,154 @@ describe('SetRow', () => {
     it('offers no actual affordance on a locked set with nothing logged', () => {
       renderSetRow(repLog, { locked: true });
       expect(screen.queryByRole('button', { name: /log what you actually did/i })).not.toBeInTheDocument();
+    });
+  });
+
+  // P27. A set rated or given its actual values without being ticked stayed
+  // pending: the session was confirmed with no set done, and Stats, the
+  // records, "Last time" and the coach all saw it as not done. On a pending set
+  // the rating and the Save of the Actual editor ARE the set done: one write
+  // with the value and `done: true`, which the hook dates at the tap.
+  describe('an RPE or an Actual given on a pending set marks it done, in the same write', () => {
+    const log = { ...baseLog, target_reps: 10, target_weight_kg: 80, target_rest_seconds: 90 };
+
+    it('an RPE on a pending set is one write: the rating and the set done', async () => {
+      const user = userEvent.setup();
+      renderSetRow(log);
+
+      await user.click(screen.getByRole('button', { name: /^set rpe$/i }));
+      await user.click(screen.getByRole('button', { name: /^RPE 8$/i }));
+
+      expect(mockSetRpe.mutate).toHaveBeenCalledTimes(1);
+      expect(mockSetRpe.mutate).toHaveBeenCalledWith({ logId: 'log-1', rpe: 8, done: true });
+      expect(mockToggleDone.mutate).not.toHaveBeenCalled();
+      expect(rpeGrid()).not.toBeInTheDocument();
+    });
+
+    it('it is the gesture that marks the set done: the rest of the set starts, once', async () => {
+      const user = userEvent.setup();
+      const { rerender } = render(<SetRow log={log} />);
+
+      await user.click(screen.getByRole('button', { name: /^set rpe$/i }));
+      await user.click(screen.getByRole('button', { name: /^RPE 8$/i }));
+      rerender(<SetRow log={{ ...log, done: true, rpe: 8 }} />);
+      rerender(<SetRow log={log} />);
+      rerender(<SetRow log={{ ...log, done: true, rpe: 8 }} />);
+
+      expect(startRestTimer).toHaveBeenCalledTimes(1);
+      expect(startRestTimer).toHaveBeenCalledWith('log-1', 90);
+    });
+
+    it('an RPE changed on a done set is the rating alone: the set is not dated again', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...log, done: true, rpe: 7 });
+
+      await user.click(screen.getByRole('button', { name: /RPE 7, tap to change/i }));
+      await user.click(screen.getByRole('button', { name: /^RPE 9$/i }));
+
+      expect(mockSetRpe.mutate).toHaveBeenCalledWith({ logId: 'log-1', rpe: 9 });
+      expect(startRestTimer).not.toHaveBeenCalled();
+    });
+
+    it('a rating taken back marks nothing done', async () => {
+      const user = userEvent.setup();
+      // A rating left on a set that was never ticked, by a build before this rule.
+      renderSetRow({ ...log, rpe: 6 });
+
+      await user.click(screen.getByRole('button', { name: /RPE 6, tap to change/i }));
+      await user.click(screen.getByRole('button', { name: /^RPE 6$/i }));
+
+      expect(mockSetRpe.mutate).toHaveBeenCalledWith({ logId: 'log-1', rpe: null });
+      expect(startRestTimer).not.toHaveBeenCalled();
+    });
+
+    it('an Actual saved on a pending set is one write: the values and the set done', async () => {
+      const user = userEvent.setup();
+      renderSetRow(log);
+
+      await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
+      const reps = screen.getByLabelText(/actual reps performed/i);
+      await user.clear(reps);
+      await user.type(reps, '8');
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+      expect(mockLogActual.mutate).toHaveBeenCalledTimes(1);
+      expect(mockLogActual.mutate).toHaveBeenCalledWith({
+        logId: 'log-1',
+        actualReps: 8,
+        actualWeightKg: null,
+        done: true,
+      });
+      expect(mockToggleDone.mutate).not.toHaveBeenCalled();
+      // The gesture that marked it done: its rest, and the selector for its rating.
+      expect(startRestTimer).toHaveBeenCalledTimes(1);
+      expect(startRestTimer).toHaveBeenCalledWith('log-1', 90);
+      expect(rpeGrid()).toBeInTheDocument();
+    });
+
+    it('"did it as written" on a pending set (open, Save) is the set done', async () => {
+      const user = userEvent.setup();
+      renderSetRow(log);
+
+      await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+      expect(mockLogActual.mutate).toHaveBeenCalledWith({
+        logId: 'log-1',
+        actualReps: null,
+        actualWeightKg: null,
+        done: true,
+      });
+    });
+
+    it('an Actual saved on a done set is the values alone', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...log, done: true });
+
+      await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+      expect(mockLogActual.mutate).toHaveBeenCalledWith({
+        logId: 'log-1',
+        actualReps: null,
+        actualWeightKg: null,
+      });
+      expect(startRestTimer).not.toHaveBeenCalled();
+      expect(rpeGrid()).not.toBeInTheDocument();
+    });
+
+    it('an Actual saved on a failed set leaves it failed', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...log, failed: true });
+
+      await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
+      const weight = screen.getByLabelText(/actual weight in kilograms/i);
+      await user.clear(weight);
+      await user.type(weight, '75');
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+      expect(mockLogActual.mutate).toHaveBeenCalledWith({
+        logId: 'log-1',
+        actualReps: null,
+        actualWeightKg: 75,
+      });
+      expect(mockToggleDone.mutate).not.toHaveBeenCalled();
+      expect(startRestTimer).not.toHaveBeenCalled();
+    });
+
+    it('clearing the Actual of a pending set marks nothing done', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...log, actual_reps: 8 });
+
+      await user.click(screen.getByRole('button', { name: /logged actual/i }));
+      await user.click(screen.getByRole('button', { name: /^clear$/i }));
+
+      expect(mockLogActual.mutate).toHaveBeenCalledWith({
+        logId: 'log-1',
+        actualReps: null,
+        actualWeightKg: null,
+      });
+      expect(startRestTimer).not.toHaveBeenCalled();
     });
   });
 

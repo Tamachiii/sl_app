@@ -145,4 +145,41 @@ describe('a workout logged offline and replayed', () => {
     expect(clearRestTimer).not.toHaveBeenCalled();
     expect(rpeGrids()).toHaveLength(1);
   });
+
+  // P27 — rating a set that was not ticked is the set done: one write, not a
+  // tick and a rating, and the database gets the set done, rated and dated at
+  // the tap.
+  it('a set rated without being ticked is one queued write, which lands done, rated and dated', async () => {
+    const user = userEvent.setup();
+    const api = fakeSetLogs([pendingRow('a', 1)]);
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
+    });
+    qc.setQueryData(KEY, await api.rows());
+    render(
+      <QueryClientProvider client={qc}>
+        <Sets read={api.rows} />
+      </QueryClientProvider>,
+    );
+
+    onlineManager.setOnline(false);
+    await user.click(screen.getByRole('button', { name: /^set rpe$/i }));
+    await user.click(screen.getByRole('button', { name: /^RPE 8$/i }));
+
+    // Done on screen at once, and one write waiting.
+    await waitFor(() => expect(screen.getByRole('button', { name: /mark set failed/i })).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /RPE 8, tap to change/i })).toBeInTheDocument();
+    expect(qc.isMutating()).toBe(1);
+    expect(startRestTimer.mock.calls).toEqual([['a', 120]]);
+    const tappedAt = qc.getMutationCache().getAll()[0].state.variables.at;
+    expect(tappedAt).toEqual(expect.any(String));
+
+    onlineManager.setOnline(true);
+    await act(() => qc.resumePausedMutations());
+    await waitFor(() => expect(qc.isMutating()).toBe(0));
+
+    expect(api.requests).toHaveLength(1);
+    expect(api.server.get('a')).toMatchObject({ done: true, failed: false, rpe: 8, logged_at: tappedAt });
+    expect(startRestTimer).toHaveBeenCalledTimes(1);
+  });
 });

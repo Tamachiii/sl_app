@@ -5,8 +5,10 @@ import { useOnlineStatus } from './useOnlineStatus';
 import {
   MUTATION_KEYS,
   MUTATION_FNS,
+  patchForActual,
   patchForDone,
   patchForFailed,
+  patchForRpe,
   patchForSkipped,
 } from '../lib/offlineMutations';
 
@@ -342,15 +344,14 @@ export function useSetFailed(logId) {
 // UPDATE of a pre-existing row, shown at once on that row and taken back from
 // it on error. Callers pass already-normalized values (a dimension equal
 // to its prescribed target is sent as null) so a stored actual_* always means
-// a genuine deviation.
+// a genuine deviation. `done: true` marks a pending set done in the same
+// write, dated at the tap (P27, `patchForActual`).
 export function useLogActual(logId) {
   return useOptimisticSetLogMutation(logId, {
     mutationKey: MUTATION_KEYS.logActual,
     mutationFn: MUTATION_FNS.logActual,
-    buildPatch: ({ actualReps, actualWeightKg }) => ({
-      actual_reps: actualReps ?? null,
-      actual_weight_kg: actualWeightKg ?? null,
-    }),
+    buildPatch: ({ actualReps, actualWeightKg, done, at }) =>
+      patchForActual(actualReps, actualWeightKg, { done, at }),
   });
 }
 
@@ -411,11 +412,14 @@ export function useRemoveStudentSet() {
   });
 }
 
+// The athlete's rating of a set. `done: true` marks a pending set done in the
+// same write, dated at the tap (P27, `patchForRpe`); without it only `rpe` is
+// written.
 export function useSetRpe(logId) {
   return useOptimisticSetLogMutation(logId, {
     mutationKey: MUTATION_KEYS.setRpe,
     mutationFn: MUTATION_FNS.setRpe,
-    buildPatch: ({ rpe }) => ({ rpe }),
+    buildPatch: ({ rpe, done, at }) => patchForRpe(rpe, { done, at }),
   });
 }
 
