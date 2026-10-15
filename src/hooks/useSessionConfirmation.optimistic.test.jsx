@@ -582,12 +582,10 @@ describe('the hooks read nothing by themselves', () => {
 });
 
 // The same confirmation on the client the app builds. It needs the `onSettled`
-// default of the confirmation keys, which `core-mutation-contracts` (lane
-// offline-core, same wave) adds to lib/offlineMutations.js: until both lanes
-// are in one tree it is an `it.fails`, and the run turns red on it ("expected
-// to fail") the day they are — delete `.fails` then.
+// default of the confirmation keys, which `registerOfflineMutationDefaults`
+// gives them (lib/offlineMutations.js).
 describe("on the app's client, what a confirmation changes is read again once it has settled", () => {
-  it.fails('the list of confirmed sessions and the confirmation are asked of the database', async () => {
+  it('the list of confirmed sessions and the confirmation are asked of the database', async () => {
     const api = fakeConfirmations();
     const qc = makeClient();
     registerOfflineMutationDefaults(qc);

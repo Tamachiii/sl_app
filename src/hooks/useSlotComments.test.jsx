@@ -436,12 +436,10 @@ describe('useSaveSlotComment — the note on screen', () => {
   });
 
   // The same save on the client the app builds. It needs the `onSettled`
-  // default of the note's key, which `core-mutation-contracts` (lane
-  // offline-core, same wave) adds to lib/offlineMutations.js: until both lanes
-  // are in one tree it is an `it.fails`, and the run turns red on it
-  // ("expected to fail") the day they are — delete `.fails` then.
+  // default of the note's key, which `registerOfflineMutationDefaults` gives
+  // it (lib/offlineMutations.js).
   describe("on the app's client, the notes are read again once the save has settled", () => {
-    it.fails('one read follows it, and brings the row of the database', async () => {
+    it('one read follows it, and brings the row of the database', async () => {
       const api = fakeNotes([OTHER]);
       const qc = trustedClient();
       registerOfflineMutationDefaults(qc);

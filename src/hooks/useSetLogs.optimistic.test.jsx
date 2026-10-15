@@ -429,12 +429,9 @@ describe('the hooks read nothing by themselves', () => {
   });
 });
 
-// The same two sets on the client the app builds. The first test holds in any
-// tree. The second needs the `onSettled` default of the set-log keys, which
-// `core-mutation-contracts` (lane offline-core, same wave) adds to
-// lib/offlineMutations.js: until both lanes are in one tree it is an
-// `it.fails`, and the run turns red on it ("expected to fail") the day they
-// are — delete `.fails` then.
+// The same two sets on the client the app builds. The second test needs the
+// `onSettled` default of the set-log keys, which
+// `registerOfflineMutationDefaults` gives them (lib/offlineMutations.js).
 describe("on the app's client, the sets are read again once, after the last write", () => {
   function mountOnAppClient(api) {
     const qc = makeClient();
@@ -457,7 +454,7 @@ describe("on the app's client, the sets are read again once, after the last writ
     expect(shown(qc, 'b').done).toBe(true);
   });
 
-  it.fails('one read follows the last of them, and it has both', async () => {
+  it('one read follows the last of them, and it has both', async () => {
     const api = fakeSetLogs();
     const { result } = mountOnAppClient(api);
 

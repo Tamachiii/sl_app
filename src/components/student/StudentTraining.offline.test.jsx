@@ -37,7 +37,7 @@ import {
   studentProgramDetailsKey,
   studentPastProgramKey,
 } from '../../hooks/useStudentProgramDetails';
-import { queryClient as appClient, shouldPersistQuery } from '../../lib/queryClient';
+import { queryClient as appClient, shouldPersistQuery, PERSIST_MAX_AGE_MS } from '../../lib/queryClient';
 import { supabase } from '../../lib/supabase';
 import { fakePostgrest } from '../../test/fakePostgrest';
 
@@ -497,21 +497,16 @@ describe('on a network', () => {
 // The `gcTime` is not this page's to give — `sessionQueryOptions` and
 // `setLogsQueryOptions` carry none on purpose, it is set per root in
 // lib/queryClient.js. So the test below asks the app's client, after the
-// page's own read-ahead, and is an `it.fails` for as long as that client keeps
-// the default: an expected failure is reported as a pass. The day the client
-// keeps its stored roots for as long as the device stores them, the run turns
-// red ("expected to fail") until `.fails` is deleted here — so the marker
-// cannot outlive the hole, and from then on the test holds the two together.
+// page's own read-ahead, whether it keeps its stored roots for as long as the
+// device stores them — it holds the two together.
 describe('on the client of the app', () => {
-  // How long the device keeps what it stores: the `maxAge` the cache is
-  // persisted with.
-  const STORED_FOR_MS = 14 * 24 * 60 * 60 * 1000;
-
+  // How long the device keeps what it stores is `PERSIST_MAX_AGE_MS`: the
+  // `maxAge` the cache is persisted with.
   afterEach(() => {
     appClient.clear();
   });
 
-  it.fails('the session read ahead stays in memory for as long as the device stores it', async () => {
+  it('the session read ahead stays in memory for as long as the device stores it', async () => {
     const view = renderTraining(appClient);
     await screen.findByText('Pull A');
     const READ_AHEAD = [
@@ -530,7 +525,7 @@ describe('on the client of the app', () => {
         appClient.getQueryCache().find({ queryKey }).gcTime,
       ]),
     );
-    expect(kept.session).toBeGreaterThanOrEqual(STORED_FOR_MS);
-    expect(kept['set-logs']).toBeGreaterThanOrEqual(STORED_FOR_MS);
+    expect(kept.session).toBeGreaterThanOrEqual(PERSIST_MAX_AGE_MS);
+    expect(kept['set-logs']).toBeGreaterThanOrEqual(PERSIST_MAX_AGE_MS);
   });
 });

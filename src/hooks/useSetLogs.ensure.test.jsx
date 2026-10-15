@@ -354,13 +354,11 @@ describe('useEnsureSetLogs: what its answer reads again', () => {
 // The other half of the case above, and it is not in this file's hands: the
 // read that follows the last set-log write is the default
 // `registerOfflineMutationDefaults` gives the set-log keys
-// (lib/offlineMutations.js, lane offline-core, same wave as this hook). Until
-// that default is in the tree nothing reads the sets after the tick, and the
-// rows the database added wait for the next opening of the page — which is
-// what `it.fails` says. With both in the tree this test passes and the run
-// turns red on it ("Expect test to fail"): delete `.fails`, nothing else.
+// (lib/offlineMutations.js). Without that default nothing would read the sets
+// after the tick, and the rows the database added would wait for the next
+// opening of the page.
 describe('useEnsureSetLogs: on the client of the app', () => {
-  it.fails('the rows added while a tick was on its way are read once the tick has landed', async () => {
+  it('the rows added while a tick was on its way are read once the tick has landed', async () => {
     supabase.rpc.mockResolvedValue({ data: 1, error: null });
     // A tick whose request stays open until the test lets it land.
     let land;
