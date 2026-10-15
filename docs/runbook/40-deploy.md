@@ -12,7 +12,7 @@ Until October 2026 that was a rule on a page. The deploy now checks it, and stop
 |---|---|---|
 | `test` | lint, the unit tests, the database tests, the audit of what ships | the code is not fit to publish |
 | `migrations` | reads the ledger of production and compares it with `supabase/migrations/manifest.json` | **production does not have what this app needs — or nobody could tell** |
-| `deploy` | builds with the real keys and publishes to GitHub Pages | the build or the upload failed |
+| `deploy` | builds with the real keys, adds the build to what is published — the files of the two builds before it stay — and publishes to GitHub Pages | the build, the preparation of the published tree or the upload failed: section 8 |
 
 Each one waits for the one before it. Nothing is published unless the first two are green.
 
@@ -112,8 +112,52 @@ Delete the variable the day the secret is set. A run that checked and still foun
 node --env-file=.env scripts/check-migrations.mjs --verify
 ```
 
+It also replaces everything that is published with the build of your machine. The files of the builds before it are gone, and so are the records the deploy keeps of them (section 8). An app that was open since before then reloads by itself the next time it opens a screen it had not opened yet, or shows "A new version of the app is available" with a "Reload"; nothing is lost. The next deploy from `main` takes what it finds as one old build and keeps it like any other.
+
 ## 7. Putting an older app back
 
 `git revert` on `main`, or *Re-run all jobs* on the run of an older commit, publishes the app of that commit again (BACKUPS.md, *Rollback of the app*). When that commit carries this gate, the check runs then too, with the manifest of the commit being published. An older commit needs fewer migrations than production has: the check notes the others (`the ledger also lists …`) and does not stop for them — every migration is written to be safe under the app that was live before it.
 
+The app that is put back is a new build: it gets a new id (the time of its build) and goes on top of the builds that are published, like any deploy. `MIN_CLIENT_BUILD` (section 8) does not stand in its way — a minimum is a time, and this build is made now.
+
 One limit the check does not know: the `contract` migrations of Checkpoint Z remove what old apps still use. After Checkpoint Z, an app from before the last wave cannot be put back.
+
+One thing the devices do after it: an app from before the update flow (before wave 2) takes over on every device by itself, as it always did — but the deploy that follows it does not. Its service worker waits to be asked by the page, and the pages of the older app cannot ask. On a device that had already run a wave-2 app, that next deploy arrives when the app is closed and opened again (on a phone: swiped away, or after the system has put it to sleep), not on a reload. Nothing is lost meanwhile; the device simply stays on the older app until then.
+
+## 8. What a deploy keeps, and making old apps update
+
+**What it keeps.** An app that is open on a phone or in a tab keeps running the build it was opened with, and fetches each screen the first time that screen is opened. So a deploy does not replace what is published: it adds its build to it. The files of the last three builds stay on the `gh-pages` branch, this one included; the builds older than that are deleted with the files only they had. The branch has a folder `builds/` with one small file per build that is kept — the list of its files. You never edit it.
+
+So an app that was left open through one deploy or two still finds every screen of its own build. One that was left open through three or more may ask for a screen it had not opened yet and no longer find it: it then reloads by itself — once, and only when nothing is being written or typed — or shows "A new version of the app is available" with a "Reload". Nothing is lost either way.
+
+**The first deploy with this in it** finds a branch without `builds/`. It takes everything under `assets/` as one old build and keeps it: the log of the step says `adopted    the … files that were published without a record`. The same happens on the deploy after an emergency publish (section 6).
+
+**When the `deploy` job is red.** Nothing was published: the app that was live is still live. Open the job and look at which step is red.
+
+| Step | The message | Do |
+|---|---|---|
+| `npm run build` | `MIN_CLIENT_BUILD (…) is later than this build (…)` | the variable holds a time that has not come yet. Correct it (below) and re-run |
+| `npm run build` | `MIN_CLIENT_BUILD must be the id of a build: its UTC time, 14 digits` | the value is something else: a word, a date with dashes, a digit too many. Correct it and re-run |
+| `What is published now` | `The published branch could not be read` | GitHub did not answer. Re-run |
+| `This build joins the builds that are published` | `STOPPED: the published site/builds/… cannot be read`, `… names …, which …`, `… says it is the build …`, `… is not the record of a build` | somebody changed the `gh-pages` branch by hand. On GitHub, open the branch `gh-pages`, the folder `builds`, then ⋯ → *Delete directory*, and commit. Re-run: the deploy takes what is published as one old build and starts its records again |
+| `This build joins the builds that are published` | `STOPPED: … is a link, not a file`, `… is not a folder` | the same cause, and not something to repair blind. Stop and report the message |
+| `This build joins the builds that are published` | `STOPPED: dist/version.json is missing`, `… are not of the same build` | a fault of the repository, not of what is published. Stop and report the message |
+
+**Re-run** is section 4's: Actions → the red run → *Re-run failed jobs*.
+
+A note or a warning on a green run — `Published files without a record`, `A kept build has lost files`, `Build ids out of order` — stops nothing. It means the branch was changed by something other than this deploy; mention it the next time you report.
+
+**Making old apps update: `MIN_CLIENT_BUILD`.** Normally an open app is offered a new version and takes it when nothing is in progress, or when the person says so. That is enough almost always. It is not enough before a change to the database that an older app cannot live with — the `contract` migrations of Checkpoint Z are the case: the apps that are still open must be gone first.
+
+A repository **variable**, not a secret: Settings → Secrets and variables → Actions → *Variables* → name `MIN_CLIENT_BUILD`. Its value is the oldest build that may go on running, written as the UTC time of a build, 14 digits: `YYYYMMDDHHmmss`.
+
+1. Publish the app the others must reach, as usual.
+2. Read its id: open the published `version.json` in a browser (the address of the app, followed by `version.json`). It shows `{"build":"20261020101500","minBuild":null}`. The value of `build` is the id. GitHub Pages can show the file of the deploy before for some ten minutes: the id is the right one when it is the time of the deploy you just made, in UTC.
+3. Set the variable to that id.
+4. Actions → the last run of *Deploy to GitHub Pages* → *Re-run all jobs*. The same commit is published again, as a new build, and its `version.json` now carries the minimum. Open it again, ten minutes later: `minBuild` is the id of step 2. If it is still `null`, the run did not see the variable: check its name, and that it is a variable and not a secret, then push the next commit instead — every deploy writes the file.
+
+From then on an app that is open and older than that id fetches the new version at its next return to the foreground (or within the hour), and applies it as soon as nothing is being written, typed or timed — within seconds of the end of a rest, without waiting for the next page. An app that is closed takes the new version when it is opened, as always. Give the open apps a day before the change they must not see.
+
+What it does not do: it does not close an app, and it does not reach a phone that is switched off or without a network. It reloads nothing over a set that is being saved or a message that is being typed.
+
+The variable can stay: it only ever speaks to apps older than its value. To take it back, delete it; the next deploy writes `"minBuild":null`.

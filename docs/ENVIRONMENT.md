@@ -130,7 +130,7 @@ The functions' secrets (`supabase secrets set`, read as environment variables):
 
 | Name | Read by | What it is |
 |---|---|---|
-| `INTERNAL_BEARER` | `send-push` | the secret the database presents; a random string (`openssl rand -hex 32`), not the service-role key |
+| `INTERNAL_BEARER` | `send-push`, `dispatch-rest-push` | the secret the database presents to `send-push`, and the one `dispatch-rest-push` shows itself from one minute of a rest to the next (header `x-internal-bearer`); a random string (`openssl rand -hex 32`), not the service-role key |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | `send-push`, `dispatch-rest-push` | the pair that signs every push; the public half is also `VITE_VAPID_PUBLIC_KEY` at build time |
 | `VAPID_SUBJECT` | `send-push`, `dispatch-rest-push` | a `mailto:` address |
 
@@ -141,9 +141,10 @@ The database's vault (read by the notification triggers):
 | Name | What it is |
 |---|---|
 | `app_functions_url` | `https://<project ref>.supabase.co/functions/v1` |
-| `app_service_role_key` | the same value as `INTERNAL_BEARER` (the name is historical) |
+| `app_service_role_key` | the same value as `INTERNAL_BEARER` (the name is historical: it is not the service-role key) |
+| `app_internal_bearer` | the same secret under its own name, once the owner has renamed it — optional, `docs/runbook/migrations/15-push-plumbing.md` |
 
-`INTERNAL_BEARER` and `app_service_role_key` are rotated together (runbook page, section 4). The VAPID pair is not rotated: every device's subscription is tied to the public key.
+Since migration 15 one function reads them, `public.send_push_event`: the bearer under `app_internal_bearer`, and under `app_service_role_key` while the vault has nothing of that name. The vault holds one of the two names, not both; with both, `app_internal_bearer` is the one that is sent. `INTERNAL_BEARER` and the vault's copy are rotated together (runbook page, section 4). The VAPID pair is not rotated: every device's subscription is tied to the public key.
 
 Which function runs behind the gateway's JWT check is not a secret and not a dashboard setting: it is `supabase/config.toml`.
 
@@ -158,8 +159,9 @@ Repository settings → Secrets and variables → Actions. A secret cannot be re
 | `SUPABASE_DB_URL` | secret | the `migrations` job of `deploy.yml`, and `backup.yml` | the session-pooler connection string of the project, with the database password — the `postgres` role. `BACKUPS.md`, section *The nightly run on GitHub* |
 | `BACKUP_PASSPHRASE` | secret | `backup.yml` | the passphrase a backup is encrypted with |
 | `ALLOW_DEPLOY_WITHOUT_LEDGER_CHECK` | variable | the `migrations` job of `deploy.yml` | normally absent. `true` lets a deploy go out unchecked while `SUPABASE_DB_URL` is not set: [runbook/40-deploy.md](runbook/40-deploy.md), section 5 |
+| `MIN_CLIENT_BUILD` | variable | the build of `deploy.yml` | normally absent. The oldest build still allowed to run, as a build id — the UTC time of the build, 14 digits (`YYYYMMDDHHmmss`). It is written into `version.json`, and an open app older than it updates as soon as nothing would be lost instead of offering the update. A value that is not 14 digits, or later than the build itself, fails the build and nothing is published: [runbook/40-deploy.md](runbook/40-deploy.md), section 8 |
 
-Without `SUPABASE_DB_URL` a push to `main` publishes nothing: the deploy stops at `migrations`.
+Without `SUPABASE_DB_URL` a push to `main` publishes nothing: the deploy stops at `migrations`. `SUPABASE_DB_URL` and `BACKUP_PASSPHRASE` are set since 2026-10-13, the day of the first publication of the review.
 
 ## Migration from Windows-side Claude
 

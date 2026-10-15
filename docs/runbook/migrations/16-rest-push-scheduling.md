@@ -35,7 +35,7 @@ This migration is the database's half of the repair. **By itself it changes noth
 | The database has | Deployed | Who sends | A rest of 3 minutes |
 |---|---|---|---|
 | migration 16 | the Edge Functions of today | `dispatch-rest-push`, as before | does not ring |
-| migration 16 | the Edge Functions of wave 2 | `dispatch-rest-push`, in hops of two minutes | rings |
+| migration 16 | the Edge Functions of wave 2 | `dispatch-rest-push`, in hops of a minute | rings |
 | migrations 16 and 19 (pg_cron) | the Edge Functions of wave 2 | the job, through `send-push` | rings |
 
 The order is the order of the lines: **this migration, then the two Edge Functions of wave 2, then — if you choose pg_cron — migration 19.** Never migration 19 before the `send-push` of wave 2 is deployed: the `send-push` of today does not know what the job hands it, and would ring every device of the athlete at once, ten seconds early.
