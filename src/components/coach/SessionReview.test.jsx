@@ -96,6 +96,7 @@ vi.mock('../../hooks/useMessages', () => ({
 }));
 
 import SessionReview from './SessionReview';
+import { I18nProvider } from '../../hooks/useI18n';
 
 // `entry` is the history entry the review is opened from: a path, or
 // `{ pathname, state }` when the opener said where to come back to.
@@ -219,6 +220,28 @@ describe('<SessionReview />', () => {
 
       expect(localStorage.getItem(KEY)).toBe(other);
     });
+  });
+
+  // Review item L15: the back button was 36px, and named in English only.
+  it('has a back button a thumb can hit, named in the app language', () => {
+    mockSessionData = {
+      data: { id: 'sess-1', title: 'Push', archived_at: null, exercise_slots: [] },
+      isLoading: false,
+    };
+    renderReview();
+    const back = screen.getByRole('button', { name: 'Back' });
+    expect(back).toHaveClass('w-11', 'h-11');
+    expect(back).not.toHaveClass('w-9');
+  });
+
+  it('names its back button in French for a French coach', () => {
+    localStorage.setItem('sl_app_lang', 'fr');
+    mockSessionData = {
+      data: { id: 'sess-1', title: 'Push', archived_at: null, exercise_slots: [] },
+      isLoading: false,
+    };
+    render(<I18nProvider>{reviewTree()}</I18nProvider>);
+    expect(screen.getByRole('button', { name: 'Retour' })).toBeInTheDocument();
   });
 
   it('says the session is not confirmed when no confirmation exists', () => {

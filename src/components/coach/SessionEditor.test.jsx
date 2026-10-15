@@ -426,6 +426,15 @@ describe('SessionEditor', () => {
     });
   });
 
+  // Review item L15: the back button was 36px.
+  it('has a back button a thumb can hit: 44px', () => {
+    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
+    renderEditor();
+    const back = screen.getByRole('button', { name: 'Back' });
+    expect(back).toHaveClass('w-11', 'h-11');
+    expect(back).not.toHaveClass('w-9');
+  });
+
   it('renders session title', () => {
     mockSessionData = {
       data: { title: 'Push Day', exercise_slots: [] },

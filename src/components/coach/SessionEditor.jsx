@@ -244,7 +244,8 @@ function SessionEditorPage() {
         <button
           onClick={leaveEditor}
           aria-label={t('common.back')}
-          className="w-9 h-9 rounded-lg bg-ink-100 flex items-center justify-center text-ink-700 hover:bg-ink-200 shrink-0"
+          // 44px, the smallest thing a thumb hits (review item L15).
+          className="w-11 h-11 rounded-lg bg-ink-100 flex items-center justify-center text-ink-700 hover:bg-ink-200 shrink-0"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
