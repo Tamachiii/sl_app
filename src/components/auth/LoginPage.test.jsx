@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 
 const mockSignIn = vi.fn();
 let mockAuth = { user: null, role: null, signIn: mockSignIn };
@@ -123,6 +123,58 @@ describe('LoginPage', () => {
       expect(darkText()).toEqual([]);
       await revealForm(user);
       expect(darkText()).toEqual([]);
+    });
+  });
+  // Review item L11: signing in always went to the role's home, so a link
+  // opened without a session — a notification, a bookmark — was lost on the
+  // way through this page.
+  describe('once signed in', () => {
+    function Where() {
+      const { pathname, search } = useLocation();
+      return <output data-testid="where">{pathname + search}</output>;
+    }
+
+    function signedInAt(state) {
+      render(
+        <MemoryRouter initialEntries={[{ pathname: '/login', state }]}>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="*" element={<Where />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+      return screen.getByTestId('where').textContent;
+    }
+
+    beforeEach(() => {
+      mockAuth = { user: { id: 'u-1' }, role: 'coach', signIn: mockSignIn };
+    });
+
+    it('returns to the page that sent here when it is a page of the role', () => {
+      expect(signedInAt({ from: '/coach/students/a1/s/s1' })).toBe('/coach/students/a1/s/s1');
+    });
+
+    it('keeps the query of that page', () => {
+      expect(signedInAt({ from: '/coach/students/a1?program=p2' })).toBe('/coach/students/a1?program=p2');
+    });
+
+    it('goes to the role home without a page to return to', () => {
+      expect(signedInAt(undefined)).toBe('/coach');
+    });
+
+    it.each([
+      ["another role's page", '/student/session/s1'],
+      ['a protocol-relative URL', '//evil.example/coach/students'],
+      ['an absolute URL', 'https://evil.example/coach/students'],
+      ['a value that is not a string', { pathname: '/coach/students/a1' }],
+      ['the root', '/'],
+    ])('goes to the role home for %s', (_label, from) => {
+      expect(signedInAt({ from })).toBe('/coach');
+    });
+
+    it('returns a student to a page of theirs', () => {
+      mockAuth = { user: { id: 'u-2' }, role: 'student', signIn: mockSignIn };
+      expect(signedInAt({ from: '/student/session/s1' })).toBe('/student/session/s1');
     });
   });
 });

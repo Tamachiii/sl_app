@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
+import { returnPathFor } from '../../lib/returnPath';
 
 // Render both panels side-by-side on md+ (desktop split), one at a time on
 // mobile (step-based welcome → form flow). We gate on JS matchMedia rather
@@ -72,6 +73,7 @@ const inputStyle = {
 export default function LoginPage() {
   const { user, role, signIn } = useAuth();
   const { t } = useI18n();
+  const location = useLocation();
   const isDesktop = useIsDesktop();
   const [step, setStep] = useState('welcome');
   const [email, setEmail] = useState('');
@@ -79,8 +81,10 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Back to the link that sent here, when it is a page of this role; the
+  // role's home otherwise.
   if (user && role) {
-    return <Navigate to={`/${role}`} replace />;
+    return <Navigate to={returnPathFor(role, location.state?.from)} replace />;
   }
 
   async function handleSubmit(e) {

@@ -54,8 +54,8 @@ function AppRoutes() {
 }
 
 function Where() {
-  const { pathname } = useLocation();
-  return <output data-testid="where">{pathname}</output>;
+  const { pathname, state } = useLocation();
+  return <output data-testid="where" data-from={state?.from ?? ''}>{pathname}</output>;
 }
 
 // Renders the table at `from` and waits for the lazy page — and, on the
@@ -91,6 +91,18 @@ describe('route table', () => {
       ['/no/such/page'],
     ])('%s shows the login page', async (from) => {
       expect(await land(from)).toEqual({ path: '/login', page: 'LoginPage', child: null });
+    });
+
+    // Review item L11: the link asked for goes to the login page with the
+    // redirect, which returns to it once signed in (LoginPage.test.jsx).
+    it.each([
+      ['/coach/students/a1/s/s1', '/coach/students/a1/s/s1'],
+      ['/coach/students/a1?program=p2', '/coach/students/a1?program=p2'],
+      ['/student/session/s1', '/student/session/s1'],
+      ['/no/such/page', '/no/such/page'],
+    ])('%s hands the login page the link it came from', async (from, kept) => {
+      await land(from);
+      expect(screen.getByTestId('where')).toHaveAttribute('data-from', kept);
     });
   });
 

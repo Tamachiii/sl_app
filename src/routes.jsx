@@ -1,8 +1,9 @@
 import { lazy, Suspense } from 'react';
-import { Navigate, useParams } from 'react-router-dom';
+import { Navigate, useLocation, useParams } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
 import { useI18n } from './hooks/useI18n';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
+import { loginState } from './lib/returnPath';
 
 function RedirectToStudentGoals() {
   const { studentId } = useParams();
@@ -47,6 +48,13 @@ function RedirectToRoleHome() {
     );
   }
   return <Navigate to={`/${role}`} replace />;
+}
+
+// The unauthenticated catch-all: to the login page, with the link asked for,
+// which the sign-in returns to when it is a page of the role.
+function RedirectToLogin() {
+  const location = useLocation();
+  return <Navigate to="/login" replace state={loginState(location)} />;
 }
 
 import ProtectedRoute from './components/auth/ProtectedRoute';
@@ -163,6 +171,6 @@ export const routes = [
   // would do the same thing with a flicker, so handle it up front.
   {
     path: '*',
-    element: <Navigate to="/login" replace />,
+    element: <RedirectToLogin />,
   },
 ];
