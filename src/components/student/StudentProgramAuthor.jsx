@@ -3,11 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import Dialog from '../ui/Dialog';
 import DecimalInput from '../ui/DecimalInput';
 import Spinner from '../ui/Spinner';
+import TypeBadge from '../ui/TypeBadge';
 import UserMenu from '../ui/UserMenu';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
-import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
+import { isActiveExercise, useExerciseLibrary } from '../../hooks/useExerciseLibrary';
 import { useMyDraft, useDraftTree, useCreateDraft, useDraftActions } from '../../hooks/useAuthoring';
 import { decimalText, parseDecimalInput } from '../../lib/number';
 
@@ -345,9 +346,13 @@ function NumberField({ label, value, onChange, onBlur, width, rules, invalid, de
 
 function ExercisePicker({ open, onClose, library, onPick }) {
   const [query, setQuery] = useState('');
+  // An exercise the coach archived stays in the library read — the slots that
+  // already use it need its name — but is not offered for a new slot.
   const candidates = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return (library || []).filter((e) => (q ? e.name.toLowerCase().includes(q) : true));
+    return (library || [])
+      .filter(isActiveExercise)
+      .filter((e) => (q ? e.name.toLowerCase().includes(q) : true));
   }, [library, query]);
   return (
     <Dialog open={open} onClose={onClose} title="Add exercise">
@@ -367,7 +372,7 @@ function ExercisePicker({ open, onClose, library, onPick }) {
           candidates.map((ex) => (
             <button key={ex.id} type="button" onClick={() => onPick(ex)} className="w-full flex items-center gap-2 rounded-lg px-3 py-2.5 text-left hover:bg-ink-50">
               <span className="sl-display text-[15px] text-gray-900 flex-1 min-w-0 truncate">{ex.name}</span>
-              <span className={`sl-pill ${ex.type === 'pull' ? 'bg-pull/15 text-pull' : 'bg-push/15 text-push'}`}>{ex.type}</span>
+              <TypeBadge type={ex.type} className="shrink-0" />
             </button>
           ))
         )}

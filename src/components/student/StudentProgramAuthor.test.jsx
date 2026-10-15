@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -11,6 +11,7 @@ const mockActions = {
   deleteRow: vi.fn(), submit: vi.fn(), discard: vi.fn(), saving: false,
 };
 let mockOnline = true;
+let mockLibrary = [];
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
@@ -20,7 +21,11 @@ vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({ profile: { full_name: 'Sam Lee' }, signOut: vi.fn() }),
 }));
 vi.mock('../../hooks/useOnlineStatus', () => ({ useOnlineStatus: () => mockOnline }));
-vi.mock('../../hooks/useExerciseLibrary', () => ({ useExerciseLibrary: () => ({ data: [] }) }));
+// The real isActiveExercise: the picker filters with it.
+vi.mock('../../hooks/useExerciseLibrary', async () => {
+  const actual = await vi.importActual('../../hooks/useExerciseLibrary');
+  return { ...actual, useExerciseLibrary: () => ({ data: mockLibrary }) };
+});
 vi.mock('../../hooks/useAuthoring', () => ({
   useMyDraft: () => mockMyDraft,
   useDraftTree: () => mockTree,
@@ -39,6 +44,7 @@ beforeEach(() => {
   mockMyDraft = { data: null, isLoading: false };
   mockTree = { data: null, isLoading: false };
   mockOnline = true;
+  mockLibrary = [];
   vi.clearAllMocks();
 });
 
@@ -201,6 +207,71 @@ describe('<StudentProgramAuthor />', () => {
 
       expect(mockActions.updateSlot).toHaveBeenCalledTimes(1);
       expect(mockActions.updateSlot).toHaveBeenCalledWith('sl-1', { sets: 3, reps: 8, weight_kg: null });
+    });
+  });
+
+  describe('the exercise picker', () => {
+    const ARCHIVED = '2026-10-01T00:00:00Z';
+
+    function renderSession(slots = []) {
+      mockMyDraft = { data: { id: 'p-1', name: 'Block A', status: 'draft', submitted_at: null }, isLoading: false };
+      mockTree = {
+        data: {
+          id: 'p-1', name: 'Block A', status: 'draft', submitted_at: null,
+          weeks: [{ id: 'w-1', week_number: 1, sessions: [
+            { id: 's-1', title: 'Day 1', sort_order: 0, exercise_slots: slots },
+          ] }],
+        },
+        isLoading: false,
+      };
+      renderAuthor();
+    }
+
+    async function openPicker(user) {
+      await user.click(screen.getByRole('button', { name: /add exercise/i }));
+      return screen.getByRole('dialog', { name: 'Add exercise' });
+    }
+
+    it('does not offer an exercise the coach archived, and still names it on the slot that uses it', async () => {
+      const user = userEvent.setup();
+      const oldRow = { id: 'e-9', name: 'Old Row', type: 'pull', archived_at: ARCHIVED };
+      mockLibrary = [
+        { id: 'e-1', name: 'Squat', type: 'push', archived_at: null },
+        oldRow,
+        // Read before the column existed: active.
+        { id: 'e-2', name: 'Pull-up', type: 'pull' },
+      ];
+      renderSession([
+        { id: 'sl-1', exercise_id: 'e-9', sets: 3, reps: 5, sort_order: 0, exercise: oldRow },
+      ]);
+      expect(screen.getByText('Old Row')).toBeInTheDocument();
+
+      const picker = await openPicker(user);
+      const offered = within(picker).getAllByRole('button').map((b) => b.textContent);
+      expect(offered.some((text) => text.includes('Squat'))).toBe(true);
+      expect(offered.some((text) => text.includes('Pull-up'))).toBe(true);
+      expect(within(picker).queryByText('Old Row')).not.toBeInTheDocument();
+
+      await user.type(within(picker).getByRole('textbox', { name: /search exercises/i }), 'row');
+      expect(within(picker).getByText(/no exercises found/i)).toBeInTheDocument();
+    });
+
+    it('shows each exercise\'s type with the shared badge, under its name in the app', async () => {
+      const user = userEvent.setup();
+      mockLibrary = [
+        { id: 'e-1', name: 'Squat', type: 'push', archived_at: null },
+        { id: 'e-2', name: 'Pull-up', type: 'pull', archived_at: null },
+      ];
+      renderSession();
+
+      const picker = await openPicker(user);
+      const squat = within(picker).getByRole('button', { name: /squat/i });
+      const pullUp = within(picker).getByRole('button', { name: /pull-up/i });
+      expect(within(squat).getByText('Push')).toHaveClass('sl-pill', 'bg-push/15', 'text-push');
+      expect(within(pullUp).getByText('Pull')).toHaveClass('sl-pill', 'bg-pull/15', 'text-pull');
+
+      await user.click(pullUp);
+      expect(mockActions.addSlot).toHaveBeenCalledWith('s-1', mockLibrary[1]);
     });
   });
 });
