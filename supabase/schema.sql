@@ -636,6 +636,10 @@ CREATE POLICY "Students read their coachs library"
     coach_id IN (SELECT coach_id FROM public.students WHERE profile_id = auth.uid())
   );
 
+-- A third way to read an exercise — what the caller's training uses, after a
+-- change of coach — is "Users read the exercises their training uses",
+-- below the tables it reads (SLOT DEVIATIONS; 2026_10_16_23).
+
 -- EXERCISE SLOTS
 CREATE POLICY "Coaches manage exercise slots"
   ON public.exercise_slots FOR ALL
@@ -1129,6 +1133,71 @@ CREATE POLICY "Coaches read slot deviations for their students"
       SELECT profile_id FROM public.students WHERE coach_id = auth.uid()
     )
   );
+
+-- ============================================================
+-- AN EXERCISE IS READ BY WHOEVER READS WHAT USES IT (2026_10_16_23, review B8)
+--
+-- "Coaches manage own library" and "Students read their coachs library" say
+-- who reads a library. After a change of coach (transfer_student) the blocks
+-- of the athlete keep the exercises of the former coach's library — a slot,
+-- a swap, a goal — which neither the athlete nor the new coach would read:
+-- the app embeds the exercise in every read of a session, and broke on NULL.
+-- An exercise is also read by an account when something it reads names it:
+--   * a slot of a program of an athlete it is, or coaches (the policies of
+--     programs: students.profile_id, students.coach_id);
+--   * a swap (substitute_exercise_id) on such a slot;
+--   * a goal it reads: its own, or one of its athlete it holds as their coach
+--     (the policy of goals).
+-- SECURITY DEFINER: it reads those tables whatever the caller may read, and
+-- answers true or false, never NULL. Here, below the three tables: a LANGUAGE
+-- sql body is checked when it is created. The policy is named to come after
+-- the two others — PostgreSQL asks permissive policies in the order of their
+-- names and stops at the first yes — so an exercise of the caller's library,
+-- or of their coach's, never reaches it.
+-- For SELECT only: who writes an exercise, and which exercise a new slot or
+-- swap may take (the library of the program's coach, migration 05), are
+-- unchanged.
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.exercise_readable_through_use(p_exercise_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT EXISTS (
+           SELECT 1
+             FROM public.exercise_slots es
+             JOIN public.sessions se ON se.id = es.session_id
+             JOIN public.weeks w     ON w.id = se.week_id
+             JOIN public.programs p  ON p.id = w.program_id
+             JOIN public.students st ON st.id = p.student_id
+            WHERE es.exercise_id = p_exercise_id
+              AND (st.profile_id = auth.uid() OR st.coach_id = auth.uid()))
+      OR EXISTS (
+           SELECT 1
+             FROM public.slot_deviations d
+             JOIN public.exercise_slots es ON es.id = d.exercise_slot_id
+             JOIN public.sessions se ON se.id = es.session_id
+             JOIN public.weeks w     ON w.id = se.week_id
+             JOIN public.programs p  ON p.id = w.program_id
+             JOIN public.students st ON st.id = p.student_id
+            WHERE d.substitute_exercise_id = p_exercise_id
+              AND (st.profile_id = auth.uid() OR st.coach_id = auth.uid()))
+      OR EXISTS (
+           SELECT 1
+             FROM public.goals g
+            WHERE g.exercise_id = p_exercise_id
+              AND (g.student_id = auth.uid()
+                   OR (g.coach_id = auth.uid()
+                       AND EXISTS (SELECT 1 FROM public.students st
+                                    WHERE st.profile_id = g.student_id AND st.coach_id = auth.uid()))))
+$$;
+-- Who may execute it: the FUNCTION PRIVILEGES block at the end of this file.
+
+CREATE POLICY "Users read the exercises their training uses"
+  ON public.exercise_library FOR SELECT
+  USING (public.exercise_readable_through_use(id));
 
 -- ============================================================
 -- TRIGGER: auto-create profile on signup
@@ -6609,7 +6678,8 @@ GRANT EXECUTE ON FUNCTION
   public.session_writable_for_slot(uuid),
   public.slot_for_set_log(uuid),
   public.set_video_slot(text),
-  public.session_is_confirmed(uuid)
+  public.session_is_confirmed(uuid),
+  public.exercise_readable_through_use(uuid)
 TO authenticated;
 
 -- The RPCs the app calls. The five coach RPCs authorize the caller themselves
@@ -6758,7 +6828,8 @@ INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_13_18_retention'),
   ('2026_10_16_20_drafts_coach_readonly'),
   ('2026_10_16_21_rpe_half_steps_day_check'),
-  ('2026_10_16_22_client_errors_scope');
+  ('2026_10_16_22_client_errors_scope'),
+  ('2026_10_16_23_library_read_follows_program');
 
 -- An optional migration that needs an extension is on record where its block
 -- above ran, and nowhere else: a project that switches pg_cron on later must

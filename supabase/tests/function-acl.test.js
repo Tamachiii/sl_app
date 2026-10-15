@@ -59,6 +59,7 @@ const read = (file) => fs.readFileSync(path.join(repoRoot, file), 'utf8');
 const HELPERS = [
   'coach_profile_for_goal(uuid)',
   'coach_profile_for_session(uuid)',
+  'exercise_readable_through_use(uuid)',   // 2026_10_16_23_library_read_follows_program
   'is_coach()',   // 2026_10_11_05_students_role_gate
   'profiles_are_coach_student(uuid, uuid)',
   'program_active_for_session(uuid)',

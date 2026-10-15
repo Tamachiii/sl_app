@@ -885,3 +885,356 @@ describe('migration 2026_10_16_22_client_errors_scope', () => {
     await db.drop();
   });
 });
+
+// ============================================================
+// 23 — B8: an exercise is read by whoever reads what uses it
+// ============================================================
+describe('B8 — after a change of coach, the athlete and the new coach read the exercises their blocks and goals use', () => {
+  // src/hooks/useSession.js: a session with `exercise:exercise_library(*)`
+  // embedded in each slot — a LEFT JOIN on what the reader may read.
+  const SESSION_READ = `select es.sort_order, el.name
+                          from exercise_slots es left join exercise_library el on el.id = es.exercise_id
+                         where es.session_id = $1 order by es.sort_order`;
+  const SWAP_READ = `select el.name from slot_deviations d left join exercise_library el on el.id = d.substitute_exercise_id
+                      where d.exercise_slot_id = $1`;
+  // useMyGoals / useStudentGoals embed the exercise of a goal.
+  const GOAL_READ = `select el.name from goals g left join exercise_library el on el.id = g.exercise_id where g.id = $1`;
+  // useExerciseLibrary, for an athlete: the whole table, unfiltered.
+  const LIBRARY_READ = `select name from exercise_library order by name`;
+
+  /** Alex swaps a slot to the squat and has a goal on the muscle-up — then moves to Olga, with transfer_student. */
+  const moved = async (q) => {
+    const olga = await createUser({ email: 'olga@sl.test', fullName: 'Olga Coach', role: 'coach' });
+    const press = await q.value(`insert into exercise_library (coach_id, name, type, difficulty) values ($1, 'Press', 'push', 1) returning id`, [olga.id]);
+    const [session] = ids.programA.sessions;
+    const [, dipSlot] = ids.programA.tree[0].sessions[0].slots;
+    await asUser(ids.studentA, (a) => a(
+      `insert into slot_deviations (exercise_slot_id, student_id, kind, substitute_exercise_id) values ($1, $2, 'swap', $3)`,
+      [dipSlot.id, ids.studentA.id, ids.exercises.squat],
+    ));
+    const goal = await asUser(ids.coach, (c) => c.value(
+      `insert into goals (student_id, coach_id, exercise_id, kind, target_weight_kg) values ($1, $2, $3, 'one_rm', 100) returning id`,
+      [ids.studentA.id, ids.coach.id, ids.exercises.muscleUp],
+    ));
+    await q(`select public.transfer_student($1, $2)`, [ids.studentA.id, olga.id]);
+    return { olga, press, session, dipSlot, goal };
+  };
+
+  it('the sessions, the swap and the goal of the athlete have their exercises — for the athlete and for the new coach', () => scenario(async (q) => {
+    const { olga, session, dipSlot, goal } = await moved(q);
+    for (const reader of [ids.studentA, olga]) {
+      const reads = await asUser(reader, async (u) => ({
+        session: await u.rows(SESSION_READ, [session]),
+        swap: await u.value(SWAP_READ, [dipSlot.id]),
+        goal: await u.value(GOAL_READ, [goal]),
+      }));
+      expect(reads, reader.email).toEqual({
+        session: [{ sort_order: 0, name: 'Pull-up' }, { sort_order: 1, name: 'Dip' }],
+        swap: 'Squat',
+        goal: 'Muscle-up',
+      });
+    }
+  }));
+
+  it('nobody else reads them: the former coach their library as before, another athlete of theirs as before, a stranger nothing', () => scenario(async (q) => {
+    const { olga, session } = await moved(q);
+    // The former coach reads their library — and none of the athlete's blocks any more.
+    expect(await asUser(ids.coach, (c) => c.rows(LIBRARY_READ))).toHaveLength(4);
+    expect(await asUser(ids.coach, (c) => c.rows(SESSION_READ, [session]))).toEqual([]);
+    // Billie, still Carla's, reads Carla's library as before.
+    expect((await asUser(ids.studentB, (b) => b.rows(LIBRARY_READ))).map((e) => e.name)).toEqual(['Dip', 'Muscle-up', 'Pull-up', 'Squat']);
+    // A coach with no athlete reads their own library only.
+    const stranger = await createUser({ email: 'stranger@sl.test', fullName: 'Stranger', role: 'coach' });
+    expect(await asUser(stranger, (s) => s.rows(LIBRARY_READ))).toEqual([]);
+    // What Olga reads of Carla's library: what Alex's blocks and goal use, and nothing more.
+    expect((await asUser(olga, (o) => o.rows(`select name from exercise_library where coach_id = $1 order by name`, [ids.coach.id]))).map((e) => e.name))
+      .toEqual(['Dip', 'Muscle-up', 'Pull-up', 'Squat']);
+    // The athlete's picker (useExerciseLibrary): Olga's library, and Carla's exercises their training uses.
+    expect((await asUser(ids.studentA, (a) => a.rows(LIBRARY_READ))).map((e) => e.name)).toEqual(['Dip', 'Muscle-up', 'Press', 'Pull-up', 'Squat']);
+  }));
+
+  it('an exercise nothing of theirs uses stays unread; one that stops being used is unread again', () => scenario(async (q) => {
+    const { olga } = await moved(q);
+    const row = await q.value(`insert into exercise_library (coach_id, name, type, difficulty) values ($1, 'Row', 'pull', 1) returning id`, [ids.coach.id]);
+    expect(await asUser(olga, (o) => o.value(`select count(*) from exercise_library where id = $1`, [row]))).toBe(0);
+    // Olga replaces the pull-up with her press in every session of the block:
+    // Carla's pull-up is no longer theirs to read.
+    const press = await q.value(`select id from exercise_library where name = 'Press'`);
+    await asUser(olga, (o) => o(`update exercise_slots set exercise_id = $2 where exercise_id = $1`, [ids.exercises.pullUp, press]));
+    expect(await asUser(olga, (o) => o.value(`select count(*) from exercise_library where id = $1`, [ids.exercises.pullUp]))).toBe(0);
+    expect(await asUser(ids.studentA, (a) => a.value(`select count(*) from exercise_library where id = $1`, [ids.exercises.pullUp]))).toBe(0);
+  }));
+
+  it('reading is all: nobody but its coach writes an exercise, and a new slot, swap or copy takes one of the library of today', () => scenario(async (q) => {
+    const { olga, session, dipSlot } = await moved(q);
+    for (const writer of [olga, ids.studentA]) {
+      const writes = await asUser(writer, async (u) => [
+        (await u(`update exercise_library set name = 'Renamed', archived_at = now() where id = $1`, [ids.exercises.pullUp])).rowCount,
+        (await u(`delete from exercise_library where id = $1`, [ids.exercises.squat])).rowCount,
+      ]);
+      expect(writes, writer.email).toEqual([0, 0]);
+    }
+    expect(await refusal(() => asUser(olga, (o) => o(
+      `insert into exercise_slots (session_id, exercise_id, sets, reps, sort_order) values ($1, $2, 3, 5, 9)`, [session, ids.exercises.pullUp],
+    )))).toEqual([expect.stringContaining('is not in the library of the coach of this program'), '23514']);
+    expect((await refusal(() => asUser(ids.studentA, (a) => a(
+      `update slot_deviations set substitute_exercise_id = $2 where exercise_slot_id = $1`, [dipSlot.id, ids.exercises.muscleUp],
+    ))))[1]).toBe('23514');
+    // A copy leaves Carla's exercises out and counts them, as before.
+    const copied = await asUser(olga, (o) => o.value(`select public.duplicate_session($1)`, [session]));
+    expect(copied.slots_left_out).toBe(2);
+    expect(await q.value(`select count(*) from public.exercise_library where name = 'Renamed'`)).toBe(0);
+  }));
+
+  it('exercise_readable_through_use answers true or false for a signed-in user, never NULL, and is STABLE, run as its owner, with the search_path pinned', () => scenario(async (q) => {
+    const { olga } = await moved(q);
+    const ask = (who, exercise) => asUser(who, (u) => u.value(`select public.exercise_readable_through_use($1)`, [exercise]));
+    expect(await ask(olga, ids.exercises.pullUp)).toBe(true);
+    expect(await ask(olga, ids.exercises.dip)).toBe(true);
+    // Billie's own block uses the pull-up; nothing of hers uses the muscle-up of Alex's goal.
+    expect(await ask(ids.studentB, ids.exercises.pullUp)).toBe(true);
+    expect(await ask(ids.studentB, ids.exercises.muscleUp)).toBe(false);
+    expect(await ask(olga, '00000000-0000-4000-8000-000000000000')).toBe(false);
+    expect(await ask(olga, null)).toBe(false);
+    expect(await q.one(
+      `select p.provolatile, p.prosecdef, p.proconfig, has_function_privilege('anon', p.oid, 'EXECUTE') as anon
+         from pg_proc p where p.oid = 'public.exercise_readable_through_use(uuid)'::regprocedure`,
+    )).toEqual({ provolatile: 's', prosecdef: true, proconfig: ['search_path=public, pg_temp'], anon: false });
+  }));
+});
+
+describe('migration 2026_10_16_23_library_read_follows_program', () => {
+  const migration = entry('2026_10_16_23_library_read_follows_program');
+  const page = read(migration.paths.runbook);
+  const CARLA = '00000000-0000-4000-8000-00000000c0ac';
+  const OLGA = '00000000-0000-4000-8000-00000000c0ad';
+  const ATHLETE = '00000000-0000-4000-8000-0000000000a1';
+  const BILLIE = '00000000-0000-4000-8000-0000000000a2';
+  const LINK = '00000000-0000-4000-8000-000000000101';
+  const PULL_UP = '00000000-0000-4000-8000-000000000201';
+  const DIP = '00000000-0000-4000-8000-000000000202';
+  const SQUAT = '00000000-0000-4000-8000-000000000203';
+  const ROW = '00000000-0000-4000-8000-000000000204';
+  const SESSION = '00000000-0000-4000-8000-000000000451';
+  const SLOT = '00000000-0000-4000-8000-000000000501';
+  const SWAPPED = '00000000-0000-4000-8000-000000000502';
+
+  // Carla coaches Alex and Billie; Alex trains "Block": a pull-up, and a
+  // second pull-up swapped to a dip; a goal on the squat. Olga is another
+  // coach. The row is used by nothing.
+  const WORLD = `
+    insert into auth.users (id, email, aud, role, email_confirmed_at, raw_user_meta_data) values
+      ('${CARLA}',   'coach@sl.test',  'authenticated', 'authenticated', now(), '{"full_name": "Coach Carla"}'),
+      ('${OLGA}',    'olga@sl.test',   'authenticated', 'authenticated', now(), '{"full_name": "Olga"}'),
+      ('${ATHLETE}', 'alex@sl.test',   'authenticated', 'authenticated', now(), '{"full_name": "Alex"}'),
+      ('${BILLIE}',  'billie@sl.test', 'authenticated', 'authenticated', now(), '{"full_name": "Billie"}');
+    BEGIN;
+    SET LOCAL session_replication_role = replica;
+    update public.profiles set role = 'coach' where id in ('${CARLA}', '${OLGA}');
+    COMMIT;
+    insert into public.students (id, profile_id, coach_id) values ('${LINK}', '${ATHLETE}', '${CARLA}');
+    insert into public.students (profile_id, coach_id) values ('${BILLIE}', '${CARLA}');
+    insert into public.exercise_library (id, coach_id, name, type, difficulty) values
+      ('${PULL_UP}', '${CARLA}', 'Pull-up', 'pull', 2), ('${DIP}', '${CARLA}', 'Dip', 'push', 2),
+      ('${SQUAT}', '${CARLA}', 'Squat', 'push', 1), ('${ROW}', '${CARLA}', 'Row', 'pull', 1);
+    insert into public.programs (id, student_id, name, is_active) values ('00000000-0000-4000-8000-000000000301', '${LINK}', 'Block', true);
+    insert into public.weeks (id, program_id, week_number) values ('00000000-0000-4000-8000-000000000401', '00000000-0000-4000-8000-000000000301', 1);
+    insert into public.sessions (id, week_id, title, sort_order) values ('${SESSION}', '00000000-0000-4000-8000-000000000401', 'Pull', 0);
+    insert into public.exercise_slots (id, session_id, exercise_id, sets, reps, sort_order) values
+      ('${SLOT}', '${SESSION}', '${PULL_UP}', 3, 5, 0), ('${SWAPPED}', '${SESSION}', '${PULL_UP}', 3, 5, 1);
+    insert into public.slot_deviations (exercise_slot_id, student_id, kind, substitute_exercise_id) values ('${SWAPPED}', '${ATHLETE}', 'swap', '${DIP}');
+    insert into public.goals (student_id, coach_id, exercise_id, kind, target_weight_kg) values ('${ATHLETE}', '${CARLA}', '${SQUAT}', 'one_rm', 100);
+  `;
+  /** Production before 23, and Alex moved to Olga the only way there is (migration 10). */
+  const production = async () => {
+    const db = await productionBefore(migration.name, WORLD);
+    await db.query(`select public.transfer_student($1, $2)`, [ATHLETE, OLGA]);
+    return db;
+  };
+  const THE_ATHLETE = user(ATHLETE);
+  const THE_NEW_COACH = user(OLGA);
+  const THE_FORMER_COACH = user(CARLA);
+  const BILLIE_READS = user(BILLIE);
+  const NAMES = `select string_agg(coalesce(el.name, '(no name)'), ', ' order by u.n)
+                   from (select 1 as n, es.exercise_id as id from public.exercise_slots es where es.id = '${SLOT}'
+                         union all select 2, d.substitute_exercise_id from public.slot_deviations d where d.exercise_slot_id = '${SWAPPED}'
+                         union all select 3, g.exercise_id from public.goals g) u
+                   left join public.exercise_library el on el.id = u.id`;
+  const LIBRARY = `select coalesce(string_agg(name, ', ' order by name), 'nothing') from public.exercise_library`;
+  const finding = async (db) => ({
+    athlete: await story(db, THE_ATHLETE, NAMES),
+    newCoach: await story(db, THE_NEW_COACH, NAMES),
+    athleteLibrary: await story(db, THE_ATHLETE, LIBRARY),
+    formerCoach: await story(db, THE_FORMER_COACH, LIBRARY),
+    billie: await story(db, BILLIE_READS, LIBRARY),
+  });
+  const OPEN = {
+    athlete: '(no name), (no name), (no name)',
+    newCoach: '(no name), (no name), (no name)',
+    athleteLibrary: 'nothing',
+    formerCoach: 'Dip, Pull-up, Row, Squat',
+    billie: 'Dip, Pull-up, Row, Squat',
+  };
+  const CLOSED = {
+    athlete: 'Pull-up, Dip, Squat',
+    newCoach: 'Pull-up, Dip, Squat',
+    athleteLibrary: 'Dip, Pull-up, Squat',
+    formerCoach: 'Dip, Pull-up, Row, Squat',
+    billie: 'Dip, Pull-up, Row, Squat',
+  };
+
+  it('the exercises of the former coach have no name before, their name after, for the athlete and the new coach alone; none again after the rollback', async () => {
+    const db = await production();
+    expect(await finding(db)).toEqual(OPEN);
+    await db.runFile(migration.paths.migration);
+    expect(await finding(db)).toEqual(CLOSED);
+    // Still nobody's to write but Carla's.
+    expect(await story(db, THE_NEW_COACH, `update public.exercise_library set name = 'x' returning 'written'`)).toBeNull();
+    expect(await story(db, THE_NEW_COACH,
+      `insert into public.exercise_slots (session_id, exercise_id, sets, reps, sort_order) values ('${SESSION}', '${PULL_UP}', 3, 5, 9) returning 'saved'`))
+      .toContain('is not in the library of the coach of this program');
+    await db.runFile(migration.paths.rollback);
+    expect(await finding(db)).toEqual(OPEN);
+    await db.drop();
+  });
+
+  it('adds 1 policy and its function and signs the ledger — nothing else', async () => {
+    const db = await production();
+    const before = await catalogSnapshot(db.query);
+    await db.runFile(migration.paths.migration);
+    const after = await catalogSnapshot(db.query);
+    expect(changesOf(before, after)).toEqual({
+      before: [],
+      after: [
+        'functions public.exercise_readable_through_use(p_exercise_id uuid)',
+        'policies public.exercise_library.Users read the exercises their training uses',
+      ],
+      changed: ['data rows of app_private.app_migrations → rows'],
+    });
+    expect(after.functions['public.exercise_readable_through_use(p_exercise_id uuid)'].privileges)
+      .toEqual(['authenticated: EXECUTE', 'postgres: EXECUTE', 'service_role: EXECUTE']);
+    // Asked after the two others: the policies of a table are asked in the order of their names.
+    expect(Object.keys(after.policies).filter((key) => key.startsWith('public.exercise_library.')).sort())
+      .toEqual(['public.exercise_library.Coaches manage own library', 'public.exercise_library.Students read their coachs library',
+        'public.exercise_library.Users read the exercises their training uses']);
+    expect(await db.query.rows(`select name from ${LEDGER} order by name`)).toHaveLength(22);
+    expect(page).toContain(`Expected: twenty-two rows, the last one \`${migration.name}\` — twenty-three where the optional migration 19 was applied at Checkpoint B.`);
+    expect(page).toContain('| Kind | required · adds 1 policy and the function it asks; no table, no column, no row |');
+    await db.drop();
+  });
+
+  it('its audit prints the "before" and "after" columns of the runbook page, and the page lists the exercises', async () => {
+    const db = await production();
+    const table = auditTableOf(page);
+    expect(table.map((line) => line.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    // Two slots of the pull-up, the swap to the dip, the goal on the squat — all Alex's.
+    const counted = { 5: '2', 6: '1', 7: '1', 8: '1' };
+    const column = (side) => table.map((line) => [line.check, literal(line[side]) ?? counted[line.n]]);
+    expect(await printedAudit(db, migration)).toEqual(column('before'));
+    const list = quotedOf(page, 'select pa.full_name as athlete, pc.full_name as coach_today');
+    expect(list, 'the page no longer lists the exercises').toBeTruthy();
+    const listed = async () => (await db.query.rows(list)).map((row) => [row.athlete, row.coach_today, row.exercise, row.library_of, row.slots, row.swaps, row.goals]);
+    const AS_LISTED = [
+      ['Alex', 'Olga', 'Dip', 'Coach Carla', 0, 1, 0],
+      ['Alex', 'Olga', 'Pull-up', 'Coach Carla', 2, 0, 0],
+      ['Alex', 'Olga', 'Squat', 'Coach Carla', 0, 0, 1],
+    ];
+    expect(await listed()).toEqual(AS_LISTED);
+    await db.runFile(migration.paths.migration);
+    expect(await printedAudit(db, migration)).toEqual(column('after'));
+    expect(await listed()).toEqual(AS_LISTED);
+    const header = read(migration.paths.audit).split('\n').filter((line) => line.startsWith('--')).join('\n');
+    for (const { check } of table) expect(header).toContain(check);
+    await db.query(`create policy "Everyone reads" on public.exercise_library for select using (true)`);
+    expect(Object.fromEntries(await printedAudit(db, migration))).toMatchObject({
+      'who reads an exercise of a library (B8)': 'SOMETHING ELSE: Coaches manage own library, Everyone reads, Students read their coachs library, Users read the exercises their training uses',
+    });
+    await db.drop();
+  });
+
+  it('the page\'s check answers NOT THERE before and "in place" after, names what is wrong when something is — and writes nothing', async () => {
+    const db = await production();
+    const check = checkOf(page);
+    expect(check, 'the page no longer gives the check').toBeTruthy();
+    expect(check).not.toContain("'");
+    const state = () => db.query.one(
+      `select (select count(*) from auth.users) as accounts, (select count(*) from public.students) as links,
+              (select count(*) from public.exercise_library) as exercises, (select count(*) from public.goals) as goals,
+              (select count(*) from public.notifications) as notifications,
+              current_user::text as role, coalesce(current_setting('request.jwt.claims', true), '') as claims`,
+    );
+    const UNTOUCHED = { accounts: 4, links: 2, exercises: 4, goals: 1, notifications: await db.query.value(`select count(*) from public.notifications`), role: 'postgres', claims: '' };
+    const answer = (said) => `check only, nothing was written: ${said}`;
+    const IN_PLACE = answer('in place: after a change of coach, the athlete and the new coach read the exercises their sessions, swaps and goals use, '
+      + 'and nobody else does; nobody but its coach writes one, and a new session takes an exercise of the library of today');
+
+    expect(await runCheck(db, check)).toBe(answer('NOT THERE: an exercise is read by its coach and the athletes of that coach only'));
+    expect(await state()).toEqual(UNTOUCHED);
+    await db.runFile(migration.paths.migration);
+    expect(await runCheck(db, check)).toBe(IN_PLACE);
+    expect(await state()).toEqual(UNTOUCHED);
+    expect(page).toContain(`\`${IN_PLACE}\``);
+    expect(page).toContain('`… NOT THERE: an exercise is read by its coach and the athletes of that coach only`');
+
+    const was = await db.query.value(`select pg_get_functiondef('public.exercise_readable_through_use(uuid)'::regprocedure)`);
+    // A function that says yes to everybody.
+    await db.query(`create or replace function public.exercise_readable_through_use(p_exercise_id uuid) returns boolean
+                    language sql stable security definer set search_path = public, pg_temp as $$ select true $$`);
+    expect(await runCheck(db, check)).toBe(answer('NOT PROTECTED: an exercise was read by somebody nothing of theirs uses it: 4, 4, 4, 4 read'));
+    // One that forgets the goals.
+    const goals = was.lastIndexOf('\n      OR EXISTS (');
+    expect(was.slice(goals)).toContain('FROM public.goals g');
+    await db.query(`${was.slice(0, goals)}\n${was.slice(was.indexOf('$function$', goals))}`);
+    expect(await runCheck(db, check)).toBe(answer('BROKEN: the athlete, the new coach, the former coach and a third coach read 2, 2, 4, 0 of the four exercises, not 3, 3, 4 and 0'));
+    await db.query(was);
+    // A policy that lets anybody who reads an exercise write it.
+    await db.query(`create policy "Readers write" on public.exercise_library for update using (public.exercise_readable_through_use(id))`);
+    expect(await runCheck(db, check)).toBe(answer('NOT PROTECTED: the new coach renamed an exercise of the former coach'));
+    await db.query(`drop policy "Readers write" on public.exercise_library`);
+    expect(await runCheck(db, check)).toBe(IN_PLACE);
+    expect(await state()).toEqual(UNTOUCHED);
+    await db.drop();
+  });
+
+  it('without migration 22 it says so (SLM02), and its rollback says there is nothing to undo (SLM03)', async () => {
+    const db = await scratchDatabase();
+    await db.runFile(manifest.baseline);
+    for (const earlier of migrationsBefore(manifest.migrations, '2026_10_16_22_client_errors_scope')) await db.runFile(earlier.paths.migration);
+    const before = await catalogSnapshot(db.query);
+    const refused = await attempt(() => db.runFile(migration.paths.migration));
+    const undone = await attempt(() => db.runFile(migration.paths.rollback));
+    expect(diffCatalogs(before, await catalogSnapshot(db.query), { left: 'before', right: 'after' })).toEqual([]);
+    expect([refused.error?.code, undone.error?.code]).toEqual([REFUSAL.predecessorMissing, REFUSAL.notApplied]);
+    expect(page).toContain('| `needs 2026_10_16_22_client_errors_scope, which is not applied` (code `SLM02`) |');
+    await db.drop();
+  });
+
+  it('refuses to run as another role, or next to a policy or a function of its names — and changes nothing', async () => {
+    const db = await production();
+    const text = read(migration.paths.migration);
+    const asServiceRole = text.replace(`SET LOCAL lock_timeout = '5s';`, `SET LOCAL lock_timeout = '5s';\nSET LOCAL ROLE service_role;`);
+    expect(await refusalOf(db, migration, () => db.runSql(asServiceRole, 'migration')))
+      .toContain(`migration ${migration.name} must be run as postgres, not as service_role`);
+    await db.query(`create function public.exercise_readable_through_use(p uuid, q uuid) returns boolean language sql as 'select true'`);
+    expect(await refusalOf(db, migration)).toContain('would not create: the function exercise_readable_through_use(uuid,uuid) is already there');
+    await db.query(`drop function public.exercise_readable_through_use(uuid, uuid)`);
+    await db.query(`create policy "Users read the exercises their training uses" on public.exercise_library for select using (true)`);
+    expect(await refusalOf(db, migration)).toContain('would not create: the policy "Users read the exercises their training uses" is already there');
+    await db.query(`drop policy "Users read the exercises their training uses" on public.exercise_library`);
+    for (const said of ['| `must be run as postgres` |', '| `would not create: … is already there` |']) expect(page).toContain(said);
+    await db.runFile(migration.paths.migration);
+    expect(await db.query.value(`select count(*) from ${LEDGER} where name = $1`, [migration.name])).toBe(1);
+    await db.drop();
+  });
+
+  it('its rollback is refused while the ledger records a later migration, and changes nothing', async () => {
+    const db = await production();
+    await db.runFile(migration.paths.migration);
+    await db.query(`insert into ${LEDGER} (name) values ($1)`, [TO_COME]);
+    const before = await catalogSnapshot(db.query);
+    const refused = await attempt(() => db.runFile(migration.paths.rollback));
+    expect(refused.error?.code).toBe(REFUSAL.stillNeeded);
+    expect(diffCatalogs(before, await catalogSnapshot(db.query), { left: 'before', right: 'after' })).toEqual([]);
+    await db.drop();
+  });
+});

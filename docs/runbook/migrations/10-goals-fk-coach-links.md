@@ -204,7 +204,7 @@ It is refused (code `SLM04`) once a later migration is in the ledger. Roll those
 
 From this migration on, this is how an athlete changes coach — the app has no screen for it, and the API refuses. Do not rewrite `coach_id` by hand: the goals would stay with the former coach.
 
-**Before Checkpoint C1, move only an athlete who has no program yet.** The exercises in an athlete's sessions belong to the library of the coach who wrote them, and neither the athlete nor the new coach can read another coach's library: after the move those sessions show exercises without a name, and the app that is deployed fails to open them. Migration 23 (Checkpoint C1) makes an exercise readable through the session that uses it.
+**Before Checkpoint C1, move only an athlete who has no program yet.** The exercises in an athlete's sessions belong to the library of the coach who wrote them, and neither the athlete nor the new coach can read another coach's library: after the move those sessions show exercises without a name, and the app that is deployed fails to open them. [Migration 23](23-library-read-follows-program.md) (Checkpoint C1) makes an exercise readable through the session, the swap and the goal that use it.
 
 1. The new coach has an account with the role *coach*: [07, Making a coach](07-profile-rules.md#making-a-coach).
 2. Move the athlete, in Dashboard → SQL Editor, with the two e-mail addresses:
@@ -230,7 +230,7 @@ It returns one row. Under `moved`: `"link_moved": true`, and under `goals_moved`
 
 What the move leaves where it was:
 
-- **The exercises** — see above. The athlete's goals keep the exercise they were set on too, and show it without its name to the athlete and to the new coach. The former coach's library stays theirs, and they cannot delete an exercise that the athlete's sessions or goals still use.
+- **The exercises** — see above. The athlete's goals keep the exercise they were set on too, and show it without its name to the athlete and to the new coach — until migration 23, which gives it back to both. The former coach's library stays theirs, and they cannot delete an exercise that the athlete's sessions or goals still use.
 - **The conversation with the former coach.** Both keep their messages; the app shows the athlete the conversation with their coach of today, and the two can no longer write to each other. A message of the former coach that the athlete had not opened keeps the badge of their Messages tab lit, and the app gives them no way to open it. Mark it as read:
 
   `update public.messages m set read_at = now() from auth.users athlete, auth.users coach where athlete.email = '<e-mail of the athlete>' and coach.email = '<e-mail of the former coach>' and m.recipient_id = athlete.id and m.sender_id = coach.id and m.read_at is null`

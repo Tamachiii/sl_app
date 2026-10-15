@@ -199,6 +199,15 @@
       "covers": ["B6", "L20"],
       "reversible": true,
       "summary": "A client error is read by its author and by the coach of its author (students.coach_id); a line without an author — written by the database with the role database, or of an account that was deleted — by every coach: \"Authors and their coach read client errors\" replaces \"Coaches read client errors\", under which every coach read every line. trg_cap_client_errors, for a request that carries a user id, dates the line when it arrives and drops it without a word once the caller has 30 lines of the last hour; a request without a user id is not judged. Old lines are deleted by run_retention() of migration 18, not here. No row is written or deleted."
+    },
+    {
+      "name": "2026_10_16_23_library_read_follows_program",
+      "kind": "required",
+      "wave": 3,
+      "checkpoint": "C1",
+      "covers": ["B8"],
+      "reversible": true,
+      "summary": "An exercise of a library is also read by an account when something it reads names it — a slot of a program of an athlete it is or coaches, a swap on such a slot, a goal it reads: the policy \"Users read the exercises their training uses\" on exercise_library, which asks exercise_readable_through_use(uuid) (STABLE, SECURITY DEFINER, executable by a signed-in user). After a change of coach the exercises of the blocks written before it have their name again, for the athlete and for the new coach. Nothing changes for who writes an exercise, nor for which exercise a new slot or swap may take. No row is written."
     }
   ]
 }

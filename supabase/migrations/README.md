@@ -444,6 +444,16 @@ Since migration 22 a line of `client_errors` is read by its author and the coach
 - **The cap drops, it does not refuse** (`RETURN NULL`): the request answers as if the line was kept, and nothing is written. A test about it reads the rows back. It counts by `auth.uid()` — the `INSERT` policy holds `user_id` to it — and dates the line itself (`created_at := now()`): a date the client sends would escape both the hour and `run_retention()`.
 - **Nothing is deleted there.** A line goes 90 days after it was reported, through `run_retention()` ("A migration that deletes rows by their age", above).
 
+## A migration that touches who reads an exercise
+
+Since migration 23 an exercise of a library is read by its coach, by that coach's athletes, and by whoever reads something that uses it — a slot of their block, a swap on it, a goal: the policy "Users read the exercises their training uses", which asks `public.exercise_readable_through_use(uuid)`. `supabase/tests/small-hardening.test.js` holds it.
+
+- **A new reference to `exercise_library` that an athlete or their coach reads joins that function** — a new `EXISTS` in the same shape, its join up to `students` asked of `profile_id` and `coach_id` as the policies of its table ask — or the exercise has no name again after a change of coach.
+- **Reading is all it gives.** The policy is for `SELECT`. Writing an exercise stays "Coaches manage own library"; which exercise a new slot, swap or copy may take stays the library of the program's coach (migration 05). A rule that lets a reader of an exercise write it would let the new coach rename the former coach's exercises.
+- **Its name sorts after the two other policies of the table**: PostgreSQL asks the permissive policies of a table in the order of their names and stops at the first yes, and this one is the costly one. A new policy that reads the library is named to come before it.
+- **The function never answers NULL**, and stays `STABLE`, `SECURITY DEFINER`, executable by `authenticated` (`HELPERS` of `function-acl.test.js`): the reads of every signed-in user call it. It is written below the three tables it reads, in `schema.sql` (a `LANGUAGE sql` body is checked when it is created).
+- **A picker lists what it reads.** The app reads an athlete's library without a filter: after a change of coach, the exercises of the former coach their training uses are in it, and the gate of migration 05 refuses a swap to one. A screen that offers exercises filters on `coach_id`.
+
 ## A migration that brings a rule the rows already there may break
 
 A trigger or a policy judges what is written after it. When rows that are already in the database break the rule **and leaving them would leave the hole in use**, the migration refuses to start:

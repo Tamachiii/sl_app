@@ -531,15 +531,19 @@ describe('transfer_student moves an athlete and their goals to another coach', (
   }));
 
   // What the function does NOT move, and the page says so: the exercises stay
-  // in the library of the coach who wrote them, which only that coach's
-  // athletes read. Migration 23 (wave 3) makes an exercise readable through
-  // the program that uses it.
-  it('it does not move the exercises: neither the athlete nor the new coach reads the former coach\'s library', () => scenario(async (q) => {
+  // in the library of the coach who wrote them. Since migration 23
+  // (2026_10_16_23_library_read_follows_program) the athlete and the new coach
+  // read those that the athlete's sessions and goals use — and nothing else of
+  // that library (small-hardening.test.js).
+  it('it does not move the exercises: they stay in the former coach\'s library, read by the athlete and the new coach where their training uses them', () => scenario(async (q) => {
     await transfer(asAdmin, ids.studentA, olga);
     const named = `select count(*) from exercise_library where id = any($1)`;
-    const theirs = [ids.exercises.pullUp, ids.exercises.dip, ids.exercises.squat];
-    expect(await asUser(olga, (coach) => coach.value(named, [theirs]))).toBe(0);
-    expect(await asUser(ids.studentA, (athlete) => athlete.value(named, [theirs]))).toBe(0);
+    const used = [ids.exercises.pullUp, ids.exercises.dip, ids.exercises.squat];
+    expect(await asUser(olga, (coach) => coach.value(named, [used]))).toBe(3);
+    expect(await asUser(ids.studentA, (athlete) => athlete.value(named, [used]))).toBe(3);
+    expect(await asUser(olga, (coach) => coach.value(named, [[ids.exercises.muscleUp]]))).toBe(0);
+    expect(await asUser(ids.studentA, (athlete) => athlete.value(named, [[ids.exercises.muscleUp]]))).toBe(0);
+    expect(await q.value(`select count(*) from exercise_library where id = any($1) and coach_id = $2`, [used, ids.coach.id])).toBe(3);
     // The slots and the goal still point at them, and the rows are all there.
     expect(await q.value(`select exercise_id from goals where id = $1`, [goals.a])).toBe(ids.exercises.squat);
     expect(await asUser(olga, (coach) => coach.value(
