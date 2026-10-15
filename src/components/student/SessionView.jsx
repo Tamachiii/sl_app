@@ -62,8 +62,9 @@ function SessionTopBar({ title, meta, onBack }) {
         {meta && <div className="sl-label truncate">{meta}</div>}
         <div className="sl-display text-[16px] text-gray-900 truncate">{title}</div>
       </div>
-      {/* Right slot: rest-timer pill when active, empty 44px placeholder
-          otherwise — the width of the back button, which keeps the title
+      {/* Right slot: the rest timer while a rest runs — its countdown, "+30 s"
+          and Skip, the slot growing for them — and an empty 44px placeholder
+          otherwise: the width of the back button, which keeps the title
           centered between the two. */}
       <div className="min-w-11 h-11 flex items-center justify-end shrink-0">
         <RestTimerBanner />

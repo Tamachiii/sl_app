@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import RestTimerHost from './RestTimerHost';
 import RestTimerBanner from './RestTimerBanner';
-import { startRestTimer, clearRestTimer, resetRestTimer } from '../../hooks/useRestTimer';
+import {
+  startRestTimer,
+  clearRestTimer,
+  extendRestTimer,
+  resetRestTimer,
+} from '../../hooks/useRestTimer';
 
 // Their own tests hold what they do; here they would reach for the wake lock,
 // the audio and Supabase.
@@ -90,6 +95,22 @@ describe('RestTimerHost: what a screen reader hears of a rest', () => {
       startRestTimer('log-B', 120);
     });
     expect(region()).toHaveTextContent(/^Rest 2:00$/);
+  });
+
+  it('says the new length when the athlete gives the rest 30 s more', () => {
+    render(<RestTimerHost />);
+    act(() => {
+      startRestTimer('log-A', 90);
+    });
+    tick(20_000);
+    act(() => {
+      extendRestTimer('log-A', 30);
+    });
+    expect(region()).toHaveTextContent(/^Rest 1:40$/);
+    tick(99_000);
+    expect(region()).toHaveTextContent(/^Rest 1:40$/);
+    tick(1_000);
+    expect(region()).toHaveTextContent(/^Rest done$/);
   });
 
   it('leaves the visible countdown out of every live region', () => {

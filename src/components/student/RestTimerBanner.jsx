@@ -1,4 +1,4 @@
-import { useRestTimer } from '../../hooks/useRestTimer';
+import { useRestTimer, clearRestTimer, extendRestTimer } from '../../hooks/useRestTimer';
 import { useI18n } from '../../hooks/useI18n';
 
 // Brief "Rest done" flash window after the timer expires. After this, the
@@ -6,6 +6,9 @@ import { useI18n } from '../../hooks/useI18n';
 // stops emitting ~5s past endsAt, but we re-check the clock on every render
 // so a parent re-render can still hide the banner without help.
 export const HIDE_AFTER_EXPIRY_MS = 5_000;
+
+// What "+30 s" adds to the rest that is running.
+const EXTEND_SECONDS = 30;
 
 export function formatMMSS(seconds) {
   const m = Math.floor(seconds / 60);
@@ -25,6 +28,13 @@ export function formatMMSS(seconds) {
  * timer expires it briefly flashes "Rest done" and auto-hides after
  * HIDE_AFTER_EXPIRY_MS so the UI doesn't carry a stale indicator forever.
  *
+ * While the rest runs it carries two controls of its own, 44 px each: "+30 s"
+ * (extendRestTimer) and Skip (clearRestTimer of the running set). Both go
+ * through the store's commit, so the stored copy, the beep, the wake lock and
+ * the push (RestTimerHost) all follow the new end. "Rest done" has neither:
+ * there is nothing left to skip, and +30 s on a rest that has ended does
+ * nothing.
+ *
  * It is not a live region. Its text changes every second, and a live region
  * that does is read aloud every second by VoiceOver and TalkBack, burying the
  * one announcement that matters. What a screen reader hears — the start of a
@@ -42,32 +52,64 @@ export default function RestTimerBanner() {
   const remainingMs = snap.endsAt - Date.now();
   if (remainingMs <= -HIDE_AFTER_EXPIRY_MS) return null;
 
-  const expired = remainingMs <= 0;
-  const seconds = expired ? 0 : Math.ceil(remainingMs / 1000);
-
-  return (
-    <div
-      className="inline-flex items-center gap-1.5 px-2.5 h-8 rounded-full whitespace-nowrap"
-      style={{
-        background: expired
-          ? 'color-mix(in srgb, var(--color-success) 18%, transparent)'
-          : 'color-mix(in srgb, var(--color-accent) 18%, transparent)',
-      }}
-    >
-      <span
-        className="sl-label"
-        style={{ color: expired ? 'var(--color-success)' : 'var(--color-accent)' }}
+  if (remainingMs <= 0) {
+    return (
+      <div
+        className="inline-flex items-center px-2.5 h-8 rounded-full whitespace-nowrap"
+        style={{ background: 'color-mix(in srgb, var(--color-success) 18%, transparent)' }}
       >
-        {expired ? t('student.session.restDone') : t('student.session.restLabel')}
-      </span>
-      {!expired && (
+        <span className="sl-label" style={{ color: 'var(--color-success)' }}>
+          {t('student.session.restDone')}
+        </span>
+      </div>
+    );
+  }
+
+  const seconds = Math.ceil(remainingMs / 1000);
+  const { logId } = snap;
+  return (
+    // The countdown on top of its label, then the two controls: 44 px tall,
+    // in the right slot of the session's top bar, which grows for them while
+    // the rest runs.
+    <div
+      role="group"
+      aria-label={t('sessionRestControls.timerGroup')}
+      className="inline-flex items-center gap-1 whitespace-nowrap"
+    >
+      <div
+        className="flex flex-col items-center justify-center gap-0.5 h-11 px-2.5 rounded-full leading-none"
+        style={{ background: 'color-mix(in srgb, var(--color-accent) 18%, transparent)' }}
+      >
+        <span className="sl-label" style={{ color: 'var(--color-accent)' }}>
+          {t('student.session.restLabel')}
+        </span>
         <span
           className="sl-mono text-[12px] font-bold tabular-nums"
           style={{ color: 'var(--color-accent)' }}
         >
           {formatMMSS(seconds)}
         </span>
-      )}
+      </div>
+      <button
+        type="button"
+        onClick={() => extendRestTimer(logId, EXTEND_SECONDS)}
+        aria-label={t('sessionRestControls.addThirtyAria')}
+        className="sl-pill sl-pill-btn px-2 normal-case tracking-normal bg-ink-100 text-ink-700 hover:bg-ink-200"
+      >
+        {t('sessionRestControls.addThirty')}
+      </button>
+      <button
+        type="button"
+        onClick={() => clearRestTimer(logId)}
+        aria-label={t('sessionRestControls.skip')}
+        title={t('sessionRestControls.skip')}
+        className="sl-pill sl-pill-btn px-0 bg-ink-100 text-ink-700 hover:bg-ink-200"
+      >
+        {/* Skip forward: a play triangle against a bar. */}
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M6 5.5v13l9.5-6.5L6 5.5zM18 5.5v13" />
+        </svg>
+      </button>
     </div>
   );
 }

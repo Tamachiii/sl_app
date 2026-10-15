@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent, renderHook } from '@testing-library/react';
 import RestTimerBanner from './RestTimerBanner';
-import { startRestTimer, resetRestTimer } from '../../hooks/useRestTimer';
+import { startRestTimer, resetRestTimer, useRestTimer } from '../../hooks/useRestTimer';
 
 beforeEach(() => {
   resetRestTimer();
@@ -26,14 +26,22 @@ describe('RestTimerBanner', () => {
     act(() => {
       startRestTimer('log-A', 30);
     });
-    const live = '[aria-live], [role="status"], [role="alert"], [role="timer"], [aria-label]';
+    const live = '[aria-live], [role="status"], [role="alert"], [role="timer"]';
+    // No name that holds the time left either: the label of the old live
+    // region ("Rest remaining 30 seconds") changed every second.
+    const timedNames = () =>
+      [...container.querySelectorAll('[aria-label]')]
+        .map((el) => el.getAttribute('aria-label'))
+        .filter((name) => /\d+ seconds|\d:\d\d|remaining/i.test(name) && !/^Add 30 seconds/.test(name));
     expect(container.querySelector(live)).toBeNull();
+    expect(timedNames()).toEqual([]);
     act(() => {
       vi.setSystemTime(new Date(Date.now() + 30_000));
       vi.advanceTimersByTime(1000);
     });
     expect(screen.getByText('Rest done')).toBeInTheDocument();
     expect(container.querySelector(live)).toBeNull();
+    expect(timedNames()).toEqual([]);
   });
 
   it('renders the running timer mm:ss while active', () => {
@@ -85,5 +93,75 @@ describe('RestTimerBanner', () => {
       vi.advanceTimersByTime(1000);
     });
     expect(screen.getByText(/^0:29$|^0:30$/)).toBeInTheDocument();
+  });
+});
+
+// L34. The rest could only be waited out: a rest that was too short or too
+// long for the set just done had no control.
+describe('RestTimerBanner: Skip and +30 s', () => {
+  const STORAGE_KEY = 'sl_rest_timer';
+  const stored = () => JSON.parse(localStorage.getItem(STORAGE_KEY));
+  const skip = () => screen.queryByRole('button', { name: 'Skip rest' });
+  const more = () => screen.queryByRole('button', { name: 'Add 30 seconds of rest' });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('Skip ends the running rest, in memory and in storage', () => {
+    const { container } = render(<RestTimerBanner />);
+    const { result } = renderHook(() => useRestTimer());
+    act(() => {
+      startRestTimer('log-A', 90);
+    });
+    fireEvent.click(skip());
+    expect(result.current.endsAt).toBeNull();
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('+30 s moves the end of the rest 30 s later, in memory and in storage', () => {
+    render(<RestTimerBanner />);
+    const { result } = renderHook(() => useRestTimer());
+    act(() => {
+      startRestTimer('log-A', 90);
+    });
+    const before = result.current.endsAt;
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(screen.getByText('1:20')).toBeInTheDocument();
+
+    fireEvent.click(more());
+    expect(result.current.logId).toBe('log-A');
+    expect(result.current.endsAt).toBe(before + 30_000);
+    expect(stored()).toEqual({ logId: 'log-A', endsAt: before + 30_000 });
+    expect(screen.getByText('1:50')).toBeInTheDocument();
+
+    fireEvent.click(more());
+    expect(result.current.endsAt).toBe(before + 60_000);
+  });
+
+  it('draws both as 44 px pills', () => {
+    render(<RestTimerBanner />);
+    act(() => {
+      startRestTimer('log-A', 90);
+    });
+    for (const button of [skip(), more()]) {
+      expect(button).toHaveClass('sl-pill', 'sl-pill-btn');
+    }
+  });
+
+  it('offers neither once the rest is done', () => {
+    render(<RestTimerBanner />);
+    act(() => {
+      startRestTimer('log-A', 30);
+    });
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(screen.getByText('Rest done')).toBeInTheDocument();
+    expect(skip()).toBeNull();
+    expect(more()).toBeNull();
   });
 });

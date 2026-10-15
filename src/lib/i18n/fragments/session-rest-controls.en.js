@@ -3,5 +3,9 @@
 export default {
   sessionRestControls: {
     restStarted: 'Rest {time}',
+    timerGroup: 'Rest timer',
+    addThirty: '+30 s',
+    addThirtyAria: 'Add 30 seconds of rest',
+    skip: 'Skip rest',
   },
 };

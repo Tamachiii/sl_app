@@ -4,6 +4,7 @@ import {
   useRestTimer,
   startRestTimer,
   clearRestTimer,
+  extendRestTimer,
   resetRestTimer,
 } from './useRestTimer';
 
@@ -148,6 +149,71 @@ describe('useRestTimer', () => {
       vi.advanceTimersByTime(1000);
     });
     expect(result.current.version).toBeGreaterThan(v1);
+  });
+});
+
+// "+30 s" on the rest that is running (L34).
+describe('useRestTimer: extendRestTimer', () => {
+  it('moves the end of the running rest, and stores the new end', () => {
+    const { result } = renderHook(() => useRestTimer());
+    act(() => {
+      startRestTimer('log-A', 60);
+    });
+    const before = result.current.endsAt;
+    act(() => {
+      extendRestTimer('log-A', 30);
+    });
+    expect(result.current.logId).toBe('log-A');
+    expect(result.current.endsAt).toBe(before + 30_000);
+    expect(stored()).toEqual({ logId: 'log-A', endsAt: before + 30_000 });
+  });
+
+  it('leaves the rest of another set alone', () => {
+    const { result } = renderHook(() => useRestTimer());
+    act(() => {
+      startRestTimer('log-B', 60);
+    });
+    const before = result.current.endsAt;
+    act(() => {
+      extendRestTimer('log-A', 30);
+    });
+    expect(result.current.endsAt).toBe(before);
+    expect(stored().endsAt).toBe(before);
+  });
+
+  it('does not bring back a rest that has ended, or start one where there is none', () => {
+    const { result } = renderHook(() => useRestTimer());
+    act(() => {
+      extendRestTimer('log-A', 30);
+    });
+    expect(result.current.endsAt).toBeNull();
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+
+    act(() => {
+      startRestTimer('log-A', 30);
+    });
+    const ended = result.current.endsAt;
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    act(() => {
+      extendRestTimer('log-A', 30);
+    });
+    expect(result.current.endsAt).toBe(ended);
+  });
+
+  it('ignores zero or missing seconds', () => {
+    const { result } = renderHook(() => useRestTimer());
+    act(() => {
+      startRestTimer('log-A', 60);
+    });
+    const before = result.current.endsAt;
+    act(() => {
+      extendRestTimer('log-A', 0);
+      extendRestTimer('log-A');
+      extendRestTimer('log-A', -30);
+    });
+    expect(result.current.endsAt).toBe(before);
   });
 });
 

@@ -134,6 +134,18 @@ export function clearRestTimer(logId) {
   commit(NO_TIMER);
 }
 
+// "+30 s": the rest of logId, still running, ends `seconds` later. Nothing
+// happens to the rest of another set, to a rest that has ended or when there
+// is none — a tap that lands as the rest ends must not start another one.
+// Like every change of the end time it goes through commit, so the stored
+// copy follows; the effects and the push, keyed on endsAt, take the new end.
+export function extendRestTimer(logId, seconds) {
+  if (!logId || !seconds || seconds <= 0) return;
+  if (state.logId !== logId || state.endsAt == null || state.endsAt <= Date.now()) return;
+  commit({ logId, endsAt: state.endsAt + seconds * 1000 });
+  startTicker();
+}
+
 export function resetRestTimer() {
   commit(NO_TIMER);
   stopTicker();
