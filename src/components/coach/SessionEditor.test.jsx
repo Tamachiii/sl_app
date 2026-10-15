@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { ThemeProvider } from '../../hooks/useTheme';
 
 const mockAddSlot = { mutate: vi.fn(), isPending: false };
@@ -184,6 +184,104 @@ describe('SessionEditor', () => {
       expect(localStorage.getItem('sl_last_coach_students_path')).toBe(
         '/coach/students/stu-1/s/sess-1',
       );
+    });
+  });
+
+  // Review item P46: leaving the editor went to the athlete's page with no
+  // block named, which shows the ACTIVE block — a coach preparing the next
+  // block was sent back to the current one after every edit.
+  describe('leaving it', () => {
+    function Where() {
+      const { pathname, search } = useLocation();
+      const navigate = useNavigate();
+      return (
+        <>
+          <output data-testid="where">{pathname + search}</output>
+          {/* The system's back: one entry back in the history. */}
+          <button type="button" onClick={() => navigate(-1)}>system back</button>
+        </>
+      );
+    }
+
+    // The editor at its route, and every other URL printed: where it went.
+    function renderAtRoute(entry = '/coach/students/stu-1/s/sess-1') {
+      return render(
+        <ThemeProvider>
+          <MemoryRouter initialEntries={['/coach/students/stu-1', entry]} initialIndex={1}>
+            <Routes>
+              <Route path="/coach/students/:studentId/s/:sessionId" element={<SessionEditor />} />
+              <Route path="*" element={<Where />} />
+            </Routes>
+          </MemoryRouter>
+        </ThemeProvider>
+      );
+    }
+
+    const sessionIn = (fields) => ({
+      data: { title: 'Day 1', exercise_slots: [], ...fields },
+      isLoading: false,
+      isSuccess: true,
+    });
+
+    it('goes back to the block the session is in when it is not the active one', async () => {
+      const user = userEvent.setup();
+      mockSessionData = sessionIn({ program_id: 'p-next', program_is_active: false });
+      renderAtRoute();
+
+      await user.click(screen.getByRole('button', { name: 'Back' }));
+      expect(screen.getByTestId('where')).toHaveTextContent('/coach/students/stu-1?program=p-next');
+    });
+
+    it('goes back to the athlete page as it opens — the active block — for a session of that block', async () => {
+      const user = userEvent.setup();
+      mockSessionData = sessionIn({ program_id: 'p-now', program_is_active: true });
+      renderAtRoute();
+
+      await user.click(screen.getByRole('button', { name: 'Back' }));
+      expect(screen.getByTestId('where').textContent).toBe('/coach/students/stu-1');
+    });
+
+    it('takes the place of the editor in the history: the system back does not reopen it', async () => {
+      const user = userEvent.setup();
+      mockSessionData = sessionIn({ program_id: 'p-next', program_is_active: false });
+      renderAtRoute();
+
+      await user.click(screen.getByRole('button', { name: 'Back' }));
+      await user.click(screen.getByRole('button', { name: 'system back' }));
+      // The athlete page the editor was opened from, not the editor.
+      expect(screen.getByTestId('where').textContent).toBe('/coach/students/stu-1');
+      expect(screen.queryByText('Day 1')).toBeNull();
+    });
+
+    it('returns to that block after deleting the session', async () => {
+      const user = userEvent.setup();
+      mockSessionData = sessionIn({ program_id: 'p-next', program_is_active: false });
+      mockDeleteSession.mutate.mockImplementationOnce((_id, { onSuccess }) => onSuccess());
+      renderAtRoute();
+
+      await user.click(screen.getByText('Delete this session'));
+      await user.click(screen.getByRole('button', { name: 'Delete' }));
+      expect(screen.getByTestId('where')).toHaveTextContent('/coach/students/stu-1?program=p-next');
+    });
+
+    it('falls back on its own ?program= while there is no session', () => {
+      mockSessionData = noSession({ data: null, isSuccess: true });
+      renderAtRoute('/coach/students/stu-1/s/sess-1?program=p-next');
+
+      expect(screen.getByRole('link', { name: 'Back to the athlete' })).toHaveAttribute(
+        'href',
+        '/coach/students/stu-1?program=p-next',
+      );
+    });
+
+    // A session cached by a build that did not read `program_id`.
+    it('goes to the active block for a session without its block', async () => {
+      const user = userEvent.setup();
+      mockSessionData = sessionIn({ program_is_active: false });
+      renderAtRoute();
+
+      await user.click(screen.getByRole('button', { name: 'Back' }));
+      expect(screen.getByTestId('where').textContent).toBe('/coach/students/stu-1');
     });
   });
 

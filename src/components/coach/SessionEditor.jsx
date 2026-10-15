@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useIsRestoring } from '@tanstack/react-query';
 import {
   DndContext,
@@ -43,6 +43,7 @@ import { CoachNotFound, CoachReadProblem } from './CoachPageState';
 
 export default function SessionEditor() {
   const { sessionId, studentId } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { t } = useI18n();
   const sessionRead = useSession(sessionId);
@@ -115,7 +116,24 @@ export default function SessionEditor() {
       : readState([sessionRead], { online, restoring });
   // The Athletes tab must not come back to a session that is not there.
   useForgetCoachStudentsPath(notFound);
-  const athletePath = `/coach/students/${studentId}`;
+
+  // The athlete's page, on the block this session is in. The page shows the
+  // active block unless `?program=` names another, so a session of a block
+  // being prepared — or of a past one — goes back with its block named: the
+  // coach writing next month's block was sent back to this month's after
+  // every edit (review item P46). The block comes from the session row; while
+  // there is none, from this page's own `?program=`. A session cached by an
+  // older build has no `program_id`: the active block, as before.
+  const blockId = session
+    ? (session.program_is_active === false && session.program_id) || null
+    : searchParams.get('program');
+  const athletePath = blockId
+    ? `/coach/students/${studentId}?program=${encodeURIComponent(blockId)}`
+    : `/coach/students/${studentId}`;
+  // An explicit destination, never history.back() (a deep link has nothing
+  // behind it), and in place of the editor's entry: the system's back from
+  // the athlete's page must not open the editor again.
+  const leaveEditor = () => navigate(athletePath, { replace: true });
 
   if (pageState === 'loading') {
     return <div className="flex justify-center py-12"><Spinner /></div>;
@@ -126,6 +144,7 @@ export default function SessionEditor() {
         title={t('coachEditorNavErrors.session.notFoundTitle')}
         body={t('coachEditorNavErrors.session.notFoundBody')}
         to={athletePath}
+        replace
         linkLabel={t('coachEditorNavErrors.session.backToAthlete')}
       />
     );
@@ -217,7 +236,7 @@ export default function SessionEditor() {
           of thing you are looking at costs a line to state the obvious. */}
       <div className="flex items-center gap-3">
         <button
-          onClick={() => navigate(athletePath)}
+          onClick={leaveEditor}
           aria-label={t('common.back')}
           className="w-9 h-9 rounded-lg bg-ink-100 flex items-center justify-center text-ink-700 hover:bg-ink-200 shrink-0"
         >
@@ -466,7 +485,7 @@ export default function SessionEditor() {
           deleteSession.mutate(sessionId, {
             // The editor's own subject is gone — return to the sheet rather
             // than leaving a page bound to a deleted row.
-            onSuccess: () => navigate(athletePath),
+            onSuccess: leaveEditor,
           })
         }
       />

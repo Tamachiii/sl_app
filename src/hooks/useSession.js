@@ -25,7 +25,10 @@ export function sessionQueryOptions(sessionId) {
     queryFn: async () => {
       // Pull the parent program's is_active so the student SessionView can
       // lock writes once the block is no longer the active one — see
-      // SessionView's `isReadOnly` derivation. Coach views ignore this flag.
+      // SessionView's `isReadOnly` derivation. The coach's editor reads it
+      // with `program_id` to go back to the block the session is in: the
+      // athlete's page shows the active block unless `?program=` names
+      // another.
       //
       // The embedded set_logs exist ONLY for the coach's SessionEditor /
       // ExerciseSlotRow, which read the per-set targets from here — and the
@@ -38,7 +41,7 @@ export function sessionQueryOptions(sessionId) {
         .from('sessions')
         .select(`
           *,
-          weeks!inner(programs!inner(is_active)),
+          weeks!inner(program_id, programs!inner(is_active)),
           exercise_slots(
             *,
             exercise:exercise_library(*),
@@ -54,6 +57,7 @@ export function sessionQueryOptions(sessionId) {
       // into an error they could only offer to retry.
       if (!data) return null;
       data.program_is_active = !!data.weeks?.programs?.is_active;
+      data.program_id = data.weeks?.program_id ?? null;
       delete data.weeks;
       data.exercise_slots = (data.exercise_slots || [])
         .map((sl) => ({

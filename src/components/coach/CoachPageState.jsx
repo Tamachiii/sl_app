@@ -46,11 +46,12 @@ export function CoachReadProblem({ state, onRetry, retrying = false, compact = f
 }
 
 /**
- * `to` is where the way out leads (a path, or a `To` object); `onLeave` runs
- * on the tap, for a page that must forget it was open. Without `to`, the way
- * out is a button that runs `onLeave` alone.
+ * `to` is where the way out leads (a path, or a `To` object), in place of
+ * this entry with `replace`; `onLeave` runs on the tap, for a page that must
+ * forget it was open. Without `to`, the way out is a button that runs
+ * `onLeave` alone.
  */
-export function CoachNotFound({ title, body, to, linkLabel, onLeave, compact = false }) {
+export function CoachNotFound({ title, body, to, replace = false, linkLabel, onLeave, compact = false }) {
   return (
     <div role="status" className={boxClass(compact)}>
       <div>
@@ -60,6 +61,7 @@ export function CoachNotFound({ title, body, to, linkLabel, onLeave, compact = f
       {to ? (
         <Link
           to={to}
+          replace={replace}
           onClick={onLeave}
           className="sl-pill sl-pill-btn bg-ink-100 text-ink-700 hover:bg-ink-200"
         >
