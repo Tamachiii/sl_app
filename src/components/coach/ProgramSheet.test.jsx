@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -133,6 +133,19 @@ function renderSheet(p = program, at = '/coach/students/s-1') {
   );
 }
 
+// The open ⋯ menu of a phase. It is drawn on <body>, not in the sheet.
+function phaseMenu() {
+  return screen.getByRole('group', { name: /phase options/i });
+}
+
+// jsdom lays nothing out: every box is 0 × 0 at the top of a 1024 × 768
+// window. A test that needs a trigger somewhere gives it a box.
+function placeAt(element, { top, height = 44, left = 300, width = 44 }) {
+  element.getBoundingClientRect = () => ({
+    top, bottom: top + height, left, right: left + width, width, height, x: left, y: top,
+  });
+}
+
 describe('ProgramSheet', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -200,9 +213,8 @@ describe('ProgramSheet', () => {
       const user = userEvent.setup();
       renderSheet();
       await user.click(screen.getAllByRole('button', { name: /phase options/i })[0]);
-      // The footer offers the same label; the menu's copy comes first in the
-      // DOM because the divider it hangs off sits above the list.
-      await user.click(screen.getAllByRole('button', { name: /add session/i })[0]);
+      // The footer offers the same label: the menu's own is in the menu.
+      await user.click(within(phaseMenu()).getByRole('button', { name: /add session/i }));
       expect(mockCreateSession.mutate).toHaveBeenCalledWith(
         expect.objectContaining({ weekId: 'w-1' }),
       );
@@ -230,6 +242,95 @@ describe('ProgramSheet', () => {
       await user.click(screen.getAllByRole('button', { name: /phase options/i })[0]);
       await user.click(screen.getByRole('button', { name: /delete phase/i }));
       expect(screen.getByText(/Delete “Intro”/)).toBeInTheDocument();
+    });
+  });
+
+  // Review findings P32 and L10. The sheet is one `sl-card overflow-hidden`,
+  // and its menus were absolutely positioned inside it: the card cut them. On
+  // the last phase — the empty one "+ Phase" has just made — "Reorder phases"
+  // and "Delete phase" were below the card, and that menu is the only way to
+  // delete a phase.
+  describe('menus are drawn outside the card', () => {
+    const lastEmptyPhase = {
+      ...program,
+      weeks: [...program.weeks, { id: 'w-3', program_id: 'prog-1', week_number: 3, label: null, sessions: [] }],
+    };
+    let innerHeight;
+    beforeEach(() => {
+      innerHeight = window.innerHeight;
+      window.innerHeight = 844;
+    });
+    afterEach(() => {
+      window.innerHeight = innerHeight;
+    });
+
+    it('a phase menu hangs on <body>, not in the clipping card', async () => {
+      const user = userEvent.setup();
+      const { container } = renderSheet();
+      await user.click(screen.getAllByRole('button', { name: /phase options/i })[0]);
+      const card = container.querySelector('.sl-card.overflow-hidden');
+      expect(card).not.toBeNull();
+      expect(card).not.toContainElement(phaseMenu());
+      expect(phaseMenu().parentElement).toBe(document.body);
+    });
+
+    it('opens upward on the last, empty phase, and every item of it can be pressed', async () => {
+      const user = userEvent.setup();
+      renderSheet(lastEmptyPhase);
+      const triggers = screen.getAllByRole('button', { name: /phase options/i });
+      expect(triggers).toHaveLength(3);
+      // The last divider, 60px from the bottom of an 844px screen: 5 items of
+      // 44px do not fit below it.
+      placeAt(triggers[2], { top: 740 });
+      await user.click(triggers[2]);
+
+      const menu = phaseMenu();
+      expect(menu).toHaveAttribute('data-placement', 'above');
+      expect(menu.style.bottom).toBe(`${844 - 740 + 4}px`);
+      expect(within(menu).getAllByRole('button').map((b) => b.textContent)).toEqual([
+        '+ ADD SESSION', 'duplicate', 'copy to…', 'Reorder phases', 'delete phase',
+      ]);
+      for (const item of within(menu).getAllByRole('button')) expect(item).toHaveClass('min-h-11');
+
+      await user.click(within(menu).getByRole('button', { name: /delete phase/i }));
+      expect(screen.getByRole('dialog')).toHaveTextContent(/delete this phase/i);
+    });
+
+    it('opens downward where there is room', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      const trigger = screen.getAllByRole('button', { name: /phase options/i })[0];
+      placeAt(trigger, { top: 120 });
+      await user.click(trigger);
+      expect(phaseMenu()).toHaveAttribute('data-placement', 'below');
+      expect(phaseMenu().style.top).toBe(`${164 + 4}px`);
+    });
+
+    // The weekday picker of the last row was cut by the same card.
+    it('the weekday picker hangs on <body> too, in two rows of 44px cells', async () => {
+      const user = userEvent.setup();
+      const { container } = renderSheet();
+      const pill = screen.getByRole('button', { name: /day: tue/i });
+      placeAt(pill, { top: 780, left: 12 });
+      await user.click(pill);
+
+      const picker = screen.getByRole('group', { name: /day: tue/i });
+      expect(container.querySelector('.sl-card.overflow-hidden')).not.toContainElement(picker);
+      expect(picker).toHaveAttribute('data-placement', 'above');
+      expect(picker).toHaveClass('grid-cols-4');
+      const cells = within(picker).getAllByRole('button');
+      expect(cells).toHaveLength(8);
+      for (const cell of cells) expect(cell).toHaveClass('w-11', 'h-11');
+
+      await user.click(within(picker).getByRole('button', { name: 'Sat' }));
+      expect(mockUpdateSession.mutate).toHaveBeenCalledWith({ id: 'sess-3', day_number: 6 });
+      expect(screen.queryByRole('group', { name: /day: tue/i })).toBeNull();
+    });
+
+    it('the two triggers are 44px', () => {
+      renderSheet();
+      expect(screen.getAllByRole('button', { name: /phase options/i })[0]).toHaveClass('w-11', 'h-11');
+      expect(screen.getByRole('button', { name: /day: mon/i })).toHaveClass('h-11', 'min-w-11');
     });
   });
 

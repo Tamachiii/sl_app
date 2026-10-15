@@ -1,88 +1,100 @@
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { DAY_FULL, DAY_LABELS } from '../../lib/day';
+import PortalMenu, { anchorOf, MENU_PADDING } from './PortalMenu';
 
 // The rows of the program sheet, lifted out of ProgramSheet when the block
 // became one continuous list: the sheet itself is now about phases, drag and
 // modes, and a row knows nothing about any of that beyond the flags it is
 // handed.
 
+// The weekday picker: seven days and "none", 44px each, in two rows of four —
+// eight in one row is 352px plus the gaps, wider than a phone.
+const DAY_CELL = 44;
+const DAY_GAP = 4;
+const DAY_GRID_WIDTH = 4 * DAY_CELL + 3 * DAY_GAP + MENU_PADDING;
+const DAY_GRID_HEIGHT = 2 * DAY_CELL + DAY_GAP + MENU_PADDING;
+
 export function DayPill({ session, onPick, t }) {
-  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState(null);
+  const triggerRef = useRef(null);
+  const close = useCallback(() => setAnchor(null), []);
   const dn = session.day_number;
-  const label = dn >= 1 && dn <= 7 ? DAY_LABELS[dn - 1] : '—';
   const full = dn >= 1 && dn <= 7 ? DAY_FULL[dn - 1] : '—';
 
+  function pick(day) {
+    close();
+    onPick(day);
+  }
+
+  const cell = (current) =>
+    `w-11 h-11 rounded sl-mono text-[10px] font-semibold transition-colors ${
+      current ? 'bg-accent text-ink-900' : 'bg-ink-100 text-ink-700 hover:bg-ink-200'
+    }`;
+
   return (
-    <span className="relative shrink-0">
+    <>
+      {/* 44px to press; the pill drawn inside keeps its size. */}
       <button
+        ref={triggerRef}
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          setOpen((v) => !v);
+          setAnchor(anchor ? null : anchorOf(e.currentTarget));
         }}
         aria-label={t('coach.sheet.setDay', { day: full })}
-        aria-expanded={open}
-        className="sl-mono text-[10px] font-semibold px-1.5 py-1 rounded bg-ink-100 text-ink-700 hover:bg-ink-200 transition-colors w-10 text-center"
+        aria-expanded={!!anchor}
+        className="group h-11 min-w-11 shrink-0 flex items-center justify-center"
       >
-        {full.toUpperCase()}
+        <span className="sl-mono text-[10px] font-semibold px-1.5 py-1 rounded bg-ink-100 text-ink-700 group-hover:bg-ink-200 transition-colors w-10 text-center">
+          {full.toUpperCase()}
+        </span>
       </button>
-      {open && (
-        <>
-          {/* Click-away layer; sits under the menu but over the rows. */}
-          <button
-            type="button"
-            aria-hidden="true"
-            tabIndex={-1}
-            onClick={(e) => { e.stopPropagation(); setOpen(false); }}
-            className="fixed inset-0 z-10 cursor-default"
-          />
-          <span className="absolute left-0 top-full mt-1 z-20 flex gap-0.5 p-1 rounded-lg sl-card">
-            {DAY_LABELS.map((d, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onPick(i + 1);
-                  setOpen(false);
-                }}
-                aria-label={DAY_FULL[i]}
-                aria-current={dn === i + 1}
-                className={`w-6 h-6 rounded sl-mono text-[10px] font-semibold transition-colors ${
-                  dn === i + 1
-                    ? 'bg-accent text-ink-900'
-                    : 'bg-ink-100 text-ink-700 hover:bg-ink-200'
-                }`}
-              >
-                {d}
-              </button>
-            ))}
-            {/* Clearing the day is a real choice now that a weekday is only a
-                recommendation: plenty of sessions shouldn't suggest one. */}
+      {anchor && (
+        <PortalMenu
+          anchor={anchor}
+          height={DAY_GRID_HEIGHT}
+          width={DAY_GRID_WIDTH}
+          align="start"
+          onClose={close}
+          returnFocus={triggerRef}
+          label={t('coach.sheet.setDay', { day: full })}
+          className="grid grid-cols-4 gap-1"
+        >
+          {DAY_LABELS.map((d, i) => (
             <button
+              key={i}
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                onPick(null);
-                setOpen(false);
+                pick(i + 1);
               }}
-              aria-label={t('coach.sheet.clearDay')}
-              aria-current={!(dn >= 1 && dn <= 7)}
-              className={`w-6 h-6 rounded sl-mono text-[10px] font-semibold transition-colors ${
-                dn >= 1 && dn <= 7
-                  ? 'bg-ink-100 text-ink-700 hover:bg-ink-200'
-                  : 'bg-accent text-ink-900'
-              }`}
+              aria-label={DAY_FULL[i]}
+              aria-current={dn === i + 1}
+              className={cell(dn === i + 1)}
             >
-              —
+              {d}
             </button>
-          </span>
-        </>
+          ))}
+          {/* Clearing the day is a real choice now that a weekday is only a
+              recommendation: plenty of sessions shouldn't suggest one. */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              pick(null);
+            }}
+            aria-label={t('coach.sheet.clearDay')}
+            aria-current={!(dn >= 1 && dn <= 7)}
+            className={cell(!(dn >= 1 && dn <= 7))}
+          >
+            —
+          </button>
+        </PortalMenu>
       )}
-    </span>
+    </>
   );
 }
 
@@ -198,7 +210,7 @@ export default function SessionRow({
   }
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2 border-t border-ink-100">
+    <div className="flex items-center gap-2 min-h-11 px-3 border-t border-ink-100">
       <DayPill session={session} onPick={onSetDay} t={t} />
       <button
         type="button"

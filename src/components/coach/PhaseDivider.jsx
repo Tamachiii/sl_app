@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { phaseDropId } from '../../lib/sessionMove';
 import EditableText from '../ui/EditableText';
+import PortalMenu, { anchorOf, MENU_PADDING } from './PortalMenu';
 
 /**
  * A phase boundary inside the block's single list.
@@ -20,8 +21,15 @@ import EditableText from '../ui/EditableText';
  * sessions to aim at.
  */
 
+// One item of a menu: 44px tall, on one line — the menu's height is counted
+// from it (`PortalMenu`), so an item must not wrap.
+const ITEM_HEIGHT = 44;
+const MENU_WIDTH = 180;
+
 function PhaseMenu({ onAddSession, onDuplicate, onCopy, onDelete, onReorder, canReorder, t }) {
-  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState(null);
+  const triggerRef = useRef(null);
+  const close = useCallback(() => setAnchor(null), []);
 
   const items = [
     { label: t('coach.week.addSession'), fn: onAddSession, danger: false },
@@ -32,44 +40,50 @@ function PhaseMenu({ onAddSession, onDuplicate, onCopy, onDelete, onReorder, can
   ];
 
   return (
-    <span className="relative shrink-0">
+    <>
       <button
+        ref={triggerRef}
         type="button"
-        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          // Read here, at the tap: where the trigger is decides where the
+          // menu goes, and nothing is measured once it is drawn.
+          setAnchor(anchor ? null : anchorOf(e.currentTarget));
+        }}
         aria-label={t('coach.sheet.phaseMenu')}
-        aria-expanded={open}
-        className="w-7 h-7 rounded-lg text-ink-400 hover:bg-ink-100 hover:text-ink-700 flex items-center justify-center transition-colors"
+        aria-expanded={!!anchor}
+        className="w-11 h-11 -mr-2 shrink-0 rounded-lg text-ink-400 hover:bg-ink-100 hover:text-ink-700 flex items-center justify-center transition-colors"
       >
         <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
           <circle cx="3" cy="7" r="1.4" /><circle cx="7" cy="7" r="1.4" /><circle cx="11" cy="7" r="1.4" />
         </svg>
       </button>
-      {open && (
-        <>
-          <button
-            type="button"
-            aria-hidden="true"
-            tabIndex={-1}
-            onClick={(e) => { e.stopPropagation(); setOpen(false); }}
-            className="fixed inset-0 z-10 cursor-default"
-          />
-          <span className="absolute right-0 top-full mt-1 z-20 sl-card p-1 flex flex-col min-w-[160px]">
-            {items.map(({ label, fn, danger }) => (
-              <button
-                key={label}
-                type="button"
-                onClick={(e) => { e.stopPropagation(); setOpen(false); fn(); }}
-                className={`text-left px-2.5 py-1.5 rounded sl-mono text-[11px] hover:bg-ink-100 transition-colors ${
-                  danger ? 'text-danger' : 'text-ink-700'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </span>
-        </>
+      {anchor && (
+        <PortalMenu
+          anchor={anchor}
+          height={items.length * ITEM_HEIGHT + MENU_PADDING}
+          width={MENU_WIDTH}
+          align="end"
+          onClose={close}
+          returnFocus={triggerRef}
+          label={t('coach.sheet.phaseMenu')}
+          className="flex flex-col min-w-[180px]"
+        >
+          {items.map(({ label, fn, danger }) => (
+            <button
+              key={label}
+              type="button"
+              onClick={(e) => { e.stopPropagation(); close(); fn(); }}
+              className={`min-h-11 text-left px-3 rounded sl-mono text-[11px] truncate hover:bg-ink-100 transition-colors ${
+                danger ? 'text-danger' : 'text-ink-700'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </PortalMenu>
       )}
-    </span>
+    </>
   );
 }
 
@@ -117,7 +131,7 @@ export default function PhaseDivider({
   return (
     <div
       ref={setNodeRef}
-      className="flex items-center gap-2 px-3 py-2 border-t border-ink-100 first:border-t-0 transition-colors"
+      className="flex items-center gap-2 min-h-11 px-3 border-t border-ink-100 first:border-t-0 transition-colors"
       style={isOver ? { background: 'color-mix(in srgb, var(--color-accent) 12%, transparent)' } : undefined}
     >
       {/* A NAMED phase is a heading and reads like one. An unnamed one is just
