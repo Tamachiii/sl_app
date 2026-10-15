@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, Outlet, useNavigate, useParams } from 'react-router-dom';
+import { useIsRestoring } from '@tanstack/react-query';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { useStudents } from '../../hooks/useStudents';
@@ -7,12 +8,16 @@ import { useCoachDashboardPrograms } from '../../hooks/useProgram';
 import { useAllConfirmations } from '../../hooks/useSessionConfirmation';
 import { useClientErrors } from '../../hooks/useClientErrors';
 import { buildRoster } from '../../lib/coachRoster';
+import { readState } from '../../lib/readState';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { CoachNotFound, CoachReadProblem } from './CoachPageState';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
 import StudentWeekStrip from './StudentWeekStrip';
 import {
   useRememberCoachStudentsPath,
+  useForgetCoachStudentsPath,
   getLastCoachStudentsPath,
   clearLastCoachStudentsPath,
   studentIdFromPath,
@@ -217,15 +222,27 @@ export default function CoachHome() {
   const { profile, signOut } = useAuth();
   const { studentId } = useParams();
   const navigate = useNavigate();
-  const { data: students, isLoading } = useStudents();
+  const studentsRead = useStudents();
+  const { data: students, isLoading } = studentsRead;
+  const online = useOnlineStatus();
+  const restoring = useIsRestoring();
 
   const selected = (students || []).find((s) => s.id === studentId) || null;
+  // What the page has to show. A read that got no answer is not an empty
+  // roster: it used to say "No students yet" to a coach who has athletes.
+  const rosterState = students ? 'ready' : readState([studentsRead], { online, restoring });
+  // The roster was read and this athlete is not on it: a link gone stale, or
+  // an athlete who now trains with another coach.
+  const unknownAthlete = rosterState === 'ready' && !!studentId && !selected;
 
   // Remember the athlete (and the session editor under them) so leaving for
   // another nav tab and tapping Athletes again comes back here instead of
   // dumping the coach on the roster. One call covers the editor too: it renders
   // in this component's Outlet, so useLocation() already sees its URL.
   useRememberCoachStudentsPath();
+  // …but never an athlete who is not there, or every tap on Athletes would
+  // open this "not found" again.
+  useForgetCoachStudentsPath(unknownAthlete);
 
   // …and restore it when we land on the bare roster route. Skipped when the
   // remembered athlete is no longer on the roster, so we never navigate into a
@@ -279,22 +296,38 @@ export default function CoachHome() {
         <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
       </div>
 
-      {isLoading && (
+      {rosterState === 'loading' && (
         <div className="flex justify-center py-12"><Spinner /></div>
       )}
 
-      {!isLoading && (!students || students.length === 0) && (
+      {(rosterState === 'offline' || rosterState === 'failed') && (
+        <CoachReadProblem
+          state={rosterState}
+          onRetry={() => studentsRead.refetch({ cancelRefetch: false })}
+          retrying={studentsRead.isFetching}
+        />
+      )}
+
+      {unknownAthlete && (
+        <CoachNotFound
+          title={t('coachEditorNavErrors.athlete.notFoundTitle')}
+          body={t('coachEditorNavErrors.athlete.notFoundBody')}
+          to="/coach/students"
+          onLeave={clearLastCoachStudentsPath}
+          linkLabel={t('coach.roster.backToAll')}
+        />
+      )}
+
+      {rosterState === 'ready' && !studentId && students.length === 0 && (
         <EmptyState message={t('coach.home.noStudentsExt')} />
       )}
 
-      {!isLoading && students && students.length > 0 && (
+      {rosterState === 'ready' && (
         studentId
-          ? (selected
-              // No tab strip and no identity block: the athlete is ONE page
-              // (StudentOverview) under a header that already names them.
-              ? <Outlet context={{ student: selected }} />
-              : <EmptyState message={t('coach.home.noStudentsExt')} />)
-          : <RosterView students={students} t={t} />
+          // No tab strip and no identity block: the athlete is ONE page
+          // (StudentOverview) under a header that already names them.
+          ? selected && <Outlet context={{ student: selected }} />
+          : students.length > 0 && <RosterView students={students} t={t} />
       )}
     </div>
   );

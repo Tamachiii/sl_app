@@ -19,6 +19,7 @@ function readSavedReview() {
     return null;
   }
 }
+import { useIsRestoring } from '@tanstack/react-query';
 import Spinner from '../ui/Spinner';
 import VideoLightbox from '../ui/VideoLightbox';
 import VideoPlayer from '../ui/VideoPlayer';
@@ -43,6 +44,8 @@ import SessionFeedbackComposer from './SessionFeedbackComposer';
 import SessionFeedbackSent from './SessionFeedbackSent';
 import SessionReviewedNoFeedback from './SessionReviewedNoFeedback';
 import SessionReviewNotConfirmed from './SessionReviewNotConfirmed';
+import { CoachNotFound, CoachReadProblem } from './CoachPageState';
+import { readState } from '../../lib/readState';
 import {
   formatRestSeconds,
   groupSlotsBySuperset,
@@ -101,18 +104,37 @@ function SessionReviewPage() {
       : null;
   }, [location.state, studentId, sessionId]);
 
+  const sessionRead = useSession(sessionId);
+  const session = sessionRead.data;
+  // The database's answer that there is no such session: deleted, or not this
+  // coach's. Said as that, and never remembered as the review to come back to.
+  const notFound = sessionRead.isSuccess && session == null;
+  const hasSession = !!session;
+
   // Persist so tabbing between Sessions and other tabs returns to this
   // review instead of dropping the coach back on the feed. Cleared on
-  // explicit back-button click below.
+  // explicit back-button click below. Written once the session is known to
+  // be there: SessionsFeed restores this key on every visit, so a review of
+  // a session that is gone, saved here, would be where the Sessions tab
+  // opens from then on.
   useEffect(() => {
-    if (!studentId || !sessionId) return;
+    if (!studentId || !sessionId || !hasSession) return;
     try {
       localStorage.setItem(
         LAST_COACH_SESSION_KEY,
         JSON.stringify({ studentId, sessionId, ...(origin ? { from: origin } : {}) }),
       );
     } catch { /* ignore */ }
-  }, [studentId, sessionId, origin]);
+  }, [studentId, sessionId, origin, hasSession]);
+
+  // …and a review saved on an earlier visit, when the session was still
+  // there, goes as soon as the page learns it is not.
+  useEffect(() => {
+    if (!notFound) return;
+    const saved = readSavedReview();
+    if (saved?.studentId !== studentId || saved?.sessionId !== sessionId) return;
+    try { localStorage.removeItem(LAST_COACH_SESSION_KEY); } catch { /* ignore */ }
+  }, [notFound, studentId, sessionId]);
 
   function forgetReview() {
     try { localStorage.removeItem(LAST_COACH_SESSION_KEY); } catch { /* ignore */ }
@@ -127,13 +149,13 @@ function SessionReviewPage() {
     navigate(origin || DEFAULT_ORIGIN);
   }
 
-  const { data: session, isLoading } = useSession(sessionId);
   const slots = session?.exercise_slots || [];
   const { data: setLogs } = useSetLogs(sessionId, slots);
   const { data: slotComments } = useSlotComments(sessionId, slots);
   const { data: slotDeviations } = useSlotDeviations(sessionId, slots);
   const { data: exerciseLibrary } = useExerciseLibrary();
   const online = useOnlineStatus();
+  const restoring = useIsRestoring();
   // Phase 3.1: adopting a student's swap into the program. `adoptTarget` drives
   // the confirm dialog; `adoptedSlots` hides the button once done (the reviewed
   // slot's deviation is preserved, so we track success client-side).
@@ -184,22 +206,58 @@ function SessionReviewPage() {
   const isArchived = !!session?.archived_at;
   const [playing, setPlaying] = useState(null);
 
-  if (isLoading) {
+  // A read that got no answer is not a session: rendered as one, it was a
+  // review titled "Session" with nothing in it and a live feedback form
+  // (review items P49, L11).
+  const pageState = session
+    ? 'ready'
+    : notFound
+      ? 'notFound'
+      : readState([sessionRead], { online, restoring });
+
+  if (pageState === 'loading') {
     return <div className="flex justify-center py-12"><Spinner /></div>;
+  }
+
+  const backButton = (
+    <button
+      onClick={handleBack}
+      aria-label="Back"
+      className="w-9 h-9 rounded-lg bg-ink-100 flex items-center justify-center text-ink-700 hover:bg-ink-200 shrink-0"
+    >
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+      </svg>
+    </button>
+  );
+
+  if (pageState !== 'ready') {
+    return (
+      <div className="p-4 pb-6 md:p-8 space-y-5">
+        <div className="flex items-start gap-3">{backButton}</div>
+        {pageState === 'notFound' ? (
+          <CoachNotFound
+            title={t('coachEditorNavErrors.session.notFoundTitle')}
+            body={t('coachEditorNavErrors.session.notFoundBody')}
+            to={origin || DEFAULT_ORIGIN}
+            onLeave={forgetReview}
+            linkLabel={t('coachEditorNavErrors.session.goBack')}
+          />
+        ) : (
+          <CoachReadProblem
+            state={pageState}
+            onRetry={() => sessionRead.refetch({ cancelRefetch: false })}
+            retrying={sessionRead.isFetching}
+          />
+        )}
+      </div>
+    );
   }
 
   return (
     <div className="p-4 pb-6 md:p-8 space-y-5">
       <div className="flex items-start gap-3">
-        <button
-          onClick={handleBack}
-          aria-label="Back"
-          className="w-9 h-9 rounded-lg bg-ink-100 flex items-center justify-center text-ink-700 hover:bg-ink-200 shrink-0"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
+        {backButton}
         <div className="flex-1 min-w-0">
           <div className="sl-label text-ink-400">Review</div>
           <h1 className="sl-display text-[22px] text-gray-900 leading-tight mt-0.5 truncate">

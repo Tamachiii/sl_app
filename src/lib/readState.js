@@ -6,7 +6,10 @@
  *   'loading'  one is on its way, the cache is still being read back from
  *              IndexedDB, or nothing was asked yet;
  *   'offline'  one waits for the network;
- *   'failed'   one got no answer while the device is online.
+ *   'failed'   one got no answer while the device is online, or one was
+ *              answered with nothing — a `maybeSingle` read of a row that is
+ *              not there (a session that was deleted): waiting will not bring
+ *              it, so it is not 'loading'.
  *
  * "No data" is not one state. A read that never got an answer — the device is
  * offline and waits (`isPaused`), or the request failed — has nothing to say
@@ -28,6 +31,7 @@ export function readState(queries, { online, restoring }) {
   const missing = queries.filter((q) => q.data == null);
   if (missing.length === 0) return 'ready';
   if (restoring || missing.some((q) => q.fetchStatus === 'fetching')) return 'loading';
+  if (missing.some((q) => q.isSuccess)) return 'failed';
   if (!online || missing.some((q) => q.isPaused)) return 'offline';
   if (missing.some((q) => q.isError)) return 'failed';
   // Not asked yet (the account is not known): nothing to report.

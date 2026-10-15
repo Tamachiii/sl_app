@@ -298,6 +298,79 @@ describe('CoachHome', () => {
     });
   });
 
+  // Review items P49 and L11: a failed read and an unknown athlete both said
+  // "No students yet. Add students via Supabase dashboard." — to a coach who
+  // has athletes.
+  describe('when the page has nothing to show', () => {
+    const KEY = 'sl_last_coach_students_path';
+    const refetch = vi.fn();
+    const ALICE = { id: 's-1', profile_id: 'p-1', created_at: null, profile: { full_name: 'Alice' } };
+
+    beforeEach(() => {
+      refetch.mockReset();
+    });
+
+    it('says the roster could not be read, and asks again on Retry', () => {
+      mockStudentsData = {
+        data: undefined, isLoading: false, isError: true, isPaused: false, fetchStatus: 'idle', refetch,
+      };
+      renderCoachHome('/coach/students');
+
+      expect(screen.getByText('This couldn’t be loaded')).toBeInTheDocument();
+      expect(screen.queryByText(/no students yet/i)).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+      expect(refetch).toHaveBeenCalledWith({ cancelRefetch: false });
+    });
+
+    it('says the roster waits for the network when the read is paused', () => {
+      mockStudentsData = {
+        data: undefined, isLoading: true, isError: false, isPaused: true, fetchStatus: 'paused', refetch,
+      };
+      renderCoachHome('/coach/students/s-1');
+
+      expect(screen.getByText('This isn’t on this device yet')).toBeInTheDocument();
+      expect(screen.queryByText(/no students yet/i)).toBeNull();
+    });
+
+    it('says an athlete who is not on the roster is not found, with the way back to it', () => {
+      mockStudentsData = { data: [ALICE], isLoading: false };
+      renderCoachHome('/coach/students/nobody');
+
+      expect(screen.getByText('Athlete not found')).toBeInTheDocument();
+      expect(screen.queryByText(/no students yet/i)).toBeNull();
+      expect(screen.queryByTestId('overview')).toBeNull();
+      const back = screen.getAllByRole('link', { name: /all athletes/i });
+      expect(back.at(-1)).toHaveAttribute('href', '/coach/students');
+    });
+
+    it('says the same to a coach without athletes', () => {
+      mockStudentsData = { data: [], isLoading: false };
+      renderCoachHome('/coach/students/nobody/s/sess-1');
+
+      expect(screen.getByText('Athlete not found')).toBeInTheDocument();
+      expect(screen.queryByText(/no students yet/i)).toBeNull();
+      expect(screen.queryByTestId('session-editor')).toBeNull();
+    });
+
+    it('does not make the unknown athlete the place the Athletes tab returns to', () => {
+      localStorage.setItem(KEY, '/coach/students/s-1');
+      mockStudentsData = { data: [ALICE], isLoading: false };
+      renderCoachHome('/coach/students/nobody');
+
+      expect(localStorage.getItem(KEY)).toBeNull();
+    });
+
+    it('remembers the next athlete opened after it', () => {
+      mockStudentsData = { data: [ALICE], isLoading: false };
+      renderCoachHome('/coach/students/nobody');
+      fireEvent.click(screen.getAllByRole('link', { name: /all athletes/i }).at(-1));
+      fireEvent.click(screen.getByRole('link', { name: /open alice/i }));
+
+      expect(screen.getByTestId('overview')).toHaveTextContent('overview:s-1');
+      expect(localStorage.getItem(KEY)).toBe('/coach/students/s-1');
+    });
+  });
+
   // Leaving for Sessions/Messages/Library and tapping Athletes again must come
   // back to the athlete, not dump the coach on the roster.
   describe('Athletes-tab persistence', () => {

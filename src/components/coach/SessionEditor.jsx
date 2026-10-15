@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useIsRestoring } from '@tanstack/react-query';
 import {
   DndContext,
   PointerSensor,
@@ -35,12 +36,19 @@ import Spinner from '../ui/Spinner';
 import EditableText from '../ui/EditableText';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import { useI18n } from '../../hooks/useI18n';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { useForgetCoachStudentsPath } from '../../hooks/useRememberCoachStudentsPath';
+import { readState } from '../../lib/readState';
+import { CoachNotFound, CoachReadProblem } from './CoachPageState';
 
 export default function SessionEditor() {
   const { sessionId, studentId } = useParams();
   const navigate = useNavigate();
   const { t } = useI18n();
-  const { data: session, isLoading } = useSession(sessionId);
+  const sessionRead = useSession(sessionId);
+  const session = sessionRead.data;
+  const online = useOnlineStatus();
+  const restoring = useIsRestoring();
   const { data: confirmation } = useSessionConfirmation(sessionId);
   const { data: library } = useExerciseLibrary();
   const addSlot = useAddSlot();
@@ -94,8 +102,42 @@ export default function SessionEditor() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  if (isLoading) {
+  // What the page has to show. `null` is the database's answer that there is
+  // no such session — deleted, or not this coach's — and it is said as that,
+  // with the way back. A read that got no answer is not an empty session:
+  // rendered as one, it was an editor with a live "+ Add exercise" and a
+  // "Delete this session" bound to nothing (review item P49).
+  const notFound = sessionRead.isSuccess && session == null;
+  const pageState = session
+    ? 'ready'
+    : notFound
+      ? 'notFound'
+      : readState([sessionRead], { online, restoring });
+  // The Athletes tab must not come back to a session that is not there.
+  useForgetCoachStudentsPath(notFound);
+  const athletePath = `/coach/students/${studentId}`;
+
+  if (pageState === 'loading') {
     return <div className="flex justify-center py-12"><Spinner /></div>;
+  }
+  if (pageState === 'notFound') {
+    return (
+      <CoachNotFound
+        title={t('coachEditorNavErrors.session.notFoundTitle')}
+        body={t('coachEditorNavErrors.session.notFoundBody')}
+        to={athletePath}
+        linkLabel={t('coachEditorNavErrors.session.backToAthlete')}
+      />
+    );
+  }
+  if (pageState !== 'ready') {
+    return (
+      <CoachReadProblem
+        state={pageState}
+        onRetry={() => sessionRead.refetch({ cancelRefetch: false })}
+        retrying={sessionRead.isFetching}
+      />
+    );
   }
 
   function handleAddExercise() {
@@ -175,7 +217,7 @@ export default function SessionEditor() {
           of thing you are looking at costs a line to state the obvious. */}
       <div className="flex items-center gap-3">
         <button
-          onClick={() => navigate(`/coach/students/${studentId}`)}
+          onClick={() => navigate(athletePath)}
           aria-label={t('common.back')}
           className="w-9 h-9 rounded-lg bg-ink-100 flex items-center justify-center text-ink-700 hover:bg-ink-200 shrink-0"
         >
@@ -424,7 +466,7 @@ export default function SessionEditor() {
           deleteSession.mutate(sessionId, {
             // The editor's own subject is gone — return to the sheet rather
             // than leaving a page bound to a deleted row.
-            onSuccess: () => navigate(`/coach/students/${studentId}`),
+            onSuccess: () => navigate(athletePath),
           })
         }
       />

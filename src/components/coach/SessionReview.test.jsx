@@ -136,6 +136,91 @@ describe('<SessionReview />', () => {
     expect(screen.getByRole('status')).toBeInTheDocument();
   });
 
+  // Review items P49 and L11: the review tested `isLoading` alone. A failed
+  // read, or a session that is not there, rendered a review titled "Session"
+  // with a feedback step — and saved itself as the review the Sessions tab
+  // reopens.
+  describe('without a session to show', () => {
+    const KEY = 'sl_last_coach_session';
+    const refetch = vi.fn();
+    const noSession = (overrides) => ({
+      data: undefined,
+      isLoading: false,
+      isSuccess: false,
+      isError: false,
+      isPaused: false,
+      isFetching: false,
+      fetchStatus: 'idle',
+      refetch,
+      ...overrides,
+    });
+
+    beforeEach(() => {
+      refetch.mockReset();
+      mockConfirmation = confirmationQuery(CONFIRMED);
+    });
+
+    function expectNoReview() {
+      expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+      expect(screen.queryByText(/Confirmed by student/i)).toBeNull();
+      expect(screen.queryByRole('button', { name: /finish without feedback/i })).toBeNull();
+      expect(screen.queryByRole('textbox')).toBeNull();
+      expect(screen.queryByText('archive')).toBeNull();
+    }
+
+    it('says a failed read failed, asks again on Retry, and saves nothing', () => {
+      mockSessionData = noSession({ isError: true });
+      renderReview();
+
+      expect(screen.getByText('This couldn’t be loaded')).toBeInTheDocument();
+      expectNoReview();
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+      expect(refetch).toHaveBeenCalledWith({ cancelRefetch: false });
+      expect(localStorage.getItem(KEY)).toBeNull();
+    });
+
+    it('says a session that is not there is not found, with the way back', () => {
+      mockSessionData = noSession({ data: null, isSuccess: true });
+      renderReview();
+
+      expect(screen.getByText('Session not found')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Go back' })).toHaveAttribute('href', '/coach/sessions');
+      expectNoReview();
+      expect(localStorage.getItem(KEY)).toBeNull();
+    });
+
+    it('leads back to the page that opened it', () => {
+      mockSessionData = noSession({ data: null, isSuccess: true });
+      renderReview({
+        pathname: '/coach/student/st-1/session/sess-1/review',
+        state: { from: '/coach/students/st-1' },
+      });
+
+      expect(screen.getByRole('link', { name: 'Go back' })).toHaveAttribute('href', '/coach/students/st-1');
+      fireEvent.click(screen.getByLabelText('Back'));
+      expect(mockNavigate).toHaveBeenCalledWith('/coach/students/st-1');
+    });
+
+    // Saved on an earlier visit, while the session was there: the Sessions
+    // tab would reopen this "not found" on every visit.
+    it('forgets this review when it was saved before the session went', () => {
+      localStorage.setItem(KEY, JSON.stringify({ studentId: 'st-1', sessionId: 'sess-1' }));
+      mockSessionData = noSession({ data: null, isSuccess: true });
+      renderReview();
+
+      expect(localStorage.getItem(KEY)).toBeNull();
+    });
+
+    it('leaves another review saved', () => {
+      const other = JSON.stringify({ studentId: 'st-1', sessionId: 'sess-9' });
+      localStorage.setItem(KEY, other);
+      mockSessionData = noSession({ data: null, isSuccess: true });
+      renderReview();
+
+      expect(localStorage.getItem(KEY)).toBe(other);
+    });
+  });
+
   it('says the session is not confirmed when no confirmation exists', () => {
     mockSessionData = {
       data: { id: 'sess-1', title: 'Push', archived_at: null, exercise_slots: [] },

@@ -114,12 +114,12 @@ function serverRow(fields = {}) {
   };
 }
 
-// The `sessions` read of useSession: from().select().eq().single().
-function answerWith(single) {
+// The `sessions` read of useSession: from().select().eq().maybeSingle().
+function answerWith(maybeSingle) {
   const chain = {
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
-    single,
+    maybeSingle,
   };
   supabase.from.mockReturnValue(chain);
   return chain;
@@ -177,7 +177,7 @@ describe('SessionView on the real session query: learning of a review', () => {
       '/student/messages'
     );
     expect(supabase.from).toHaveBeenCalledWith('sessions');
-    expect(chain.single).toHaveBeenCalledTimes(1);
+    expect(chain.maybeSingle).toHaveBeenCalledTimes(1);
   });
 
   it('keeps Undo when the answer still says "not reviewed", and does not ask in a loop', async () => {
@@ -188,11 +188,11 @@ describe('SessionView on the real session query: learning of a review', () => {
 
     renderSessionView(qc);
 
-    await waitFor(() => expect(chain.single).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(chain.maybeSingle).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(qc.isFetching({ queryKey: SESSION_KEY })).toBe(0));
     expect(undoButton()).toBeInTheDocument();
     expect(lockLine()).toBeNull();
-    expect(chain.single).toHaveBeenCalledTimes(1);
+    expect(chain.maybeSingle).toHaveBeenCalledTimes(1);
   });
 
   it('joins the request React Query makes for a STALE row instead of sending a second one', async () => {
@@ -206,11 +206,11 @@ describe('SessionView on the real session query: learning of a review', () => {
     renderSessionView(qc);
 
     // Both askers have had their turn; one request is on its way.
-    await waitFor(() => expect(chain.single).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(chain.maybeSingle).toHaveBeenCalledTimes(1));
     answer({ data: serverRow({ reviewed_at: REVIEWED_AT }), error: null });
 
     await waitFor(() => expect(lockLine()).toBeInTheDocument());
-    expect(chain.single).toHaveBeenCalledTimes(1);
+    expect(chain.maybeSingle).toHaveBeenCalledTimes(1);
   });
 
   it('leaves a session in progress to the cache', async () => {
@@ -223,7 +223,7 @@ describe('SessionView on the real session query: learning of a review', () => {
     expect(screen.getByRole('button', { name: /^confirm session$/i })).toBeInTheDocument();
     // Give an unwanted request the time to start.
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(chain.single).not.toHaveBeenCalled();
+    expect(chain.maybeSingle).not.toHaveBeenCalled();
   });
 
   it('a read that fails leaves the page as the cache had it', async () => {
@@ -236,7 +236,7 @@ describe('SessionView on the real session query: learning of a review', () => {
 
     renderSessionView(qc);
 
-    await waitFor(() => expect(chain.single).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(chain.maybeSingle).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(qc.isFetching({ queryKey: SESSION_KEY })).toBe(0));
     expect(screen.getByText('Day 1')).toBeInTheDocument();
     expect(undoButton()).toBeInTheDocument();

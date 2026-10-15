@@ -80,19 +80,35 @@ vi.mock('../../hooks/useWeek', () => ({
 
 import SessionEditor from './SessionEditor';
 
-function renderEditor() {
+function renderEditor(entry = '/coach/students/stu-1/s/sess-1') {
   return render(
     <ThemeProvider>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[entry]}>
         <SessionEditor />
       </MemoryRouter>
     </ThemeProvider>
   );
 }
 
+// What useQuery reports for a read that has not produced a session.
+function noSession(overrides = {}) {
+  return {
+    data: undefined,
+    isLoading: false,
+    isSuccess: false,
+    isError: false,
+    isPaused: false,
+    isFetching: false,
+    fetchStatus: 'idle',
+    refetch: vi.fn(),
+    ...overrides,
+  };
+}
+
 describe('SessionEditor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     mockConfirmation = { data: null };
     mockLibraryData = {
       data: [
@@ -106,6 +122,69 @@ describe('SessionEditor', () => {
     mockSessionData = { data: null, isLoading: true };
     renderEditor();
     expect(screen.getByRole('status')).toBeInTheDocument();
+  });
+
+  // Review items P49 and L11: the editor tested `isLoading` alone, so a read
+  // that failed — or a session that is not there — rendered the full editor,
+  // empty and writable.
+  describe('without a session to show', () => {
+    function expectNoEditor() {
+      expect(screen.queryByText('+ ADD EXERCISE')).toBeNull();
+      expect(screen.queryByText('Delete this session')).toBeNull();
+      expect(screen.queryByLabelText('Recommended date')).toBeNull();
+      expect(screen.queryByRole('button', { name: /edit session title/i })).toBeNull();
+    }
+
+    it('says a failed read failed, and asks again on Retry', async () => {
+      const user = userEvent.setup();
+      mockSessionData = noSession({ isError: true });
+      renderEditor();
+
+      expect(screen.getByText('This couldn’t be loaded')).toBeInTheDocument();
+      expectNoEditor();
+      await user.click(screen.getByRole('button', { name: 'Try again' }));
+      expect(mockSessionData.refetch).toHaveBeenCalledWith({ cancelRefetch: false });
+    });
+
+    it('says it waits for the network when the read is paused', () => {
+      mockSessionData = noSession({ isPaused: true, fetchStatus: 'paused' });
+      renderEditor();
+
+      expect(screen.getByText('This isn’t on this device yet')).toBeInTheDocument();
+      expectNoEditor();
+    });
+
+    it('says a session that is not there is not found, with the way back to the athlete', () => {
+      mockSessionData = noSession({ data: null, isSuccess: true });
+      renderEditor();
+
+      expect(screen.getByText('Session not found')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Back to the athlete' })).toHaveAttribute(
+        'href',
+        '/coach/students/stu-1',
+      );
+      expectNoEditor();
+    });
+
+    // The Athletes tab comes back to the last place the coach was: not to a
+    // session that is gone.
+    it('forgets the remembered place when the session is not found', () => {
+      localStorage.setItem('sl_last_coach_students_path', '/coach/students/stu-1/s/sess-1');
+      mockSessionData = noSession({ data: null, isSuccess: true });
+      renderEditor();
+
+      expect(localStorage.getItem('sl_last_coach_students_path')).toBeNull();
+    });
+
+    it('keeps it when the read only failed: the session may well be there', () => {
+      localStorage.setItem('sl_last_coach_students_path', '/coach/students/stu-1/s/sess-1');
+      mockSessionData = noSession({ isError: true });
+      renderEditor();
+
+      expect(localStorage.getItem('sl_last_coach_students_path')).toBe(
+        '/coach/students/stu-1/s/sess-1',
+      );
+    });
   });
 
   it('renders session title', () => {

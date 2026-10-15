@@ -46,8 +46,13 @@ export function sessionQueryOptions(sessionId) {
           )
         `)
         .eq('id', sessionId)
-        .single();
+        .maybeSingle();
       if (error) throw error;
+      // No row: the session was deleted, or it is not one this account may
+      // read. That is an answer, not a failure — the pages say "not found"
+      // for it (`isSuccess` with `data === null`), where `single` turned it
+      // into an error they could only offer to retry.
+      if (!data) return null;
       data.program_is_active = !!data.weeks?.programs?.is_active;
       delete data.weeks;
       data.exercise_slots = (data.exercise_slots || [])

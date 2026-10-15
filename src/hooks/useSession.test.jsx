@@ -100,7 +100,7 @@ describe('useSession', () => {
     const chain = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
+      maybeSingle: vi.fn().mockResolvedValue({
         data: {
           id: 's-1',
           weeks: { programs: { is_active: false } },
@@ -136,6 +136,37 @@ describe('useSession', () => {
     expect(data.exercise_slots[1].set_logs.map((l) => l.id)).toEqual(['l-2a', 'l-2b']);
   });
 
+  // A session that was deleted, or that this account may not read, is an
+  // answer: the pages say "not found" for it. `single` made it an error
+  // (PGRST116) they could only offer to retry.
+  it('answers null for a session that is not there', async () => {
+    const chain = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+    };
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useSession('gone'), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toBeNull();
+    expect(chain.eq).toHaveBeenCalledWith('id', 'gone');
+  });
+
+  it('still fails on an error', async () => {
+    const chain = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: { message: 'boom' } }),
+    };
+    supabase.from.mockReturnValue(chain);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useSession('s-1'), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+
   // The editor locks a set from these flags, so a column missing here is a
   // logged set rendered as editable. `weight_kg` is the dead pre-target column:
   // nothing reads it from this projection.
@@ -143,7 +174,7 @@ describe('useSession', () => {
     const chain = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
+      maybeSingle: vi.fn().mockResolvedValue({
         data: { id: 's-1', weeks: { programs: { is_active: true } }, exercise_slots: [] },
         error: null,
       }),
@@ -170,7 +201,7 @@ describe('sessionQueryOptions', () => {
   const sessionRead = () => ({
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
-    single: vi.fn().mockResolvedValue({
+    maybeSingle: vi.fn().mockResolvedValue({
       data: {
         id: 's-1',
         weeks: { programs: { is_active: true } },

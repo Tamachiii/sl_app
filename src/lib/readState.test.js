@@ -63,6 +63,17 @@ describe('readState', () => {
     expect(readState([notAsked], ONLINE)).toBe('loading');
   });
 
+  // `useSession` answers null for a session that is not there. That answer
+  // is final: a page that read it as "not asked yet" spun for ever.
+  it('is failed when a read was answered with nothing, online or not', () => {
+    const answeredNothing = { ...holds(null), isSuccess: true };
+    expect(readState([answeredNothing], ONLINE)).toBe('failed');
+    expect(readState([answeredNothing], OFFLINE)).toBe('failed');
+    expect(readState([holds([1]), answeredNothing], ONLINE)).toBe('failed');
+    // Asked again: wait for that answer.
+    expect(readState([{ ...answeredNothing, fetchStatus: 'fetching' }], ONLINE)).toBe('loading');
+  });
+
   it('is decided by the reads that hold nothing: one is enough', () => {
     expect(readState([holds([1]), holds([2]), waiting], ONLINE)).toBe('offline');
     expect(readState([holds(null)], ONLINE)).toBe('loading');
