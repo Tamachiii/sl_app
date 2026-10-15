@@ -12,6 +12,10 @@ import {
 } from '../../lib/volume';
 import { formatLastPerformance, daysSince } from '../../lib/lastPerformance';
 
+// The box of the "Last time" hint, shared with the placeholder that keeps its
+// place: the same padding and the same two lines of type, so the same height.
+const HINT_BOX = 'flex items-baseline gap-2 rounded-lg bg-ink-50 px-3 py-2';
+
 // "Last time" hint: what the student did for this exercise in their most
 // recent prior session, shown at the top of the expanded card so progressive
 // overload has a target to beat. Relative date via Intl (i18n for free).
@@ -28,12 +32,25 @@ function LastTimeHint({ perf, label, lang }) {
     }
   }
   return (
-    <div className="flex items-baseline gap-2 rounded-lg bg-ink-50 px-3 py-2">
+    <div className={HINT_BOX}>
       <span className="sl-label text-ink-400 shrink-0">{label}</span>
       <span className="sl-mono text-[12px] text-ink-600 min-w-0 break-words">{summary}</span>
       {when && (
         <span className="sl-mono text-[11px] text-ink-400 shrink-0 ml-auto pl-1">{when}</span>
       )}
+    </div>
+  );
+}
+
+// The place of the hint while it is on its way (N6). The history behind it is
+// read after the sets — 1.5 s against 0.8 s on a gym's 4G — and the hint
+// arriving pushed every row down by its height, under a finger on its way to
+// set 1. Hidden from screen readers: it holds a place and says nothing.
+function LastTimePlaceholder({ label }) {
+  return (
+    <div className={HINT_BOX} aria-hidden="true">
+      <span className="sl-label text-ink-400 shrink-0">{label}</span>
+      <span className="sl-mono text-[12px] text-ink-400 motion-safe:animate-pulse">…</span>
     </div>
   );
 }
@@ -91,6 +108,7 @@ function SlotBody({
   slotComments,
   slotDeviations,
   lastPerformance,
+  lastPerformanceLoading = false,
   exerciseLibrary,
   sessionId,
   isConfirmed,
@@ -157,9 +175,11 @@ function SlotBody({
 
       {!isExerciseSkipped && (
         <>
-          {lastPerf && (
+          {lastPerf ? (
             <LastTimeHint perf={lastPerf} label={t('student.session.lastTime')} lang={lang} />
-          )}
+          ) : lastPerformanceLoading ? (
+            <LastTimePlaceholder label={t('student.session.lastTime')} />
+          ) : null}
           <div className="space-y-1.5">
             {slotLogs.map((log) => {
               const seed = seeds.get(log.id);
@@ -293,6 +313,7 @@ export default function SlotGroupCard({
   slotComments,
   slotDeviations,
   lastPerformance,
+  lastPerformanceLoading = false,
   exerciseLibrary,
   sessionId,
   isConfirmed,
@@ -347,6 +368,7 @@ export default function SlotGroupCard({
                 slotComments={slotComments}
                 slotDeviations={slotDeviations}
                 lastPerformance={lastPerformance}
+                lastPerformanceLoading={lastPerformanceLoading}
                 exerciseLibrary={exerciseLibrary}
                 sessionId={sessionId}
                 isConfirmed={isConfirmed}
@@ -400,6 +422,7 @@ export default function SlotGroupCard({
             slotComments={slotComments}
             slotDeviations={slotDeviations}
             lastPerformance={lastPerformance}
+            lastPerformanceLoading={lastPerformanceLoading}
             exerciseLibrary={exerciseLibrary}
             sessionId={sessionId}
             isConfirmed={isConfirmed}

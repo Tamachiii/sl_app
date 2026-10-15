@@ -51,10 +51,10 @@ const prescribed = (n, extra = {}) => ({
 
 const SWAP = { exercise_slot_id: 'slot-1', kind: 'swap', substitute_exercise_id: SUBSTITUTE };
 
-function renderCard({ logs, deviations = [], lastPerformance = {} }) {
-  return render(
+function card({ logs, deviations = [], lastPerformance = {}, lastPerformanceLoading = false, slots = [slot] }) {
+  return (
     <SlotGroupCard
-      group={{ key: slot.id, slots: [slot] }}
+      group={{ key: slots[0].id, slots }}
       slotOffset={0}
       open
       onToggle={() => {}}
@@ -62,12 +62,17 @@ function renderCard({ logs, deviations = [], lastPerformance = {} }) {
       slotComments={[]}
       slotDeviations={deviations}
       lastPerformance={lastPerformance}
+      lastPerformanceLoading={lastPerformanceLoading}
       exerciseLibrary={[]}
       sessionId="sess-1"
       isConfirmed={false}
       isReadOnly={false}
-    />,
+    />
   );
+}
+
+function renderCard(props) {
+  return render(card(props));
 }
 
 // The row of the n-th set shown, in set order (the root of a SetRow).
@@ -286,5 +291,71 @@ describe('the sizes of its controls', () => {
   it('"+ Add set" is 44 px tall', () => {
     renderCard({ logs: [prescribed(1)] });
     expect(screen.getByRole('button', { name: /add set/i })).toHaveClass('sl-pill', 'sl-pill-btn');
+  });
+});
+
+// N6. The hint arrives after the sets (it reads the athlete's whole history):
+// it pushed every row down by its height under a finger on its way to set 1.
+// While it is on its way, a box of its size keeps its place. jsdom lays
+// nothing out: the box is the hint's own (`HINT_BOX`), with the same two lines.
+describe('the place of the "Last time" hint', () => {
+  const benchLastTime = {
+    [ORIGINAL.id]: { performedAt: '2026-10-08T18:00:00Z', scheduledDate: null, sets: [{ weight: 100, reps: 8 }] },
+  };
+  const box = () => screen.getByText('Last time').parentElement;
+  const firstRow = () => document.querySelector('div.relative.rounded-xl');
+
+  it('is kept while the hint is on its way, and the hint takes it, above the same rows', () => {
+    const logs = [prescribed(1), prescribed(2)];
+    const { rerender } = renderCard({ logs, lastPerformance: undefined, lastPerformanceLoading: true });
+
+    const placeholder = box();
+    expect(placeholder).toHaveAttribute('aria-hidden', 'true');
+    expect(placeholder.compareDocumentPosition(firstRow()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const kept = placeholder.className;
+
+    rerender(card({ logs, lastPerformance: benchLastTime, lastPerformanceLoading: false }));
+
+    const hint = box();
+    expect(hint).not.toHaveAttribute('aria-hidden');
+    expect(hint).toHaveTextContent(/100/);
+    expect(hint.className).toBe(kept);
+    expect(hint.compareDocumentPosition(firstRow()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByText('Last time')).toHaveLength(1);
+  });
+
+  it('is not kept once the read is over: no history for the exercise, or no answer', () => {
+    const logs = [prescribed(1)];
+    const { rerender } = renderCard({ logs, lastPerformance: undefined, lastPerformanceLoading: true });
+    expect(screen.getByText('Last time')).toBeInTheDocument();
+
+    // Answered, without this exercise.
+    rerender(card({ logs, lastPerformance: {}, lastPerformanceLoading: false }));
+    expect(screen.queryByText('Last time')).not.toBeInTheDocument();
+
+    // Failed, or paused without a network: no data, and not on its way.
+    rerender(card({ logs, lastPerformance: undefined, lastPerformanceLoading: false }));
+    expect(screen.queryByText('Last time')).not.toBeInTheDocument();
+  });
+
+  it('is kept in each exercise of a superset too', () => {
+    const second = { id: 'slot-2', exercise: { id: 'ex-row', name: 'Row' }, sets: 1 };
+    renderCard({
+      logs: [prescribed(1)],
+      slots: [slot, second],
+      lastPerformance: undefined,
+      lastPerformanceLoading: true,
+    });
+    expect(screen.getAllByText('Last time')).toHaveLength(2);
+  });
+
+  it('a skipped exercise keeps none: its sets are hidden', () => {
+    renderCard({
+      logs: [prescribed(1)],
+      deviations: [{ exercise_slot_id: 'slot-1', kind: 'skip', substitute_exercise_id: null }],
+      lastPerformance: undefined,
+      lastPerformanceLoading: true,
+    });
+    expect(screen.queryByText('Last time')).not.toBeInTheDocument();
   });
 });

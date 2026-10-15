@@ -107,17 +107,24 @@ export default function SessionView() {
   const logsRead = useSetLogs(sessionId, slots);
   const { data: logs, refetch: refetchLogs } = logsRead;
   const { data: slotComments } = useSlotComments(sessionId, slots);
-  const { data: slotDeviations, isFetched: deviationsFetched } = useSlotDeviations(
-    sessionId,
-    slots,
-  );
-  const { data: lastPerformance } = useLastPerformance(
+  const deviationsRead = useSlotDeviations(sessionId, slots);
+  const { data: slotDeviations, isFetched: deviationsFetched } = deviationsRead;
+  const lastPerformanceRead = useLastPerformance(
     sessionId,
     slots,
     session?.scheduled_date,
     slotDeviations,
     deviationsFetched,
   );
+  const { data: lastPerformance } = lastPerformanceRead;
+  // The "Last time" hints are on their way: their card keeps their place
+  // (N6). On their way is a read in flight, or one that waits for the swaps it
+  // is keyed on while those are read. A read paused without a network, or
+  // that failed, keeps no place: it would be kept for good.
+  const lastPerformanceLoading =
+    !!lastPerformanceRead.isPending &&
+    (lastPerformanceRead.fetchStatus === 'fetching' ||
+      (!deviationsFetched && deviationsRead.fetchStatus === 'fetching'));
   const { data: exerciseLibrary } = useExerciseLibrary();
   const slotIds = useMemo(() => slots.map((s) => s.id), [slots]);
   const { data: videos } = useSetVideos(sessionId, slotIds);
@@ -487,6 +494,7 @@ export default function SessionView() {
           slotComments={slotComments}
           slotDeviations={slotDeviations}
           lastPerformance={lastPerformance}
+          lastPerformanceLoading={lastPerformanceLoading}
           exerciseLibrary={exerciseLibrary}
           sessionId={sessionId}
           isConfirmed={isConfirmed}

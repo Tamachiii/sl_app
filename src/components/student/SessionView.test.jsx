@@ -1845,3 +1845,88 @@ describe('SessionView: a session whose reads did not answer', () => {
     expect(mockRefetchLogs).not.toHaveBeenCalled();
   });
 });
+
+// N6. The "Last time" hint is read after the sets and pushed every row down
+// when it arrived. The page tells the cards when it is on its way, and only
+// then: a read paused without a network, or that failed, keeps no place.
+describe('SessionView: the place of the "Last time" hint', () => {
+  const placeholder = () => {
+    const label = screen.queryByText('Last time');
+    return label && label.parentElement.getAttribute('aria-hidden') === 'true' ? label.parentElement : null;
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockOnline = true;
+    mockConfirmation = { data: null, isLoading: false };
+    mockFeedback = { data: null };
+    mockDeviations = { data: [], isLoading: false, isFetched: true, fetchStatus: 'idle' };
+    mockSessionData = {
+      data: {
+        title: 'Day 1',
+        exercise_slots: [
+          {
+            id: 'slot-1',
+            sets: 1,
+            reps: 5,
+            weight_kg: 50,
+            sort_order: 0,
+            exercise: { id: 'ex-squat', name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
+          },
+        ],
+      },
+      isLoading: false,
+    };
+    mockSetLogsData = {
+      data: [{ id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, rpe: null }],
+      isLoading: false,
+    };
+  });
+
+  afterEach(() => {
+    mockLastPerformance = { data: {} };
+    mockDeviations = { data: [], isLoading: false };
+  });
+
+  it('is kept while the read is in flight', () => {
+    mockLastPerformance = { data: undefined, isPending: true, fetchStatus: 'fetching' };
+    renderSessionView();
+    expect(placeholder()).not.toBeNull();
+  });
+
+  it('and while it waits for the swaps it is keyed on, which are being read', () => {
+    mockDeviations = { data: undefined, isLoading: true, isFetched: false, fetchStatus: 'fetching' };
+    mockLastPerformance = { data: undefined, isPending: true, fetchStatus: 'idle' };
+    renderSessionView();
+    expect(placeholder()).not.toBeNull();
+  });
+
+  it('is not kept for a read paused without a network — nor for swaps that are', () => {
+    mockLastPerformance = { data: undefined, isPending: true, fetchStatus: 'paused' };
+    const view = renderSessionView();
+    expect(screen.queryByText('Last time')).toBeNull();
+    view.unmount();
+
+    mockDeviations = { data: undefined, isLoading: false, isFetched: false, fetchStatus: 'paused' };
+    mockLastPerformance = { data: undefined, isPending: true, fetchStatus: 'idle' };
+    renderSessionView();
+    expect(screen.queryByText('Last time')).toBeNull();
+  });
+
+  it('is not kept for a read that failed', () => {
+    mockLastPerformance = { data: undefined, isPending: false, isError: true, fetchStatus: 'idle' };
+    renderSessionView();
+    expect(screen.queryByText('Last time')).toBeNull();
+  });
+
+  it('gives way to the hint', () => {
+    mockLastPerformance = {
+      data: { 'ex-squat': { performedAt: '2026-10-08T18:00:00Z', scheduledDate: null, sets: [{ weight: 60, reps: 5 }] } },
+      isPending: false,
+      fetchStatus: 'idle',
+    };
+    renderSessionView();
+    expect(screen.getByText('Last time')).toBeInTheDocument();
+    expect(placeholder()).toBeNull();
+  });
+});
