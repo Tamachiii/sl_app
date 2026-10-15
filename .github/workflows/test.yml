@@ -32,7 +32,15 @@ jobs:
       VITE_SUPABASE_URL: https://ci-placeholder.supabase.co
       VITE_SUPABASE_ANON_KEY: ci-placeholder
     steps:
+      # The whole history, not the one commit a checkout fetches by default:
+      # supabase/functions/runbook.test.js holds the "Undo" of the Edge
+      # Functions page to a commit of the published main (a61f0c31f2) — that
+      # it is an ancestor of origin/main, and what the two functions were in
+      # it. In a checkout of one commit neither can be asked, and those tests
+      # skip (two on the first run on GitHub, 2026-10-13; three since).
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -60,8 +68,13 @@ jobs:
   # No service container and no Docker: the server binaries are an npm
   # optional dependency (@embedded-postgres/linux-x64), so `npm ci` installs
   # them and the setup-node npm cache is their cache.
+  #
+  # Pinned to ubuntu-24.04, not ubuntu-latest: GitHub moves ubuntu-latest to
+  # Ubuntu 26 from 2026-10-19, and the PostgreSQL binaries of embedded-postgres
+  # have only ever been started on 24.04 there. Move it once a run on the new
+  # image is green.
   db:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -84,13 +97,10 @@ jobs:
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
           deno-version: v2.x
-      # ADVISORY until this step has been green once on a real runner: it has
-      # only ever run on a developer machine. A failure is reported by the
-      # step below and does not fail the job, so it cannot hold a deploy.
-      # After the first green run, delete `continue-on-error` and the
-      # reporting step — from then on a broken function stops the gate.
+      # Blocking since its first green run on GitHub (run 38354023259, the
+      # first publication, 2026-10-13): a function that does not type-check
+      # stops the gate, and with it the deploy.
       - id: check
-        continue-on-error: true
         # Deno adopts the nearest package.json as its own manifest and then
         # expects every `npm:` import to be in node_modules. That file belongs
         # to the Vite app; the functions are standalone, which is also how the
@@ -99,5 +109,3 @@ jobs:
         env:
           DENO_NO_PACKAGE_JSON: '1'
         run: deno check supabase/functions/*/index.ts
-      - if: steps.check.outcome == 'failure'
-        run: echo "::warning title=Edge Functions::deno check failed (advisory for now, see the step above)"

@@ -541,6 +541,14 @@ describe('CI: Edge Functions are type-checked', () => {
     expect(runs(fn)).toContain('deno check supabase/functions/*/index.ts');
   });
 
+  // Advisory until its first green run on GitHub (run 38354023259, the first
+  // publication, 2026-10-13); a gate from then on. `continue-on-error` or an
+  // `if:` would make a function that does not type-check a warning again.
+  it('stops the gate when a function does not type-check', () => {
+    expect(fn.filter((l) => /continue-on-error|^\s+(?:-\s+)?if:/.test(l))).toEqual([]);
+    expect(fn.join('\n')).not.toMatch(/::warning/);
+  });
+
   it('keeps the app package.json out of it', () => {
     // With the Vite app's package.json adopted as Deno's manifest, the check
     // stops at `npm:web-push` ("not in node_modules") and type-checks nothing.
@@ -555,5 +563,29 @@ describe('CI: Edge Functions are type-checked', () => {
     expect(dirs.length).toBeGreaterThan(0);
     const missing = dirs.filter((d) => !existsSync(resolve(root, 'supabase/functions', d, 'index.ts')));
     expect(missing).toEqual([]);
+  });
+});
+
+// Two things the first run on GitHub (2026-10-13) showed and the gate now
+// holds. The unit job reported 2 tests skipped that pass in a full clone: the
+// tests of supabase/functions/runbook.test.js that ask git about a commit of
+// the published main, which a checkout of one commit does not have. And the
+// database suite starts PostgreSQL binaries that have only been tried on the
+// image ubuntu-latest pointed at then (24.04), while GitHub moves it to 26.
+describe('CI: the runners the suites were tried on', () => {
+  const testJob = job(read('.github/workflows/test.yml'), 'test');
+  const dbJob = job(read('.github/workflows/test.yml'), 'db');
+  const runsOn = (lines) => lines.map((l) => l.match(/^ {4}runs-on:\s+(\S+)\s*$/)).find(Boolean)?.[1];
+
+  it('checks out the whole history for the unit suite, so no test of it skips on GitHub', () => {
+    const checkout = testJob.findIndex((l) => /^\s+- uses: actions\/checkout@/.test(l));
+    expect(checkout).toBeGreaterThan(-1);
+    expect(testJob.slice(checkout + 1, checkout + 3).map((l) => l.trim())).toEqual(['with:', 'fetch-depth: 0']);
+    // What needs it: the tests that look at a commit of the published main.
+    expect(read('supabase/functions/runbook.test.js')).toMatch(/'origin\/main'/);
+  });
+
+  it('runs the database suite on the image its PostgreSQL binaries were started on', () => {
+    expect(runsOn(dbJob)).toBe('ubuntu-24.04');
   });
 });
