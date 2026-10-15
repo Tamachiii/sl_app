@@ -11,6 +11,7 @@ import {
   useExerciseUsage,
   useCreateExercise,
   useUpdateExercise,
+  useArchiveExercise,
   useDeleteExercise,
 } from './useExerciseLibrary';
 import { supabase } from '../lib/supabase';
@@ -338,6 +339,114 @@ describe('useUpdateExercise', () => {
     expect(chain.update).not.toHaveBeenCalledWith(
       expect.objectContaining({ coach_id: expect.anything() }),
     );
+  });
+});
+
+describe('useArchiveExercise', () => {
+  // One update, read back as the row the server holds after it.
+  function updateChain(answer) {
+    const chain = {
+      update: vi.fn(() => chain),
+      eq: vi.fn(() => chain),
+      select: vi.fn(() => chain),
+      single: vi.fn(async () => answer),
+    };
+    supabase.from.mockReturnValue(chain);
+    return chain;
+  }
+
+  it('archives: archived_at is the moment of the write, on that exercise alone', async () => {
+    const chain = updateChain({ data: { id: 'e-1', archived_at: '2026-10-15T08:00:00.000Z' }, error: null });
+    const qc = makeClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useArchiveExercise(), { wrapper: withClient(qc) });
+    const before = Date.now();
+    result.current.mutate({ id: 'e-1', archived: true });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(supabase.from).toHaveBeenCalledWith('exercise_library');
+    expect(chain.update).toHaveBeenCalledTimes(1);
+    const [patch] = chain.update.mock.calls[0];
+    // The one column, and nothing else of the row.
+    expect(Object.keys(patch)).toEqual(['archived_at']);
+    expect(typeof patch.archived_at).toBe('string');
+    expect(new Date(patch.archived_at).toISOString()).toBe(patch.archived_at);
+    expect(Date.parse(patch.archived_at)).toBeGreaterThanOrEqual(before);
+    expect(chain.eq).toHaveBeenCalledWith('id', 'e-1');
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['exercise-library'] });
+  });
+
+  it('restores: archived_at is empty again', async () => {
+    const chain = updateChain({ data: { id: 'e-1', archived_at: null }, error: null });
+    const qc = makeClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useArchiveExercise(), { wrapper: withClient(qc) });
+    result.current.mutate({ id: 'e-1', archived: false });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(chain.update).toHaveBeenCalledWith({ archived_at: null });
+    expect(chain.eq).toHaveBeenCalledWith('id', 'e-1');
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['exercise-library'] });
+  });
+
+  // The exercise changes lists when the write is through, not one library
+  // read later. (Nothing watches the library here, so the invalidation reads
+  // nothing again: what the cache holds is the row of the write.)
+  it('puts the row the server sent back into the cached library', async () => {
+    const archived = { id: 'e-1', name: 'Dip', coach_id: 'coach-1', archived_at: '2026-10-15T08:00:00.000Z' };
+    updateChain({ data: archived, error: null });
+    const qc = makeClient();
+    const other = { id: 'e-2', name: 'Pull-up', coach_id: 'coach-1', archived_at: null };
+    qc.setQueryData(['exercise-library'], [{ ...archived, archived_at: null }, other]);
+    const { result } = renderHook(() => useArchiveExercise(), { wrapper: withClient(qc) });
+    result.current.mutate({ id: 'e-1', archived: true });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(qc.getQueryData(['exercise-library'])).toEqual([archived, other]);
+  });
+
+  it('writes nothing into the cache, and invalidates nothing, when the database refuses the write', async () => {
+    updateChain({ data: null, error: { code: 'PGRST116', message: 'no rows' } });
+    const qc = makeClient();
+    const cached = [{ id: 'e-1', name: 'Dip', coach_id: 'coach-1', archived_at: null }];
+    qc.setQueryData(['exercise-library'], cached);
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useArchiveExercise(), { wrapper: withClient(qc) });
+    result.current.mutate({ id: 'e-1', archived: true });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(qc.getQueryData(['exercise-library'])).toBe(cached);
+  });
+
+  it('leaves a library that was never read unread', async () => {
+    updateChain({ data: { id: 'e-1', archived_at: '2026-10-15T08:00:00.000Z' }, error: null });
+    const qc = makeClient();
+    const { result } = renderHook(() => useArchiveExercise(), { wrapper: withClient(qc) });
+    result.current.mutate({ id: 'e-1', archived: true });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(qc.getQueryData(['exercise-library'])).toBeUndefined();
+  });
+});
+
+// An archived exercise is still the name of what was trained: the session
+// view, the review and the goals look it up in this list. Only a picker leaves
+// it out (isActiveExercise).
+describe('useExerciseLibrary and archived exercises', () => {
+  const rows = [
+    { id: 'e-1', name: 'Dip', coach_id: 'coach-1', archived_at: '2026-10-15T08:00:00.000Z' },
+    { id: 'e-2', name: 'Pull-up', coach_id: 'coach-1', archived_at: null },
+  ];
+
+  it.each([
+    ['a coach', { user: { id: 'coach-1' }, role: 'coach' }],
+    ['an athlete', { user: { id: 'athlete-1' }, role: 'student' }],
+  ])('returns them to %s, with the active ones', async (_who, auth) => {
+    useAuth.mockReturnValue(auth);
+    const chain = libraryTable(rows);
+    const qc = makeClient();
+    const { result } = renderHook(() => useExerciseLibrary(), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data.map((e) => e.id)).toEqual(['e-1', 'e-2']);
+    // No filter on the column in the request either.
+    expect(chain.eq).not.toHaveBeenCalledWith('archived_at', expect.anything());
   });
 });
 

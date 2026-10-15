@@ -146,6 +146,45 @@ export function useUpdateExercise() {
   });
 }
 
+/**
+ * Archive a library exercise (`{ id, archived: true }`: `archived_at` is now)
+ * or restore it (`archived: false`: `archived_at` is empty again).
+ *
+ * This is how an exercise leaves the coach's pickers once it is in use: the
+ * slots, goals and swaps that name it hold it in the database (`ON DELETE
+ * RESTRICT`), so it can no longer be deleted. Archiving changes nothing for
+ * them — `useExerciseLibrary` still returns the row, which still names what
+ * was trained; a picker leaves it out with `isActiveExercise`. The database
+ * refuses nothing about an archived exercise.
+ *
+ * The row the server sends back goes into the cached library at once, so the
+ * exercise changes lists when the write is through rather than when the
+ * library has been read again; the read follows, and the mutation is pending
+ * until it is done.
+ */
+export function useArchiveExercise() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, archived }) => {
+      const { data, error } = await supabase
+        .from('exercise_library')
+        .update({ archived_at: archived ? new Date().toISOString() : null })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (row) => {
+      qc.setQueryData(['exercise-library'], (rows) =>
+        rows?.map((ex) => (ex.id === row.id ? { ...ex, ...row } : ex)),
+      );
+      return qc.invalidateQueries({ queryKey: ['exercise-library'] });
+    },
+  });
+}
+
 export function useDeleteExercise() {
   const qc = useQueryClient();
 
