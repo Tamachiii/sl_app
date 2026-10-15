@@ -190,6 +190,15 @@
       "covers": ["L34", "B12"],
       "reversible": true,
       "summary": "set_logs.rpe is numeric(3,1), from 1 to 10 in steps of 0.5 (set_logs_rpe_check, written again for the new type, and set_logs_rpe_half_step); every RPE logged so far keeps its value. sessions.day_number is a weekday from 1 to 7 or nothing (sessions_day_number_weekday): the file first clears the values outside 1 to 7 and every weekday of a block an athlete wrote — drafts and approved blocks, trained sessions included; run after SET app.day_number_clearing = 'drafts', it keeps those of the approved blocks — and save_draft_tree writes a number outside 1 to 7 as no weekday instead of failing the whole tree. The weekdays it cleared do not come back with the rollback, which rounds an RPE in a half step away from zero."
+    },
+    {
+      "name": "2026_10_16_22_client_errors_scope",
+      "kind": "required",
+      "wave": 3,
+      "checkpoint": "C1",
+      "covers": ["B6", "L20"],
+      "reversible": true,
+      "summary": "A client error is read by its author and by the coach of its author (students.coach_id); a line without an author — written by the database with the role database, or of an account that was deleted — by every coach: \"Authors and their coach read client errors\" replaces \"Coaches read client errors\", under which every coach read every line. trg_cap_client_errors, for a request that carries a user id, dates the line when it arrives and drops it without a word once the caller has 30 lines of the last hour; a request without a user id is not judged. Old lines are deleted by run_retention() of migration 18, not here. No row is written or deleted."
     }
   ]
 }

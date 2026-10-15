@@ -434,6 +434,16 @@ Since migration 21 `set_logs.rpe` is `numeric(3,1)` and `sessions.day_number` is
 - **Changing the type of a column of `set_logs` writes the whole table again** under `ACCESS EXCLUSIVE`; a dump that is reading it at that moment makes it wait (`backup-roundtrip.test.js`). Lock the tables of the tree first, from the top down — `LOCK TABLE public.sessions, public.set_logs IN ACCESS EXCLUSIVE MODE` — and drop and add again a `CHECK` on the column rather than let `ALTER TYPE` carry it over: the text it is parsed into again is not the text of `schema.sql`. The rollback rounds what the old type cannot hold, and its header says how.
 - **A choice the owner makes when applying a file is a setting of the session, read by the file**: `app.day_number_clearing` in migration 21, which its guard refuses when it is neither `all` nor `drafts`. The page gives the command that sets it (`set …; $(cat <file>)`); the file run alone does what the plan decided.
 
+## A migration that touches who reads a client error, or how many an account reports
+
+Since migration 22 a line of `client_errors` is read by its author and the coach of its author, a line without an author by every coach, and an account keeps 30 lines an hour. `supabase/tests/small-hardening.test.js` holds it.
+
+- **A line without a `user_id` is read by every coach**: the database's (`role = 'database'`, `record_push_failures()` of migration 19) and those of an account that was deleted (`ON DELETE SET NULL`). A policy that narrows who reads the table keeps that branch.
+- **"The coach of the author" is `students.coach_id`, today** — the rule of migration 10: a line of a former athlete is read by its author only. "Is a coach" is asked of `profiles` in the policy itself, not with `is_coach()`: a `SELECT` goes through it.
+- **`trg_cap_client_errors` judges a request that carries a user id, and nothing else.** The owner, the service role, a job and a restore write as many lines as they need, with the date they give. A `SECURITY DEFINER` function called by a user is that user: its lines are counted and dated.
+- **The cap drops, it does not refuse** (`RETURN NULL`): the request answers as if the line was kept, and nothing is written. A test about it reads the rows back. It counts by `auth.uid()` — the `INSERT` policy holds `user_id` to it — and dates the line itself (`created_at := now()`): a date the client sends would escape both the hour and `run_retention()`.
+- **Nothing is deleted there.** A line goes 90 days after it was reported, through `run_retention()` ("A migration that deletes rows by their age", above).
+
 ## A migration that brings a rule the rows already there may break
 
 A trigger or a policy judges what is written after it. When rows that are already in the database break the rule **and leaving them would leave the hole in use**, the migration refuses to start:

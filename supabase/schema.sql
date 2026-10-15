@@ -4762,10 +4762,13 @@ $$;
 
 -- ============================================================
 -- Client error telemetry (2026_07_13)
--- Insert-only per authenticated user (own errors); coach-only read for
--- in-app triage. No UPDATE/DELETE — append-only. Rows older than 90 days are
--- deleted by public.run_retention() (RETENTION, further down;
--- 2026_10_13_18_retention).
+-- Insert-only per authenticated user (own errors), 30 an hour at most
+-- (trg_cap_client_errors). Read by its author and the coach of its author
+-- for in-app triage; a line without an author — written by the database
+-- (role 'database', migration 19), or of an account that was deleted — by
+-- every coach (2026_10_16_22, review B6, L20). No UPDATE/DELETE —
+-- append-only. Rows older than 90 days are deleted by public.run_retention()
+-- (RETENTION, further down; 2026_10_13_18_retention).
 -- ============================================================
 CREATE TABLE public.client_errors (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -4793,14 +4796,61 @@ CREATE POLICY "Users insert own client errors"
     )
   );
 
-CREATE POLICY "Coaches read client errors"
+-- "Is a coach" is asked of profiles here, not with is_coach(): a SELECT goes
+-- through this policy (supabase/migrations/README.md, migration 05).
+CREATE POLICY "Authors and their coach read client errors"
   ON public.client_errors FOR SELECT
   USING (
-    EXISTS (
-      SELECT 1 FROM public.profiles p
-       WHERE p.id = auth.uid() AND p.role = 'coach'
+    user_id = (SELECT auth.uid())
+    OR user_id IN (SELECT s.profile_id FROM public.students s WHERE s.coach_id = (SELECT auth.uid()))
+    OR (
+      user_id IS NULL
+      AND EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = (SELECT auth.uid()) AND p.role = 'coach')
     )
   );
+
+-- A request that carries a user id (2026_10_16_22, review L20): the line is
+-- dated when it arrives — a date sent by the client would take it out of the
+-- hour counted here, and out of reach of run_retention() — and dropped
+-- without a word when the caller has 30 lines of the last hour already. A
+-- request without a user id is not judged: the owner, the service role, the
+-- job of migration 19, a restore. Counted by auth.uid(): the INSERT policy
+-- holds user_id to it. Two requests in the same instant can both pass at 29:
+-- a ceiling of about 30, not a count. Nothing old is deleted here:
+-- run_retention() does, in the one place that deletes by age.
+-- SECURITY DEFINER: it counts the caller's lines whatever the caller may read.
+CREATE OR REPLACE FUNCTION public.cap_client_errors()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  NEW.created_at := now();
+
+  IF (SELECT count(*)
+        FROM (SELECT 1
+                FROM public.client_errors e
+               WHERE e.user_id = auth.uid()
+                 AND e.created_at > now() - interval '1 hour'
+               LIMIT 30) recent) >= 30 THEN
+    RETURN NULL;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+-- Who may execute it: nobody — a trigger function (the FUNCTION PRIVILEGES
+-- block at the end of this file).
+
+DROP TRIGGER IF EXISTS trg_cap_client_errors ON public.client_errors;
+CREATE TRIGGER trg_cap_client_errors
+  BEFORE INSERT ON public.client_errors
+  FOR EACH ROW EXECUTE FUNCTION public.cap_client_errors();
 
 -- ============================================================
 -- Bodyweight logs (2026_07_14)
@@ -6707,7 +6757,8 @@ INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_13_17_replay_grace_window'),
   ('2026_10_13_18_retention'),
   ('2026_10_16_20_drafts_coach_readonly'),
-  ('2026_10_16_21_rpe_half_steps_day_check');
+  ('2026_10_16_21_rpe_half_steps_day_check'),
+  ('2026_10_16_22_client_errors_scope');
 
 -- An optional migration that needs an extension is on record where its block
 -- above ran, and nowhere else: a project that switches pg_cron on later must

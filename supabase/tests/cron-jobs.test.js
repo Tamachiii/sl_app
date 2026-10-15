@@ -611,7 +611,9 @@ describe('a project with pg_cron', () => {
     });
 
     // hooks/useClientErrors.js, as deployed: the 20 most recent lines, for a coach.
-    it('its line is in the list the coach reads, next to what the app reported — and an athlete reads neither', async () => {
+    // Since migration 22 an athlete reads their own lines, and a line without
+    // an author is read by every coach — never by an athlete.
+    it('its line is in the list the coach reads, next to what the app reported — and an athlete reads their own line only', async () => {
       await answered(1, { status: 502 });
       await request(home, THE_ATHLETE,
         `insert into public.client_errors (user_id, role, message, url) values ('${ATHLETE}', 'student', 'TypeError: x is undefined', 'https://app.sl.test/#/student')`);
@@ -622,7 +624,9 @@ describe('a project with pg_cron', () => {
         { role: 'database', user_id: null, url: (await hour(1)).key },
         { role: 'student', user_id: ATHLETE, url: 'https://app.sl.test/#/student' },
       ]);
-      expect(await story(home, THE_ATHLETE, APP)).toEqual([]);
+      expect(await story(home, THE_ATHLETE, APP)).toEqual([
+        { role: 'student', user_id: ATHLETE, url: 'https://app.sl.test/#/student' },
+      ]);
       // Nobody who is signed in can write such a line: the role of a report is the role of its account.
       expect(await story(home, THE_COACH,
         `insert into public.client_errors (user_id, role, message, url) values (null, 'database', 'Push: forged', 'pg_net 2026-10-13T14:00Z')`))
