@@ -69,7 +69,8 @@ describe('ExerciseSlotRow', () => {
     renderSlotRow();
     expect(screen.getByLabelText('Sets')).toHaveValue(3);
     expect(screen.getByLabelText('Reps')).toHaveValue(10);
-    expect(screen.getByLabelText('Weight')).toHaveValue(50);
+    // A text field (ui/DecimalInput): its value is the text.
+    expect(screen.getByLabelText('Weight')).toHaveValue('50');
   });
 
   it('calls onUpdate on sets blur when value changes', async () => {
@@ -112,7 +113,7 @@ describe('ExerciseSlotRow', () => {
       </DndContext>
     );
 
-    expect(screen.getByLabelText('Weight')).toHaveValue(7);
+    expect(screen.getByLabelText('Weight')).toHaveValue('7');
   });
 
   it('shows "+ Add coach note" button when slot has no notes', () => {
@@ -160,7 +161,7 @@ describe('ExerciseSlotRow', () => {
     await user.click(screen.getByRole('button', { name: /customize sets/i }));
     expect(screen.getByRole('table', { name: /per-set targets/i })).toBeInTheDocument();
     expect(screen.getByLabelText('Set 1 reps')).toHaveValue(10);
-    expect(screen.getByLabelText('Set 3 weight')).toHaveValue(50);
+    expect(screen.getByLabelText('Set 3 weight')).toHaveValue('50');
   });
 
   it('editing a per-set field calls onUpdateSet with that log id', async () => {
@@ -283,6 +284,159 @@ describe('ExerciseSlotRow', () => {
     });
     await user.click(screen.getByRole('button', { name: /customize sets/i }));
     expect(screen.getByRole('button', { name: /remove set 1/i })).toBeDisabled();
+  });
+
+  // Review finding L9 (P31, live N3): the weights were `type="number"` fields.
+  // "62,5" was 625 in a Chromium whose UI is English and "" in WebKit — written
+  // as null, which the athlete saw as "BW". They are text fields read by
+  // parseDecimalInput now, and text they cannot read writes nothing.
+  describe('a target weight typed with a comma or a point', () => {
+    const perSetSlot = {
+      ...defaultSlot,
+      set_logs: [
+        { id: 'l1', set_number: 1, target_reps: 10, target_weight_kg: 50 },
+        { id: 'l2', set_number: 2, target_reps: 10, target_weight_kg: 50 },
+        { id: 'l3', set_number: 3, target_reps: 10, target_weight_kg: 60 },
+      ],
+    };
+
+    async function typeAndLeave(user, field, text) {
+      await user.clear(field);
+      if (text) await user.type(field, text);
+      fireEvent.blur(field);
+    }
+
+    it('are text fields with the decimal keypad', () => {
+      renderSlotRow();
+      const weight = screen.getByLabelText('Weight');
+      expect(weight).toHaveAttribute('type', 'text');
+      expect(weight).toHaveAttribute('inputmode', 'decimal');
+    });
+
+    it.each(['62,5', '62.5'])('the compact row writes "%s" as 62.5 kg', async (text) => {
+      const user = userEvent.setup();
+      const { props } = renderSlotRow();
+      await typeAndLeave(user, screen.getByLabelText('Weight'), text);
+      expect(props.onUpdate).toHaveBeenCalledTimes(1);
+      expect(props.onUpdate).toHaveBeenCalledWith({ weight_kg: 62.5 });
+    });
+
+    it.each(['abc', '62,5kg', '-5', '1,000.5', '10000'])(
+      'the compact row writes nothing for "%s" and shows the stored weight again',
+      async (text) => {
+        const user = userEvent.setup();
+        const { props } = renderSlotRow();
+        const weight = screen.getByLabelText('Weight');
+        await user.clear(weight);
+        await user.type(weight, text);
+        // Marked while it is wrong…
+        expect(weight).toHaveAttribute('aria-invalid', 'true');
+        fireEvent.blur(weight);
+        // …and never read as an empty field, which is null.
+        expect(props.onUpdate).not.toHaveBeenCalled();
+        expect(weight).toHaveValue('50');
+        expect(weight).not.toHaveAttribute('aria-invalid');
+      },
+    );
+
+    it('an empty field is still no load: null, on purpose', async () => {
+      const user = userEvent.setup();
+      const { props } = renderSlotRow();
+      await typeAndLeave(user, screen.getByLabelText('Weight'), '');
+      expect(props.onUpdate).toHaveBeenCalledWith({ weight_kg: null });
+    });
+
+    it('a weight it cannot read stays out of the write; the other fields of the blur go', () => {
+      const { props } = renderSlotRow();
+      fireEvent.change(screen.getByLabelText('Reps'), { target: { value: '8' } });
+      const weight = screen.getByLabelText('Weight');
+      fireEvent.change(weight, { target: { value: 'abc' } });
+      fireEvent.blur(weight);
+      expect(props.onUpdate).toHaveBeenCalledTimes(1);
+      expect(props.onUpdate).toHaveBeenCalledWith({ reps: 8 });
+      expect(weight).toHaveValue('50');
+    });
+
+    it('a weight stored as "62.50" opens as "62.5" and a blur without a change writes nothing', () => {
+      const { props } = renderSlotRow({ slot: { ...defaultSlot, weight_kg: '62.50' } });
+      const weight = screen.getByLabelText('Weight');
+      expect(weight).toHaveValue('62.5');
+      fireEvent.blur(weight);
+      expect(props.onUpdate).not.toHaveBeenCalled();
+    });
+
+    it('the compact row of a slot with sets starts from the first set\'s weight', () => {
+      renderSlotRow({
+        slot: {
+          ...defaultSlot,
+          set_logs: [1, 2, 3].map((n) => ({
+            id: `l${n}`, set_number: n, target_reps: 10, target_weight_kg: '42.50',
+          })),
+        },
+      });
+      expect(screen.getByLabelText('Weight')).toHaveValue('42.5');
+    });
+
+    it.each(['62,5', '62.5'])('a per-set row writes "%s" as 62.5 kg on its own set', async (text) => {
+      const user = userEvent.setup();
+      const onUpdateSet = vi.fn();
+      renderSlotRow({ slot: perSetSlot, onUpdateSet });
+      const weight = screen.getByLabelText('Set 3 weight');
+      expect(weight).toHaveAttribute('type', 'text');
+      expect(weight).toHaveAttribute('inputmode', 'decimal');
+      await typeAndLeave(user, weight, text);
+      expect(onUpdateSet).toHaveBeenCalledTimes(1);
+      expect(onUpdateSet).toHaveBeenCalledWith('l3', { weight_kg: 62.5 });
+    });
+
+    it.each(['abc', '10000'])(
+      'a per-set row writes nothing for "%s" and shows the stored weight again',
+      async (text) => {
+        const user = userEvent.setup();
+        const onUpdateSet = vi.fn();
+        renderSlotRow({ slot: perSetSlot, onUpdateSet });
+        const weight = screen.getByLabelText('Set 3 weight');
+        await typeAndLeave(user, weight, text);
+        expect(onUpdateSet).not.toHaveBeenCalled();
+        expect(weight).toHaveValue('60');
+      },
+    );
+
+    it('a per-set row emptied writes null for that set', async () => {
+      const user = userEvent.setup();
+      const onUpdateSet = vi.fn();
+      renderSlotRow({ slot: perSetSlot, onUpdateSet });
+      await typeAndLeave(user, screen.getByLabelText('Set 3 weight'), '');
+      expect(onUpdateSet).toHaveBeenCalledWith('l3', { weight_kg: null });
+    });
+
+    it('a per-set weight stored as "62.50" opens as "62.5" and is not written back', () => {
+      const onUpdateSet = vi.fn();
+      renderSlotRow({
+        slot: {
+          ...perSetSlot,
+          set_logs: perSetSlot.set_logs.map((l) =>
+            l.id === 'l3' ? { ...l, target_weight_kg: '62.50' } : l,
+          ),
+        },
+        onUpdateSet,
+      });
+      const weight = screen.getByLabelText('Set 3 weight');
+      expect(weight).toHaveValue('62.5');
+      fireEvent.blur(weight);
+      expect(onUpdateSet).not.toHaveBeenCalled();
+    });
+
+    it('a logged set\'s weight stays locked', () => {
+      renderSlotRow({
+        slot: {
+          ...perSetSlot,
+          set_logs: perSetSlot.set_logs.map((l) => (l.id === 'l1' ? { ...l, done: true } : l)),
+        },
+      });
+      expect(screen.getByLabelText('Set 1 weight')).toBeDisabled();
+      expect(screen.getByLabelText('Set 3 weight')).toBeEnabled();
+    });
   });
 
   // Review finding P3: the editor used to let the coach rewrite or delete sets

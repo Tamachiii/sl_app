@@ -2,14 +2,27 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import ConfirmDialog from '../ui/ConfirmDialog';
+import DecimalInput from '../ui/DecimalInput';
 import { isSlotUniform } from '../../lib/volume';
 import { isLoggedSet } from '../../lib/loggedSets';
+import { decimalText, parseDecimalInput } from '../../lib/number';
 import { useI18n } from '../../hooks/useI18n';
 
 // `disabled:opacity-*`, not a `disabled:bg-*`: the dark theme is a class remap
 // and a disabled background variant does not pick it up (see INVARIANTS).
 const inputCls =
   'w-full rounded-lg border border-ink-200 bg-white px-2 py-1.5 sl-mono text-[16px] text-center text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] disabled:opacity-60 disabled:cursor-not-allowed';
+
+// A target weight is read with `parseDecimalInput` under these rules: "62,5"
+// and "62.5" are 62.5 whatever the language of the browser. A number field
+// read "62,5" as 625 in an English Chromium, and as "" in WebKit — which was
+// written as null, shown to the athlete as "BW". The range is what
+// `exercise_slots.weight_kg` and `set_logs.target_weight_kg` hold, a
+// numeric(6,2). An empty field is still an answer: no load, bodyweight.
+// Text that is not a number of the range writes nothing, and the field shows
+// the stored value again — set here, since the resync effects only run when
+// the props change.
+const TARGET_WEIGHT_RULES = { max: 9999.99 };
 
 // `logged`: the athlete has trained this set — its targets are what they were
 // asked to do when they did it, so the row shows them and edits nothing.
@@ -18,7 +31,7 @@ function PerSetRow({ log, isTimeBased, onUpdateSet, onRemoveSet, canRemove, logg
   const { t } = useI18n();
   const [reps, setReps] = useState(log.target_reps ?? '');
   const [seconds, setSeconds] = useState(log.target_duration_seconds ?? '');
-  const [weight, setWeight] = useState(log.target_weight_kg ?? '');
+  const [weight, setWeight] = useState(decimalText(log.target_weight_kg));
   const [rest, setRest] = useState(log.target_rest_seconds ?? '');
   const rowRef = useRef(null);
 
@@ -28,7 +41,7 @@ function PerSetRow({ log, isTimeBased, onUpdateSet, onRemoveSet, canRemove, logg
     if (rowRef.current?.contains(document.activeElement)) return;
     setReps(log.target_reps ?? '');
     setSeconds(log.target_duration_seconds ?? '');
-    setWeight(log.target_weight_kg ?? '');
+    setWeight(decimalText(log.target_weight_kg));
     setRest(log.target_rest_seconds ?? '');
   }, [log.id, log.target_reps, log.target_duration_seconds, log.target_weight_kg, log.target_rest_seconds]);
 
@@ -36,6 +49,17 @@ function PerSetRow({ log, isTimeBased, onUpdateSet, onRemoveSet, canRemove, logg
     const v = current === '' ? null : Number(current);
     const prevNum = prev == null ? null : Number(prev);
     if (v !== prevNum) onUpdateSet(log.id, { [field]: v });
+  }
+
+  // See TARGET_WEIGHT_RULES: never a write for text the field cannot read.
+  function commitWeight() {
+    const parsed = parseDecimalInput(weight, TARGET_WEIGHT_RULES);
+    if (!parsed.ok) {
+      setWeight(decimalText(log.target_weight_kg));
+      return;
+    }
+    const prev = log.target_weight_kg == null ? null : Number(log.target_weight_kg);
+    if (parsed.value !== prev) onUpdateSet(log.id, { weight_kg: parsed.value });
   }
 
   return (
@@ -69,13 +93,11 @@ function PerSetRow({ log, isTimeBased, onUpdateSet, onRemoveSet, canRemove, logg
         </td>
       )}
       <td className="px-1">
-        <input
-          type="number"
-          min={0}
-          step={0.5}
+        <DecimalInput
+          {...TARGET_WEIGHT_RULES}
           value={weight}
           onChange={(e) => setWeight(e.target.value)}
-          onBlur={() => commitField('weight_kg', weight, log.target_weight_kg)}
+          onBlur={commitWeight}
           placeholder={t('coach.slot.bwPlaceholder')}
           aria-label={t('coach.slot.setWeightAria', { n: log.set_number })}
           disabled={locked}
@@ -184,7 +206,7 @@ export default function ExerciseSlotRow({
   const initialSeconds = headLog
     ? (headLog.target_duration_seconds ?? '')
     : (slot.duration_seconds ?? '');
-  const initialWeight = headLog ? (headLog.target_weight_kg ?? '') : (slot.weight_kg ?? '');
+  const initialWeight = decimalText(headLog ? headLog.target_weight_kg : slot.weight_kg);
   const initialRest = headLog ? (headLog.target_rest_seconds ?? '') : (slot.rest_seconds ?? '');
 
   const [sets, setSets] = useState(slot.sets);
@@ -234,7 +256,7 @@ export default function ExerciseSlotRow({
     setSets(slot.sets);
     setReps(headLog ? (headLog.target_reps ?? '') : (slot.reps ?? ''));
     setSeconds(headLog ? (headLog.target_duration_seconds ?? '') : (slot.duration_seconds ?? ''));
-    setWeight(headLog ? (headLog.target_weight_kg ?? '') : (slot.weight_kg ?? ''));
+    setWeight(decimalText(headLog ? headLog.target_weight_kg : slot.weight_kg));
     setRest(headLog ? (headLog.target_rest_seconds ?? '') : (slot.rest_seconds ?? ''));
     setNotes(slot.notes ?? '');
   }, [
@@ -271,10 +293,13 @@ export default function ExerciseSlotRow({
       const prev = headLog ? headLog.target_reps : slot.reps;
       if (r !== (prev ?? null)) updates.reps = r;
     }
-    const w = weight === '' ? null : Number(weight);
+    // A weight the field cannot read is left out of this write (see
+    // TARGET_WEIGHT_RULES); the other fields of the blur still go.
+    const w = parseDecimalInput(weight, TARGET_WEIGHT_RULES);
     const prevW = headLog ? headLog.target_weight_kg : slot.weight_kg;
     const prevWNum = prevW == null ? null : Number(prevW);
-    if (w !== prevWNum) updates.weight_kg = w;
+    if (!w.ok) setWeight(decimalText(prevW));
+    else if (w.value !== prevWNum) updates.weight_kg = w.value;
     const rs = rest === '' ? null : Number(rest);
     const prevR = headLog ? headLog.target_rest_seconds : slot.rest_seconds;
     if (rs !== (prevR ?? null)) updates.rest_seconds = rs;
@@ -479,11 +504,9 @@ export default function ExerciseSlotRow({
             )}
             <div className="flex-1">
               <label htmlFor={`weight-${slot.id}`} className="sl-label text-ink-400 block mb-1">{t('coach.slot.weight')}</label>
-              <input
+              <DecimalInput
                 id={`weight-${slot.id}`}
-                type="number"
-                min={0}
-                step={0.5}
+                {...TARGET_WEIGHT_RULES}
                 value={weight}
                 onChange={(e) => setWeight(e.target.value)}
                 onBlur={handleBlur}
