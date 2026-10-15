@@ -50,7 +50,7 @@ const COACH_ONLY = new Set([
 const ONLINE_ONLY = new Set([
   'useAddStudentSet', // brand-new-row INSERT can't queue offline (UNIQUE collision)
   'useRemoveStudentSet', // symmetry with add
-  'useEnsureSetLogs', // student SessionView safety-net INSERT; see LEGACY_UNGATED below
+  'useEnsureSetLogs', // started by the hook itself, only when the device and `onlineManager` are online
   'useAddGoalProgress', // brand-new-row INSERT, no offline id story; MyGoals gates on useOnlineStatus
   'useDeleteGoalProgress', // symmetry with add
   'useToggleGoalAchieved', // low-stakes flag; MyGoals gates on useOnlineStatus
@@ -191,17 +191,6 @@ function sourceFiles(dir) {
   });
 }
 
-// One entry is let through without a guard, and only as it stands today.
-// `useEnsureSetLogs` is fired by an effect of SessionView with nothing looking
-// at the network. What that cost offline is handled where it showed — the
-// write is neither stored nor counted as waiting (lib/persistence.js) — and
-// the guard itself comes with the hook's move onto the `ensure_set_logs` RPC,
-// which is called "only when online". So the entry is excused for as long as
-// the hook does not name that RPC, and held to the rule from then on.
-const LEGACY_UNGATED = {
-  useEnsureSetLogs: (body) => !/\bensure_set_logs\b/.test(body),
-};
-
 describe('an online-only write has an online guard', () => {
   const sources = sourceFiles(srcDir);
   const hooks = FILES.flatMap((file) =>
@@ -221,17 +210,12 @@ describe('an online-only write has an online guard', () => {
   it('the hook reads the state of the network, or every component that calls it does', () => {
     const unguarded = guards
       .filter(({ hook, callers }) => !isGuarded({ body: hook.body, callers }))
-      .filter(({ name, hook }) => !LEGACY_UNGATED[name]?.(hook.body))
       .map(({ name, callers }) => `${name} — called from ${callers.map((caller) => caller.file).join(', ')}`);
 
     // A name here is a write that pauses without a network and runs later, on
     // stale data, or is lost with the app. Read the network in the hook
     // (`onlineManager.isOnline()`) or in each caller (`useOnlineStatus()`).
     expect(unguarded).toEqual([]);
-  });
-
-  it('an excuse is for an entry of the list, and for nothing else', () => {
-    expect(Object.keys(LEGACY_UNGATED).filter((name) => !ONLINE_ONLY.has(name))).toEqual([]);
   });
 
   it('looked at the hooks and found who calls them: the scan is not passing for want of anything to read', () => {
