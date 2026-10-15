@@ -41,9 +41,11 @@ vi.mock('../../hooks/useAuth', () => ({
 // Around the two reads the page is made of: left out, each with the answer of
 // a session that has none of it.
 vi.mock('../../hooks/useLastPerformance', () => ({ useLastPerformance: () => ({ data: {} }) }));
-vi.mock('../../hooks/useExerciseLibrary', () => ({
-  useExerciseLibrary: () => ({ data: [], isLoading: false }),
-}));
+// The real isActiveExercise: the swap picker filters with it.
+vi.mock('../../hooks/useExerciseLibrary', async () => {
+  const actual = await vi.importActual('../../hooks/useExerciseLibrary');
+  return { ...actual, useExerciseLibrary: () => ({ data: [], isLoading: false }) };
+});
 vi.mock('../../hooks/useSetVideo', () => ({
   useSetVideos: () => ({ data: [], isLoading: false }),
   useUploadSetVideo: () => ({ mutate: vi.fn(), isPending: false }),

@@ -108,6 +108,65 @@ describe('SlotDeviationBar', () => {
     });
   });
 
+  describe('the swap picker', () => {
+    const ARCHIVED = '2026-10-01T00:00:00Z';
+    const withArchived = [
+      ...library,
+      { id: 'ex-4', name: 'Hack Squat', type: 'push', archived_at: ARCHIVED },
+      { id: 'ex-5', name: 'Seated Row', type: 'pull', archived_at: null },
+    ];
+
+    it('does not offer an exercise the coach archived — with a search typed either', async () => {
+      const user = userEvent.setup();
+      renderBar({ exerciseLibrary: withArchived });
+      await user.click(screen.getByRole('button', { name: /^swap$/i }));
+      const picker = screen.getByRole('dialog', { name: 'Swap exercise' });
+
+      expect(within(picker).queryByText('Hack Squat')).not.toBeInTheDocument();
+      // Active: no archived_at, or a row read before the column existed.
+      expect(within(picker).getByRole('button', { name: /seated row/i })).toBeInTheDocument();
+      expect(within(picker).getByRole('button', { name: /goblet squat/i })).toBeInTheDocument();
+
+      await user.type(within(picker).getByRole('textbox', { name: /search exercises/i }), 'hack');
+      expect(within(picker).getByText(/no exercises found/i)).toBeInTheDocument();
+    });
+
+    it('a swap to an exercise archived since keeps its name', () => {
+      renderBar({
+        exerciseLibrary: withArchived,
+        deviation: { exercise_slot_id: 'sl-1', kind: 'swap', substitute_exercise_id: 'ex-4' },
+      });
+      expect(screen.getByText('Hack Squat')).toBeInTheDocument();
+    });
+
+    it("draws each exercise's type with the shared badge, under its name in the app", async () => {
+      const user = userEvent.setup();
+      renderBar({ exerciseLibrary: withArchived });
+      await user.click(screen.getByRole('button', { name: /^swap$/i }));
+      const picker = screen.getByRole('dialog', { name: 'Swap exercise' });
+
+      const push = within(within(picker).getByRole('button', { name: /goblet squat/i })).getByText('Push');
+      expect(push).toHaveClass('sl-pill', 'bg-push/15', 'text-push', 'shrink-0');
+      const pull = within(within(picker).getByRole('button', { name: /seated row/i })).getByText('Pull');
+      expect(pull).toHaveClass('sl-pill', 'bg-pull/15', 'text-pull');
+      // The raw value of the enum is gone.
+      expect(within(picker).queryByText('push')).not.toBeInTheDocument();
+    });
+
+    it('a pick still swaps', async () => {
+      const user = userEvent.setup();
+      renderBar({ exerciseLibrary: withArchived });
+      await user.click(screen.getByRole('button', { name: /^swap$/i }));
+      await user.click(screen.getByRole('button', { name: /seated row/i }));
+      expect(mockSave.mutate).toHaveBeenCalledWith({
+        sessionId: 'sess-1',
+        slotId: 'sl-1',
+        kind: 'swap',
+        substituteExerciseId: 'ex-5',
+      });
+    });
+  });
+
   it('shows the active swap with the substitute name and clears it on Undo', async () => {
     const user = userEvent.setup();
     renderBar({ deviation: { exercise_slot_id: 'sl-1', kind: 'swap', substitute_exercise_id: 'ex-3' } });

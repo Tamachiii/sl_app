@@ -39,9 +39,11 @@ vi.mock('../../hooks/useLastPerformance', () => ({
   useLastPerformance: () => ({ data: {} }),
 }));
 
-vi.mock('../../hooks/useExerciseLibrary', () => ({
-  useExerciseLibrary: () => ({ data: [], isLoading: false }),
-}));
+// The real isActiveExercise: the swap picker filters with it.
+vi.mock('../../hooks/useExerciseLibrary', async () => {
+  const actual = await vi.importActual('../../hooks/useExerciseLibrary');
+  return { ...actual, useExerciseLibrary: () => ({ data: [], isLoading: false }) };
+});
 
 vi.mock('../../hooks/useOnlineStatus', () => ({
   useOnlineStatus: () => true,

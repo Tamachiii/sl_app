@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 import Dialog from '../ui/Dialog';
 import ConfirmDialog from '../ui/ConfirmDialog';
+import TypeBadge from '../ui/TypeBadge';
 import { useSaveSlotDeviation, useRequestPromote } from '../../hooks/useSlotDeviations';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useI18n } from '../../hooks/useI18n';
+import { isActiveExercise } from '../../hooks/useExerciseLibrary';
 
 /**
  * Per-slot off-script controls: swap the prescribed exercise for another from
@@ -44,9 +46,12 @@ export default function SlotDeviationBar({
     return ex?.name || 'another exercise';
   }, [kind, deviation, exerciseLibrary]);
 
+  // An exercise the coach archived is not offered for new work. One already
+  // swapped in keeps its name above: `substituteName` reads the whole library.
   const candidates = useMemo(() => {
     const q = query.trim().toLowerCase();
     return (exerciseLibrary || [])
+      .filter(isActiveExercise)
       .filter((e) => e.id !== slot.exercise?.id)
       .filter((e) => (q ? e.name.toLowerCase().includes(q) : true));
   }, [exerciseLibrary, slot.exercise, query]);
@@ -209,11 +214,7 @@ function SwapPicker({ open, onClose, candidates, query, setQuery, onPick }) {
               className="w-full min-h-11 flex items-center gap-2 rounded-lg px-3 py-2.5 text-left hover:bg-ink-50"
             >
               <span className="sl-display text-[15px] text-gray-900 flex-1 min-w-0 truncate">{ex.name}</span>
-              <span
-                className={`sl-pill ${ex.type === 'pull' ? 'bg-pull/15 text-pull' : 'bg-push/15 text-push'}`}
-              >
-                {ex.type}
-              </span>
+              <TypeBadge type={ex.type} className="shrink-0" />
             </button>
           ))
         )}
