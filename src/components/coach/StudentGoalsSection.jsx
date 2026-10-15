@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
+import DecimalInput from '../ui/DecimalInput';
+import { parseDecimalInput } from '../../lib/number';
 import { useExerciseLibrary } from '../../hooks/useExerciseLibrary';
 import {
   useStudentGoals,
@@ -21,6 +23,10 @@ const EMPTY_FORM = {
   notes: '',
 };
 
+// What a goal's weight may be: what `goals.target_weight_kg` holds, a
+// numeric(6,2), NOT NULL. 0 is a goal too — a bodyweight movement.
+const GOAL_WEIGHT_RULES = { max: 9999.99, allowEmpty: false };
+
 const inputCls =
   'w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
 
@@ -36,20 +42,32 @@ export default function StudentGoalsSection() {
 
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [weightRefused, setWeightRefused] = useState(false);
+  const weightErrId = useId();
 
   function resetForm() {
     setForm(EMPTY_FORM);
+    setWeightRefused(false);
     setShowForm(false);
   }
 
   function handleSubmit(e) {
     e.preventDefault();
-    if (!form.exerciseId || !form.targetWeightKg) return;
+    if (!form.exerciseId) return;
+    // "62,5" is 62.5 whatever the language of the browser (L9): a number field
+    // read it as 625, or as "" — which `required` then refused as a field left
+    // empty. Text that is not a number is stopped by the field's `pattern`
+    // before this runs; a number out of the range is stopped here.
+    const weight = parseDecimalInput(form.targetWeightKg, GOAL_WEIGHT_RULES);
+    if (!weight.ok) {
+      setWeightRefused(true);
+      return;
+    }
     const payload = {
       student_id: studentProfileId,
       exercise_id: form.exerciseId,
       kind: form.kind,
-      target_weight_kg: Number(form.targetWeightKg),
+      target_weight_kg: weight.value,
       target_reps: Number(form.targetReps) || 1,
       target_sets: form.kind === 'format' ? Number(form.targetSets) || null : null,
       notes: form.notes || null,
@@ -184,17 +202,25 @@ export default function StudentGoalsSection() {
             </label>
             <label className="flex-1">
               <span className="sl-label text-ink-400 block mb-1">Weight (kg)</span>
-              <input
-                type="number"
-                min={0}
-                step={0.5}
+              <DecimalInput
+                {...GOAL_WEIGHT_RULES}
                 value={form.targetWeightKg}
-                onChange={(e) => setForm({ ...form, targetWeightKg: e.target.value })}
+                onChange={(e) => {
+                  setForm({ ...form, targetWeightKg: e.target.value });
+                  setWeightRefused(false);
+                }}
+                invalid={weightRefused}
+                aria-describedby={weightRefused ? weightErrId : undefined}
                 className={inputCls}
                 required
               />
             </label>
           </div>
+          {weightRefused && (
+            <p id={weightErrId} role="alert" className="sl-mono text-[11px] text-danger">
+              {t('coachDecimalInputs.goalWeightRange')}
+            </p>
+          )}
 
           <label className="block">
             <span className="sl-label text-ink-400 block mb-1">Notes (optional)</span>
