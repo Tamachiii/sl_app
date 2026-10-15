@@ -87,12 +87,18 @@ export default function SessionEditor() {
   //
   // Either way the banner says so and links to the review, which is where a
   // trained session is read.
+  //
+  // A DRAFT the athlete is writing is theirs until the coach approves it
+  // (review item P53): read-only as a whole too, with its own banner. The
+  // approval is in the program menu of the sheet. A session cached by an
+  // older build has no `program_status`, and is read as it was.
   const confirmed = !!confirmation || !!session?.performed_at;
+  const isDraft = session?.program_status === 'draft';
   const hasLoggedSets = useMemo(
     () => slots.some((slot) => (slot.set_logs || []).some(isLoggedSet)),
     [slots],
   );
-  const readOnly = confirmed;
+  const readOnly = confirmed || isDraft;
   const trained = confirmed || hasLoggedSets;
   const editorPath = `/coach/students/${studentId}/s/${sessionId}`;
   const reviewPath = `/coach/student/${studentId}/session/${sessionId}/review`;
@@ -275,6 +281,19 @@ export default function SessionEditor() {
           className="shrink-0 rounded-lg border border-ink-200 bg-white px-2 py-1.5 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] disabled:opacity-60 disabled:cursor-not-allowed"
         />
       </div>
+
+      {isDraft && (
+        <div
+          role="note"
+          className="rounded-xl p-3 text-[13px] text-ink-900"
+          style={{
+            background: 'color-mix(in srgb, var(--color-accent) 10%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--color-accent) 35%, transparent)',
+          }}
+        >
+          {t('coachEditorNavErrors.draft.editor')}
+        </div>
+      )}
 
       {trained && (
         <div
@@ -463,8 +482,9 @@ export default function SessionEditor() {
 
           Not offered at all once the session is trained: the database refuses
           to delete a session that carries logged sets, so the button could
-          only ever answer "archive it instead". */}
-      {!trained && (
+          only ever answer "archive it instead". Nor on an athlete's draft,
+          which is read-only. */}
+      {!trained && !isDraft && (
         <div className="pt-2 flex justify-end">
           <button
             onClick={() => setConfirmDelete(true)}

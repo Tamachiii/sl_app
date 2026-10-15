@@ -147,7 +147,24 @@ export default function StudentProgrammingSection() {
       {hasPrograms && selectedProgram && <div className="sl-hairline -mx-3 md:-mx-4" />}
 
       {programState === 'ready' ? (
-        <ProgramSheet key={selectedProgram.id} studentId={studentId} program={selectedProgram} />
+        <>
+          {/* An athlete's draft is theirs until the coach approves it (review
+              item P53): the editor opens its sessions read-only, and this says
+              why and where the approval is. */}
+          {selectedProgram.status === 'draft' && (
+            <div
+              role="note"
+              className="rounded-xl p-3 text-[13px] text-ink-900"
+              style={{
+                background: 'color-mix(in srgb, var(--color-accent) 10%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--color-accent) 35%, transparent)',
+              }}
+            >
+              {t('coachEditorNavErrors.draft.sheet')}
+            </div>
+          )}
+          <ProgramSheet key={selectedProgram.id} studentId={studentId} program={selectedProgram} />
+        </>
       ) : programState === 'notFound' ? (
         <CoachNotFound
           compact

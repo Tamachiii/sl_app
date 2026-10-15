@@ -24,5 +24,9 @@ export default {
       notFoundBody: 'Ce bloc a été supprimé, ou le lien n’est plus à jour.',
       showCurrent: 'Afficher le bloc en cours',
     },
+    draft: {
+      sheet: 'Ce bloc est un brouillon écrit par ton athlète. Il reste en lecture seule tant que tu ne l’as pas validé depuis le menu ⋯ à côté de son nom.',
+      editor: 'Cette séance fait partie d’un brouillon écrit par ton athlète. Elle reste en lecture seule tant que tu n’as pas validé le brouillon.',
+    },
   },
 };

@@ -124,3 +124,21 @@ describe('StudentProgrammingSection without a block to show', () => {
     expect(refetchPrograms).toHaveBeenCalledWith({ cancelRefetch: false });
   });
 });
+
+// Review item P53: an athlete's draft is read-only for the coach until it is
+// approved; the sheet says so above the block.
+describe('StudentProgrammingSection on an athlete\u2019s draft', () => {
+  it('says the block is a draft and where it is approved', () => {
+    programRead = read({ data: { id: 'p-1', status: 'draft', weeks: [] }, isSuccess: true, refetch: refetchProgram });
+    renderSection();
+
+    expect(screen.getByRole('note')).toHaveTextContent(/draft written by your athlete/i);
+    expect(screen.getByRole('note')).toHaveTextContent(/⋯ menu/);
+    expect(screen.getByTestId('sheet')).toBeInTheDocument();
+  });
+
+  it('says nothing on an approved block', () => {
+    renderSection();
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+});

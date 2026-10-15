@@ -103,7 +103,7 @@ describe('useSession', () => {
       maybeSingle: vi.fn().mockResolvedValue({
         data: {
           id: 's-1',
-          weeks: { program_id: 'p-9', programs: { is_active: false } },
+          weeks: { program_id: 'p-9', programs: { is_active: false, status: 'draft' } },
           exercise_slots: [
             {
               id: 'sl-2',
@@ -133,7 +133,9 @@ describe('useSession', () => {
     expect(data.program_is_active).toBe(false);
     // The block the session is in: the editor goes back to it.
     expect(data.program_id).toBe('p-9');
-    expect(chain.select.mock.calls[0][0]).toMatch(/weeks!inner\(program_id, programs!inner\(is_active/);
+    // …and whether that block is an athlete's draft, which the coach only reads.
+    expect(data.program_status).toBe('draft');
+    expect(chain.select.mock.calls[0][0]).toMatch(/weeks!inner\(program_id, programs!inner\(is_active, status\)\)/);
     expect(data.weeks).toBeUndefined();
     expect(data.exercise_slots.map((s) => s.id)).toEqual(['sl-1', 'sl-2']);
     expect(data.exercise_slots[1].set_logs.map((l) => l.id)).toEqual(['l-2a', 'l-2b']);

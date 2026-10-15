@@ -285,6 +285,56 @@ describe('SessionEditor', () => {
     });
   });
 
+  // Review item P53: an athlete's draft is theirs until the coach approves it.
+  describe('a session of a draft written by the athlete', () => {
+    const draftSlot = {
+      id: 'slot-1', sets: 2, reps: 10, weight_kg: 20, sort_order: 0,
+      exercise: { name: 'Pull Up', type: 'pull', difficulty: 2, volume_weight: 1 },
+      set_logs: [],
+    };
+
+    beforeEach(() => {
+      mockSessionData = {
+        data: { title: 'Draft day', program_status: 'draft', program_is_active: false, exercise_slots: [draftSlot] },
+        isLoading: false,
+        isSuccess: true,
+      };
+    });
+
+    it('says it is a draft, and why it cannot be edited', () => {
+      renderEditor();
+      expect(screen.getByRole('note')).toHaveTextContent(/draft written by your athlete/i);
+      expect(screen.getByRole('note')).toHaveTextContent(/read-only until you approve/i);
+      // Not the banner of a trained session: there is no review to open.
+      expect(screen.queryByRole('link', { name: /open the review/i })).toBeNull();
+    });
+
+    it('is read-only as a whole', () => {
+      renderEditor();
+      expect(screen.getByText('Draft day')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /edit session title/i })).toBeNull();
+      expect(screen.getByLabelText('Recommended date')).toBeDisabled();
+      for (const field of [...screen.getAllByRole('spinbutton'), ...screen.queryAllByRole('textbox')]) {
+        expect(field.disabled || field.readOnly).toBe(true);
+      }
+      expect(screen.queryByText('+ ADD EXERCISE')).toBeNull();
+      expect(screen.queryByText('Delete this session')).toBeNull();
+      expect(screen.queryByRole('button', { name: /remove exercise/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /^reorder /i })).toBeNull();
+    });
+
+    it('is editable once approved', () => {
+      mockSessionData = {
+        ...mockSessionData,
+        data: { ...mockSessionData.data, program_status: 'approved' },
+      };
+      renderEditor();
+      expect(screen.queryByRole('note')).toBeNull();
+      expect(screen.getByText('+ ADD EXERCISE')).toBeInTheDocument();
+      expect(screen.getByLabelText('Recommended date')).toBeEnabled();
+    });
+  });
+
   it('renders session title', () => {
     mockSessionData = {
       data: { title: 'Push Day', exercise_slots: [] },

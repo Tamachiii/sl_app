@@ -24,5 +24,9 @@ export default {
       notFoundBody: 'This block was deleted, or the link is out of date.',
       showCurrent: 'Show the current block',
     },
+    draft: {
+      sheet: 'This block is a draft written by your athlete. It stays read-only until you approve it from the ⋯ menu beside its name.',
+      editor: 'This session is part of a draft written by your athlete. It stays read-only until you approve the draft.',
+    },
   },
 };

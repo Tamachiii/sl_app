@@ -41,7 +41,7 @@ export function sessionQueryOptions(sessionId) {
         .from('sessions')
         .select(`
           *,
-          weeks!inner(program_id, programs!inner(is_active)),
+          weeks!inner(program_id, programs!inner(is_active, status)),
           exercise_slots(
             *,
             exercise:exercise_library(*),
@@ -58,6 +58,9 @@ export function sessionQueryOptions(sessionId) {
       if (!data) return null;
       data.program_is_active = !!data.weeks?.programs?.is_active;
       data.program_id = data.weeks?.program_id ?? null;
+      // 'draft' for a block the athlete is writing: the coach's editor is
+      // read-only on it until the coach approves it.
+      data.program_status = data.weeks?.programs?.status ?? null;
       delete data.weeks;
       data.exercise_slots = (data.exercise_slots || [])
         .map((sl) => ({

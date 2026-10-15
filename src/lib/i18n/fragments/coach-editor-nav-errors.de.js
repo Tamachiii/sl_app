@@ -24,5 +24,9 @@ export default {
       notFoundBody: 'Dieser Block wurde gelöscht, oder der Link ist veraltet.',
       showCurrent: 'Aktuellen Block anzeigen',
     },
+    draft: {
+      sheet: 'Dieser Block ist ein Entwurf deines Athleten. Er bleibt schreibgeschützt, bis du ihn über das Menü ⋯ neben seinem Namen freigibst.',
+      editor: 'Diese Einheit gehört zu einem Entwurf deines Athleten. Sie bleibt schreibgeschützt, bis du den Entwurf freigibst.',
+    },
   },
 };
