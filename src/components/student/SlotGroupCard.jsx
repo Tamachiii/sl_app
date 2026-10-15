@@ -189,7 +189,7 @@ function SlotBody({
                 // share align-top — its icon breaks baseline/middle alignment.
                 // mr-2 spaces this from that sibling (they flow inline, so the
                 // JSX newline between them collapses to no gap).
-                className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3 disabled:opacity-50 align-top mr-2"
+                className="sl-pill sl-pill-btn bg-ink-100 text-ink-600 hover:bg-ink-200 disabled:opacity-50 align-top mr-2"
               >
                 + Add set
               </button>

@@ -35,6 +35,24 @@ describe('RpeInput', () => {
     expect(screen.getByRole('button', { name: 'RPE 4' })).toHaveAttribute('aria-pressed', 'false');
   });
 
+  // P68. jsdom lays nothing out, so the size is read from the classes: two
+  // rows of five, each button 44 px tall (`h-11`), not ten columns of 36 px.
+  it('lays the ten ratings out in two rows of five, each 44 px tall', () => {
+    render(<RpeInput value={null} onChange={vi.fn()} />);
+    const buttons = screen.getAllByRole('button');
+    expect(buttons).toHaveLength(10);
+    const grid = buttons[0].parentElement;
+    expect(grid).toHaveClass('grid-cols-5');
+    expect(grid).not.toHaveClass('grid-cols-10');
+    for (const button of buttons) {
+      expect(button).toHaveClass('h-11');
+      expect(button.parentElement).toBe(grid);
+    }
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => `RPE ${n}`),
+    );
+  });
+
   it('clicks every RPE button 1-10', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

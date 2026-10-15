@@ -36,6 +36,15 @@ describe('SlotCommentBox', () => {
     expect(editPill()).toHaveTextContent('felt heavy');
   });
 
+  // P68: a pill that is a button is 44 px tall (`sl-pill-btn`), not 23.
+  it('draws the pill at 44 px, with or without a note', () => {
+    const { rerender } = renderBox(undefined);
+    expect(addPill()).toHaveClass('sl-pill', 'sl-pill-btn');
+
+    rerender(<SlotCommentBox sessionId="s-1" slotId="sl-1" comment={NOTE} />);
+    expect(editPill()).toHaveClass('sl-pill', 'sl-pill-btn');
+  });
+
   // P25. The field used to close in the save's `onSuccess`: without a network
   // the write is parked, nothing answers, and it stayed open as if the note
   // had not been taken.

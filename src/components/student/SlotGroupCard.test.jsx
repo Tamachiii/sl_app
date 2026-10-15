@@ -280,3 +280,11 @@ describe('an extra set', () => {
     expect(row(2).getByLabelText(/actual weight in kilograms/i)).toHaveValue('100');
   });
 });
+
+// P68: a pill that is a button is 44 px tall (`sl-pill-btn`), not 23.
+describe('the sizes of its controls', () => {
+  it('"+ Add set" is 44 px tall', () => {
+    renderCard({ logs: [prescribed(1)] });
+    expect(screen.getByRole('button', { name: /add set/i })).toHaveClass('sl-pill', 'sl-pill-btn');
+  });
+});

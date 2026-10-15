@@ -88,6 +88,30 @@ describe('SlotDeviationBar', () => {
     expect(mockRequestPromote.mutate).toHaveBeenCalledWith({ sessionId: 'sess-1', slotId: 'sl-1' });
   });
 
+  // P68. jsdom lays nothing out: the 44 px are the `sl-pill-btn` class.
+  describe('every button is 44 px tall', () => {
+    it('Swap and Skip', () => {
+      renderBar();
+      for (const name of [/^swap$/i, /^skip$/i]) {
+        expect(screen.getByRole('button', { name })).toHaveClass('sl-pill', 'sl-pill-btn');
+      }
+    });
+
+    it('Change, Undo and "make this permanent" on a swap', () => {
+      renderBar({ deviation: { exercise_slot_id: 'sl-1', kind: 'swap', substitute_exercise_id: 'ex-3' } });
+      for (const name of [/^change$/i, /^undo$/i, /make this permanent/i]) {
+        expect(screen.getByRole('button', { name })).toHaveClass('sl-pill', 'sl-pill-btn');
+      }
+    });
+
+    it('the exercises of the picker', async () => {
+      const user = userEvent.setup();
+      renderBar();
+      await user.click(screen.getByRole('button', { name: /^swap$/i }));
+      expect(screen.getByRole('button', { name: /goblet squat/i })).toHaveClass('min-h-11');
+    });
+  });
+
   it('shows the requested state (no ask button) once a promote is pending', () => {
     renderBar({
       deviation: {

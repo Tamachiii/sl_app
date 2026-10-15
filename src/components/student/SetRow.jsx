@@ -376,7 +376,7 @@ const SetRow = memo(function SetRow({
   if (log.skipped) {
     return (
       <div className="rounded-xl bg-ink-50 px-3 py-2 flex items-center gap-3 opacity-75">
-        <span className="w-11 h-9 rounded-lg bg-ink-100 text-ink-400 flex items-center justify-center shrink-0 sl-display text-[15px]">
+        <span className="w-11 h-11 rounded-lg bg-ink-100 text-ink-400 flex items-center justify-center shrink-0 sl-display text-[15px]">
           —
         </span>
         <span className="sl-label normal-case text-ink-400 line-through">{formatSetTarget(log)}</span>
@@ -386,7 +386,7 @@ const SetRow = memo(function SetRow({
           <button
             type="button"
             onClick={handleUnskip}
-            className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3"
+            className="sl-pill sl-pill-btn bg-ink-100 text-ink-600 hover:bg-ink-200"
           >
             Undo
           </button>
@@ -489,7 +489,7 @@ const SetRow = memo(function SetRow({
                 onClick={handleRemoveExtra}
                 disabled={removeStudentSet.isPending}
                 aria-label="Remove extra set"
-                className="sl-pill bg-ink-100 text-ink-500 hover:bg-ink-200 px-2.5 gap-1 shrink-0 disabled:opacity-50"
+                className="sl-pill sl-pill-btn bg-ink-100 text-ink-500 hover:bg-ink-200 px-2.5 gap-1 shrink-0 disabled:opacity-50"
               >
                 Extra <span aria-hidden="true">✕</span>
               </button>
@@ -580,7 +580,7 @@ const SetRow = memo(function SetRow({
                   onChange={(e) => setActualReps(e.target.value)}
                   aria-label="Actual reps performed"
                   aria-describedby={!repsInput.ok ? hintId : undefined}
-                  className="w-12 rounded-lg bg-ink-50 border border-ink-200 px-2 py-1.5 text-gray-900"
+                  className="w-12 min-h-11 rounded-lg bg-ink-50 border border-ink-200 px-2 py-1.5 text-gray-900"
                 />
                 <span className="sl-label normal-case text-ink-400" aria-hidden="true">@</span>
               </>
@@ -592,7 +592,7 @@ const SetRow = memo(function SetRow({
                 onChange={(e) => setActualWeight(e.target.value)}
                 aria-label="Actual weight in kilograms"
                 aria-describedby={repsInput.ok && !weightInput.ok ? hintId : undefined}
-                className="w-16 rounded-lg bg-ink-50 border border-ink-200 px-2 py-1.5 text-gray-900"
+                className="w-16 min-h-11 rounded-lg bg-ink-50 border border-ink-200 px-2 py-1.5 text-gray-900"
               />
               <span className="sl-label normal-case">kg</span>
             </label>

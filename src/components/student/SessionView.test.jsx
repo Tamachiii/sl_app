@@ -1237,6 +1237,25 @@ describe('SessionView', () => {
     await user.click(screen.getByRole('button', { name: /reply in messages/i }));
   });
 
+  // P68. jsdom lays nothing out: the 44 px are read from the classes.
+  it('draws its buttons at 44 px: the way back, the slot across from it, and "Reply in messages"', () => {
+    mockFeedback = {
+      data: { id: 'msg-1', body: 'Good.', created_at: '2026-04-15T10:00:00Z' },
+    };
+    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
+    mockSetLogsData = { data: [], isLoading: false };
+    renderSessionView();
+
+    const back = screen.getByRole('button', { name: /go back/i });
+    expect(back).toHaveClass('w-11', 'h-11');
+    expect(back).not.toHaveClass('w-9');
+    // The slot of the rest-timer pill: as wide as the way back, so the title
+    // stays centred between them.
+    const bar = back.parentElement;
+    expect(bar.lastElementChild).toHaveClass('min-w-11', 'h-11');
+    expect(screen.getByRole('button', { name: /reply in messages/i })).toHaveClass('sl-pill', 'sl-pill-btn');
+  });
+
   it('hides the feedback section when no feedback exists', () => {
     mockFeedback = { data: null };
     mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };

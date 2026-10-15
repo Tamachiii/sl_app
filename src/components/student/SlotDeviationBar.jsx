@@ -84,7 +84,7 @@ export default function SlotDeviationBar({
               <button
                 type="button"
                 onClick={() => setPickerOpen(true)}
-                className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 px-3"
+                className="sl-pill sl-pill-btn bg-ink-100 text-ink-700 hover:bg-ink-200"
               >
                 Change
               </button>
@@ -92,7 +92,7 @@ export default function SlotDeviationBar({
             <button
               type="button"
               onClick={clearDeviation}
-              className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 px-3"
+              className="sl-pill sl-pill-btn bg-ink-100 text-ink-700 hover:bg-ink-200"
             >
               Undo
             </button>
@@ -108,7 +108,7 @@ export default function SlotDeviationBar({
             type="button"
             onClick={() => requestPromote.mutate({ sessionId, slotId: slot.id })}
             disabled={requestPromote.isPending}
-            className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3 basis-full sm:basis-auto disabled:opacity-50"
+            className="sl-pill sl-pill-btn bg-ink-100 text-ink-600 hover:bg-ink-200 basis-full sm:basis-auto disabled:opacity-50"
           >
             Ask coach to make this permanent
           </button>
@@ -136,14 +136,14 @@ export default function SlotDeviationBar({
       <button
         type="button"
         onClick={() => setPickerOpen(true)}
-        className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3"
+        className="sl-pill sl-pill-btn bg-ink-100 text-ink-600 hover:bg-ink-200"
       >
         Swap
       </button>
       <button
         type="button"
         onClick={applySkip}
-        className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3"
+        className="sl-pill sl-pill-btn bg-ink-100 text-ink-600 hover:bg-ink-200"
       >
         Skip
       </button>
@@ -183,7 +183,7 @@ function SwapPicker({ open, onClose, candidates, query, setQuery, onPick }) {
               key={ex.id}
               type="button"
               onClick={() => onPick(ex.id)}
-              className="w-full flex items-center gap-2 rounded-lg px-3 py-2.5 text-left hover:bg-ink-50"
+              className="w-full min-h-11 flex items-center gap-2 rounded-lg px-3 py-2.5 text-left hover:bg-ink-50"
             >
               <span className="sl-display text-[15px] text-gray-900 flex-1 min-w-0 truncate">{ex.name}</span>
               <span

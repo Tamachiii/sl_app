@@ -721,6 +721,23 @@ describe('SetRow', () => {
       expect(mockRemoveStudentSet.mutate).toHaveBeenCalledWith({ logId: 'log-1' });
     });
 
+    // P68. jsdom lays nothing out: the 44 px are read from the classes.
+    it('draws the Undo of a skipped set and the Extra chip at 44 px', () => {
+      const { rerender } = render(<SetRow log={{ ...repLog, skipped: true }} />);
+      expect(screen.getByRole('button', { name: /^undo$/i })).toHaveClass('sl-pill', 'sl-pill-btn');
+
+      rerender(<SetRow log={{ ...baseLog, is_student_added: true }} />);
+      expect(screen.getByRole('button', { name: /remove extra set/i })).toHaveClass('sl-pill', 'sl-pill-btn');
+    });
+
+    it('and the two fields of the Actual editor', async () => {
+      const user = userEvent.setup();
+      renderSetRow(repLog);
+      await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
+      expect(screen.getByLabelText(/actual reps performed/i)).toHaveClass('min-h-11');
+      expect(screen.getByLabelText(/actual weight in kilograms/i)).toHaveClass('min-h-11');
+    });
+
     it('does not offer "Skip" on an extra set (it is removed instead)', async () => {
       const user = userEvent.setup();
       renderSetRow({ ...baseLog, is_student_added: true });

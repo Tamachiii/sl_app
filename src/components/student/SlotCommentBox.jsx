@@ -59,7 +59,7 @@ export default function SlotCommentBox({ sessionId, slotId, comment, locked = fa
         // align-top pairs with the sibling "+ Add set" pill in SlotBody so the
         // two inline-flex pills sit level; the leading icon here throws off
         // baseline/middle alignment, and both must share the same value.
-        className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3 max-w-full align-top"
+        className="sl-pill sl-pill-btn bg-ink-100 text-ink-600 hover:bg-ink-200 max-w-full align-top"
       >
         <svg
           // Nudge the bubble down ~1px: its tail hangs below the body, so the
