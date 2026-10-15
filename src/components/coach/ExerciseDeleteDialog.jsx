@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import Dialog from '../ui/Dialog';
-import { useExerciseUsage } from '../../hooks/useExerciseLibrary';
+import { useExerciseUsage, isActiveExercise } from '../../hooks/useExerciseLibrary';
 import { useI18n } from '../../hooks/useI18n';
 
 /**
@@ -14,12 +14,16 @@ import { useI18n } from '../../hooks/useI18n';
  * goals, and the progress logged on them, with it — which is why the rule is
  * applied on this side too rather than left to the database's answer.
  *
+ * What it offers instead for an exercise in use is to archive it — when the
+ * page passes `onArchive(id)` and the exercise is not archived already: it
+ * leaves the pickers and stays on everything that uses it.
+ *
  * `exercise` is the row to delete, or null while the dialog is closed. The
  * dialog itself stays mounted, like the app's other dialogs, so that closing
  * goes through `<dialog>.close()` and focus returns to the row's button. Its
  * body (`UsageCheck`) is mounted by each open.
  */
-export default function ExerciseDeleteDialog({ exercise, onClose, onDelete }) {
+export default function ExerciseDeleteDialog({ exercise, onClose, onDelete, onArchive }) {
   const { t } = useI18n();
   return (
     <Dialog
@@ -28,7 +32,13 @@ export default function ExerciseDeleteDialog({ exercise, onClose, onDelete }) {
       title={exercise ? t('coach.library.confirmDelete', { name: exercise.name }) : undefined}
     >
       {exercise && (
-        <UsageCheck key={exercise.id} exercise={exercise} onClose={onClose} onDelete={onDelete} />
+        <UsageCheck
+          key={exercise.id}
+          exercise={exercise}
+          onClose={onClose}
+          onDelete={onDelete}
+          onArchive={onArchive}
+        />
       )}
     </Dialog>
   );
@@ -43,7 +53,11 @@ export default function ExerciseDeleteDialog({ exercise, onClose, onDelete }) {
  * holds is not older than the mount (`openedAt` against `dataUpdatedAt`).
  *
  *   - read, nothing uses it: the confirmation, with Delete.
- *   - read, in use: the counts, and no Delete.
+ *   - read, in use: the counts, and no Delete. "Archive instead" when the
+ *     page can archive and the exercise is not archived yet. It takes the
+ *     place the disabled Delete held while reading, so the one write a tap
+ *     aimed at that button can make when the answer lands is an archive —
+ *     which the library's drawer undoes — and never a delete.
  *   - not read (the read failed, or waits for the network): says so, with
  *     "Check again". Nothing is known, so nothing is deleted.
  *   - reading: Delete is there but disabled, so the button a finger is aiming
@@ -52,7 +66,7 @@ export default function ExerciseDeleteDialog({ exercise, onClose, onDelete }) {
  * The successful read is tested first and nothing un-reads it: a refetch on
  * window focus that fails later leaves the counts on screen.
  */
-function UsageCheck({ exercise, onClose, onDelete }) {
+function UsageCheck({ exercise, onClose, onDelete, onArchive }) {
   const { t } = useI18n();
   const [openedAt] = useState(() => Date.now());
   const usage = useExerciseUsage(exercise.id);
@@ -63,9 +77,15 @@ function UsageCheck({ exercise, onClose, onDelete }) {
   const unused = !!counts && !inUse;
   const failed =
     !counts && ((fetchedSinceOpen && usage.errorUpdatedAt >= openedAt) || usage.isPaused);
+  const archiveInstead = inUse && !!onArchive && isActiveExercise(exercise);
 
   function handleDelete() {
     onDelete(exercise.id);
+    onClose();
+  }
+
+  function handleArchive() {
+    onArchive(exercise.id);
     onClose();
   }
 
@@ -93,10 +113,25 @@ function UsageCheck({ exercise, onClose, onDelete }) {
           <p className="sl-mono text-[12px] text-ink-400 leading-relaxed">
             {t('coachLibraryDelete.inUseHelp')}
           </p>
+          {archiveInstead && (
+            <p className="sl-mono text-[12px] text-ink-400 leading-relaxed">
+              {t('coachLibraryArchive.archiveInsteadHelp')}
+            </p>
+          )}
         </>
       )}
 
       <div className="flex gap-2">
+        {archiveInstead && (
+          <button
+            type="button"
+            onClick={handleArchive}
+            className="flex-1 min-h-11 sl-btn-primary text-[13px]"
+            style={{ padding: '10px 16px' }}
+          >
+            {t('coachLibraryArchive.archiveInstead')}
+          </button>
+        )}
         {failed && (
           <button
             type="button"

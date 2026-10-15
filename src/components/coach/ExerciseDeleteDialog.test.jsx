@@ -50,12 +50,14 @@ function appLikeClient() {
   });
 }
 
-function renderDialog({ exercise = PULL_UP, qc = appLikeClient() } = {}) {
+// `onArchive` is passed only when a test gives one: the page that cannot
+// archive is the dialog as it was.
+function renderDialog({ exercise = PULL_UP, qc = appLikeClient(), onArchive } = {}) {
   const onClose = vi.fn();
   const onDelete = vi.fn();
   render(
     <QueryClientProvider client={qc}>
-      <ExerciseDeleteDialog exercise={exercise} onClose={onClose} onDelete={onDelete} />
+      <ExerciseDeleteDialog exercise={exercise} onClose={onClose} onDelete={onDelete} onArchive={onArchive} />
     </QueryClientProvider>,
   );
   return { onClose, onDelete, qc };
@@ -172,6 +174,87 @@ describe('<ExerciseDeleteDialog />', () => {
       renderDialog();
       await waitFor(() => expect(status()).toHaveTextContent('It is in use'));
       expect(screen.queryByText('Swapped in by an athlete')).not.toBeInTheDocument();
+    });
+  });
+
+  // Review decision P18: "in use, cannot be deleted" ended on an OK. The
+  // exercise can leave the pickers by being archived, and the dialog offers
+  // that where it says it cannot delete.
+  describe('archiving instead', () => {
+    const archiveButton = () => screen.queryByRole('button', { name: 'Archive instead' });
+
+    it('offers it for an exercise in use, archives it, and closes', async () => {
+      server = counts({ slots: 2, goals: 1 });
+      const onArchive = vi.fn();
+      const { onDelete, onClose } = renderDialog({ onArchive });
+
+      await waitFor(() => expect(status()).toHaveTextContent('It is in use'));
+      expect(screen.getByText(/Archiving takes it out of your pickers/)).toBeInTheDocument();
+      expect(deleteButton()).not.toBeInTheDocument();
+      expect(archiveButton()).toHaveClass('min-h-11');
+
+      fireEvent.click(archiveButton());
+      expect(onArchive).toHaveBeenCalledTimes(1);
+      expect(onArchive).toHaveBeenCalledWith('ex-1');
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(onDelete).not.toHaveBeenCalled();
+    });
+
+    it('takes the place the disabled Delete held, never a place Cancel held', async () => {
+      let answer;
+      const pending = new Promise((resolve) => {
+        answer = resolve;
+      });
+      server = async (table) => {
+        await pending;
+        return counts({ slots: 1 })(table);
+      };
+      renderDialog({ onArchive: vi.fn() });
+      const row = deleteButton().parentElement;
+      expect([...row.children].map((b) => b.textContent)).toEqual(['Delete', 'Cancel']);
+
+      answer();
+      await waitFor(() => expect(archiveButton()).toBeInTheDocument());
+      expect([...row.children].map((b) => b.textContent)).toEqual(['Archive instead', 'OK']);
+    });
+
+    it('is not offered while the usage is read, nor for an exercise nothing uses', async () => {
+      let answer;
+      const pending = new Promise((resolve) => {
+        answer = resolve;
+      });
+      server = async (table) => {
+        await pending;
+        return counts()(table);
+      };
+      renderDialog({ onArchive: vi.fn() });
+      expect(archiveButton()).not.toBeInTheDocument();
+      answer();
+      await waitFor(() => expect(deleteButton()).toBeEnabled());
+      expect(archiveButton()).not.toBeInTheDocument();
+    });
+
+    it('is not offered when the usage could not be read', async () => {
+      server = () => ({ count: null, error: { message: 'boom' } });
+      renderDialog({ onArchive: vi.fn() });
+      await waitFor(() => expect(status()).toHaveTextContent('could not be checked'));
+      expect(archiveButton()).not.toBeInTheDocument();
+    });
+
+    it('is not offered for an exercise that is archived already', async () => {
+      server = counts({ slots: 2 });
+      renderDialog({ exercise: { ...PULL_UP, archived_at: '2026-10-15T08:00:00.000Z' }, onArchive: vi.fn() });
+      await waitFor(() => expect(status()).toHaveTextContent('It is in use'));
+      expect(archiveButton()).not.toBeInTheDocument();
+      expect(screen.queryByText(/Archiving takes it out of your pickers/)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'OK' })).toBeInTheDocument();
+    });
+
+    it('is not offered by a page that cannot archive', async () => {
+      server = counts({ slots: 2 });
+      renderDialog();
+      await waitFor(() => expect(status()).toHaveTextContent('It is in use'));
+      expect(archiveButton()).not.toBeInTheDocument();
     });
   });
 

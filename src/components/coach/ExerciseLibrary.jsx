@@ -3,12 +3,15 @@ import {
   useExerciseLibrary,
   useCreateExercise,
   useUpdateExercise,
+  useArchiveExercise,
   useDeleteExercise,
+  isActiveExercise,
 } from '../../hooks/useExerciseLibrary';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
 import DecimalInput from '../ui/DecimalInput';
+import TypeBadge from '../ui/TypeBadge';
 import ExerciseDeleteDialog from './ExerciseDeleteDialog';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
@@ -40,6 +43,21 @@ function FilterPill({ label, active, onClick }) {
       }
     >
       {!active ? <span className="text-ink-500">{label}</span> : label}
+    </button>
+  );
+}
+
+// Delete is offered on every exercise, archived ones included: the dialog it
+// opens reads where the exercise is used, and deletes only one nothing uses.
+function DeleteButton({ exercise, onClick }) {
+  const { t } = useI18n();
+  return (
+    <button
+      onClick={onClick}
+      aria-label={`Delete ${exercise.name}`}
+      className="min-h-11 min-w-11 px-2 sl-mono text-[11px] text-ink-400 hover:text-danger"
+    >
+      {t('coach.library.del')}
     </button>
   );
 }
@@ -158,6 +176,7 @@ export default function ExerciseLibrary() {
   const { data: exercises, isLoading } = useExerciseLibrary();
   const createExercise = useCreateExercise();
   const updateExercise = useUpdateExercise();
+  const archiveExercise = useArchiveExercise();
   const deleteExercise = useDeleteExercise();
 
   const [showAdd, setShowAdd] = useState(false);
@@ -166,16 +185,36 @@ export default function ExerciseLibrary() {
   const [deleting, setDeleting] = useState(null);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [showArchived, setShowArchived] = useState(false);
+
+  // An exercise that is in use cannot be deleted, so it is archived: it leaves
+  // this list — and the pickers, which filter with the same predicate — for
+  // the "Archived · N" drawer below. The search and the type pills are about
+  // the exercises on offer; the drawer lists every archived one.
+  const { active, archived } = useMemo(() => {
+    const all = exercises || [];
+    return {
+      active: all.filter(isActiveExercise),
+      archived: all.filter((ex) => !isActiveExercise(ex)),
+    };
+  }, [exercises]);
 
   const filtered = useMemo(() => {
-    if (!exercises) return [];
     const q = search.trim().toLowerCase();
-    return exercises.filter((ex) => {
+    return active.filter((ex) => {
       const matchesSearch = !q || ex.name.toLowerCase().includes(q);
       const matchesType = typeFilter === 'all' || ex.type === typeFilter;
       return matchesSearch && matchesType;
     });
-  }, [exercises, search, typeFilter]);
+  }, [active, search, typeFilter]);
+
+  // The exercise being archived or restored, so its button is not pressed
+  // twice while the write is out.
+  const movingId = archiveExercise.isPending ? archiveExercise.variables?.id : null;
+
+  function setArchived(id, value) {
+    archiveExercise.mutate({ id, archived: value });
+  }
 
   function handleCreate(values) {
     createExercise.mutate(values, { onSuccess: () => setShowAdd(false) });
@@ -185,7 +224,7 @@ export default function ExerciseLibrary() {
     updateExercise.mutate({ id, ...values }, { onSuccess: () => setEditingId(null) });
   }
 
-  const hasExercises = exercises && exercises.length > 0;
+  const hasExercises = active.length > 0;
 
   return (
     <div className="p-4 pb-6 md:p-8 space-y-5">
@@ -271,7 +310,9 @@ export default function ExerciseLibrary() {
       )}
 
       {!isLoading && !hasExercises && !showAdd && (
-        <EmptyState message={t('coach.library.noneYet')} />
+        <EmptyState
+          message={archived.length > 0 ? t('coachLibraryArchive.allArchived') : t('coach.library.noneYet')}
+        />
       )}
 
       {!isLoading && hasExercises && filtered.length === 0 && (
@@ -296,21 +337,15 @@ export default function ExerciseLibrary() {
                   <span className="sl-display text-[15px] text-gray-900 truncate">
                     {ex.name}
                   </span>
-                  <span
-                    className={`sl-pill ${
-                      ex.type === 'pull' ? 'bg-pull/15 text-pull' : 'bg-push/15 text-push'
-                    }`}
-                  >
-                    {ex.type}
-                  </span>
+                  <TypeBadge type={ex.type} />
                   <span className="sl-mono text-[10px] text-ink-400">
                     D{ex.difficulty} · VW{ex.volume_weight}
                     {ex.load_mode === 'added' ? ' · +BW' : ex.load_mode === 'full' ? ' · FULL' : ''}
                   </span>
                 </div>
-                {/* Two 44px boxes side by side, not two words 4px apart: "del"
-                    was 29×16 (live review N18). `-my-3` keeps the card as tall
-                    as its name. */}
+                {/* 44px boxes side by side, not words 4px apart: "del" was
+                    29×16 (live review N18). `-my-3` keeps the card as tall as
+                    its name. */}
                 <div className="flex gap-1 shrink-0 -my-3 -mr-2">
                   <button
                     onClick={() => setEditingId(ex.id)}
@@ -320,12 +355,15 @@ export default function ExerciseLibrary() {
                     {t('coach.library.edit')}
                   </button>
                   <button
-                    onClick={() => setDeleting(ex)}
-                    aria-label={`Delete ${ex.name}`}
-                    className="min-h-11 min-w-11 px-2 sl-mono text-[11px] text-ink-400 hover:text-danger"
+                    type="button"
+                    onClick={() => setArchived(ex.id, true)}
+                    disabled={movingId === ex.id}
+                    aria-label={t('coachLibraryArchive.archiveLabel', { name: ex.name })}
+                    className="min-h-11 min-w-11 px-2 sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)] disabled:opacity-50"
                   >
-                    {t('coach.library.del')}
+                    {t('coachLibraryArchive.archive')}
                   </button>
+                  <DeleteButton exercise={ex} onClick={() => setDeleting(ex)} />
                 </div>
               </div>
             )}
@@ -333,10 +371,66 @@ export default function ExerciseLibrary() {
         ))}
       </div>
 
+      {!isLoading && archived.length > 0 && (
+        <section className="space-y-2">
+          <button
+            type="button"
+            onClick={() => setShowArchived((v) => !v)}
+            aria-expanded={showArchived}
+            className="w-full min-h-11 flex items-center gap-3 border-b border-ink-100 text-left"
+          >
+            <span className="sl-label text-ink-400 flex-1">
+              {t('coachLibraryArchive.drawer', { n: archived.length })}
+            </span>
+            <svg
+              className={`w-4 h-4 text-ink-400 shrink-0 transition-transform ${showArchived ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {showArchived && (
+            <>
+              <p className="sl-mono text-[11px] text-ink-400 leading-relaxed">
+                {t('coachLibraryArchive.drawerHint')}
+              </p>
+              <ul className="space-y-2 md:grid md:grid-cols-2 md:gap-2 md:space-y-0">
+                {archived.map((ex) => (
+                  <li key={ex.id} className="sl-card p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 flex-wrap min-w-0">
+                        <span className="sl-display text-[15px] text-ink-600 truncate">{ex.name}</span>
+                        <TypeBadge type={ex.type} />
+                      </div>
+                      <div className="flex gap-1 shrink-0 -my-3 -mr-2">
+                        <button
+                          type="button"
+                          onClick={() => setArchived(ex.id, false)}
+                          disabled={movingId === ex.id}
+                          aria-label={t('coachLibraryArchive.restoreLabel', { name: ex.name })}
+                          className="min-h-11 min-w-11 px-2 sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)] disabled:opacity-50"
+                        >
+                          {t('coachLibraryArchive.restore')}
+                        </button>
+                        <DeleteButton exercise={ex} onClick={() => setDeleting(ex)} />
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </section>
+      )}
+
       <ExerciseDeleteDialog
         exercise={deleting}
         onClose={() => setDeleting(null)}
         onDelete={(id) => deleteExercise.mutate(id)}
+        onArchive={(id) => setArchived(id, true)}
       />
     </div>
   );
