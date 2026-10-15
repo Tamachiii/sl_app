@@ -435,6 +435,30 @@ describe('SessionEditor', () => {
     expect(back).not.toHaveClass('w-9');
   });
 
+  // Review item B8, the coach's half: an exercise this coach cannot read
+  // comes as `exercise: null`, and ExerciseSlotRow reads its name.
+  it('shows a slot whose exercise cannot be read as such, and the others as usual', () => {
+    mockSessionData = {
+      data: {
+        title: 'Day 1',
+        exercise_slots: [
+          { id: 'slot-1', sets: 3, reps: 10, sort_order: 0, exercise: null, set_logs: [] },
+          {
+            id: 'slot-2', sets: 3, reps: 10, sort_order: 1, set_logs: [],
+            exercise: { name: 'Dip', type: 'push', difficulty: 2, volume_weight: 1 },
+          },
+        ],
+      },
+      isLoading: false,
+    };
+    renderEditor();
+
+    expect(screen.getByText('Exercise unavailable')).toBeInTheDocument();
+    expect(screen.getByText(/a library you can’t read/i)).toBeInTheDocument();
+    expect(screen.getAllByText('Dip').length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: /remove exercise/i })).toHaveLength(1);
+  });
+
   it('renders session title', () => {
     mockSessionData = {
       data: { title: 'Push Day', exercise_slots: [] },

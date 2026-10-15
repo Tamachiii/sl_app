@@ -38,6 +38,7 @@ import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useDeclinePromote } from '../../hooks/useAdoptSwap';
 import { useI18n } from '../../hooks/useI18n';
 import SlotProgress from './SlotProgress';
+import TypeBadge from '../ui/TypeBadge';
 import AdoptSwapDialog from './AdoptSwapDialog';
 import RemoveExerciseDialog from './RemoveExerciseDialog';
 import SessionFeedbackComposer from './SessionFeedbackComposer';
@@ -345,7 +346,12 @@ function SessionReviewPage() {
       <div className="space-y-3">
         {slotGroups.map((group) => {
           const renderSlot = (slot) => {
+            // `null` when this coach cannot read the exercise — one of a former
+            // coach's library, until migration 23. The slot's sets are still
+            // the athlete's work: shown under a name that says so (review
+            // item B8), where reading `ex.name` crashed the page.
             const ex = slot.exercise;
+            const exerciseName = ex?.name ?? t('coachEditorNavErrors.exercise.unavailableTitle');
             const slotLogs = (setLogs || [])
               .filter((l) => l.exercise_slot_id === slot.id)
               .slice()
@@ -362,16 +368,17 @@ function SessionReviewPage() {
             return (
               <div key={slot.id} className="sl-card p-4 space-y-2">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="sl-display text-[16px] text-gray-900">{ex.name}</span>
-                  <span
-                    className={`sl-pill ${
-                      ex.type === 'pull' ? 'bg-pull/15 text-pull' : 'bg-push/15 text-push'
-                    }`}
-                  >
-                    {ex.type}
+                  <span className={`sl-display text-[16px] ${ex ? 'text-gray-900' : 'text-ink-600'}`}>
+                    {exerciseName}
                   </span>
-                  <span className="sl-mono text-[10px] text-ink-400">D{ex.difficulty}</span>
+                  {ex && <TypeBadge type={ex.type} />}
+                  {ex && <span className="sl-mono text-[10px] text-ink-400">D{ex.difficulty}</span>}
                 </div>
+                {!ex && (
+                  <p className="text-[12px] text-ink-400">
+                    {t('coachEditorNavErrors.exercise.unavailableBody')}
+                  </p>
+                )}
                 {deviation && (
                   <div
                     className="rounded-lg px-2.5 py-1.5 text-[12px] text-ink-900"
@@ -416,7 +423,7 @@ function SessionReviewPage() {
                               setAdoptTarget({
                                 slotId: slot.id,
                                 substituteId: deviation.substitute_exercise_id,
-                                originalName: ex.name,
+                                originalName: exerciseName,
                                 substituteName,
                               })
                             }
@@ -440,7 +447,7 @@ function SessionReviewPage() {
                         ) : online ? (
                           <button
                             type="button"
-                            onClick={() => setRemoveTarget({ slotId: slot.id, exerciseName: ex.name })}
+                            onClick={() => setRemoveTarget({ slotId: slot.id, exerciseName })}
                             className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 px-2.5"
                           >
                             Remove from upcoming

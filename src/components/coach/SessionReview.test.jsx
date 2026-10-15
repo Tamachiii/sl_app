@@ -786,6 +786,60 @@ describe('<SessionReview />', () => {
     ],
   };
 
+  // The pill of a type comes from the one list of types (lib/exerciseTypes):
+  // every type that was not "pull" used to be drawn as a push.
+  it('draws the type of each exercise with its own badge', () => {
+    mockSessionData = {
+      data: {
+        ...swapSession,
+        title: 'Day 1',
+        exercise_slots: [
+          { id: 'sl-1', sets: 3, exercise: { id: 'e1', name: 'Ring Dip', type: 'push', difficulty: 2 } },
+          { id: 'sl-2', sets: 3, exercise: { id: 'e2', name: 'Front Lever', type: 'core', difficulty: 4 } },
+        ],
+      },
+      isLoading: false,
+    };
+    renderReview();
+
+    expect(screen.getByText('Push')).toHaveClass('sl-pill', 'bg-push/15', 'text-push');
+    const unlisted = screen.getByText('core');
+    expect(unlisted).toHaveClass('sl-pill');
+    expect(unlisted).not.toHaveClass('bg-push/15');
+    expect(screen.getByText('D4')).toBeInTheDocument();
+  });
+
+  // Review item B8, the coach's half: an exercise this coach cannot read
+  // (a former coach's library) comes as `exercise: null`, and reading its
+  // name crashed the page.
+  it('shows a slot whose exercise cannot be read, with its sets, under a name that says so', () => {
+    mockSessionData = {
+      data: {
+        ...swapSession,
+        exercise_slots: [
+          { id: 'sl-1', sets: 3, exercise: null },
+          { id: 'sl-2', sets: 2, exercise: { id: 'e1', name: 'Ring Dip', type: 'push', difficulty: 2 } },
+        ],
+      },
+      isLoading: false,
+    };
+    mockConfirmation = confirmationQuery(CONFIRMED);
+    mockDeviations = {
+      data: [{ exercise_slot_id: 'sl-1', kind: 'skip', substitute_exercise_id: null }],
+      isLoading: false,
+    };
+    renderReview();
+
+    expect(screen.getByText('Exercise unavailable')).toBeInTheDocument();
+    expect(screen.getByText(/a library you can’t read/i)).toBeInTheDocument();
+    expect(screen.getByText('Ring Dip')).toBeInTheDocument();
+    // Both slots are on the page, each with what was planned.
+    expect(screen.getAllByText(/^PLANNED:/)).toHaveLength(2);
+    // Its skip can still be acted on, under the same name.
+    fireEvent.click(screen.getByRole('button', { name: /remove from upcoming/i }));
+    expect(screen.getAllByText('Exercise unavailable').length).toBeGreaterThan(1);
+  });
+
   it('offers "Adopt into program" for a swap deviation and adopts via the RPC hook', () => {
     mockSessionData = { data: swapSession, isLoading: false };
     mockConfirmation = confirmationQuery(CONFIRMED);

@@ -28,5 +28,9 @@ export default {
       sheet: 'Dieser Block ist ein Entwurf deines Athleten. Er bleibt schreibgeschützt, bis du ihn über das Menü ⋯ neben seinem Namen freigibst.',
       editor: 'Diese Einheit gehört zu einem Entwurf deines Athleten. Sie bleibt schreibgeschützt, bis du den Entwurf freigibst.',
     },
+    exercise: {
+      unavailableTitle: 'Übung nicht verfügbar',
+      unavailableBody: 'Sie stammt aus einer Bibliothek, die du nicht lesen kannst, etwa der eines früheren Coaches.',
+    },
   },
 };

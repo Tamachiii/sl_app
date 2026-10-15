@@ -42,6 +42,18 @@ import { readState } from '../../lib/readState';
 import { planSlotDrag } from '../../lib/slotOrder';
 import { CoachNotFound, CoachReadProblem } from './CoachPageState';
 
+// Where ExerciseSlotRow would be, for a slot whose exercise cannot be read.
+function UnavailableExerciseCard({ t }) {
+  return (
+    <div className="sl-card p-4 space-y-1">
+      <p className="sl-display text-[16px] text-ink-600">
+        {t('coachEditorNavErrors.exercise.unavailableTitle')}
+      </p>
+      <p className="text-[12px] text-ink-400">{t('coachEditorNavErrors.exercise.unavailableBody')}</p>
+    </div>
+  );
+}
+
 // One mount per session. The route `s/:sessionId` keeps this component
 // mounted from one session to the next, and `useReorderSlots` runs under a
 // scope named after the session, which must not change while the hook lives
@@ -343,7 +355,14 @@ function SessionEditorPage() {
         >
           <div className="space-y-3">
             {slotGroups.map((group) => {
-              const renderRow = (slot) => (
+              // A slot whose exercise this coach cannot read — one of a former
+              // coach's library, until the library read follows the program
+              // (migration 23) — has `exercise: null`. ExerciseSlotRow reads
+              // the exercise's name and type, so it gets a card that says so
+              // instead of crashing the page (review item B8).
+              const renderRow = (slot) => (!slot.exercise ? (
+                <UnavailableExerciseCard key={slot.id} t={t} />
+              ) : (
                 <ExerciseSlotRow
                   key={slot.id}
                   slot={slot}
@@ -363,7 +382,7 @@ function SessionEditorPage() {
                   }
                   readOnly={readOnly}
                 />
-              );
+              ));
               if (group.slots.length > 1) {
                 return (
                   <div

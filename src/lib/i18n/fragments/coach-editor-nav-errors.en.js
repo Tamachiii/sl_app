@@ -28,5 +28,9 @@ export default {
       sheet: 'This block is a draft written by your athlete. It stays read-only until you approve it from the ⋯ menu beside its name.',
       editor: 'This session is part of a draft written by your athlete. It stays read-only until you approve the draft.',
     },
+    exercise: {
+      unavailableTitle: 'Exercise unavailable',
+      unavailableBody: 'It comes from a library you can’t read, such as a former coach’s.',
+    },
   },
 };
