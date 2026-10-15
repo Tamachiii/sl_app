@@ -19,6 +19,23 @@ describe('RestTimerBanner', () => {
     expect(container.firstChild).toBeNull();
   });
 
+  // P44. Its text changes every second: as a live region it was read aloud
+  // every second. RestTimerHost's status region says the start and the end.
+  it('is not a live region, running or done', () => {
+    const { container } = render(<RestTimerBanner />);
+    act(() => {
+      startRestTimer('log-A', 30);
+    });
+    const live = '[aria-live], [role="status"], [role="alert"], [role="timer"], [aria-label]';
+    expect(container.querySelector(live)).toBeNull();
+    act(() => {
+      vi.setSystemTime(new Date(Date.now() + 30_000));
+      vi.advanceTimersByTime(1000);
+    });
+    expect(screen.getByText('Rest done')).toBeInTheDocument();
+    expect(container.querySelector(live)).toBeNull();
+  });
+
   it('renders the running timer mm:ss while active', () => {
     render(<RestTimerBanner />);
     act(() => {
