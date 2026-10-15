@@ -208,6 +208,15 @@
       "covers": ["B8"],
       "reversible": true,
       "summary": "An exercise of a library is also read by an account when something it reads names it — a slot of a program of an athlete it is or coaches, a swap on such a slot, a goal it reads: the policy \"Users read the exercises their training uses\" on exercise_library, which asks exercise_readable_through_use(uuid) (STABLE, SECURITY DEFINER, executable by a signed-in user). After a change of coach the exercises of the blocks written before it have their name again, for the athlete and for the new coach. Nothing changes for who writes an exercise, nor for which exercise a new slot or swap may take. No row is written."
+    },
+    {
+      "name": "2026_10_16_24_indexes_cleanup",
+      "kind": "required",
+      "wave": 3,
+      "checkpoint": "C1",
+      "covers": ["L28", "P62", "N9"],
+      "reversible": true,
+      "summary": "The nine indexes that repeat the first column of a unique key of their table are dropped (idx_students_profile_id, idx_weeks_program_id, idx_sessions_week_id, idx_set_logs_slot_id, idx_session_confirmations_session_id, idx_slot_comments_slot_id, idx_slot_deviations_slot_id, idx_set_log_videos_set_log, bodyweight_logs_student_idx), and every foreign key of public has an index that starts with its column: client_errors (user_id, created_at DESC), exercise_slots (exercise_id), goals (coach_id), slot_comments (student_id), slot_deviations (student_id) and (substitute_exercise_id), messages (sender_id, created_at DESC) and (recipient_id, created_at DESC). lock_message_fields_on_update lets the ON DELETE SET NULL of messages.session_id through — session_id goes to NULL when, and only when, the session it names is gone — and the messages that already named a session that is gone lose that id, which does not come back with the rollback. The six indexes the advisors call unused stay."
     }
   ]
 }

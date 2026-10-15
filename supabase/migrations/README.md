@@ -454,6 +454,16 @@ Since migration 23 an exercise of a library is read by its coach, by that coach'
 - **The function never answers NULL**, and stays `STABLE`, `SECURITY DEFINER`, executable by `authenticated` (`HELPERS` of `function-acl.test.js`): the reads of every signed-in user call it. It is written below the three tables it reads, in `schema.sql` (a `LANGUAGE sql` body is checked when it is created).
 - **A picker lists what it reads.** The app reads an athlete's library without a filter: after a change of coach, the exercises of the former coach their training uses are in it, and the gate of migration 05 refuses a swap to one. A screen that offers exercises filters on `coach_id`.
 
+## A migration that adds a foreign key or an index, or touches a message
+
+Since migration 24 no index of `public` repeats the first column of a unique key, every foreign key of `public` has an index that starts with its column, and the `ON DELETE SET NULL` of `messages.session_id` goes through. `supabase/tests/small-hardening.test.js` holds the three against the catalog.
+
+- **A new foreign key gets its index in the same migration** — one that starts with its column: its own, a unique key that does, or one on `WHERE <column> IS NOT NULL`. Without it, deleting the row the key points at reads the whole table that holds it, under a lock.
+- **No index that starts with the first column of a unique key**: the unique key serves those lookups, and every write would update both.
+- **A migration that drops an index checks that the unique key standing in for it is there**, and refuses next to an index of one of its names that it does not know (migration 24's guard). It takes its tables in the order of a cascade, from the top of the tree down, as migration 21 does.
+- **A trigger that puts columns back must let a foreign key's action through.** `ON DELETE SET NULL` is an `UPDATE` of the row that holds the key: a `BEFORE UPDATE` trigger that restores the old value leaves the row naming a row that is gone — and, within the transaction that wrote the row, makes the delete fail (the key is checked again for a row of its own transaction). `lock_message_fields_on_update` lets `session_id` go to NULL when, and only when, the session it names no longer exists. A new column of `messages` joins the columns it puts back; a new `ON DELETE SET NULL` key of a table with such a trigger gets the same exception.
+- **The six indexes the advisors call unused stay** until they are measured over the weeks after the policies of wave 4: dropping one is a migration of its own, with the numbers of `pg_stat_user_indexes` in its audit.
+
 ## A migration that brings a rule the rows already there may break
 
 A trigger or a policy judges what is written after it. When rows that are already in the database break the rule **and leaving them would leave the hole in use**, the migration refuses to start:

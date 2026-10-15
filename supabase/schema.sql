@@ -231,18 +231,22 @@ CREATE TABLE public.set_logs (
 -- ============================================================
 -- INDEXES
 -- ============================================================
+-- No index repeats a unique key (2026_10_16_24, review L28): students.profile_id,
+-- weeks.program_id, sessions.week_id and set_logs.exercise_slot_id are the
+-- first column of a unique key of their table, which a lookup of that column
+-- reads. A foreign key gets an index that starts with its column — its own,
+-- or such a key: deleting the row it points at reads the table otherwise.
 CREATE INDEX idx_students_coach_id ON public.students(coach_id);
-CREATE INDEX idx_students_profile_id ON public.students(profile_id);
 CREATE INDEX idx_programs_student_id ON public.programs(student_id);
 CREATE UNIQUE INDEX programs_one_active_per_student
   ON public.programs(student_id) WHERE is_active;
-CREATE INDEX idx_weeks_program_id ON public.weeks(program_id);
-CREATE INDEX idx_sessions_week_id ON public.sessions(week_id);
 CREATE INDEX idx_sessions_scheduled_date ON public.sessions(scheduled_date);
 CREATE INDEX idx_sessions_archived_at ON public.sessions(archived_at);
 CREATE INDEX idx_exercise_slots_session_id ON public.exercise_slots(session_id);
 CREATE INDEX idx_exercise_slots_superset_group ON public.exercise_slots(superset_group);
-CREATE INDEX idx_set_logs_slot_id ON public.set_logs(exercise_slot_id);
+-- The foreign key to the library (2026_10_16_24): also what
+-- exercise_readable_through_use() reads.
+CREATE INDEX exercise_slots_exercise_idx ON public.exercise_slots (exercise_id);
 CREATE INDEX idx_exercise_library_coach_id ON public.exercise_library(coach_id);
 
 -- ============================================================
@@ -758,7 +762,6 @@ CREATE TABLE public.session_confirmations (
   notes        text
 );
 
-CREATE INDEX idx_session_confirmations_session_id ON public.session_confirmations(session_id);
 CREATE INDEX idx_session_confirmations_student_id ON public.session_confirmations(student_id);
 
 CREATE OR REPLACE FUNCTION public.student_profile_for_session(sess_id uuid)
@@ -909,6 +912,7 @@ CREATE TABLE IF NOT EXISTS public.goals (
 );
 
 CREATE INDEX IF NOT EXISTS idx_goals_student_id  ON public.goals(student_id);
+CREATE INDEX IF NOT EXISTS goals_coach_idx       ON public.goals (coach_id);
 CREATE INDEX IF NOT EXISTS idx_goals_exercise_id ON public.goals(exercise_id);
 
 CREATE TABLE IF NOT EXISTS public.goal_progress (
@@ -996,7 +1000,7 @@ CREATE TABLE IF NOT EXISTS public.slot_comments (
   updated_at       timestamptz NOT NULL DEFAULT now(),
   created_at       timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_slot_comments_slot_id ON public.slot_comments(exercise_slot_id);
+CREATE INDEX IF NOT EXISTS slot_comments_student_idx ON public.slot_comments (student_id);
 
 ALTER TABLE public.slot_comments ENABLE ROW LEVEL SECURITY;
 
@@ -1082,7 +1086,8 @@ CREATE TABLE IF NOT EXISTS public.slot_deviations (
     OR (kind = 'skip' AND substitute_exercise_id IS NULL)
   )
 );
-CREATE INDEX IF NOT EXISTS idx_slot_deviations_slot_id ON public.slot_deviations(exercise_slot_id);
+CREATE INDEX IF NOT EXISTS slot_deviations_student_idx ON public.slot_deviations (student_id);
+CREATE INDEX IF NOT EXISTS slot_deviations_substitute_idx ON public.slot_deviations (substitute_exercise_id);
 
 ALTER TABLE public.slot_deviations ENABLE ROW LEVEL SECURITY;
 
@@ -1557,9 +1562,6 @@ CREATE TABLE IF NOT EXISTS public.set_log_videos (
   created_at    timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_set_log_videos_set_log
-  ON public.set_log_videos(set_log_id);
-
 CREATE OR REPLACE FUNCTION public.student_profile_for_set_log(log_id uuid)
 RETURNS uuid AS $$
   SELECT public.student_profile_for_slot(sl.exercise_slot_id)
@@ -1707,6 +1709,13 @@ CREATE INDEX IF NOT EXISTS messages_pair_created_idx
 CREATE INDEX IF NOT EXISTS messages_recipient_unread_idx
   ON public.messages (recipient_id) WHERE read_at IS NULL;
 
+-- A conversation read from one side, newest first (2026_10_16_24, review
+-- P62); the indexes of the two foreign keys to profiles as well.
+CREATE INDEX IF NOT EXISTS messages_sender_created_idx
+  ON public.messages (sender_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS messages_recipient_created_idx
+  ON public.messages (recipient_id, created_at DESC);
+
 -- UNIQUE so the DB rejects a second coach-feedback insert for the same
 -- session. (See 2026_04_30_unique_session_feedback.sql.)
 CREATE UNIQUE INDEX IF NOT EXISTS messages_session_idx
@@ -1722,7 +1731,10 @@ RETURNS boolean AS $$
 $$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
 -- Lock body/sender/recipient on UPDATE so the recipient-update policy can
--- only flip read_at (RLS can't restrict per-column otherwise).
+-- only flip read_at (RLS can't restrict per-column otherwise). The session
+-- stays too, except when it is gone: the foreign key's ON DELETE SET NULL is
+-- an UPDATE of the message, and putting the id back left a feedback message
+-- naming a deleted session (2026_10_16_24, review N9).
 CREATE OR REPLACE FUNCTION public.lock_message_fields_on_update()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -1730,7 +1742,13 @@ BEGIN
   NEW.sender_id    := OLD.sender_id;
   NEW.recipient_id := OLD.recipient_id;
   NEW.body         := OLD.body;
-  NEW.session_id   := OLD.session_id;
+  -- The session stays — unless it is gone: then this UPDATE is the foreign
+  -- key's ON DELETE SET NULL, and NULL goes through (2026_10_16_24, review N9).
+  IF NOT (NEW.session_id IS NULL
+          AND OLD.session_id IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM public.sessions s WHERE s.id = OLD.session_id)) THEN
+    NEW.session_id := OLD.session_id;
+  END IF;
   NEW.created_at   := OLD.created_at;
   RETURN NEW;
 END;
@@ -4852,6 +4870,9 @@ CREATE TABLE public.client_errors (
 
 CREATE INDEX client_errors_created_idx
   ON public.client_errors (created_at DESC);
+-- The foreign key, and the hour trg_cap_client_errors counts (2026_10_16_24).
+CREATE INDEX client_errors_user_created_idx
+  ON public.client_errors (user_id, created_at DESC);
 
 ALTER TABLE public.client_errors ENABLE ROW LEVEL SECURITY;
 
@@ -4935,8 +4956,6 @@ CREATE TABLE public.bodyweight_logs (
   UNIQUE (student_id, logged_on)
 );
 
-CREATE INDEX bodyweight_logs_student_idx
-  ON public.bodyweight_logs (student_id, logged_on DESC);
 
 ALTER TABLE public.bodyweight_logs ENABLE ROW LEVEL SECURITY;
 
@@ -6829,7 +6848,8 @@ INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_16_20_drafts_coach_readonly'),
   ('2026_10_16_21_rpe_half_steps_day_check'),
   ('2026_10_16_22_client_errors_scope'),
-  ('2026_10_16_23_library_read_follows_program');
+  ('2026_10_16_23_library_read_follows_program'),
+  ('2026_10_16_24_indexes_cleanup');
 
 -- An optional migration that needs an extension is on record where its block
 -- above ran, and nowhere else: a project that switches pg_cron on later must

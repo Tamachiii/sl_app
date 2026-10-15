@@ -5,6 +5,18 @@
 //       sessions.day_number is NULL or 1..7 — the values that were not, and
 //       every weekday of a block an athlete wrote, are cleared first;
 //       save_draft_tree writes a number outside 1..7 as no weekday.
+//   22  2026_10_16_22_client_errors_scope           B6, L20
+//       a client error is read by its author and the coach of its author, a
+//       line without an author by every coach; an account keeps 30 lines an
+//       hour (trg_cap_client_errors), dated when they arrive.
+//   23  2026_10_16_23_library_read_follows_program  B8
+//       an exercise is also read by whoever reads a slot, a swap or a goal
+//       that uses it (exercise_readable_through_use) — after a change of
+//       coach, the athlete and the new coach read the former coach's.
+//   24  2026_10_16_24_indexes_cleanup               L28, P62, N9
+//       the nine indexes that repeat a unique key go, every foreign key has
+//       an index, two indexes for a conversation; a deleted session leaves
+//       its feedback message without it (lock_message_fields_on_update).
 //
 // Each block runs first against schema.sql, as the callers the app has —
 // their requests written out as the app that is deployed sends them — then
@@ -1224,6 +1236,335 @@ describe('migration 2026_10_16_23_library_read_follows_program', () => {
     for (const said of ['| `must be run as postgres` |', '| `would not create: … is already there` |']) expect(page).toContain(said);
     await db.runFile(migration.paths.migration);
     expect(await db.query.value(`select count(*) from ${LEDGER} where name = $1`, [migration.name])).toBe(1);
+    await db.drop();
+  });
+
+  it('its rollback is refused while the ledger records a later migration, and changes nothing', async () => {
+    const db = await production();
+    await db.runFile(migration.paths.migration);
+    await db.query(`insert into ${LEDGER} (name) values ($1)`, [TO_COME]);
+    const before = await catalogSnapshot(db.query);
+    const refused = await attempt(() => db.runFile(migration.paths.rollback));
+    expect(refused.error?.code).toBe(REFUSAL.stillNeeded);
+    expect(diffCatalogs(before, await catalogSnapshot(db.query), { left: 'before', right: 'after' })).toEqual([]);
+    await db.drop();
+  });
+});
+
+// ============================================================
+// 24 — L28, P62: indexes; N9: a deleted session and its feedback message
+// ============================================================
+const THE_NINE = [
+  ['idx_students_profile_id', 'students_profile_id_key'],
+  ['idx_weeks_program_id', 'weeks_program_id_week_number_key'],
+  ['idx_sessions_week_id', 'sessions_week_sort_order_unique'],
+  ['idx_set_logs_slot_id', 'set_logs_exercise_slot_id_set_number_key'],
+  ['idx_session_confirmations_session_id', 'session_confirmations_session_id_key'],
+  ['idx_slot_comments_slot_id', 'slot_comments_exercise_slot_id_key'],
+  ['idx_slot_deviations_slot_id', 'slot_deviations_exercise_slot_id_key'],
+  ['idx_set_log_videos_set_log', 'set_log_videos_set_log_id_key'],
+  ['bodyweight_logs_student_idx', 'bodyweight_logs_student_id_logged_on_key'],
+];
+const THE_EIGHT = [
+  'client_errors_user_created_idx', 'exercise_slots_exercise_idx', 'goals_coach_idx', 'messages_recipient_created_idx',
+  'messages_sender_created_idx', 'slot_comments_student_idx', 'slot_deviations_student_idx', 'slot_deviations_substitute_idx',
+];
+const UNINDEXED_BEFORE = [
+  'client_errors.user_id', 'exercise_slots.exercise_id', 'goals.coach_id', 'messages.recipient_id', 'messages.sender_id',
+  'slot_comments.student_id', 'slot_deviations.student_id', 'slot_deviations.substitute_exercise_id',
+];
+/** The foreign keys of public without an index that starts with their column (a whole one, or one on the rows where it is set). */
+const UNINDEXED = `
+  select c.conrelid::regclass::text || '.' || a.attname as fk
+    from pg_constraint c
+    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[1]
+   where c.contype = 'f' and c.connamespace = 'public'::regnamespace
+     and not exists (select 1 from pg_index x
+                      where x.indrelid = c.conrelid and x.indkey[0] = c.conkey[1] and x.indisvalid
+                        and (x.indpred is null or pg_get_expr(x.indpred, x.indrelid) = '(' || a.attname || ' IS NOT NULL)'))
+   order by 1`;
+const indexesOf = (names) => `select coalesce(array_agg(c.relname::text order by c.relname), '{}') from pg_class c
+  where c.relnamespace = 'public'::regnamespace and c.relkind = 'i' and c.relname = any(array[${names.map((n) => `'${n}'`).join(', ')}])`;
+
+describe('L28, P62 — no index repeats a unique key, and every foreign key has one', () => {
+  it('the nine are gone, and the unique key that stands in for each starts with the same column', () => asAdmin(async (q) => {
+    expect(await q.value(indexesOf(THE_NINE.map(([name]) => name)))).toEqual([]);
+    for (const [, key] of THE_NINE) {
+      expect(await q.value(`select indisunique from pg_index where indexrelid = $1::regclass`, [`public.${key}`]), key).toBe(true);
+    }
+    expect(await q.value(indexesOf(THE_EIGHT))).toEqual(THE_EIGHT);
+  }));
+
+  it('every foreign key of public has an index that starts with its column', () => asAdmin(async (q) => {
+    expect(await q.rows(UNINDEXED)).toEqual([]);
+  }));
+
+  it('a lookup of a column of the nine reads its unique key; a conversation, newest first, reads the new indexes', () => asAdmin(async (q) => {
+    await q(`set local enable_seqscan = off`);
+    const plan = async (sql) => (await q.rows(`explain (costs off) ${sql}`)).map((row) => row['QUERY PLAN']).join('\n');
+    expect(await plan(`select * from set_logs where exercise_slot_id = '${ids.programA.slots[0]}'`)).toContain('set_logs_exercise_slot_id_set_number_key');
+    expect(await plan(`select * from sessions where week_id = '${ids.programA.weeks[0]}'`)).toContain('sessions_week_sort_order_unique');
+    expect(await plan(`select * from students where profile_id = '${ids.studentA.id}'`)).toContain('students_profile_id_key');
+    expect(await plan(`select * from messages where sender_id = '${ids.coach.id}' order by created_at desc limit 50`)).toContain('messages_sender_created_idx');
+    expect(await plan(`select * from messages where recipient_id = '${ids.coach.id}' order by created_at desc limit 50`)).toContain('messages_recipient_created_idx');
+  }));
+});
+
+describe('N9 — a deleted session leaves its feedback message without it, and nobody else takes it off', () => {
+  /** Alex confirms session 1 of Block A, and the coach writes its feedback — as the app does both. */
+  const feedback = async () => {
+    const [session] = ids.programA.sessions;
+    await asUser(ids.studentA, (a) => a(
+      `insert into session_confirmations (session_id, student_id, performed_on) values ($1, $2, current_date)`, [session, ids.studentA.id],
+    ));
+    const message = await asUser(ids.coach, (c) => c.value(
+      `insert into messages (sender_id, recipient_id, body, session_id) values ($1, $2, 'Solid session.', $3) returning id`,
+      [ids.coach.id, ids.studentA.id, session],
+    ));
+    return { session, message };
+  };
+  const messageOf = (q, id) => q.one(`select session_id, body, read_at is not null as read from messages where id = $1`, [id]);
+
+  it('the coach deletes the session: the message stays, without it — and is then a plain message of theirs', () => scenario(async (q) => {
+    const { session, message } = await feedback();
+    // useSessionFeedback: the coach cannot take the feedback back while its session is there.
+    expect((await asUser(ids.coach, (c) => c(`delete from messages where id = $1`, [message]))).rowCount).toBe(0);
+    // useDeleteSession: `.delete().eq('id', …)` — nothing logged in it.
+    expect((await asUser(ids.coach, (c) => c(`delete from sessions where id = $1`, [session]))).rowCount).toBe(1);
+    expect(await messageOf(q, message)).toEqual({ session_id: null, body: 'Solid session.', read: false });
+    expect((await asUser(ids.coach, (c) => c(`delete from messages where id = $1`, [message]))).rowCount).toBe(1);
+  }));
+
+  it('while the session is there, its id stays: the recipient who opens the message, the sender, the owner', () => scenario(async (q) => {
+    const { session, message } = await feedback();
+    const [, other] = ids.programA.sessions;
+    await asUser(ids.studentA, (a) => a(`update messages set read_at = now(), session_id = null where id = $1`, [message]));
+    expect(await messageOf(q, message)).toEqual({ session_id: session, body: 'Solid session.', read: true });
+    await asUser(ids.studentA, (a) => a(`update messages set session_id = $2 where id = $1`, [message, other]));
+    await q(`update messages set session_id = null, body = 'Rewritten' where id = $1`, [message]);
+    await q(`update messages set session_id = $2 where id = $1`, [message, other]);
+    expect(await messageOf(q, message)).toEqual({ session_id: session, body: 'Solid session.', read: true });
+  }));
+
+  it('a session that goes with its block takes its id off the message the same way', () => scenario(async (q) => {
+    const { message } = await feedback();
+    // Block A has no logged set: the owner deletes the whole program.
+    await q(`delete from programs where id = $1`, [ids.programA.id]);
+    expect(await messageOf(q, message)).toMatchObject({ session_id: null, body: 'Solid session.' });
+  }));
+});
+
+describe('migration 2026_10_16_24_indexes_cleanup', () => {
+  const migration = entry('2026_10_16_24_indexes_cleanup');
+  const page = read(migration.paths.runbook);
+  const COACH = '00000000-0000-4000-8000-00000000c0ac';
+  const ATHLETE = '00000000-0000-4000-8000-0000000000a1';
+  const LINK = '00000000-0000-4000-8000-000000000101';
+  const S_KEPT = '00000000-0000-4000-8000-000000000451';
+  const S_GONE = '00000000-0000-4000-8000-000000000452';
+  const M_KEPT = '00000000-0000-4000-8000-000000000701';
+  const M_GONE = '00000000-0000-4000-8000-000000000702';
+
+  // A coach and Alex; two sessions Alex confirmed and the coach reviewed with
+  // a feedback message each. The second session was deleted already, in a
+  // later transaction — as in production: within the one that wrote the
+  // message, the foreign key would see its key put back and refuse it. Its
+  // message names a session that is gone (N9).
+  const WORLD = `
+    insert into auth.users (id, email, aud, role, email_confirmed_at, raw_user_meta_data) values
+      ('${COACH}',   'coach@sl.test', 'authenticated', 'authenticated', now(), '{"full_name": "Coach Carla"}'),
+      ('${ATHLETE}', 'alex@sl.test',  'authenticated', 'authenticated', now(), '{"full_name": "Alex"}');
+    BEGIN;
+    SET LOCAL session_replication_role = replica;
+    update public.profiles set role = 'coach' where id = '${COACH}';
+    COMMIT;
+    BEGIN;
+    insert into public.students (id, profile_id, coach_id) values ('${LINK}', '${ATHLETE}', '${COACH}');
+    insert into public.programs (id, student_id, name, is_active) values ('00000000-0000-4000-8000-000000000301', '${LINK}', 'Block', true);
+    insert into public.weeks (id, program_id, week_number) values ('00000000-0000-4000-8000-000000000401', '00000000-0000-4000-8000-000000000301', 1);
+    insert into public.sessions (id, week_id, title, sort_order, reviewed_at) values
+      ('${S_KEPT}', '00000000-0000-4000-8000-000000000401', 'Kept', 0, now()),
+      ('${S_GONE}', '00000000-0000-4000-8000-000000000401', 'Gone', 1, now());
+    insert into public.session_confirmations (session_id, student_id, performed_on) values
+      ('${S_KEPT}', '${ATHLETE}', current_date), ('${S_GONE}', '${ATHLETE}', current_date);
+    insert into public.messages (id, sender_id, recipient_id, body, session_id, created_at) values
+      ('${M_KEPT}', '${COACH}', '${ATHLETE}', 'Good one.', '${S_KEPT}', now() - interval '2 days'),
+      ('${M_GONE}', '${COACH}', '${ATHLETE}', 'Well done.', '${S_GONE}', now() - interval '1 day');
+    COMMIT;
+    delete from public.sessions where id = '${S_GONE}';
+  `;
+  const production = () => productionBefore(migration.name, WORLD);
+  const THE_COACH = user(COACH);
+  const dangling = `select count(*) from public.messages m
+                     where m.session_id is not null and not exists (select 1 from public.sessions s where s.id = m.session_id)`;
+  const finding = async (db) => ({
+    deleted: await story(db, THE_COACH, `delete from public.sessions where id = '${S_KEPT}'`,
+      `select coalesce(session_id::text, 'no session') from public.messages where id = '${M_KEPT}'`),
+    dangling: await db.query.value(dangling),
+    nine: (await db.query.value(indexesOf(THE_NINE.map(([name]) => name)))).length,
+    eight: (await db.query.value(indexesOf(THE_EIGHT))).length,
+    unindexed: (await db.query.rows(UNINDEXED)).map((row) => row.fk),
+  });
+  const OPEN = { deleted: S_KEPT, dangling: 1, nine: 9, eight: 0, unindexed: UNINDEXED_BEFORE };
+  const CLOSED = { deleted: 'no session', dangling: 0, nine: 0, eight: 8, unindexed: [] };
+
+  it('the nine and the foreign keys without an index before; the reverse after; a deleted session leaves its message without it — and the rollback brings back the nine, not the ids', async () => {
+    const db = await production();
+    expect(await finding(db)).toEqual(OPEN);
+    await db.runFile(migration.paths.migration);
+    expect(await finding(db)).toEqual(CLOSED);
+    expect(await db.query.rows(`select id, session_id, body from public.messages order by created_at`)).toEqual([
+      { id: M_KEPT, session_id: S_KEPT, body: 'Good one.' },
+      { id: M_GONE, session_id: null, body: 'Well done.' },
+    ]);
+    await db.runFile(migration.paths.rollback);
+    expect(await finding(db)).toEqual({ ...OPEN, dangling: 0 });
+    await db.drop();
+  });
+
+  it('drops 9 indexes, adds 8, replaces 1 function and signs the ledger — no table, no column, no policy, no privilege', async () => {
+    const db = await production();
+    const before = await catalogSnapshot(db.query);
+    await db.runFile(migration.paths.migration);
+    const after = await catalogSnapshot(db.query);
+    const tableOf = (index) => /ON (public\.\w+)/.exec(before.indexes[index]?.definition ?? after.indexes[index]?.definition)?.[1];
+    const changes = changesOf(before, after);
+    expect(changes.before).toEqual(Object.keys(before.indexes).filter((key) => THE_NINE.some(([name]) => key.endsWith(`.${name}`)))
+      .map((key) => `indexes ${key}`).sort());
+    expect(changes.before).toHaveLength(9);
+    expect(changes.after).toEqual(Object.keys(after.indexes).filter((key) => THE_EIGHT.some((name) => key.endsWith(`.${name}`)))
+      .map((key) => `indexes ${key}`).sort());
+    expect(changes.after).toHaveLength(8);
+    expect(changes.changed).toEqual([
+      'data rows of app_private.app_migrations → rows',
+      'functions public.lock_message_fields_on_update() → definition',
+    ]);
+    expect(tableOf(Object.keys(after.indexes).find((key) => key.endsWith('.messages_sender_created_idx')))).toBe('public.messages');
+    expect(after.functions['public.lock_message_fields_on_update()'].privileges).toEqual(['postgres: EXECUTE', 'service_role: EXECUTE']);
+    expect(await db.query.rows(`select name from ${LEDGER} order by name`)).toHaveLength(23);
+    expect(page).toContain(`Expected: twenty-three rows, the last one \`${migration.name}\` — twenty-four where the optional migration 19 was applied at Checkpoint B.`);
+    expect(page).toContain('| Kind | required · drops 9 indexes, adds 8, replaces 1 trigger function; clears the session of the messages that name one that is gone |');
+    for (const [name] of THE_NINE) expect(page).toContain(`\`${name}\``);
+    expect(page).toContain(`- **4** — the eight before: \`${UNINDEXED_BEFORE.join(', ')}\`.`);
+    await db.drop();
+  });
+
+  it('its audit prints the "before" and "after" columns of the runbook page, and the page lists the messages', async () => {
+    const db = await production();
+    const table = auditTableOf(page);
+    expect(table.map((line) => line.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    const printed = async () => Object.fromEntries((await printedAudit(db, migration)).map(([check, value], i) => [i + 1, [check, value]]));
+    const exact = (side) => Object.fromEntries(table.filter((line) => literal(line[side])).map((line) => [line.n, [line.check, literal(line[side])]]));
+    const names = (list) => [...list].sort().join(', ');
+    const STATS = /^(\w+: \d+, ){8}\w+: \d+$/;
+    let lines = await printed();
+    expect(lines).toMatchObject(exact('before'));
+    expect(lines[2]).toEqual([table[1].check, names(THE_NINE.map(([name]) => name))]);
+    expect(lines[4]).toEqual([table[3].check, names(UNINDEXED_BEFORE)]);
+    expect(lines[7]).toEqual([table[6].check, '1']);
+    expect(lines[8][1]).toMatch(STATS);
+    const list = quotedOf(page, 'select ps.full_name as sender, pr.full_name as recipient');
+    expect(list, 'the page no longer lists the messages').toBeTruthy();
+    expect((await db.query.rows(list)).map((row) => [row.sender, row.recipient, row.message, row.session_that_is_gone])).toEqual([
+      ['Coach Carla', 'Alex', 'Well done.', S_GONE],
+    ]);
+
+    await db.runFile(migration.paths.migration);
+    lines = await printed();
+    expect(lines).toMatchObject(exact('after'));
+    expect(lines[5]).toEqual([table[4].check, names(THE_EIGHT)]);
+    expect(await db.query.rows(list)).toEqual([]);
+    const header = read(migration.paths.audit).split('\n').filter((line) => line.startsWith('--')).join('\n');
+    for (const { check } of table) expect(header).toContain(check);
+    await db.drop();
+  });
+
+  it('the page\'s check answers NOT THERE before and "in place" after, names what is wrong when something is — and writes nothing', async () => {
+    const db = await production();
+    const check = checkOf(page);
+    expect(check, 'the page no longer gives the check').toBeTruthy();
+    expect(check).not.toContain("'");
+    const state = () => db.query.one(
+      `select (select count(*) from auth.users) as accounts, (select count(*) from public.sessions) as sessions,
+              (select count(*) from public.messages) as messages, (select count(*) from public.notifications) as notifications,
+              current_user::text as role, coalesce(current_setting('request.jwt.claims', true), '') as claims`,
+    );
+    const UNTOUCHED = { ...await state() };
+    expect(UNTOUCHED).toMatchObject({ accounts: 2, sessions: 1, messages: 2, role: 'postgres', claims: '' });
+    const answer = (said) => `check only, nothing was written: ${said}`;
+    const IN_PLACE = answer('in place: no index repeats a unique key and every foreign key has one; '
+      + 'a deleted session leaves its feedback message without it, and nobody else takes it off');
+
+    expect(await runCheck(db, check)).toBe(answer('NOT THERE: the indexes are as they were, and a deleted session stays named by its feedback'));
+    expect(await state()).toEqual(UNTOUCHED);
+    await db.runFile(migration.paths.migration);
+    expect(await runCheck(db, check)).toBe(IN_PLACE);
+    expect(await state()).toEqual(UNTOUCHED);
+    expect(page).toContain(`\`${IN_PLACE}\``);
+    expect(page).toContain('`… NOT THERE: the indexes are as they were, and a deleted session stays named by its feedback`');
+
+    const was = await db.query.value(`select pg_get_functiondef('public.lock_message_fields_on_update()'::regprocedure)`);
+    const rollback = read(migration.paths.rollback);
+    const baseline = rollback.slice(rollback.indexOf('CREATE OR REPLACE FUNCTION public.lock_message_fields_on_update()'),
+      rollback.indexOf('pg_temp;', rollback.indexOf('CREATE OR REPLACE FUNCTION public.lock_message_fields_on_update()')) + 'pg_temp;'.length);
+    await db.query(baseline);
+    expect(await runCheck(db, check)).toBe(answer('BROKEN: the feedback message still names the session that was deleted'));
+    await db.query(was.replace('NEW.session_id := OLD.session_id;', 'NULL;'));
+    expect(await runCheck(db, check)).toBe(answer('NOT PROTECTED: the athlete took the session off a feedback message'));
+    await db.query(was);
+    await db.query(`create index idx_weeks_program_id on public.weeks(program_id)`);
+    expect(await runCheck(db, check)).toBe(answer('BROKEN: 1 of the nine indexes are still there'));
+    await db.query(`drop index public.idx_weeks_program_id`);
+    await db.query(`drop index public.goals_coach_idx`);
+    expect(await runCheck(db, check)).toBe(answer('BROKEN: foreign keys without an index: goals.coach_id'));
+    await db.query(`create index goals_coach_idx on public.goals (coach_id)`);
+    expect(await runCheck(db, check)).toBe(IN_PLACE);
+    expect(await state()).toEqual(UNTOUCHED);
+    await db.drop();
+  });
+
+  it('without migration 23 it says so (SLM02), and its rollback says there is nothing to undo (SLM03)', async () => {
+    const db = await scratchDatabase();
+    await db.runFile(manifest.baseline);
+    for (const earlier of migrationsBefore(manifest.migrations, '2026_10_16_23_library_read_follows_program')) await db.runFile(earlier.paths.migration);
+    const before = await catalogSnapshot(db.query);
+    const refused = await attempt(() => db.runFile(migration.paths.migration));
+    const undone = await attempt(() => db.runFile(migration.paths.rollback));
+    expect(diffCatalogs(before, await catalogSnapshot(db.query), { left: 'before', right: 'after' })).toEqual([]);
+    expect([refused.error?.code, undone.error?.code]).toEqual([REFUSAL.predecessorMissing, REFUSAL.notApplied]);
+    expect(page).toContain('| `needs 2026_10_16_23_library_read_follows_program, which is not applied` (code `SLM02`) |');
+    await db.drop();
+  });
+
+  it('refuses without the unique key of one of the nine, next to an index or a function it does not know — and changes nothing; one of the nine missing is no reason', async () => {
+    const db = await production();
+    const text = read(migration.paths.migration);
+    const asServiceRole = text.replace(`SET LOCAL lock_timeout = '5s';`, `SET LOCAL lock_timeout = '5s';\nSET LOCAL ROLE service_role;`);
+    expect(await refusalOf(db, migration, () => db.runSql(asServiceRole, 'migration')))
+      .toContain(`migration ${migration.name} must be run as postgres, not as service_role`);
+
+    await db.query(`alter table public.students drop constraint students_profile_id_key`);
+    expect(await refusalOf(db, migration)).toContain('would not drop the nine: the unique key students_profile_id_key is not there, or not the one meant');
+    await db.query(`alter table public.students add constraint students_profile_id_key unique (profile_id)`);
+    await db.query(`drop index public.idx_weeks_program_id; create index idx_weeks_program_id on public.weeks (program_id, label)`);
+    expect(await refusalOf(db, migration))
+      .toContain('would not drop the nine: idx_weeks_program_id is CREATE INDEX idx_weeks_program_id ON public.weeks USING btree (program_id, label)');
+    await db.query(`drop index public.idx_weeks_program_id`);
+    await db.query(`create index goals_coach_idx on public.goals (coach_id)`);
+    expect(await refusalOf(db, migration)).toContain('would not create: goals_coach_idx is already there');
+    await db.query(`drop index public.goals_coach_idx`);
+    const was = await db.query.value(`select pg_get_functiondef('public.lock_message_fields_on_update()'::regprocedure)`);
+    await db.query(was.replace('NEW.body         := OLD.body;', ''));
+    expect(await refusalOf(db, migration)).toMatch(/would not replace lock_message_fields_on_update: public\.lock_message_fields_on_update\(\) is not the text of the baseline/);
+    await db.query(was);
+    for (const said of ['| `must be run as postgres` |', '| `would not drop the nine: …` |', '| `would not create: … is already there` |',
+      '| `would not replace lock_message_fields_on_update: …` |']) {
+      expect(page).toContain(said);
+    }
+    // idx_weeks_program_id is gone already: the file drops the eight others.
+    await db.runFile(migration.paths.migration);
+    expect((await db.query.value(indexesOf(THE_NINE.map(([name]) => name)))).length).toBe(0);
+    expect(page).toContain('- **2** names fewer than nine — one was dropped by hand. The migration drops the others.');
     await db.drop();
   });
 
