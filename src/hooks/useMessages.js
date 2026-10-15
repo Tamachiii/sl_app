@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { watchPostgresChanges } from '../lib/realtimeChannel';
 import { useAuth } from './useAuth';
 
 // Stable key prefix so realtime updates can blast the whole subtree.
@@ -311,15 +312,15 @@ export function useMarkThreadRead() {
 }
 
 /**
- * Subscribe to realtime INSERT/UPDATE on `messages`. On an event that touches
- * the signed-in user (as sender or recipient), invalidate the thread + roll-
- * up + unread queries so the UI re-renders.
+ * Subscribe to realtime changes on `messages`. On an event that touches the
+ * signed-in user (as sender or recipient), invalidate the thread + roll-up +
+ * unread queries so the UI re-renders.
  *
  * Mounted once at the app shell so a single channel serves every page that
- * cares about messages — avoids subscription churn on route changes. If the
- * channel can't subscribe (e.g. the table isn't in the publication yet
- * because the migration hasn't been applied), we tear it down — otherwise
- * the channel client would retry forever.
+ * cares about messages — avoids subscription churn on route changes. The
+ * channel survives a dropped connection and a suspended page, and everything
+ * under the messages root is read again when it is back: see
+ * `watchPostgresChanges`.
  */
 export function useMessagesRealtime() {
   const qc = useQueryClient();
@@ -328,36 +329,20 @@ export function useMessagesRealtime() {
 
   useEffect(() => {
     if (!me) return undefined;
-    let cancelled = false;
-    const channel = supabase
-      .channel(`messages-${me}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'messages' },
-        (payload) => {
-          if (cancelled) return;
-          // One handler for INSERT/UPDATE/DELETE: `new` carries the row on the
-          // first two, and REPLICA IDENTITY FULL puts the deleted row in `old`,
-          // so either way we can scope invalidation to events that touched me.
-          const m = payload.new || payload.old || {};
-          if (m.sender_id === me || m.recipient_id === me) {
-            qc.invalidateQueries({ queryKey: [MESSAGES_ROOT] });
-          }
-        },
-      )
-      .subscribe((status) => {
-        // Bail out on hard errors so we don't retry the channel handshake in
-        // a loop. A reload will re-attempt subscription.
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          cancelled = true;
-          supabase.removeChannel(channel);
+    return watchPostgresChanges({
+      topic: `messages-${me}`,
+      filters: [{ event: '*', schema: 'public', table: 'messages' }],
+      onChange: (payload) => {
+        // One handler for INSERT/UPDATE/DELETE: `new` carries the row on the
+        // first two, and REPLICA IDENTITY FULL puts the deleted row in `old`,
+        // so either way we can scope invalidation to events that touched me.
+        const m = payload.new || payload.old || {};
+        if (m.sender_id === me || m.recipient_id === me) {
+          qc.invalidateQueries({ queryKey: [MESSAGES_ROOT] });
         }
-      });
-
-    return () => {
-      cancelled = true;
-      supabase.removeChannel(channel);
-    };
+      },
+      onResync: () => qc.invalidateQueries({ queryKey: [MESSAGES_ROOT] }),
+    });
   }, [me, qc]);
 }
 

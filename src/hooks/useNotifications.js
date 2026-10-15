@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { watchPostgresChanges } from '../lib/realtimeChannel';
 import { useAuth } from './useAuth';
 
 const ROOT = 'notifications';
@@ -89,9 +90,9 @@ export function useMarkAllNotificationsRead() {
 }
 
 /**
- * Single global realtime channel mounted in AppShell. Bails out on
- * CHANNEL_ERROR / TIMED_OUT (e.g. table missing) so we don't loop the
- * handshake — a reload re-attempts the subscription.
+ * Single global realtime channel mounted in AppShell. It survives a dropped
+ * connection and a suspended page, and the bell is read again when it is
+ * back: see `watchPostgresChanges`.
  */
 export function useNotificationsRealtime() {
   const qc = useQueryClient();
@@ -100,31 +101,17 @@ export function useNotificationsRealtime() {
 
   useEffect(() => {
     if (!me) return undefined;
-    let cancelled = false;
-    const channel = supabase
-      .channel(`notifications-${me}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'notifications' },
-        (payload) => {
-          if (cancelled) return;
-          const row = payload.new || payload.old || {};
-          if (row.recipient_id === me) {
-            qc.invalidateQueries({ queryKey: [ROOT] });
-          }
-        },
-      )
-      .subscribe((status) => {
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          cancelled = true;
-          supabase.removeChannel(channel);
+    return watchPostgresChanges({
+      topic: `notifications-${me}`,
+      filters: [{ event: '*', schema: 'public', table: 'notifications' }],
+      onChange: (payload) => {
+        const row = payload.new || payload.old || {};
+        if (row.recipient_id === me) {
+          qc.invalidateQueries({ queryKey: [ROOT] });
         }
-      });
-
-    return () => {
-      cancelled = true;
-      supabase.removeChannel(channel);
-    };
+      },
+      onResync: () => qc.invalidateQueries({ queryKey: [ROOT] }),
+    });
   }, [me, qc]);
 }
 
