@@ -167,3 +167,62 @@ describe('SlotCommentBox', () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+// B29. The form a collapsed exercise's card shows beside its header.
+describe('SlotCommentBox, compact', () => {
+  const renderCompact = (comment, extra = {}) =>
+    render(
+      <SlotCommentBox
+        compact
+        sessionId="s-1"
+        slotId="sl-1"
+        comment={comment}
+        exerciseName="Bench press"
+        fieldClassName="px-4 pb-3"
+        {...extra}
+      />,
+    );
+  const addBubble = () => screen.queryByRole('button', { name: 'Add note for coach: Bench press' });
+  const editBubble = () => screen.queryByRole('button', { name: 'Edit note for coach: Bench press' });
+
+  it('is a 44 px button named after the exercise, which says whether it has a note', () => {
+    const { rerender } = renderCompact(undefined);
+    expect(addBubble()).toHaveClass('sl-pill', 'sl-pill-btn');
+    expect(addBubble()).toHaveClass('text-ink-400');
+
+    rerender(
+      <SlotCommentBox compact sessionId="s-1" slotId="sl-1" comment={NOTE} exerciseName="Bench press" />,
+    );
+    expect(editBubble()).toHaveClass('sl-pill', 'sl-pill-btn', 'text-accent');
+    expect(addBubble()).toBeNull();
+  });
+
+  it('opens its field on a line of its own, and saves and closes when it is left', async () => {
+    const user = userEvent.setup();
+    renderCompact(undefined);
+
+    await user.click(addBubble());
+    expect(field().parentElement).toHaveClass('basis-full', 'px-4', 'pb-3');
+    await user.type(field(), 'left elbow');
+    await user.tab();
+
+    expect(mockSave.mutate).toHaveBeenCalledWith(
+      { sessionId: 's-1', slotId: 'sl-1', body: 'left elbow' },
+      expect.any(Object),
+    );
+    expect(field()).toBeNull();
+    expect(addBubble()).toBeInTheDocument();
+  });
+
+  it('opens on the note the exercise has', async () => {
+    const user = userEvent.setup();
+    renderCompact(NOTE);
+    await user.click(editBubble());
+    expect(field()).toHaveValue('felt heavy');
+  });
+
+  it('locked, renders nothing: the card shows a passive badge', () => {
+    const { container } = renderCompact(NOTE, { locked: true });
+    expect(container).toBeEmptyDOMElement();
+  });
+});

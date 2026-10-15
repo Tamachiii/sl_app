@@ -7,5 +7,7 @@ export default {
     addThirty: '+30 s',
     addThirtyAria: 'Add 30 seconds of rest',
     skip: 'Skip rest',
+    addNoteOn: 'Add note for coach: {name}',
+    editNoteOn: 'Edit note for coach: {name}',
   },
 };

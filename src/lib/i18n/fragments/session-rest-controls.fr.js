@@ -7,5 +7,7 @@ export default {
     addThirty: '+30 s',
     addThirtyAria: 'Ajouter 30 secondes de repos',
     skip: 'Passer le repos',
+    addNoteOn: 'Ajouter une note pour le coach : {name}',
+    editNoteOn: 'Modifier la note pour le coach : {name}',
   },
 };

@@ -273,10 +273,11 @@ function Chevron({ open }) {
   );
 }
 
-// Small chat-bubble badge shown in the collapsed slot header when the
-// student has already left a note for the coach. Doubles as discoverability
-// for the note feature — students who haven't expanded a card before see
-// the icon on slots they HAVE noted, learning the affordance exists.
+// Small chat-bubble badge shown in the slot header when the student has
+// already left a note for the coach and the header carries no note control:
+// the card is open (the note is in its body) or the session is read-only.
+// A collapsed card of a session that can still be written carries the note
+// control itself (B29) instead.
 function NoteBadge() {
   const { t } = useI18n();
   const label = t('student.session.noteAttached');
@@ -329,9 +330,9 @@ export default function SlotGroupCard({
     // not one per exercise). Anchor the comment to the first slot in the
     // group so existing slot_comments rows on the lead slot stay visible.
     const leadSlot = group.slots[0];
-    const hasGroupNote = (slotComments || []).some(
-      (c) => c.exercise_slot_id === leadSlot.id && (c.body || '').trim() !== ''
-    );
+    const groupComment = (slotComments || []).find((c) => c.exercise_slot_id === leadSlot.id);
+    const hasGroupNote = (groupComment?.body || '').trim() !== '';
+    const noteInHeader = !open && !isReadOnly;
     return (
       <div
         className="rounded-xl border-2 p-2 space-y-2"
@@ -340,22 +341,34 @@ export default function SlotGroupCard({
           background: 'color-mix(in srgb, var(--color-accent) 5%, transparent)',
         }}
       >
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={open}
-          className="w-full px-2 pt-1 pb-1 flex items-baseline gap-2 text-left"
-        >
-          <span className="sl-label" style={{ color: 'var(--color-accent)' }}>Superset</span>
-          <span className="sl-mono text-[11px] text-ink-400 flex-1 truncate">
-            {`${group.slots.length} exercises`}
-          </span>
-          {hasGroupNote && <NoteBadge />}
-          {total > 0 && (
-            <span className="sl-mono text-[11px] text-ink-400 shrink-0">{done}/{total}</span>
+        <div className="flex flex-wrap items-center">
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={open}
+            className="flex-1 min-w-0 px-2 pt-1 pb-1 flex items-baseline gap-2 text-left"
+          >
+            <span className="sl-label" style={{ color: 'var(--color-accent)' }}>Superset</span>
+            <span className="sl-mono text-[11px] text-ink-400 flex-1 truncate">
+              {`${group.slots.length} exercises`}
+            </span>
+            {hasGroupNote && !noteInHeader && <NoteBadge />}
+            {total > 0 && (
+              <span className="sl-mono text-[11px] text-ink-400 shrink-0">{done}/{total}</span>
+            )}
+            <Chevron open={open} />
+          </button>
+          {noteInHeader && (
+            <SlotCommentBox
+              compact
+              sessionId={sessionId}
+              slotId={leadSlot.id}
+              comment={groupComment}
+              exerciseName={group.slots.map((s) => s.exercise?.name).filter(Boolean).join(' + ')}
+              fieldClassName="px-2 pb-1"
+            />
           )}
-          <Chevron open={open} />
-        </button>
+        </div>
         {open && group.slots.map((slot, i) => {
           const globalIdx = String(slotOffset + i + 1).padStart(2, '0');
           const slotLogs = getLogsForSlot(slot.id);
@@ -396,24 +409,39 @@ export default function SlotGroupCard({
   const slot = group.slots[0];
   const slotLogs = getLogsForSlot(slot.id);
   const globalIdx = String(slotOffset + 1).padStart(2, '0');
-  const hasNote = (slotComments || []).some(
-    (c) => c.exercise_slot_id === slot.id && (c.body || '').trim() !== ''
-  );
+  const slotComment = (slotComments || []).find((c) => c.exercise_slot_id === slot.id);
+  const hasNote = (slotComment?.body || '').trim() !== '';
+  // B29: "Add note" was in the body only — out of reach of an exercise that is
+  // not open. A collapsed card of a session that can still be written carries
+  // the note control beside its header; an open card carries it in its body.
+  const noteInHeader = !open && !isReadOnly;
   return (
     <div className="sl-card overflow-hidden">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        className="w-full flex items-baseline gap-2.5 p-4 text-left hover:bg-ink-50 transition-colors"
-      >
-        <SlotHeader slot={slot} slotLogs={slotLogs} globalIdx={globalIdx} />
-        {hasNote && <NoteBadge />}
-        {total > 0 && (
-          <span className="sl-mono text-[11px] text-ink-400 shrink-0 self-center">{done}/{total}</span>
+      <div className="flex flex-wrap items-center">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          className="flex-1 min-w-0 flex items-baseline gap-2.5 p-4 text-left hover:bg-ink-50 transition-colors"
+        >
+          <SlotHeader slot={slot} slotLogs={slotLogs} globalIdx={globalIdx} />
+          {hasNote && !noteInHeader && <NoteBadge />}
+          {total > 0 && (
+            <span className="sl-mono text-[11px] text-ink-400 shrink-0 self-center">{done}/{total}</span>
+          )}
+          <Chevron open={open} />
+        </button>
+        {noteInHeader && (
+          <SlotCommentBox
+            compact
+            sessionId={sessionId}
+            slotId={slot.id}
+            comment={slotComment}
+            exerciseName={slot.exercise?.name || ''}
+            fieldClassName="px-4 pb-3"
+          />
         )}
-        <Chevron open={open} />
-      </button>
+      </div>
       {open && (
         <div className="px-4 pb-4 pt-3 border-t border-ink-100">
           <SlotBody

@@ -23,7 +23,18 @@ vi.mock('../../hooks/useSetLogs', () => ({
 vi.mock('../../hooks/useOnlineStatus', () => ({ useOnlineStatus: () => true }));
 
 vi.mock('./SlotDeviationBar', () => ({ default: () => null }));
-vi.mock('./SlotCommentBox', () => ({ default: () => null }));
+// The note box draws a marker: which slot, in which form (B29).
+vi.mock('./SlotCommentBox', () => ({
+  default: ({ slotId, compact = false, exerciseName = '', locked = false }) => (
+    <div
+      data-testid="note-box"
+      data-slot={slotId}
+      data-form={compact ? 'compact' : 'body'}
+      data-name={exerciseName}
+      data-locked={locked ? 'yes' : 'no'}
+    />
+  ),
+}));
 
 import SlotGroupCard from './SlotGroupCard';
 
@@ -357,5 +368,77 @@ describe('the place of the "Last time" hint', () => {
       lastPerformanceLoading: true,
     });
     expect(screen.queryByText('Last time')).not.toBeInTheDocument();
+  });
+});
+
+// B29. "Add note" was in the body of an exercise, out of reach while it was
+// collapsed. One note control per exercise (per superset), whatever the state.
+describe('the note for the coach', () => {
+  const pending = [prescribed(1), prescribed(2)];
+  const NOTE = { id: 'sc-1', exercise_slot_id: 'slot-1', body: 'felt heavy' };
+  const SECOND = { id: 'slot-2', exercise: { id: 'ex-row', name: 'Row' }, sets: 3, reps: 8 };
+
+  function renderGroup({ open, slots = [slot], isReadOnly = false, slotComments = [] }) {
+    return render(
+      <SlotGroupCard
+        group={{ key: slots[0].id, slots }}
+        slotOffset={0}
+        open={open}
+        onToggle={() => {}}
+        getLogsForSlot={() => pending}
+        slotComments={slotComments}
+        slotDeviations={[]}
+        lastPerformance={{}}
+        exerciseLibrary={[]}
+        sessionId="sess-1"
+        isConfirmed={false}
+        isReadOnly={isReadOnly}
+      />,
+    );
+  }
+  const boxes = () => screen.queryAllByTestId('note-box');
+
+  it('is reachable on a collapsed exercise, beside its header and not inside it', () => {
+    renderGroup({ open: false });
+    expect(boxes()).toHaveLength(1);
+    const [box] = boxes();
+    expect(box).toHaveAttribute('data-form', 'compact');
+    expect(box).toHaveAttribute('data-slot', 'slot-1');
+    expect(box).toHaveAttribute('data-name', 'Bench press');
+    // A button inside the header's button would be no button at all.
+    expect(box.closest('button')).toBeNull();
+    expect(screen.getByRole('button', { expanded: false })).toBeInTheDocument();
+  });
+
+  it('is in the body of an open exercise, and only there', () => {
+    renderGroup({ open: true });
+    expect(boxes()).toHaveLength(1);
+    expect(boxes()[0]).toHaveAttribute('data-form', 'body');
+  });
+
+  it('a collapsed superset has one, on its lead exercise, named after both', () => {
+    renderGroup({ open: false, slots: [slot, SECOND] });
+    expect(boxes()).toHaveLength(1);
+    expect(boxes()[0]).toHaveAttribute('data-form', 'compact');
+    expect(boxes()[0]).toHaveAttribute('data-slot', 'slot-1');
+    expect(boxes()[0]).toHaveAttribute('data-name', 'Bench press + Row');
+  });
+
+  it('an open superset keeps its one box under the exercises', () => {
+    renderGroup({ open: true, slots: [slot, SECOND] });
+    expect(boxes()).toHaveLength(1);
+    expect(boxes()[0]).toHaveAttribute('data-form', 'body');
+  });
+
+  it('a read-only session offers none on a collapsed exercise, and shows a note it has as a badge', () => {
+    renderGroup({ open: false, isReadOnly: true, slotComments: [NOTE] });
+    expect(boxes()).toHaveLength(0);
+    expect(screen.getByLabelText('Note attached')).toBeInTheDocument();
+  });
+
+  it('a collapsed exercise with a note shows it on its control, not twice', () => {
+    renderGroup({ open: false, slotComments: [NOTE] });
+    expect(boxes()).toHaveLength(1);
+    expect(screen.queryByLabelText('Note attached')).toBeNull();
   });
 });

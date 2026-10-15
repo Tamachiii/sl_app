@@ -7,5 +7,7 @@ export default {
     addThirty: '+30 s',
     addThirtyAria: '30 Sekunden Pause hinzufügen',
     skip: 'Pause überspringen',
+    addNoteOn: 'Notiz für den Coach hinzufügen: {name}',
+    editNoteOn: 'Notiz für den Coach bearbeiten: {name}',
   },
 };
