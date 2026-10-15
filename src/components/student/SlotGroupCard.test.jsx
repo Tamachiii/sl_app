@@ -188,3 +188,95 @@ describe('the exercise as the coach wrote it', () => {
     });
   });
 });
+
+// P61 — an extra set has no targets: its editor opens on the set before it, as
+// that set was done, and the exercise's unit says whether it has reps.
+describe('an extra set', () => {
+  const extra = (n, values = {}) =>
+    prescribed(n, {
+      is_student_added: true,
+      target_reps: null,
+      target_weight_kg: null,
+      ...values,
+    });
+
+  it('opens on the set before it: its targets when it was done as written', async () => {
+    const user = userEvent.setup();
+    renderCard({ logs: [prescribed(1, { done: true }), prescribed(2, { done: true }), extra(3)] });
+
+    const added = await openEditorOf(user, 3);
+    expect(added.getByLabelText(/actual reps performed/i)).toHaveValue(8);
+    expect(added.getByLabelText(/actual weight in kilograms/i)).toHaveValue(100);
+    expect(added.getByRole('button', { name: /^save$/i })).toBeEnabled();
+  });
+
+  it('its actual values when it was not, and an extra after an extra carries them on', async () => {
+    const user = userEvent.setup();
+    renderCard({
+      logs: [
+        prescribed(1, { done: true }),
+        prescribed(2, { done: true, actual_reps: 6, actual_weight_kg: 95 }),
+        extra(3),
+        extra(4),
+      ],
+    });
+
+    const third = await openEditorOf(user, 3);
+    expect(third.getByLabelText(/actual reps performed/i)).toHaveValue(6);
+    expect(third.getByLabelText(/actual weight in kilograms/i)).toHaveValue(95);
+
+    const fourth = await openEditorOf(user, 4);
+    expect(fourth.getByLabelText(/actual reps performed/i)).toHaveValue(6);
+    expect(fourth.getByLabelText(/actual weight in kilograms/i)).toHaveValue(95);
+  });
+
+  it('after a bodyweight set, the load it opens on is 0 — none added — and it can be saved as it is', async () => {
+    const user = userEvent.setup();
+    renderCard({
+      logs: [prescribed(1, { done: true, target_reps: 12, target_weight_kg: null }), extra(2)],
+    });
+
+    const added = await openEditorOf(user, 2);
+    expect(added.getByLabelText(/actual reps performed/i)).toHaveValue(12);
+    expect(added.getByLabelText(/actual weight in kilograms/i)).toHaveValue(0);
+    await user.click(added.getByRole('button', { name: /^save$/i }));
+
+    expect(mockLogActual.mutate).toHaveBeenCalledWith({
+      logId: 'log-2',
+      actualReps: 12,
+      actualWeightKg: 0,
+      done: true,
+    });
+  });
+
+  it('on an exercise measured in seconds, it has no reps to give', async () => {
+    const user = userEvent.setup();
+    renderCard({
+      logs: [
+        prescribed(1, { done: true, target_reps: null, target_duration_seconds: 45, target_weight_kg: 10 }),
+        extra(2),
+      ],
+    });
+
+    const added = await openEditorOf(user, 2);
+    expect(added.queryByLabelText(/actual reps performed/i)).not.toBeInTheDocument();
+    expect(added.getByLabelText(/actual weight in kilograms/i)).toHaveValue(10);
+    await user.click(added.getByRole('button', { name: /^save$/i }));
+
+    expect(mockLogActual.mutate).toHaveBeenCalledWith({
+      logId: 'log-2',
+      actualReps: null,
+      actualWeightKg: 10,
+      done: true,
+    });
+  });
+
+  it('a tap on it opens that editor rather than marking it done', async () => {
+    const user = userEvent.setup();
+    renderCard({ logs: [prescribed(1, { done: true }), extra(2)] });
+
+    await user.click(row(2).getByRole('button', { name: /mark set done/i }));
+
+    expect(row(2).getByLabelText(/actual weight in kilograms/i)).toHaveValue(100);
+  });
+});

@@ -1,4 +1,4 @@
-import { memo, useRef, useState } from 'react';
+import { memo, useId, useRef, useState } from 'react';
 import {
   useToggleSetDone,
   useSetFailed,
@@ -8,6 +8,7 @@ import {
   useRemoveStudentSet,
 } from '../../hooks/useSetLogs';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { useI18n } from '../../hooks/useI18n';
 import { startRestTimer, clearRestTimer } from '../../hooks/useRestTimer';
 import { formatSetTarget, formatActual, hasLoggedActual } from '../../lib/volume';
 import RpeInput from './RpeInput';
@@ -35,6 +36,16 @@ const SWIPE_INTENT_PX = 8;
 const SWIPE_H_OVER_V = 1.4;
 const SWIPE_MAX_OFFSET = 96;
 
+// An extra set has no prescription: it says what was done, or it is not done.
+// Reps (none on a duration exercise: there is no column for an actual
+// duration) and a load, 0 being no load — a set with no volume, or reps added
+// to an exercise measured in seconds, is what an empty extra set used to count
+// as (P61).
+function extraValuesComplete({ reps, weightKg, durationBased }) {
+  const repsOk = durationBased || (reps != null && reps > 0);
+  return repsOk && weightKg != null && weightKg >= 0;
+}
+
 /**
  * SetRow — one row per set_log entry inside a SessionView exercise card.
  *
@@ -53,8 +64,11 @@ const SWIPE_MAX_OFFSET = 96;
  *     the substitute's records and "Last time" only read logged actuals
  *     (lib/doneSetHistory), and a same-scheme swap used to store nothing (P59).
  *   - `seedReps` / `seedWeightKg`: what the Actual editor opens with on a
- *     swapped exercise (the substitute's last performance). Ignored on a set of
- *     an exercise that was not swapped, whose editor opens on its targets.
+ *     swapped exercise (the substitute's last performance) and on an extra set
+ *     (the set before it). Ignored on a prescribed set of an exercise that was
+ *     not swapped, whose editor opens on its targets.
+ *   - `durationBased`: the exercise is prescribed in seconds — an extra set
+ *     then has no reps to give.
  */
 const SetRow = memo(function SetRow({
   log,
@@ -64,7 +78,10 @@ const SetRow = memo(function SetRow({
   swapped = false,
   seedReps = null,
   seedWeightKg = null,
+  durationBased = false,
 }) {
+  const { t } = useI18n();
+  const hintId = useId();
   // log.id feeds the per-row mutation scope: same-row writes stay FIFO,
   // different rows don't block each other. See useSetLogs.rowScope.
   const toggleDone = useToggleSetDone(log.id);
@@ -82,10 +99,13 @@ const SetRow = memo(function SetRow({
   const [actualWeight, setActualWeight] = useState('');
 
   // "actual reps" only makes sense for rep-based work — a 30s plank has no
-  // rep count to deviate on, so we collect load only for duration sets.
-  const repsApplies = log.target_reps != null || log.target_duration_seconds == null;
-  const loggedActual = hasLoggedActual(log);
+  // rep count to deviate on, so we collect load only for duration sets. An
+  // extra set has no target of its own: the exercise's unit decides.
   const isExtra = !!log.is_student_added;
+  const repsApplies = isExtra
+    ? !durationBased
+    : log.target_reps != null || log.target_duration_seconds == null;
+  const loggedActual = hasLoggedActual(log);
 
   // Swipe state lives in a ref to avoid re-rendering on every touchmove;
   // the visible offset/intent are mirrored into useState only when intent
@@ -97,6 +117,15 @@ const SetRow = memo(function SetRow({
   const rpeLocked = locked || failed;
   // Neither done nor failed (a skipped set renders without these controls).
   const pending = !log.done && !failed;
+  // An extra set that does not say yet what was done cannot be marked done:
+  // every gesture that would (the tap, the swipe, an RPE) opens its editor.
+  const extraIncomplete =
+    isExtra &&
+    !extraValuesComplete({
+      reps: log.actual_reps ?? log.target_reps ?? null,
+      weightKg: log.actual_weight_kg ?? log.target_weight_kg ?? null,
+      durationBased: !repsApplies,
+    });
 
   // The three outcome gestures. The rest timer and the RPE selector follow
   // THEM — what the athlete just did — and never a change of `log`. The row
@@ -119,6 +148,10 @@ const SetRow = memo(function SetRow({
   }
 
   function markDone() {
+    if (extraIncomplete) {
+      openActual();
+      return;
+    }
     toggleDone.mutate({ logId: log.id, done: true });
     if (!failed) startRest();
     // Only with "done": RPE is locked for a failed set, so opening it there
@@ -152,14 +185,20 @@ const SetRow = memo(function SetRow({
   // Seed the inputs from the logged actual when present, else from the
   // prescribed target, so the common "did it as written" case is one tap
   // (open → Save) and the student only edits the dimension that differed.
-  // A swapped exercise opens on what SlotGroupCard worked out (`seedReps` /
-  // `seedWeightKg`): the targets on its rows are another exercise's. Its reps
-  // fall back on the prescribed ones (the same scheme, as Stats reads it); its
-  // load never does.
+  // A swapped exercise and an extra set open on what SlotGroupCard worked out
+  // (`seedReps` / `seedWeightKg`): the targets on those rows are another
+  // exercise's, or none. On a swapped exercise the reps fall back on the
+  // prescribed ones (the same scheme, as Stats reads it); its load never does.
   function editorSeed() {
     if (swapped) {
       return {
         reps: log.actual_reps ?? seedReps ?? log.target_reps ?? null,
+        weightKg: log.actual_weight_kg ?? seedWeightKg ?? null,
+      };
+    }
+    if (isExtra) {
+      return {
+        reps: log.actual_reps ?? seedReps ?? null,
         weightKg: log.actual_weight_kg ?? seedWeightKg ?? null,
       };
     }
@@ -184,14 +223,19 @@ const SetRow = memo(function SetRow({
     else openActual();
   }
 
-  // What the inputs hold now.
+  // What the inputs hold now. An extra set saves only once they say what was
+  // done; a done one must keep saying it.
   const typedReps = repsApplies ? parseIntOrNull(actualReps) : null;
   const typedWeight = parseFloatOrNull(actualWeight);
+  const typedIncomplete =
+    isExtra &&
+    !extraValuesComplete({ reps: typedReps, weightKg: typedWeight, durationBased: !repsApplies });
 
   function handleSaveActual() {
+    if (typedIncomplete) return;
     let nextReps;
     let nextWeight;
-    if (swapped) {
+    if (swapped || isExtra) {
       // Stored as entered: the targets on the row are not what was done. A
       // swapped exercise left without a load is done without one — null would
       // read as the original exercise's load (formatActual, Stats).
@@ -225,12 +269,26 @@ const SetRow = memo(function SetRow({
   // Taking a rating back (null) is never a reason to date the set.
   function handleRpe(rpe) {
     if (rpe != null && pending) {
+      if (extraIncomplete) {
+        setRpeOpen(false);
+        openActual();
+        return;
+      }
       setRpe.mutate({ logId: log.id, rpe, done: true });
       startRest();
     } else {
       setRpe.mutate({ logId: log.id, rpe });
     }
     if (rpe != null) setRpeOpen(false);
+  }
+
+  function handleRpePill() {
+    if (rpeLocked) return;
+    if (pending && extraIncomplete && !rpeOpen) {
+      openActual();
+      return;
+    }
+    setRpeOpen((v) => !v);
   }
 
   function handleClearActual() {
@@ -472,7 +530,7 @@ const SetRow = memo(function SetRow({
 
           <button
             type="button"
-            onClick={() => !rpeLocked && setRpeOpen((v) => !v)}
+            onClick={handleRpePill}
             disabled={rpeLocked}
             aria-expanded={rpeOpen}
             aria-label={
@@ -536,11 +594,14 @@ const SetRow = memo(function SetRow({
             <button
               type="button"
               onClick={handleSaveActual}
-              className="sl-pill shrink-0 min-h-11 px-4 bg-accent text-ink-900 hover:brightness-95"
+              disabled={typedIncomplete}
+              aria-describedby={typedIncomplete ? hintId : undefined}
+              className="sl-pill shrink-0 min-h-11 px-4 bg-accent text-ink-900 hover:brightness-95 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Save
             </button>
-            {loggedActual && (
+            {/* A done extra set keeps what it says it was. */}
+            {loggedActual && !(isExtra && log.done) && (
               <button
                 type="button"
                 onClick={handleClearActual}
@@ -557,6 +618,15 @@ const SetRow = memo(function SetRow({
               >
                 Skip
               </button>
+            )}
+            {typedIncomplete && (
+              <p id={hintId} className="basis-full sl-mono text-[11px] text-ink-500">
+                {t(
+                  repsApplies
+                    ? 'sessionRpeActualsExtras.extraNeedsRepsAndLoad'
+                    : 'sessionRpeActualsExtras.extraNeedsLoad',
+                )}
+              </p>
             )}
           </div>
         )}

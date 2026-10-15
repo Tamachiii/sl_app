@@ -38,24 +38,43 @@ function LastTimeHint({ perf, label, lang }) {
   );
 }
 
-// What the Actual editor of each set of a swapped exercise opens with (P59):
-// the substitute's last performance, set by set — the last of its sets for any
-// set beyond them. The rows' targets are the original exercise's and are never
-// a load to start from. Without a last performance, a set starts from the one
-// before it in this session, as it was done: the substitute done for the first
-// time is entered once and carried down.
+// What the Actual editor of a set opens with where the targets on its row are
+// no place to start from:
+//   - every set of a swapped exercise (P59): the substitute's last
+//     performance, set by set — the last of its sets for any set beyond them.
+//     The rows' targets are the original exercise's and are never a load to
+//     start from. Without a last performance, a set starts from the one before
+//     it in this session, as it was done: the substitute done for the first
+//     time is entered once and carried down.
+//   - an extra set (P61), which has no targets: the set before it, as it was
+//     done — its actual values, else its targets. A prescribed set without a
+//     target load is done at bodyweight: 0 kg added.
+// The sets of the exercise as the coach wrote it open on their own targets
+// (SetRow) and get no entry.
 //
 // Returns Map(log id → { reps, weightKg }). The sets come in set order.
-function swapSeeds(slotLogs, lastPerf) {
-  const prior = Array.isArray(lastPerf?.sets) && lastPerf.sets.length > 0 ? lastPerf.sets : null;
+function editorSeeds(slotLogs, { swapped, lastPerf }) {
+  const prior =
+    swapped && Array.isArray(lastPerf?.sets) && lastPerf.sets.length > 0 ? lastPerf.sets : null;
   const seeds = new Map();
   let before = { reps: null, weightKg: null };
   slotLogs.forEach((log, index) => {
-    const last = prior ? prior[Math.min(index, prior.length - 1)] : null;
-    const seed = last
-      ? { reps: last.reps ?? null, weightKg: last.weight ?? null }
-      : { reps: before.reps ?? log.target_reps ?? null, weightKg: before.weightKg };
-    seeds.set(log.id, seed);
+    let seed;
+    if (swapped) {
+      const last = prior ? prior[Math.min(index, prior.length - 1)] : null;
+      seed = last
+        ? { reps: last.reps ?? null, weightKg: last.weight ?? null }
+        : { reps: before.reps ?? log.target_reps ?? null, weightKg: before.weightKg };
+      seeds.set(log.id, seed);
+    } else if (log.is_student_added) {
+      seed = before;
+      seeds.set(log.id, seed);
+    } else {
+      seed = {
+        reps: log.target_reps ?? null,
+        weightKg: log.target_weight_kg != null ? Number(log.target_weight_kg) : 0,
+      };
+    }
     if (!log.skipped) {
       before = {
         reps: log.actual_reps ?? seed.reps,
@@ -95,7 +114,14 @@ function SlotBody({
   // substitute when this slot is swapped, otherwise the prescribed exercise.
   const effectiveExerciseId = swapped ? deviation.substitute_exercise_id : slot.exercise?.id;
   const lastPerf = lastPerformance ? lastPerformance[effectiveExerciseId] : null;
-  const seeds = swapped ? swapSeeds(slotLogs, lastPerf) : null;
+  const seeds = editorSeeds(slotLogs, { swapped, lastPerf });
+  // The unit the exercise is prescribed in, read as the slot summary reads it
+  // (lib/volume): the first set with a target, else the slot's own columns.
+  // An extra set has no target of its own to say it.
+  const unitSource = slotLogs.find((l) => l.target_reps != null || l.target_duration_seconds != null);
+  const durationBased = unitSource
+    ? unitSource.target_duration_seconds != null
+    : slot.duration_seconds != null;
   const online = useOnlineStatus();
   const addSet = useAddStudentSet();
 
@@ -136,7 +162,7 @@ function SlotBody({
           )}
           <div className="space-y-1.5">
             {slotLogs.map((log) => {
-              const seed = seeds?.get(log.id);
+              const seed = seeds.get(log.id);
               return (
                 <SetRow
                   key={log.id}
@@ -147,6 +173,7 @@ function SlotBody({
                   swapped={swapped}
                   seedReps={seed?.reps ?? null}
                   seedWeightKg={seed?.weightKg ?? null}
+                  durationBased={durationBased}
                 />
               );
             })}

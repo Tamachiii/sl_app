@@ -728,4 +728,165 @@ describe('SetRow', () => {
       expect(screen.queryByRole('button', { name: /^skip$/i })).not.toBeInTheDocument();
     });
   });
+
+  // P61. An extra set has no targets. Ticked as it was, it counted as a set
+  // with no volume, or as 1 kg a rep, or added reps to an exercise measured in
+  // seconds. It now says what was done before it can be done: every gesture
+  // that would mark it done opens its editor, pre-filled from the set before
+  // it (`seedReps` / `seedWeightKg`, worked out by SlotGroupCard).
+  describe('an extra set is done once it says what was done', () => {
+    const extra = {
+      ...baseLog,
+      id: 'log-4',
+      set_number: 4,
+      is_student_added: true,
+      target_rest_seconds: 90,
+      actual_reps: null,
+      actual_weight_kg: null,
+    };
+    const seeds = { seedReps: 8, seedWeightKg: 100 };
+    const hint = () => screen.queryByText(/to mark this extra set done/i);
+    const editorOpen = () => screen.queryByLabelText(/actual weight in kilograms/i);
+
+    it('a tap opens its editor, pre-filled from the set before it, and marks nothing', async () => {
+      const user = userEvent.setup();
+      renderSetRow(extra, seeds);
+
+      await user.click(screen.getByRole('button', { name: /mark set done/i }));
+
+      expect(mockToggleDone.mutate).not.toHaveBeenCalled();
+      expect(startRestTimer).not.toHaveBeenCalled();
+      expect(rpeGrid()).not.toBeInTheDocument();
+      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue(8);
+      expect(screen.getByLabelText(/actual weight in kilograms/i)).toHaveValue(100);
+      expect(hint()).not.toBeInTheDocument();
+    });
+
+    it('so does a swipe to done', () => {
+      renderSetRow(extra, seeds);
+      swipe(rowFor(/mark set done/i), -80);
+      expect(mockToggleDone.mutate).not.toHaveBeenCalled();
+      expect(editorOpen()).toBeInTheDocument();
+    });
+
+    it('and the RPE: a rating does not mark an empty extra set done', async () => {
+      const user = userEvent.setup();
+      renderSetRow(extra, seeds);
+
+      await user.click(screen.getByRole('button', { name: /^set rpe$/i }));
+
+      expect(rpeGrid()).not.toBeInTheDocument();
+      expect(editorOpen()).toBeInTheDocument();
+      expect(mockSetRpe.mutate).not.toHaveBeenCalled();
+    });
+
+    it('a selector left open when the set went back to empty rates nothing either', async () => {
+      const user = userEvent.setup();
+      const done = { ...extra, done: true, actual_reps: 8, actual_weight_kg: 100 };
+      const { rerender } = render(<SetRow log={done} {...seeds} />);
+      await user.click(screen.getByRole('button', { name: /^set rpe$/i }));
+      // A write taken back, a read without it.
+      rerender(<SetRow log={extra} {...seeds} />);
+
+      await user.click(screen.getByRole('button', { name: /^RPE 8$/i }));
+
+      expect(mockSetRpe.mutate).not.toHaveBeenCalled();
+      expect(editorOpen()).toBeInTheDocument();
+    });
+
+    it('Save writes the values and marks it done, in one write, and is the gesture of the set', async () => {
+      const user = userEvent.setup();
+      renderSetRow(extra, seeds);
+      await user.click(screen.getByRole('button', { name: /mark set done/i }));
+
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+      expect(mockLogActual.mutate).toHaveBeenCalledTimes(1);
+      expect(mockLogActual.mutate).toHaveBeenCalledWith({
+        logId: 'log-4',
+        actualReps: 8,
+        actualWeightKg: 100,
+        done: true,
+      });
+      expect(mockToggleDone.mutate).not.toHaveBeenCalled();
+      expect(startRestTimer).toHaveBeenCalledTimes(1);
+      expect(startRestTimer).toHaveBeenCalledWith('log-4', 90);
+      expect(rpeGrid()).toBeInTheDocument();
+    });
+
+    it('without a set before it the editor is empty, and Save waits for reps and a load', async () => {
+      const user = userEvent.setup();
+      renderSetRow(extra);
+      await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
+
+      const save = screen.getByRole('button', { name: /^save$/i });
+      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue(null);
+      expect(save).toBeDisabled();
+      expect(hint()).toHaveTextContent('Enter the reps and the load (0 for bodyweight) to mark this extra set done.');
+      expect(save).toHaveAttribute('aria-describedby', hint().id);
+
+      await user.type(screen.getByLabelText(/actual reps performed/i), '10');
+      expect(save).toBeDisabled();
+      await user.click(save);
+      expect(mockLogActual.mutate).not.toHaveBeenCalled();
+
+      // 0 is a load: no load added, at bodyweight.
+      await user.type(screen.getByLabelText(/actual weight in kilograms/i), '0');
+      expect(save).toBeEnabled();
+      expect(hint()).not.toBeInTheDocument();
+      await user.click(save);
+
+      expect(mockLogActual.mutate).toHaveBeenCalledWith({
+        logId: 'log-4',
+        actualReps: 10,
+        actualWeightKg: 0,
+        done: true,
+      });
+    });
+
+    it('0 reps is not a set done', async () => {
+      const user = userEvent.setup();
+      renderSetRow(extra, { seedReps: 0, seedWeightKg: 20 });
+      await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
+      expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled();
+    });
+
+    it('on an exercise measured in seconds it asks for the load only, and stores no reps', async () => {
+      const user = userEvent.setup();
+      renderSetRow(extra, { durationBased: true, seedReps: 12 });
+      await user.click(screen.getByRole('button', { name: /mark set done/i }));
+
+      expect(screen.queryByLabelText(/actual reps performed/i)).not.toBeInTheDocument();
+      expect(hint()).toHaveTextContent('Enter the load (0 for bodyweight) to mark this extra set done.');
+      await user.type(screen.getByLabelText(/actual weight in kilograms/i), '20');
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+      expect(mockLogActual.mutate).toHaveBeenCalledWith({
+        logId: 'log-4',
+        actualReps: null,
+        actualWeightKg: 20,
+        done: true,
+      });
+    });
+
+    it('an extra set that says what was done is ticked like any other', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...extra, actual_reps: 8, actual_weight_kg: 100 });
+
+      await user.click(screen.getByRole('button', { name: /mark set done/i }));
+
+      expect(mockToggleDone.mutate).toHaveBeenCalledWith({ logId: 'log-4', done: true });
+      expect(rpeGrid()).toBeInTheDocument();
+    });
+
+    it('a done extra set keeps its values: no Clear, and no Save without them', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...extra, done: true, actual_reps: 8, actual_weight_kg: 100 });
+
+      await user.click(screen.getByRole('button', { name: /logged actual/i }));
+      expect(screen.queryByRole('button', { name: /^clear$/i })).not.toBeInTheDocument();
+      await user.clear(screen.getByLabelText(/actual weight in kilograms/i));
+      expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled();
+    });
+  });
 });

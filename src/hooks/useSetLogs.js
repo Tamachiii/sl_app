@@ -344,9 +344,9 @@ export function useSetFailed(logId) {
 // UPDATE of a pre-existing row, shown at once on that row and taken back from
 // it on error. Callers pass the values to store: on a set of the exercise the
 // coach wrote, a dimension equal to its target is sent as null, so a stored
-// actual_* means a genuine deviation; on a swapped exercise both are sent as
-// entered. `done: true` marks a pending set done in the same write, dated at
-// the tap (P27, `patchForActual`).
+// actual_* means a genuine deviation; on a swapped exercise and on an extra
+// set both are sent as entered. `done: true` marks a pending set done in the
+// same write, dated at the tap (P27, `patchForActual`).
 export function useLogActual(logId) {
   return useOptimisticSetLogMutation(logId, {
     mutationKey: MUTATION_KEYS.logActual,
@@ -368,9 +368,12 @@ export function useSetSkipped(logId) {
 }
 
 // Appends an extra set the student did beyond the prescription (NULL targets,
-// is_student_added=true). ONLINE-ONLY: a brand-new-row INSERT can't be safely
-// queued offline (the offline lane only UPDATE/UPSERT/DELETEs existing rows,
-// and two offline adds would collide on UNIQUE(exercise_slot_id, set_number)).
+// is_student_added=true). It is inserted empty: what was done goes into its
+// actual_* columns when the athlete saves its editor (SetRow), which also marks
+// it done — a row with values is a logged set, which the coach's editor locks.
+// ONLINE-ONLY: a brand-new-row INSERT can't be safely queued offline (the
+// offline lane only UPDATE/UPSERT/DELETEs existing rows, and two offline adds
+// would collide on UNIQUE(exercise_slot_id, set_number)).
 // The UI gates the affordance on connectivity, mirroring VideoUploadButton.
 export function useAddStudentSet() {
   const qc = useQueryClient();
