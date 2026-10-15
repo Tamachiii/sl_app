@@ -247,9 +247,10 @@ describe('P14/L6 — deleting a prescribed set through is_student_added', () => 
 // it", "archived", "trained". After approval the session never reached the
 // coach's inbox. A trigger now keeps the four columns NULL on every session
 // of a draft, whoever writes, and approve_program clears them. Every other
-// path — the coach and the owner of the database on a draft, a session moved
-// into one, what a draft carried from before, the approved programs where
-// the same columns are written as before — is in pins.test.js.
+// path — the owner of the database on a draft, a session moved into one,
+// what a draft carried from before, the approved programs where the same
+// columns are written as before — is in pins.test.js. The coach writes
+// nothing in a draft since migration 20 (drafts-readonly.test.js).
 // ------------------------------------------------------------
 describe('P13 — coach-owned session columns in a student draft', () => {
   const stamped = (q, weekId) => q.value(

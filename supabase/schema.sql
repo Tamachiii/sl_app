@@ -2648,7 +2648,9 @@ $$;
 -- 2026_07_21_student_program_authoring.sql for the full rationale. Recursion-
 -- firewall helpers (SECURITY DEFINER STABLE) + additive draft-scoped student
 -- RLS + the authoring-column pin trigger + the pin on the sessions of a draft
--- (2026_10_11_06) + approve_program.
+-- (2026_10_11_06) + approve_program + the triggers that keep the tree of a
+-- draft its author's (2026_10_16_20): the coach of the athlete approves a
+-- draft, sends it back, renames it, trashes it — and changes nothing in it.
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.program_is_own_draft(p_program_id uuid)
 RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp AS $$
@@ -2747,8 +2749,11 @@ CREATE TRIGGER trg_pin_program_authoring_columns
 -- which runs inside the athlete's own request when they confirm a session of
 -- an approved program (one they may have authored). A pin keyed on who writes
 -- could not tell that write from a forged one; the status of the program
--- can: a draft is never active, and is never trained. So the coach cannot
--- archive or date a session of a draft either — both are done after approval.
+-- can: a draft is never active, and is never trained. So nobody archives or
+-- dates a session of a draft — both are done after approval. (Since
+-- 2026_10_16_20 the coach's write on a draft does not get this far: it is
+-- refused by block_draft_tree_write, which fires first. The pin holds the
+-- author, the owner of the database and the service role.)
 -- A session whose week or program does not exist is not a draft's: the
 -- foreign key answers for it. Silent: the rest of the write goes through.
 -- approve_program, below, clears the four columns as well: whatever a draft
@@ -2816,6 +2821,20 @@ BEGIN
     RAISE EXCEPTION 'not authorized';
   END IF;
 
+  -- The status FIRST (review P53). From here on the program is not a draft:
+  -- the writes below carry the coach's user id, which the triggers of the
+  -- tree of a draft refuse (block_draft_tree_write). And its row stays
+  -- locked until the end: a save of the author that arrives now waits for
+  -- it, then finds a program that is no longer a draft and is refused —
+  -- instead of deleting the phases under the sets being written. Asked for a
+  -- draft once more, under the lock: an approval that crossed this one has
+  -- done everything already.
+  UPDATE public.programs SET status = 'approved', approved_at = now(), submitted_at = NULL
+   WHERE id = p_program_id AND status = 'draft';
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('approved', false);
+  END IF;
+
   -- No session of the program enters its life as reviewed, archived, trained
   -- or dated (review P13): those are written after approval, by the coach and
   -- by the athlete's confirmation.
@@ -2827,6 +2846,26 @@ BEGIN
      AND (s.reviewed_at IS NOT NULL OR s.archived_at IS NOT NULL
           OR s.performed_at IS NOT NULL OR s.scheduled_date IS NOT NULL);
 
+  -- A set without a target is written again from its exercise (review P53).
+  -- A draft holds no set of its own: the ones it holds were added by its
+  -- coach's editor before the tree of a draft was its author's, with the
+  -- targets of a last row a draft does not have — no reps and no duration,
+  -- which no prescription is (exercise_slots_unit_one_of). Dropped here, and
+  -- added below with the other missing sets. A set with a target is kept, as
+  -- before; one that was logged, added by the athlete or filmed is not
+  -- touched.
+  DELETE FROM public.set_logs sl
+   USING public.exercise_slots es, public.sessions s, public.weeks w
+   WHERE es.id = sl.exercise_slot_id
+     AND s.id = es.session_id
+     AND w.id = s.week_id
+     AND w.program_id = p_program_id
+     AND NOT sl.is_student_added
+     AND sl.target_reps IS NULL
+     AND sl.target_duration_seconds IS NULL
+     AND NOT public.set_log_is_logged(sl)
+     AND NOT EXISTS (SELECT 1 FROM public.set_log_videos v WHERE v.set_log_id = sl.id);
+
   INSERT INTO public.set_logs
     (exercise_slot_id, set_number, done, target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds)
   SELECT es.id, gs.n, false, es.reps, es.duration_seconds, es.weight_kg, es.rest_seconds
@@ -2837,9 +2876,6 @@ BEGIN
    WHERE w.program_id = p_program_id
      AND NOT EXISTS (SELECT 1 FROM public.set_logs sl WHERE sl.exercise_slot_id = es.id AND sl.set_number = gs.n);
   GET DIAGNOSTICS v_created = ROW_COUNT;
-
-  UPDATE public.programs SET status = 'approved', approved_at = now(), submitted_at = NULL
-   WHERE id = p_program_id;
 
   IF v_student_prof IS NOT NULL THEN
     INSERT INTO public.notifications (recipient_id, kind, payload)
@@ -2866,6 +2902,235 @@ BEGIN
 END;
 $$;
 -- Who may execute it: the FUNCTION PRIVILEGES block at the end of this file.
+
+-- THE TREE OF A DRAFT IS ITS AUTHOR'S (2026_10_16_20, review P53). The
+-- coach's policies on weeks, sessions, exercise_slots and set_logs are FOR
+-- ALL and do not look at programs.status: without these triggers the coach of
+-- the athlete wrote a draft like any block, and lost what they wrote at the
+-- athlete's next save — save_draft_tree deletes the phases and writes them
+-- again from the phone —, while the sets of a higher "Sets", written without
+-- a target, outlived the approval.
+--
+-- block_draft_tree_write, one name on the four tables, refuses (P0001,
+-- draft_read_only) a write that carries a user id other than the author of
+-- the draft (programs.created_by) on a row of a program whose status is
+-- 'draft' — in the trash or not; an UPDATE is judged on the parent as it was
+-- and as it would be, so nothing moves into or out of a draft. What goes
+-- through: a request without a user id (the SQL editor, a migration, the
+-- service role); the author, as the policies decide; a row whose parent is
+-- gone — the cascade of a delete, which is how the coach deletes a draft. The
+-- row of the program has no such trigger: the coach approves, sends back,
+-- renames, trashes and deletes a draft.
+--
+-- One function per table, because each finds the program another way. The
+-- name sorts before every other BEFORE trigger of the four tables, so on a
+-- draft the refusal is the answer before any guard or pin is asked. An INSERT
+-- is judged by its triggers before row-level security checks the row: a
+-- stranger who sends a row into a draft is answered draft_read_only instead
+-- of the message of row-level security — refused either way.
+--
+-- STABLE, like pin_draft_session_columns and the author's policies
+-- (program_is_own_draft): it reads the program as the statement saw it when
+-- it started, as the policies do. SECURITY DEFINER: it reads the program
+-- whatever the caller may read. A request without a user id reads nothing;
+-- anybody else costs one lookup by primary keys up to the program — on
+-- set_logs, every tap of an athlete.
+CREATE OR REPLACE FUNCTION public.block_draft_week_write()
+RETURNS trigger
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_caller  uuid := auth.uid();
+  v_old     uuid;
+  v_new     uuid;
+  v_program uuid;
+BEGIN
+  IF v_caller IS NOT NULL THEN
+    IF TG_OP <> 'INSERT' THEN
+      v_old := OLD.program_id;
+    END IF;
+    IF TG_OP <> 'DELETE' THEN
+      v_new := NEW.program_id;
+    END IF;
+
+    SELECT p.id INTO v_program
+      FROM public.programs p
+     WHERE p.id IN (v_old, v_new)
+       AND p.status = 'draft'
+       AND p.created_by IS DISTINCT FROM v_caller
+     LIMIT 1;
+
+    IF v_program IS NOT NULL THEN
+      RAISE EXCEPTION 'draft_read_only'
+        USING ERRCODE = 'P0001',
+              DETAIL = format('The phase belongs to program %s, a draft: only the account that wrote it changes its phases, sessions, exercises and sets.', v_program),
+              HINT = 'Approve the draft or send it back to its athlete. Once approved, it is edited like any other block.';
+    END IF;
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.block_draft_session_write()
+RETURNS trigger
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_caller  uuid := auth.uid();
+  v_old     uuid;
+  v_new     uuid;
+  v_program uuid;
+BEGIN
+  IF v_caller IS NOT NULL THEN
+    IF TG_OP <> 'INSERT' THEN
+      v_old := OLD.week_id;
+    END IF;
+    IF TG_OP <> 'DELETE' THEN
+      v_new := NEW.week_id;
+    END IF;
+
+    SELECT p.id INTO v_program
+      FROM public.weeks w
+      JOIN public.programs p ON p.id = w.program_id
+     WHERE w.id IN (v_old, v_new)
+       AND p.status = 'draft'
+       AND p.created_by IS DISTINCT FROM v_caller
+     LIMIT 1;
+
+    IF v_program IS NOT NULL THEN
+      RAISE EXCEPTION 'draft_read_only'
+        USING ERRCODE = 'P0001',
+              DETAIL = format('The session belongs to program %s, a draft: only the account that wrote it changes its phases, sessions, exercises and sets.', v_program),
+              HINT = 'Approve the draft or send it back to its athlete. Once approved, it is edited like any other block.';
+    END IF;
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.block_draft_slot_write()
+RETURNS trigger
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_caller  uuid := auth.uid();
+  v_old     uuid;
+  v_new     uuid;
+  v_program uuid;
+BEGIN
+  IF v_caller IS NOT NULL THEN
+    IF TG_OP <> 'INSERT' THEN
+      v_old := OLD.session_id;
+    END IF;
+    IF TG_OP <> 'DELETE' THEN
+      v_new := NEW.session_id;
+    END IF;
+
+    SELECT p.id INTO v_program
+      FROM public.sessions s
+      JOIN public.weeks w    ON w.id = s.week_id
+      JOIN public.programs p ON p.id = w.program_id
+     WHERE s.id IN (v_old, v_new)
+       AND p.status = 'draft'
+       AND p.created_by IS DISTINCT FROM v_caller
+     LIMIT 1;
+
+    IF v_program IS NOT NULL THEN
+      RAISE EXCEPTION 'draft_read_only'
+        USING ERRCODE = 'P0001',
+              DETAIL = format('The exercise belongs to program %s, a draft: only the account that wrote it changes its phases, sessions, exercises and sets.', v_program),
+              HINT = 'Approve the draft or send it back to its athlete. Once approved, it is edited like any other block.';
+    END IF;
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.block_draft_set_log_write()
+RETURNS trigger
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_caller  uuid := auth.uid();
+  v_old     uuid;
+  v_new     uuid;
+  v_program uuid;
+BEGIN
+  IF v_caller IS NOT NULL THEN
+    IF TG_OP <> 'INSERT' THEN
+      v_old := OLD.exercise_slot_id;
+    END IF;
+    IF TG_OP <> 'DELETE' THEN
+      v_new := NEW.exercise_slot_id;
+    END IF;
+
+    SELECT p.id INTO v_program
+      FROM public.exercise_slots es
+      JOIN public.sessions s ON s.id = es.session_id
+      JOIN public.weeks w    ON w.id = s.week_id
+      JOIN public.programs p ON p.id = w.program_id
+     WHERE es.id IN (v_old, v_new)
+       AND p.status = 'draft'
+       AND p.created_by IS DISTINCT FROM v_caller
+     LIMIT 1;
+
+    IF v_program IS NOT NULL THEN
+      RAISE EXCEPTION 'draft_read_only'
+        USING ERRCODE = 'P0001',
+              DETAIL = format('The set belongs to program %s, a draft: only the account that wrote it changes its phases, sessions, exercises and sets.', v_program),
+              HINT = 'Approve the draft or send it back to its athlete. Once approved, it is edited like any other block.';
+    END IF;
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS block_draft_tree_write ON public.weeks;
+CREATE TRIGGER block_draft_tree_write
+  BEFORE INSERT OR UPDATE OR DELETE ON public.weeks
+  FOR EACH ROW EXECUTE FUNCTION public.block_draft_week_write();
+DROP TRIGGER IF EXISTS block_draft_tree_write ON public.sessions;
+CREATE TRIGGER block_draft_tree_write
+  BEFORE INSERT OR UPDATE OR DELETE ON public.sessions
+  FOR EACH ROW EXECUTE FUNCTION public.block_draft_session_write();
+DROP TRIGGER IF EXISTS block_draft_tree_write ON public.exercise_slots;
+CREATE TRIGGER block_draft_tree_write
+  BEFORE INSERT OR UPDATE OR DELETE ON public.exercise_slots
+  FOR EACH ROW EXECUTE FUNCTION public.block_draft_slot_write();
+DROP TRIGGER IF EXISTS block_draft_tree_write ON public.set_logs;
+CREATE TRIGGER block_draft_tree_write
+  BEFORE INSERT OR UPDATE OR DELETE ON public.set_logs
+  FOR EACH ROW EXECUTE FUNCTION public.block_draft_set_log_write();
+-- Who may execute them: nobody — trigger functions (the FUNCTION PRIVILEGES
+-- block at the end of this file takes everything back).
 
 -- Phase 3.4c: submit -> approve/send-back loop. See 2026_07_22_program_submit_notify.sql.
 CREATE OR REPLACE FUNCTION public.notify_coach_on_program_submit()
@@ -6427,7 +6692,8 @@ INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_13_15_push_plumbing'),
   ('2026_10_13_16_rest_push_scheduling'),
   ('2026_10_13_17_replay_grace_window'),
-  ('2026_10_13_18_retention');
+  ('2026_10_13_18_retention'),
+  ('2026_10_16_20_drafts_coach_readonly');
 
 -- An optional migration that needs an extension is on record where its block
 -- above ran, and nowhere else: a project that switches pg_cron on later must

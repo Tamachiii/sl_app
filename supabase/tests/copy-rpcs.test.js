@@ -1192,11 +1192,20 @@ describe('a draft, a block in the trash, a block its athlete wrote, the block th
     expect(await stillOpen(ofSwitchedOff.program_id)).toEqual({ switched_off: false, open_for_its_athlete: false });
   }));
 
-  it('into a draft: a session arrives with its sets, as the app copies it, and is not archived there', () => scenario(async (q) => {
-    const made = await duplicateWeek(coach, block.weeks[0], { p_dest_program_id: draft.id });
+  // Since migration 20 the tree of a draft is its author's: the coach copies
+  // nothing into one (block_draft_tree_write, drafts-readonly.test.js). The
+  // copy stops at its first row, and nothing of it stays.
+  it('into a draft: refused to the coach, and nothing of the copy is written', () => scenario(async (q) => {
+    const before = await census(q);
+    expect(await refusal(() => duplicateWeek(coach, block.weeks[0], { p_dest_program_id: draft.id })))
+      .toEqual(['draft_read_only', P0001]);
+    expect(await refusal(() => copySessions(coach, [pull], draft.weeks[0]))).toEqual(['draft_read_only', P0001]);
+    expect(await census(q)).toEqual(before);
+    // The owner of the database still can: the session that is archived in
+    // its block arrives without its archive — a session of a draft carries
+    // none (pin_draft_session_columns, migration 06).
+    const made = await duplicateWeek(asAdmin, block.weeks[0], { p_dest_program_id: draft.id });
     expect(made).toMatchObject({ program_id: draft.id, week_number: 2, sessions: 2, slots: 4, set_logs: 12 });
-    // The session that is archived in its block: a session of a draft carries
-    // no archive (pin_draft_session_columns, migration 06).
     expect(await titlesOf(q, made.week_id)).toEqual(['Pull', 'Old push']);
   }));
 

@@ -470,22 +470,26 @@ describe('a review needs a confirmation', () => {
   }));
 
   // BEFORE triggers fire in the order of their names. On a session of a draft
-  // the pin of migration 06 puts reviewed_at back to NULL — silently — and
-  // only then is "from NULL to a value" asked.
-  it('a session of a draft stays silent: the pin of migration 06 answers first', () => scenario(async (q) => {
+  // the coach is refused first (block_draft_tree_write, migration 20: the
+  // tree of a draft is its author's); for the author the pin of migration 06
+  // puts reviewed_at back to NULL — silently — and only then is "from NULL to
+  // a value" asked.
+  it('a session of a draft stays silent for its author: the pin of migration 06 answers first — the coach is refused before either', () => scenario(async (q) => {
     const draft = await createDraftProgram(ids.studentA);
-    for (const who of [ids.coach, ids.studentA]) {
-      const written = await asUser(who, (user) => user.one(
-        `update sessions set reviewed_at = now(), title = 'Stamped' where id = $1 returning reviewed_at, title`, [draft.sessions[0]],
-      ));
-      expect(written, who.email).toEqual({ reviewed_at: null, title: 'Stamped' });
-    }
+    const written = await asUser(ids.studentA, (user) => user.one(
+      `update sessions set reviewed_at = now(), title = 'Stamped' where id = $1 returning reviewed_at, title`, [draft.sessions[0]],
+    ));
+    expect(written).toEqual({ reviewed_at: null, title: 'Stamped' });
+    const refused = await attempt(() => asUser(ids.coach, (user) => user(
+      `update sessions set reviewed_at = now() where id = $1`, [draft.sessions[0]],
+    )));
+    expect([refused.error?.message, refused.error?.code]).toEqual(['draft_read_only', 'P0001']);
     // ROW (1) + BEFORE (2) + UPDATE (16)
     expect((await q.rows(
       `select tgname from pg_trigger
         where tgrelid = 'public.sessions'::regclass and not tgisinternal and tgtype & 19 = 19
         order by tgname collate "C"`,
-    )).map((row) => row.tgname)).toEqual(['trg_pin_draft_session_columns', 'trg_review_needs_confirmation']);
+    )).map((row) => row.tgname)).toEqual(['block_draft_tree_write', 'trg_pin_draft_session_columns', 'trg_review_needs_confirmation']);
   }));
 
   it('session_is_confirmed answers the same whoever asks, never NULL — and nothing to a request without a session', () => scenario(async (q) => {

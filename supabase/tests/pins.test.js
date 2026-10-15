@@ -393,21 +393,22 @@ describe('a session of a draft carries no review, no archive, no training date a
 
   // "Whoever writes": the rule is the status of the program, not the writer.
   // src/hooks/useWeek.js (useArchiveSession), SessionEditor (recommended date)
-  // and useSession.js (useMarkReviewed) are what the coach's app sends.
-  it('the coach, the service role and the owner of the database cannot stamp a session of a draft either', () => scenario(async (q) => {
+  // and useSession.js (useMarkReviewed) are what the coach's app sends — and
+  // since migration 20 the coach's write on a draft does not get as far as
+  // the pin: block_draft_tree_write refuses it first (drafts-readonly.test.js).
+  it('the service role and the owner of the database cannot stamp a session of a draft either — and the coach writes nothing in one', () => scenario(async (q) => {
     const draft = await createDraftProgram(ids.studentA, { submitted: true });
     const [session] = draft.sessions;
-    await asUser(ids.coach, async (coach) => {
-      // Accepted — one row — and not kept.
-      expect(await coach.one(`update sessions set archived_at = now() where id = $1 returning ${FOUR}`, [session])).toEqual(EMPTY);
-      expect(await coach.one(`update sessions set scheduled_date = '2026-11-02' where id = $1 returning ${FOUR}`, [session])).toEqual(EMPTY);
-      expect(await coach.one(
-        `update sessions set reviewed_at = now() where id = $1 and reviewed_at is null returning ${FOUR}`, [session],
-      )).toEqual(EMPTY);
-      // The rest of what the coach's editor writes on a session is.
-      expect(await coach.one(`update sessions set title = 'Renamed', day_number = 4 where id = $1 returning title, day_number`, [session]))
-        .toEqual({ title: 'Renamed', day_number: 4 });
-    });
+    for (const write of [
+      `update sessions set archived_at = now() where id = $1`,
+      `update sessions set scheduled_date = '2026-11-02' where id = $1`,
+      `update sessions set reviewed_at = now() where id = $1 and reviewed_at is null`,
+      `update sessions set title = 'Renamed', day_number = 4 where id = $1`,
+    ]) {
+      const refused = await attempt(() => asUser(ids.coach, (coach) => coach(write, [session])));
+      expect([refused.error?.message, refused.error?.code], write).toEqual(['draft_read_only', 'P0001']);
+    }
+    expect(await q.one(`select title, day_number from sessions where id = $1`, [session])).toEqual({ title: 'W1 · S1', day_number: null });
     await asService((service) => service(`update sessions set ${STAMPED} where id = $1`, [session]));
     expect(await four(q, session)).toEqual(EMPTY);
     await q(`update sessions set ${STAMPED} where id = $1`, [session]);
@@ -436,7 +437,9 @@ describe('a session of a draft carries no review, no archive, no training date a
 
   // KNOWN residual: the rule is asked when a session is written. No path of
   // the app turns an approved program back into a draft; a coach who does it
-  // through the API keeps the stamps of its sessions until each is written.
+  // through the API keeps the stamps of its sessions until each is written —
+  // by the owner of the database: since migration 20 nobody who signs in
+  // writes the tree of a draft that has no author, its coach included.
   it('a program made a draft again keeps what its sessions carry until they are next written', () => scenario(async (q) => {
     const other = await createProgram({ student: ids.studentA, name: 'Old block', sessions: 2 });
     await withoutTriggers(q, () => q(`update sessions set ${STAMPED} where id = any($1)`, [other.sessions]));
@@ -444,7 +447,10 @@ describe('a session of a draft carries no review, no archive, no training date a
     expect(await q.value(`select status from programs where id = $1`, [other.id])).toBe('draft');
     expect(await stampedIn(q, other.id)).toBe(2);
 
-    await asUser(ids.coach, (coach) => coach(`update sessions set title = 'Renamed' where id = $1`, [other.sessions[0]]));
+    const refused = await attempt(() => asUser(ids.coach, (coach) => coach(`update sessions set title = 'Renamed' where id = $1`, [other.sessions[0]])));
+    expect(refused.error?.message).toBe('draft_read_only');
+    expect(await stampedIn(q, other.id)).toBe(2);
+    await q(`update sessions set title = 'Renamed' where id = $1`, [other.sessions[0]]);
     expect(await four(q, other.sessions[0])).toEqual(EMPTY);
     expect(await stampedIn(q, other.id)).toBe(1);
   }));
@@ -661,18 +667,19 @@ describe('a session of a draft carries no review, no archive, no training date a
   // KNOWN residual, the price of STABLE: the pin does not see a week that the
   // SAME statement creates (a data-modifying CTE) — it reads the database as
   // it was when the statement started, and so do the policies: for the author
-  // and for the coach the session has no week yet, and the write is refused.
-  // Only a caller that row-level security does not apply to gets such a
-  // session in with a stamp. save_draft_tree writes the weeks, then the
-  // sessions: two statements.
+  // the session has no week yet, and the write is refused. The coach does
+  // not get that far: the week itself is refused to them (block_draft_tree_write,
+  // migration 20). Only a caller that row-level security does not apply to
+  // gets such a session in with a stamp. save_draft_tree writes the weeks,
+  // then the sessions: two statements.
   it('a week and its session written in ONE statement: refused to the author and to the coach — the owner and the service role get the stamp in', () => scenario(async (q) => {
     const draft = await createDraftProgram(ids.studentA);
     const inOne = `with w as (insert into weeks (program_id, week_number) values ($1, $2) returning id)
                    insert into sessions (week_id, title, sort_order, reviewed_at) select id, 'In one', 0, now() from w
                    returning reviewed_at is not null as reviewed`;
-    for (const writer of [ids.studentA, ids.coach]) {
+    for (const [writer, code] of [[ids.studentA, '42501'], [ids.coach, 'P0001']]) {
       const tried = await attempt(() => asUser(writer, (user) => user(inOne, [draft.id, 2])));
-      expect(tried.error?.code, writer.email).toBe('42501');
+      expect(tried.error?.code, writer.email).toBe(code);
     }
     expect(await q.value(`select count(*) from weeks where program_id = $1`, [draft.id])).toBe(1);
 

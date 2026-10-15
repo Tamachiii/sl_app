@@ -47,9 +47,9 @@ exercise_library       5     select                   denied  4          4      
 
 exercise_slots         17    select                   denied  14         2          16           1            17
                              insert                   denied  rls        rls        yes          rls          yes
-                             insert (own draft)       denied  yes        rls        yes          rls          yes
-                             update                   denied  2          0          16           1            17
-                             delete                   denied  2          0          12 +4 P0001  0 +1 P0001   12 +5 P0001
+                             insert (own draft)       denied  yes        P0001      P0001        P0001        yes
+                             update                   denied  2          0          14 +2 P0001  1            17
+                             delete                   denied  2          0          10 +6 P0001  0 +1 P0001   12 +5 P0001
 
 goal_progress          3     select                   denied  1          1          2            1            3
                              insert                   denied  yes        rls        rls          rls          yes
@@ -102,9 +102,9 @@ session_confirmations  4     select                   denied  2          1      
 
 sessions               9     select                   denied  7          1          8            1            9
                              insert                   denied  rls        rls        yes          rls          yes
-                             insert (own draft)       denied  yes        rls        yes          rls          yes
-                             update                   denied  1          0          8            1            9
-                             delete                   denied  1          0          4 +4 P0001   0 +1 P0001   4 +5 P0001
+                             insert (own draft)       denied  yes        P0001      P0001        P0001        yes
+                             update                   denied  1          0          7 +1 P0001   1            9
+                             delete                   denied  1          0          3 +5 P0001   0 +1 P0001   4 +5 P0001
 
 set_log_videos         4     select                   denied  2          1          3            1            4
                              insert                   denied  yes        rls        rls          rls          yes
@@ -133,9 +133,9 @@ students               3     select                   denied  1          1      
 
 weeks                  7     select                   denied  5          1          6            1            7
                              insert                   denied  rls        rls        yes          rls          yes
-                             insert (own draft)       denied  yes        rls        yes          rls          yes
-                             update                   denied  1          0          6            1            7
-                             delete                   denied  1          0          2 +4 P0001   0 +1 P0001   2 +5 P0001
+                             insert (own draft)       denied  yes        P0001      P0001        P0001        yes
+                             update                   denied  1          0          5 +1 P0001   1            7
+                             delete                   denied  1          0          1 +5 P0001   0 +1 P0001   2 +5 P0001
 
 storage.objects        4     select                   0       2          1          3            1            4
                              insert                   rls     yes        rls        rls          rls          yes
