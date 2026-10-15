@@ -332,10 +332,10 @@ describe(`${INDEX}: the checkpoints against the manifest`, () => {
       for (const id of Object.keys(WAVE_1)) {
         if (/\bdone\b/.test(state(id))) expect(state(id), `checkpoint ${id}`).toMatch(/^\*\*done\*\* on \d{4}-\d\d-\d\d\b/);
       }
-      for (const id of ['B', 'C1', 'C2', 'D', 'E', 'F', 'G', 'Z']) expect(state(id), `checkpoint ${id}`).not.toMatch(/\b(?:ready|done)\b/);
+      for (const id of ['C1', 'C2', 'D', 'E', 'F', 'G', 'Z']) expect(state(id), `checkpoint ${id}`).not.toMatch(/\b(?:ready|done)\b/);
       // The sections stand in the order they are run.
       const order = sectionsOf(index).map(({ title }) => /^Checkpoint (\w+) — /.exec(title)?.[1]).filter(Boolean);
-      expect(order).toEqual(['A0', 'A1', 'A2', 'A3']);
+      expect(order).toEqual(['A0', 'A1', 'A2', 'A3', 'B']);
     });
 
     it.each(Object.entries(WAVE_1))('Checkpoint %s holds the migrations the manifest gives it, each as audit, apply, audit', (id, numbers) => {
@@ -407,8 +407,11 @@ describe(`${INDEX}: the checkpoints against the manifest`, () => {
     // A section of a page that a step sends to by its name: the name is a
     // heading of a page, so a heading that is reworded is noticed here.
     it('names sections of the pages by headings they have', () => {
-      const headings = new Set(PAGES.flatMap((file) => sectionsOf(read(file)).map(({ title }) => title)));
-      const scope = [...Object.keys(WAVE_1).map((id) => sectionOf(id).text),
+      // `##` and `###`: a page's subsection is named the same way.
+      const headings = new Set(PAGES.flatMap((file) => scan(read(file)).flatMap((line) => (
+        line.heading && line.heading[1].length <= 3 ? [line.heading[2]] : []
+      ))));
+      const scope = [...[...Object.keys(WAVE_1), 'B'].map((id) => sectionOf(id).text),
         sectionsOf(index).find(({ title }) => title === 'By hand in the SQL editor, from these checkpoints on')?.text];
       expect(scope.every(Boolean)).toBe(true);
       const quoted = [...new Set(scope.flatMap((text) => [...text.matchAll(/"([A-Z][^"`\n]{7,})"/g)].map(([, name]) => name)))];
@@ -428,6 +431,119 @@ describe(`${INDEX}: the checkpoints against the manifest`, () => {
       expect(a3.text).toContain(`OK: production has all ${required} required migrations of this commit. The deploy can go on.`);
       expect(a3.text).toMatch(/the head of wave 1, and no later one/);
       expect(a3.text).toContain('](#first-push-checklist)');
+    });
+  });
+
+  // Wave 2: four required migrations, one optional, two Edge Functions and
+  // the second publication, in one sitting. Its order is the one the pages
+  // give: 15 to 18, then send-push, then dispatch-rest-push (both ask the
+  // database for claim_rest_push, which 16 creates), then — on a yes — the
+  // extension and 19, which must never run next to a send-push from before
+  // wave 2, and the publication last.
+  describe('hands over Checkpoint B', () => {
+    const table = tableOf(index, 'Checkpoint');
+    const stateOf = (id) => table.find((row) => row.Checkpoint.replace(/\*/g, '') === id)['Hand-over'];
+    const section = sectionsOf(index).find(({ title }) => title.startsWith('Checkpoint B — '));
+    const commands = section ? fencesOf(section.text).map((f) => f.body) : [];
+    const mine = manifest.migrations.filter((m) => m.checkpoint === 'B');
+    const page30 = fencesOf(read('docs/runbook/30-edge-functions.md')).map((f) => f.body);
+    const deployOf = (name) => `supabase functions deploy ${name} --use-api`;
+    const checkOf = (name) => page30.find((c) => c.startsWith('node --env-file=.env') && c.includes(`/functions/v1/${name}"`));
+    const ledgerRead = 'supabase db query --linked "select name, applied_at from app_private.app_migrations order by applied_at, name"';
+    const applyOf = (order) => commands.indexOf(runsFile(mine.find((m) => m.order === order).paths.migration));
+
+    it('is marked ready — or done with its date — and has its section', () => {
+      expect(stateOf('B')).toMatch(/^\*\*(?:ready\*\*|done\*\* on \d{4}-\d\d-\d\d\b)/);
+      expect(section, `${INDEX} has no "## Checkpoint B — …" section`).toBeTruthy();
+    });
+
+    it('holds 15 to 18, required, and 19, optional and bound to pg_cron', () => {
+      expect(mine.map((m) => [m.order, m.kind, m.wave])).toEqual([
+        [15, 'required', 2], [16, 'required', 2], [17, 'required', 2], [18, 'required', 2], [19, 'optional', 2],
+      ]);
+      expect(mine.at(-1).extension).toBe('pg_cron');
+    });
+
+    it('starts with a backup, and audits each migration right before and right after it is applied', () => {
+      const dump = commands.indexOf('node --env-file=.env scripts/backup/dump.mjs');
+      const verify = commands.indexOf('node --env-file=.env scripts/backup/verify.mjs');
+      expect(dump).toBeGreaterThan(-1);
+      expect(verify).toBeGreaterThan(dump);
+      expect(commands.findIndex((c) => c.includes(' --file '))).toBeGreaterThan(verify);
+      for (const { name, order, paths } of mine) {
+        const at = applyOf(order);
+        expect(at, `${name} is applied`).toBeGreaterThan(-1);
+        // Between the audit and the migration, only what a page gives to
+        // read: the list a line of the audit sends to (15, 16).
+        const audit = commands.lastIndexOf(runsFile(paths.audit), at);
+        expect(audit, `${name} is not audited before it is applied`).toBeGreaterThan(-1);
+        expect(commands.slice(audit + 1, at).filter((c) => !/^supabase db query --linked "select /.test(c)), `${name}: between its audit and its apply`).toEqual([]);
+        expect(commands[at + 1], `${name}: the fence after its apply`).toBe(runsFile(paths.audit));
+        const step = section.text.split(/^### /m).find((part) => new RegExp(`\\bmigration ${pad(order)}\\b`).test(part.split('\n')[0]));
+        expect(step, `no "### Step … migration ${pad(order)}" heading`).toBeTruthy();
+        expect(step, `migration ${pad(order)}: its step does not say what stops the sequence`).toMatch(/\*\*Stops/);
+      }
+      expect(commands.filter((c) => c.includes('supabase/rollbacks/'))).toEqual([]);
+    });
+
+    it('reads the ledger after 18 and again after 19, and says how many rows each time', () => {
+      const reads = commands.flatMap((c, i) => (c === ledgerRead ? [i] : []));
+      expect(reads.some((i) => i > applyOf(18) + 1 && i < applyOf(19))).toBe(true);
+      expect(reads.at(-1)).toBeGreaterThan(applyOf(19) + 1);
+      expect(section.text).toContain('Eighteen rows');
+      expect(section.text).toContain('the last one `2026_10_13_18_retention`');
+      expect(section.text).toContain('Nineteen rows, the last one `2026_10_13_19_pg_cron_jobs`');
+    });
+
+    it('deploys send-push, then dispatch-rest-push, after migration 16 and each with the check of its page', () => {
+      for (const name of ['send-push', 'dispatch-rest-push']) {
+        expect(page30, `page 30 gives the deploy of ${name}`).toContain(deployOf(name));
+        expect(checkOf(name), `page 30 gives the check of ${name}`).toBeTruthy();
+      }
+      const sendPush = commands.indexOf(deployOf('send-push'));
+      const dispatch = commands.indexOf(deployOf('dispatch-rest-push'));
+      expect(sendPush).toBeGreaterThan(applyOf(16));
+      expect(dispatch).toBeGreaterThan(sendPush);
+      expect(commands.indexOf(checkOf('send-push'), sendPush)).toBeGreaterThan(sendPush);
+      expect(commands.indexOf(checkOf('dispatch-rest-push'), dispatch)).toBeGreaterThan(dispatch);
+      // The page's order, word for word: the one the check after a deploy is
+      // run with, and what goes back first.
+      expect(section.text).toContain('`claim_rest_push`');
+    });
+
+    it('applies 19 only as an optional step, after both functions, the version check and the extension', () => {
+      const step = section.text.split(/^### /m).find((part) => /\bmigration 19\b/.test(part.split('\n')[0]));
+      expect(step.split('\n')[0]).toMatch(/\bOptional\b/);
+      expect(step.split('\n')[0]).toMatch(/pg_cron/);
+      const apply19 = applyOf(19);
+      expect(apply19).toBeGreaterThan(commands.indexOf(checkOf('dispatch-rest-push')));
+      // The third line of the check is only printed with the secret in the
+      // shell: the check is run again after the rotation's first command.
+      const rotation = commands.indexOf('export INTERNAL_BEARER="$(openssl rand -hex 32)"');
+      expect(rotation).toBeGreaterThan(commands.indexOf(deployOf('dispatch-rest-push')));
+      expect(commands.indexOf(checkOf('send-push'), rotation)).toBeGreaterThan(rotation);
+      expect(commands.indexOf(checkOf('send-push'), rotation)).toBeLessThan(apply19);
+      expect(commands.indexOf('unset INTERNAL_BEARER')).toBeLessThan(apply19);
+      expect(step).toContain('`rest push: 400 send-push: schedule_id is not a uuid`');
+      const extension = commands.findIndex((c) => c.includes('from pg_extension'));
+      expect(extension).toBeGreaterThan(rotation);
+      expect(extension).toBeLessThan(apply19);
+      // The choice, in the words the owner is given on page 50.
+      expect(section.text).toContain('](runbook/50-pg-cron.md)');
+      expect(step).toMatch(/The choice, in plain words/);
+    });
+
+    it('says which app may be published after it, and asks the deploy gate first', () => {
+      const gate = 'node --env-file=.env scripts/check-migrations.mjs --verify';
+      expect(commands.indexOf(gate)).toBeGreaterThan(commands.lastIndexOf(ledgerRead));
+      const required = manifest.migrations.filter((m) => m.kind === 'required' && m.wave <= 2).length;
+      expect(section.text).toContain(`OK: production has all ${required} required migrations of this commit. The deploy can go on.`);
+      expect(section.text).toMatch(/the head of wave 2, and no later one/);
+      const find = commands.filter((body) => body.startsWith('git log '));
+      expect(find).toHaveLength(1);
+      expect(find[0]).toMatch(/^git log -1 --format='%H %s' --grep='\^docs\(runbook\): [^']+\$'$/);
+      expect(section.text).toMatch(/With that commit checked out, ask the question the deploy will ask/);
+      expect(section.text).toMatch(/reports? them `MISSING`/);
     });
   });
 
@@ -507,32 +623,32 @@ describe(`${INDEX}: what the test would catch`, () => {
   });
 
   it('a migration the manifest adds to a checkpoint that is handed over', () => {
-    // The first migration of wave 2, as a later package will add it.
+    // The first migration of wave 3, as a later package will add it.
     const next = {
-      name: '2026_10_20_15_push_plumbing',
-      order: 15,
-      checkpoint: 'A3',
+      name: '2026_10_20_20_drafts_coach_readonly',
+      order: 20,
+      checkpoint: 'B',
       paths: {
-        migration: 'supabase/migrations/2026_10_20_15_push_plumbing.sql',
-        audit: 'supabase/audits/2026_10_20_15_push_plumbing.audit.sql',
-        rollback: 'supabase/rollbacks/2026_10_20_15_push_plumbing.down.sql',
-        runbook: 'docs/runbook/migrations/15-push-plumbing.md',
+        migration: 'supabase/migrations/2026_10_20_20_drafts_coach_readonly.sql',
+        audit: 'supabase/audits/2026_10_20_20_drafts_coach_readonly.audit.sql',
+        rollback: 'supabase/rollbacks/2026_10_20_20_drafts_coach_readonly.down.sql',
+        runbook: 'docs/runbook/migrations/20-drafts-coach-readonly.md',
       },
     };
     expect(indexProblems(index, { ...real, migrations: [...manifest.migrations, next] })).toEqual([
-      '2026_10_20_15_push_plumbing: the row of checkpoint A3 does not list migration 15',
-      'checkpoint A3: 2026_10_20_15_push_plumbing is applied 0 times, expected once',
+      '2026_10_20_20_drafts_coach_readonly: the row of checkpoint B does not list migration 20',
+      'checkpoint B: 2026_10_20_20_drafts_coach_readonly is applied 0 times, expected once',
     ]);
     // At the checkpoint the plan gave it, and not handed over yet: nothing to say.
-    expect(indexProblems(index, { ...real, migrations: [...manifest.migrations, { ...next, checkpoint: 'B' }] })).toEqual([]);
+    expect(indexProblems(index, { ...real, migrations: [...manifest.migrations, { ...next, checkpoint: 'C1' }] })).toEqual([]);
   });
 
   it('a migration the manifest moves to another checkpoint', () => {
     const movedTo = (checkpoint) => manifest.migrations.map((m) => (m === nullGuard ? { ...m, checkpoint } : m));
     // To one that is not handed over: its row does not list it, and the
     // sequence it was in runs files that are no longer its own.
-    expect(indexProblems(index, { ...real, migrations: movedTo('B') })).toEqual([
-      '2026_10_03_02_rpc_auth_null_guard: the row of checkpoint B does not list migration 02',
+    expect(indexProblems(index, { ...real, migrations: movedTo('C1') })).toEqual([
+      '2026_10_03_02_rpc_auth_null_guard: the row of checkpoint C1 does not list migration 02',
       `checkpoint A0: ${nullGuard.paths.audit} is not a file of a migration the manifest gives this checkpoint`,
       `checkpoint A0: ${nullGuard.paths.migration} is not a file of a migration the manifest gives this checkpoint`,
       `checkpoint A0: ${nullGuard.paths.audit} is not a file of a migration the manifest gives this checkpoint`,
@@ -579,8 +695,8 @@ describe(`${INDEX}: what the test would catch`, () => {
       if (!/\|[^|]*\|\s*$/.test(lines[row(id)] ?? '')) throw new Error(`the table no longer has a row for checkpoint ${id}`);
       return edited(id, (line) => line.replace(/\|[^|]*\|\s*$/, `| ${to} |`));
     };
-    expect(indexProblems(changed('B', 'with wave 2', '**ready**'), real)).toEqual([
-      'checkpoint B is marked ready and has no "## Checkpoint B — …" section',
+    expect(indexProblems(changed('C1', 'with wave 3', '**ready**'), real)).toEqual([
+      'checkpoint C1 is marked ready and has no "## Checkpoint C1 — …" section',
     ]);
     expect(indexProblems(handedOver('A1', 'with wave 1'), real)).toEqual([
       'checkpoint A1 has a section and is marked neither ready nor done in the table',
