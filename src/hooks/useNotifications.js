@@ -2,10 +2,15 @@ import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { watchPostgresChanges } from '../lib/realtimeChannel';
+import { createRefresher } from '../lib/realtimeCache';
+import {
+  NOTIFICATIONS_ROOT as ROOT,
+  NOTIFICATIONS_PAGE_SIZE as PAGE_SIZE,
+  applyNotificationChange,
+  notificationBindings,
+  notificationKeys,
+} from '../lib/notificationCache';
 import { useAuth } from './useAuth';
-
-const ROOT = 'notifications';
-const PAGE_SIZE = 30;
 
 /**
  * Recent notifications for the signed-in user, newest first. Capped at
@@ -15,7 +20,7 @@ const PAGE_SIZE = 30;
 export function useNotifications() {
   const { user } = useAuth();
   return useQuery({
-    queryKey: [ROOT, 'list', user?.id],
+    queryKey: notificationKeys.list(user?.id),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('notifications')
@@ -34,7 +39,7 @@ export function useNotifications() {
 export function useUnreadNotificationCount() {
   const { user } = useAuth();
   return useQuery({
-    queryKey: [ROOT, 'unread-count', user?.id],
+    queryKey: notificationKeys.unreadCount(user?.id),
     // Pipe React Query's signal through so the HEAD count request aborts
     // cleanly on unmount instead of racing.
     queryFn: async ({ signal }) => {
@@ -90,7 +95,10 @@ export function useMarkAllNotificationsRead() {
 }
 
 /**
- * Single global realtime channel mounted in AppShell. It survives a dropped
+ * Single global realtime channel mounted in AppShell, on the rows addressed to
+ * the signed-in user and on deletions. An event patches the list and the count
+ * (`lib/notificationCache`) and reads nothing; a change the cache cannot place
+ * reads the count again, by its exact key. The channel survives a dropped
  * connection and a suspended page, and the bell is read again when it is
  * back: see `watchPostgresChanges`.
  */
@@ -101,17 +109,17 @@ export function useNotificationsRealtime() {
 
   useEffect(() => {
     if (!me) return undefined;
-    return watchPostgresChanges({
+    const refresher = createRefresher(qc);
+    const stop = watchPostgresChanges({
       topic: `notifications-${me}`,
-      filters: [{ event: '*', schema: 'public', table: 'notifications' }],
-      onChange: (payload) => {
-        const row = payload.new || payload.old || {};
-        if (row.recipient_id === me) {
-          qc.invalidateQueries({ queryKey: [ROOT] });
-        }
-      },
+      filters: notificationBindings(me),
+      onChange: (payload) => applyNotificationChange(qc, me, payload, refresher.refresh),
       onResync: () => qc.invalidateQueries({ queryKey: [ROOT] }),
     });
+    return () => {
+      stop();
+      refresher.dispose();
+    };
   }, [me, qc]);
 }
 

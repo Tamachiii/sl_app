@@ -2,20 +2,20 @@ import { useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { watchPostgresChanges } from '../lib/realtimeChannel';
+import { createRefresher } from '../lib/realtimeCache';
+import {
+  MESSAGES_ROOT,
+  THREAD_LIMIT,
+  applyMessageChange,
+  applyMessageDelete,
+  applyMessageUpsert,
+  compareConversations,
+  messageBindings,
+  messageKeys,
+} from '../lib/messageCache';
 import { useAuth } from './useAuth';
 
-// Stable key prefix so realtime updates can blast the whole subtree.
-const MESSAGES_ROOT = 'messages';
-
-/**
- * Build the (a,b)-symmetric pair key used for the thread query: order the two
- * uuids deterministically so /coach→student and /student→coach share the
- * same cache entry.
- */
-export function pairKey(a, b) {
-  if (!a || !b) return null;
-  return a < b ? [a, b] : [b, a];
-}
+export { pairKey } from '../lib/messageCache';
 
 /**
  * Full thread between the signed-in user and `otherProfileId`, oldest first.
@@ -26,7 +26,7 @@ export function useMessageThread(otherProfileId) {
   const { user } = useAuth();
   const me = user?.id;
   return useQuery({
-    queryKey: [MESSAGES_ROOT, 'thread', ...(pairKey(me, otherProfileId) || [me, otherProfileId])],
+    queryKey: messageKeys.thread(me, otherProfileId),
     queryFn: async () => {
       const orFilter = `and(sender_id.eq.${me},recipient_id.eq.${otherProfileId}),and(sender_id.eq.${otherProfileId},recipient_id.eq.${me})`;
       const { data, error } = await supabase
@@ -34,7 +34,7 @@ export function useMessageThread(otherProfileId) {
         .select('id, sender_id, recipient_id, body, session_id, read_at, created_at')
         .or(orFilter)
         .order('created_at', { ascending: false })
-        .limit(500);
+        .limit(THREAD_LIMIT);
       if (error) throw error;
       // Newest-first from the server so the window keeps the LATEST 500 rows
       // of a long thread (ascending would pin it to the oldest 500 forever);
@@ -59,7 +59,7 @@ export function useConversations() {
   const { user } = useAuth();
   const me = user?.id;
   return useQuery({
-    queryKey: [MESSAGES_ROOT, 'conversations', me],
+    queryKey: messageKeys.conversations(me),
     queryFn: async () => {
       const { data: rows, error } = await supabase
         .from('messages')
@@ -95,11 +95,7 @@ export function useConversations() {
           otherFullName: byProfile.get(c.otherProfileId)?.full_name || null,
           otherRole: byProfile.get(c.otherProfileId)?.role || null,
         }))
-        .sort(
-          (a, b) =>
-            new Date(b.lastMessage.created_at).getTime()
-            - new Date(a.lastMessage.created_at).getTime(),
-        );
+        .sort(compareConversations);
     },
     enabled: !!me,
   });
@@ -113,7 +109,7 @@ export function useUnreadMessageCount() {
   const { user } = useAuth();
   const me = user?.id;
   return useQuery({
-    queryKey: [MESSAGES_ROOT, 'unread-count', me],
+    queryKey: messageKeys.unreadCount(me),
     // `signal` from React Query lets us cancel the HEAD request cleanly when
     // the consumer unmounts or the route changes — supabase-js honors the
     // AbortSignal and aborts the underlying fetch instead of letting it
@@ -160,10 +156,15 @@ export function useSendMessage() {
       return data;
     },
     onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: [MESSAGES_ROOT] });
+      // The new row goes into the entries that show it — its thread, the
+      // conversation list, the session's feedback — where the channel puts it
+      // too; nothing under the messages root is read again for it.
+      const refresher = createRefresher(qc);
+      applyMessageUpsert(qc, user.id, data, { insert: true, refresh: refresher.refresh });
+      refresher.flush();
       // A session-attached message IS the coach's session feedback: the review
       // screen and the Confirmed feed both key off "has feedback", so they go
-      // stale on send. Ordinary chat stays messages-root-only.
+      // stale on send.
       if (data?.session_id) {
         qc.invalidateQueries({ queryKey: ['all-confirmations'] });
         qc.invalidateQueries({ queryKey: ['session', data.session_id] });
@@ -175,11 +176,13 @@ export function useSendMessage() {
 /**
  * Delete a message the signed-in user sent. RLS only permits this when
  * sender_id = auth.uid() AND session_id IS NULL — coach session-feedback rows
- * stay pinned (see schema.sql: "Sender deletes own message"). The thread query
- * is invalidated on success so the bubble vanishes for both sides via realtime.
+ * stay pinned (see schema.sql: "Sender deletes own message"). On success the
+ * bubble leaves the cached thread here, and the other side's through the
+ * channel's binding on deletions.
  */
 export function useDeleteMessage() {
   const qc = useQueryClient();
+  const { user } = useAuth();
   return useMutation({
     mutationFn: async (messageId) => {
       if (!messageId) throw new Error('Missing message id.');
@@ -187,8 +190,10 @@ export function useDeleteMessage() {
       if (error) throw error;
       return messageId;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: [MESSAGES_ROOT] });
+    onSuccess: (messageId) => {
+      const refresher = createRefresher(qc);
+      applyMessageDelete(qc, user.id, messageId, { refresh: refresher.refresh });
+      refresher.flush();
     },
   });
 }
@@ -206,7 +211,7 @@ export function useDeleteMessage() {
  */
 export function useSessionFeedback(sessionId) {
   return useQuery({
-    queryKey: [MESSAGES_ROOT, 'session-feedback', sessionId],
+    queryKey: messageKeys.sessionFeedback(sessionId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('messages')
@@ -232,7 +237,7 @@ export function useMyFeedbackSessionIds() {
   const { user } = useAuth();
   const me = user?.id;
   return useQuery({
-    queryKey: [MESSAGES_ROOT, 'my-feedback-session-ids', me],
+    queryKey: messageKeys.feedbackSessionIds(me),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('messages')
@@ -290,37 +295,53 @@ export function useSessionRefsForMessages(messages) {
 /**
  * Mark every message in the thread between me and `otherProfileId` (where I
  * am the recipient and read_at is null) as read. Single round-trip — RLS
- * scopes the update to messages I'm allowed to flip.
+ * scopes the update to messages I'm allowed to flip — which answers with the
+ * rows it changed: they are marked read in the cache, the thread and both
+ * counts, and nothing is read again. The channel brings the same rows as N
+ * events, which then change nothing.
  */
 export function useMarkThreadRead() {
   const qc = useQueryClient();
   const { user } = useAuth();
   return useMutation({
     mutationFn: async (otherProfileId) => {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('messages')
         .update({ read_at: new Date().toISOString() })
         .eq('sender_id', otherProfileId)
         .eq('recipient_id', user.id)
-        .is('read_at', null);
+        .is('read_at', null)
+        .select('id, read_at');
       if (error) throw error;
+      return data || [];
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: [MESSAGES_ROOT] });
+    onSuccess: (rows, otherProfileId) => {
+      const refresher = createRefresher(qc);
+      for (const row of rows) {
+        applyMessageUpsert(
+          qc,
+          user.id,
+          { ...row, sender_id: otherProfileId, recipient_id: user.id },
+          { insert: false, refresh: refresher.refresh },
+        );
+      }
+      refresher.flush();
     },
   });
 }
 
 /**
- * Subscribe to realtime changes on `messages`. On an event that touches the
- * signed-in user (as sender or recipient), invalidate the thread + roll-up +
- * unread queries so the UI re-renders.
+ * Subscribe to realtime changes on `messages`: the rows the signed-in user
+ * receives, the rows they send, and deletions (`messageBindings`). An event
+ * patches the entries that show its message — its pair's thread, the
+ * conversation list, the unread count, the session's feedback — and reads
+ * nothing (`lib/messageCache`); a change the cache cannot place reads the
+ * counts again, by their exact keys, once for a burst.
  *
  * Mounted once at the app shell so a single channel serves every page that
  * cares about messages — avoids subscription churn on route changes. The
- * channel survives a dropped connection and a suspended page, and everything
- * under the messages root is read again when it is back: see
- * `watchPostgresChanges`.
+ * channel survives a dropped connection and a suspended page, and the
+ * messages root is read again when it is back: see `watchPostgresChanges`.
  */
 export function useMessagesRealtime() {
   const qc = useQueryClient();
@@ -329,20 +350,22 @@ export function useMessagesRealtime() {
 
   useEffect(() => {
     if (!me) return undefined;
-    return watchPostgresChanges({
+    const refresher = createRefresher(qc);
+    const stop = watchPostgresChanges({
       topic: `messages-${me}`,
-      filters: [{ event: '*', schema: 'public', table: 'messages' }],
-      onChange: (payload) => {
-        // One handler for INSERT/UPDATE/DELETE: `new` carries the row on the
-        // first two, and REPLICA IDENTITY FULL puts the deleted row in `old`,
-        // so either way we can scope invalidation to events that touched me.
-        const m = payload.new || payload.old || {};
-        if (m.sender_id === me || m.recipient_id === me) {
-          qc.invalidateQueries({ queryKey: [MESSAGES_ROOT] });
-        }
-      },
-      onResync: () => qc.invalidateQueries({ queryKey: [MESSAGES_ROOT] }),
+      filters: messageBindings(me),
+      onChange: (payload) => applyMessageChange(qc, me, payload, refresher.refresh),
+      // The session titles under the root are read from `sessions`, which no
+      // message event changes.
+      onResync: () => qc.invalidateQueries({
+        queryKey: [MESSAGES_ROOT],
+        predicate: (query) => query.queryKey[1] !== 'session-refs',
+      }),
     });
+    return () => {
+      stop();
+      refresher.dispose();
+    };
   }, [me, qc]);
 }
 
