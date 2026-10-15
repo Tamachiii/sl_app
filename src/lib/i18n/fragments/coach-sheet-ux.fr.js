@@ -4,5 +4,6 @@ export default {
   coachSheetUx: {
     copySuffix: '(copie)',
     duplicated: 'Séance dupliquée',
+    draftEmpty: 'Pas encore de séance dans ce brouillon.',
   },
 };

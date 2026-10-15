@@ -86,6 +86,13 @@ export default function ProgramSheet({ studentId, program }) {
   const { data: loggedIds } = useProgramLoggedSessionIds(program.id);
 
   const weeks = useMemo(() => program.weeks || [], [program.weeks]);
+  // An athlete's draft is theirs until the coach approves it (review item
+  // P53): the sheet shows it and offers no write — no day, no duplicate, no
+  // session or phase added, no rename, no menu, no select, no reorder, no
+  // restore. A row still opens its session, in the editor's read-only state.
+  // Migration 20 refuses those writes in the database too (`draft_read_only`);
+  // before it, a coach's write was replaced by the athlete's next save.
+  const readOnly = program.status === 'draft';
 
   const [reorderingPhases, setReorderingPhases] = useState(false);
   const [reorderingSessions, setReorderingSessions] = useState(false);
@@ -233,7 +240,9 @@ export default function ProgramSheet({ studentId, program }) {
         </div>
       )}
 
-      {phaseCount === 0 ? (
+      {phaseCount === 0 && readOnly ? (
+        <EmptyState message={t('coachSheetUx.draftEmpty')} />
+      ) : phaseCount === 0 ? (
         <>
           <EmptyState message={t('coach.sheet.noSessionsYet')} />
           <button
@@ -285,6 +294,7 @@ export default function ProgramSheet({ studentId, program }) {
                         setReorderingSessions(false);
                         setReorderingPhases(true);
                       }}
+                      readOnly={readOnly}
                       t={t}
                     />
 
@@ -327,6 +337,7 @@ export default function ProgramSheet({ studentId, program }) {
                           selecting={selecting}
                           selected={selectedIds.has(s.id)}
                           onToggleSelect={() => toggleSelected(s.id)}
+                          readOnly={readOnly}
                           t={t}
                         />
                       ),
@@ -383,16 +394,18 @@ export default function ProgramSheet({ studentId, program }) {
                     {/* Restoring used to mean opening the session's review page —
                         a full-page route, so a trip out of Programming for a
                         one-tap action. */}
-                    <button
-                      type="button"
-                      onClick={() => archiveSession.mutate({ sessionId: s.id, archived: false })}
-                      disabled={archiveSession.isPending}
-                      aria-label={t('coach.sheet.unarchiveSession')}
-                      title={t('coach.sheet.unarchiveSession')}
-                      className="shrink-0 min-h-11 px-3 sl-mono text-[10px] text-ink-400 hover:text-[var(--color-accent)] transition-colors"
-                    >
-                      {t('coach.sheet.unarchive')}
-                    </button>
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        onClick={() => archiveSession.mutate({ sessionId: s.id, archived: false })}
+                        disabled={archiveSession.isPending}
+                        aria-label={t('coach.sheet.unarchiveSession')}
+                        title={t('coach.sheet.unarchiveSession')}
+                        className="shrink-0 min-h-11 px-3 sl-mono text-[10px] text-ink-400 hover:text-[var(--color-accent)] transition-colors"
+                      >
+                        {t('coach.sheet.unarchive')}
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -436,7 +449,7 @@ export default function ProgramSheet({ studentId, program }) {
                   &times;
                 </button>
               </div>
-            ) : idle && (
+            ) : idle && !readOnly && (
               /* Both reorder modes hide this bar: the banner above already
                  carries the only way out, and two buttons reading "Done" on one
                  screen is one too many to aim at. */
@@ -475,7 +488,7 @@ export default function ProgramSheet({ studentId, program }) {
 
       {/* Opting into phases stays available but never headline: most blocks are
           a single run of sessions and never need a divider at all. */}
-      {phaseCount > 0 && idle && (
+      {phaseCount > 0 && idle && !readOnly && (
         <button
           type="button"
           onClick={handleAddPhase}

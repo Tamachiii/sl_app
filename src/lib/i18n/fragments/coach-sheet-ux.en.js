@@ -5,5 +5,6 @@ export default {
     // Added after the title of a duplicated session, after a space.
     copySuffix: '(copy)',
     duplicated: 'Session duplicated',
+    draftEmpty: 'No session in this draft yet.',
   },
 };

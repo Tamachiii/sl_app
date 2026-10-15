@@ -122,9 +122,12 @@ export function SortablePhaseDivider({ week, sessionCount, t }) {
   );
 }
 
+// `readOnly` — the block is an athlete's draft: the divider shows the name
+// and the size, and offers no rename and no menu (every item of it writes,
+// or copies into a block the dialog could pick as this very draft).
 export default function PhaseDivider({
   week, sessionCount, exCount, quiet, canReorder, onRename,
-  onAddSession, onDuplicate, onCopy, onDelete, onReorder, t,
+  onAddSession, onDuplicate, onCopy, onDelete, onReorder, readOnly = false, t,
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: phaseDropId(week.id) });
 
@@ -138,17 +141,29 @@ export default function PhaseDivider({
           a boundary, so its invitation drops out of `sl-label` — three stacked
           "NAME THIS PHASE" in caps shout louder than the sessions do. */}
       <div className="flex-1 min-w-0">
-        <EditableText
-          value={week.label || ''}
-          onSave={onRename}
-          placeholder={t('coach.sheet.phaseNamePlaceholder')}
-          ariaLabel={t('coach.week.editLabelAria')}
-          className={
-            week.label
-              ? 'sl-label text-ink-500 truncate max-w-full min-h-11'
-              : 'sl-mono text-[10px] text-ink-300 truncate max-w-full min-h-11'
-          }
-        />
+        {readOnly ? (
+          <span
+            className={
+              week.label
+                ? 'block sl-label text-ink-500 truncate'
+                : 'block sl-mono text-[10px] text-ink-300 truncate'
+            }
+          >
+            {week.label || t('coach.sheet.unnamedPhase')}
+          </span>
+        ) : (
+          <EditableText
+            value={week.label || ''}
+            onSave={onRename}
+            placeholder={t('coach.sheet.phaseNamePlaceholder')}
+            ariaLabel={t('coach.week.editLabelAria')}
+            className={
+              week.label
+                ? 'sl-label text-ink-500 truncate max-w-full min-h-11'
+                : 'sl-mono text-[10px] text-ink-300 truncate max-w-full min-h-11'
+            }
+          />
+        )}
       </div>
       {/* A lone phase doesn't need its size announced — the list below IS the
           size. With several, the meta is how a coach compares them at a glance. */}
@@ -157,15 +172,17 @@ export default function PhaseDivider({
           {t('coach.sheet.weekMeta', { s: sessionCount, e: exCount })}
         </span>
       )}
-      <PhaseMenu
-        t={t}
-        canReorder={canReorder}
-        onReorder={onReorder}
-        onAddSession={onAddSession}
-        onDuplicate={onDuplicate}
-        onCopy={onCopy}
-        onDelete={onDelete}
-      />
+      {!readOnly && (
+        <PhaseMenu
+          t={t}
+          canReorder={canReorder}
+          onReorder={onReorder}
+          onAddSession={onAddSession}
+          onDuplicate={onDuplicate}
+          onCopy={onCopy}
+          onDelete={onDelete}
+        />
+      )}
     </div>
   );
 }

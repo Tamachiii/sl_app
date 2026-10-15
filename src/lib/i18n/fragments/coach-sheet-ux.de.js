@@ -4,5 +4,6 @@ export default {
   coachSheetUx: {
     copySuffix: '(Kopie)',
     duplicated: 'Einheit dupliziert',
+    draftEmpty: 'Noch keine Einheit in diesem Entwurf.',
   },
 };

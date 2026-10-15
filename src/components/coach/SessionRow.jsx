@@ -17,12 +17,24 @@ const DAY_GAP = 4;
 const DAY_GRID_WIDTH = 4 * DAY_CELL + 3 * DAY_GAP + MENU_PADDING;
 const DAY_GRID_HEIGHT = 2 * DAY_CELL + DAY_GAP + MENU_PADDING;
 
-export function DayPill({ session, onPick, t }) {
+const PILL_LOOK =
+  'sl-mono text-[10px] font-semibold px-1.5 py-1 rounded bg-ink-100 text-ink-700 transition-colors w-10 text-center';
+
+// `readOnly`: the recommended day, drawn and not offered — a draft's.
+export function DayPill({ session, onPick, readOnly = false, t }) {
   const [anchor, setAnchor] = useState(null);
   const triggerRef = useRef(null);
   const close = useCallback(() => setAnchor(null), []);
   const dn = session.day_number;
   const full = dn >= 1 && dn <= 7 ? DAY_FULL[dn - 1] : '—';
+
+  if (readOnly) {
+    return (
+      <span className="h-11 min-w-11 shrink-0 flex items-center justify-center">
+        <span className={PILL_LOOK}>{full.toUpperCase()}</span>
+      </span>
+    );
+  }
 
   function pick(day) {
     close();
@@ -48,7 +60,7 @@ export function DayPill({ session, onPick, t }) {
         aria-expanded={!!anchor}
         className="group h-11 min-w-11 shrink-0 flex items-center justify-center"
       >
-        <span className="sl-mono text-[10px] font-semibold px-1.5 py-1 rounded bg-ink-100 text-ink-700 group-hover:bg-ink-200 transition-colors w-10 text-center">
+        <span className={`${PILL_LOOK} group-hover:bg-ink-200`}>
           {full.toUpperCase()}
         </span>
       </button>
@@ -151,9 +163,13 @@ export function SortableSessionRow({ session, position, t }) {
 // the way into the editor) instead of the editor. It used to open the editor
 // for every row, ✓ ones included: the coach's main daily task was two tabs
 // away from the page listing the sessions, and one tap away from deleting them.
+//
+// `readOnly` — the block is an athlete's draft, theirs until the coach
+// approves it: the row opens the session (the editor is read-only too) and
+// offers no write, neither the day nor a duplicate.
 export default function SessionRow({
   session, studentId, confirmed, trained, position, onSetDay, onDuplicate, duplicating,
-  selecting, selected, onToggleSelect, t,
+  selecting, selected, onToggleSelect, readOnly = false, t,
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -211,7 +227,7 @@ export default function SessionRow({
 
   return (
     <div className="flex items-center gap-2 min-h-11 px-3 border-t border-ink-100">
-      <DayPill session={session} onPick={onSetDay} t={t} />
+      <DayPill session={session} onPick={onSetDay} readOnly={readOnly} t={t} />
       <button
         type="button"
         onClick={open}
@@ -255,19 +271,21 @@ export default function SessionRow({
           </svg>
         </span>
       )}
-      <button
-        type="button"
-        onClick={onDuplicate}
-        disabled={duplicating}
-        aria-label={t('coach.sheet.duplicateSession')}
-        title={t('coach.sheet.duplicateSession')}
-        className="w-11 h-11 -mr-2 rounded-lg text-ink-400 hover:bg-ink-100 hover:text-ink-700 flex items-center justify-center transition-colors shrink-0 disabled:opacity-40"
-      >
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="9" y="9" width="11" height="11" rx="2" strokeWidth={2} />
-          <path strokeWidth={2} strokeLinecap="round" d="M5 15V5a2 2 0 0 1 2-2h10" />
-        </svg>
-      </button>
+      {!readOnly && (
+        <button
+          type="button"
+          onClick={onDuplicate}
+          disabled={duplicating}
+          aria-label={t('coach.sheet.duplicateSession')}
+          title={t('coach.sheet.duplicateSession')}
+          className="w-11 h-11 -mr-2 rounded-lg text-ink-400 hover:bg-ink-100 hover:text-ink-700 flex items-center justify-center transition-colors shrink-0 disabled:opacity-40"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="9" y="9" width="11" height="11" rx="2" strokeWidth={2} />
+            <path strokeWidth={2} strokeLinecap="round" d="M5 15V5a2 2 0 0 1 2-2h10" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }

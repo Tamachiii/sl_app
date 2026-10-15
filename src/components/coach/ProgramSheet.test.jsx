@@ -1034,4 +1034,67 @@ describe('ProgramSheet', () => {
       expect(screen.getByRole('button', { name: /\+ phase/i })).toBeInTheDocument();
     });
   });
+
+  // Review item P53, the sheet's half. A block the athlete is writing is
+  // theirs until the coach approves it; the editor already opens its
+  // sessions read-only. The sheet offered every write anyway, and the
+  // athlete's next save replaced what the coach had done without a word.
+  describe('an athlete’s draft', () => {
+    const draft = {
+      ...structuredClone(program),
+      status: 'draft',
+    };
+
+    it('offers no write at all', () => {
+      renderSheet(draft);
+      // The sessions are all there.
+      expect(screen.getByText('Pull')).toBeInTheDocument();
+      expect(screen.getByText('Legs')).toBeInTheDocument();
+      expect(screen.getByText('Intro')).toBeInTheDocument();
+
+      for (const name of [
+        /day:/i,                // the weekday picker
+        /duplicate session/i,
+        /add session/i,         // footer
+        /^select$/i,
+        /^reorder$/i,
+        /\+ phase/i,
+        /phase options/i,       // the menu: add, duplicate, copy, reorder, delete
+        /edit week label/i,     // rename
+      ]) {
+        expect(screen.queryByRole('button', { name })).toBeNull();
+      }
+      // The day is still shown, as text.
+      expect(screen.getByText('MON')).toBeInTheDocument();
+      expect(screen.getByText('Unnamed phase')).toBeInTheDocument();
+    });
+
+    it('still opens a session, in the editor that is read-only too', async () => {
+      const user = userEvent.setup();
+      renderSheet(draft);
+      await user.click(screen.getAllByRole('button', { name: /open session/i })[0]);
+      expect(mockNavigate).toHaveBeenCalledWith('/coach/students/s-1/s/sess-1');
+    });
+
+    it('shows its archived sessions without a restore', async () => {
+      const user = userEvent.setup();
+      renderSheet(draft);
+      await user.click(screen.getByRole('button', { name: /show 1 archived/i }));
+      expect(screen.getByRole('button', { name: /open archived session/i })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /restore this session/i })).toBeNull();
+    });
+
+    it('when empty, says so without offering the first session', () => {
+      renderSheet({ id: 'prog-1', status: 'draft', weeks: [] });
+      expect(screen.getByText('No session in this draft yet.')).toBeInTheDocument();
+      expect(screen.queryByRole('button')).toBeNull();
+    });
+
+    it('becomes writable again once it is approved', () => {
+      renderSheet({ ...draft, status: 'approved' });
+      expect(screen.getAllByRole('button', { name: /phase options/i })).toHaveLength(2);
+      expect(screen.getAllByRole('button', { name: /duplicate session/i })).toHaveLength(3);
+      expect(screen.getByRole('button', { name: /\+ phase/i })).toBeInTheDocument();
+    });
+  });
 });
