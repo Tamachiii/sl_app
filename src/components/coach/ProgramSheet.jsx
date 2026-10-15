@@ -146,8 +146,10 @@ export default function ProgramSheet({ studentId, program }) {
       : 0;
     createSession.mutate({
       weekId: week.id,
-      title: t('coach.week.sessionN', { n: model.total + 1 }),
-      // No recommended weekday by default: a weekday is advice now, and
+      // No title: an untitled session is named by its position in the block,
+      // which follows it through every reorder and archive. "Session 7" written
+      // into the title was true on the day it was added and on no other.
+      // No recommended weekday by default either: a weekday is advice now, and
       // auto-assigning one made every session look due on a date nobody chose.
       dayNumber: null,
       sortOrder: nextSortOrder,
@@ -169,7 +171,6 @@ export default function ProgramSheet({ studentId, program }) {
         onSuccess: (week) =>
           createSession.mutate({
             weekId: week.id,
-            title: t('coach.week.sessionN', { n: 1 }),
             dayNumber: null,
             sortOrder: 0,
           }),
@@ -349,7 +350,7 @@ export default function ProgramSheet({ studentId, program }) {
                     ? t('coach.week.hideArchived', { n: model.archived.length })
                     : t('coach.week.showArchived', { n: model.archived.length })}
                 </button>
-                {showArchived && model.archived.map((s, i) => (
+                {showArchived && model.archived.map((s) => (
                   <div
                     key={s.id}
                     className="flex items-center gap-2 border-t border-ink-100 opacity-75 hover:opacity-100"
@@ -367,7 +368,10 @@ export default function ProgramSheet({ studentId, program }) {
                       className="flex-1 min-w-0 min-h-11 flex items-center gap-2 px-3 text-left"
                     >
                       <span className="sl-display text-[13px] text-ink-600 flex-1 truncate">
-                        {s.title || t('coach.week.sessionN', { n: i + 1 })}
+                        {/* Not "Session n": an archived session has no
+                            place in the block, and its place in this drawer
+                            is not one. The editor names it the same way. */}
+                        {s.title || <span className="text-ink-400">{t('coach.editor.titlePlaceholder')}</span>}
                       </span>
                       <span
                         className="sl-pill text-ink-900 shrink-0"

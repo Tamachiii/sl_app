@@ -817,6 +817,76 @@ describe('ProgramSheet', () => {
     );
   });
 
+  // Review item B26. A new session was titled "Session {n}" from its place on
+  // the day it was added; after a reorder or an archive the name and the
+  // place disagreed for good. It is born untitled, and the sheet names it by
+  // its position wherever it goes.
+  describe('a new session is born untitled', () => {
+    it('from the footer', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(screen.getByRole('button', { name: /add session/i }));
+      expect(mockCreateSession.mutate.mock.calls).toEqual([
+        [{ weekId: 'w-2', dayNumber: null, sortOrder: 1 }],
+      ]);
+    });
+
+    it('from a phase menu', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(screen.getAllByRole('button', { name: /phase options/i })[0]);
+      await user.click(within(phaseMenu()).getByRole('button', { name: /add session/i }));
+      // After the archived session's sort_order too: it still holds 2.
+      expect(mockCreateSession.mutate.mock.calls).toEqual([
+        [{ weekId: 'w-1', dayNumber: null, sortOrder: 3 }],
+      ]);
+    });
+
+    it('as the first session of an empty block', async () => {
+      const user = userEvent.setup();
+      renderSheet({ id: 'prog-1', weeks: [] });
+      await user.click(screen.getByRole('button', { name: /add session/i }));
+      const [, { onSuccess }] = mockCreateWeek.mutate.mock.calls[0];
+      onSuccess({ id: 'w-new' });
+      expect(mockCreateSession.mutate.mock.calls).toEqual([
+        [{ weekId: 'w-new', dayNumber: null, sortOrder: 0 }],
+      ]);
+    });
+
+    it('and is named by where it stands, which moves with it', () => {
+      const untitled = { id: 'new', title: null, day_number: null, sort_order: 5, archived_at: null, exercise_slots: [] };
+      const { unmount } = renderSheet({
+        ...program,
+        weeks: [program.weeks[0], { ...program.weeks[1], sessions: [...program.weeks[1].sessions, untitled] }],
+      });
+      expect(screen.getByText('Session 4')).toBeInTheDocument();
+      unmount();
+      // Moved to the top of the block.
+      renderSheet({
+        ...program,
+        weeks: [
+          { ...program.weeks[0], sessions: [{ ...untitled, week_id: 'w-1', sort_order: -1 }, ...program.weeks[0].sessions] },
+          program.weeks[1],
+        ],
+      });
+      expect(screen.getByText('Session 1')).toBeInTheDocument();
+      expect(screen.queryByText('Session 4')).toBeNull();
+    });
+  });
+
+  // The drawer used to name an untitled archived session by its index in the
+  // drawer, a number that is no place in the block.
+  it('names an untitled archived session as the editor does, with no number', async () => {
+    const user = userEvent.setup();
+    const p = structuredClone(program);
+    p.weeks[0].sessions[2].title = null;
+    renderSheet(p);
+    await user.click(screen.getByRole('button', { name: /show 1 archived/i }));
+    const archived = screen.getByRole('button', { name: /open archived session/i });
+    expect(archived).toHaveTextContent(/^Session/);
+    expect(archived).not.toHaveTextContent(/Session \d/);
+  });
+
   it('marks confirmed sessions', () => {
     mockConfirmed = { data: new Set(['sess-1']) };
     renderSheet();

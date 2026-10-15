@@ -284,7 +284,9 @@ export function useCreateSession() {
         .from('sessions')
         .insert({
           week_id: weekId,
-          title: title || 'New Session',
+          // Null without a title, not a word frozen into it: an untitled
+          // session is named where it is shown (by its position in the sheet).
+          title: title || null,
           // `?? null`, NOT `|| 1`: the weekday is an optional RECOMMENDATION
           // (nullable since 2026_08_21) and `null || 1` silently made every
           // session born on Monday, defeating the caller that deliberately

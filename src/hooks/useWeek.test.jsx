@@ -455,13 +455,33 @@ describe('useCreateSession', () => {
 
     const payload = mockInsert.insert.mock.calls[0][0];
     expect(payload.week_id).toBe('w-1');
-    expect(payload.title).toBe('New Session');
+    // Review item B26: untitled, not a word frozen into the title — the
+    // sheet names an untitled session by its position.
+    expect(payload.title).toBeNull();
     // A weekday is an optional RECOMMENDATION: with no caller-supplied day the
     // session must be born WITHOUT one. `|| 1` used to make every new session
     // Monday, which silently tied them all at the same sort rank.
     expect(payload.day_number).toBeNull();
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['week', 'w-1'] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['program'] });
+  });
+
+  it('writes the title it is given, and null for an empty one', async () => {
+    const mockInsert = {
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: { id: 's-9' } }),
+    };
+    supabase.from.mockReturnValue(mockInsert);
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useCreateSession(), { wrapper });
+
+    result.current.mutate({ weekId: 'w-1', title: 'Pull' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    result.current.mutate({ weekId: 'w-1', title: '' });
+    await waitFor(() => expect(mockInsert.insert).toHaveBeenCalledTimes(2));
+
+    expect(mockInsert.insert.mock.calls.map(([row]) => row.title)).toEqual(['Pull', null]);
   });
 });
 
