@@ -6,5 +6,6 @@ export default {
     holdToFail: 'Gedrückt halten, um diesen Satz als nicht geschafft zu markieren.',
     setRemoved: 'Zusatzsatz entfernt.',
     undoNeedsNetwork: 'Offline: Der Satz konnte nicht wiederhergestellt werden.',
+    setSkipped: 'Satz ausgelassen.',
   },
 };

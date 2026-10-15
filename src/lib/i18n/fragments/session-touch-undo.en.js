@@ -6,5 +6,6 @@ export default {
     holdToFail: 'Hold to mark this set failed.',
     setRemoved: 'Extra set removed.',
     undoNeedsNetwork: 'Offline: the set could not be brought back.',
+    setSkipped: 'Set skipped.',
   },
 };

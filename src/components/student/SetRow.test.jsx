@@ -59,6 +59,7 @@ function renderSetRow(log = baseLog, props = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   resetRestTimer();
+  for (const toast of getToasts()) dismissToast(toast.id);
 });
 
 describe('SetRow', () => {
@@ -1025,6 +1026,114 @@ describe('SetRow', () => {
 
       expect(mockAddStudentSet.mutate).not.toHaveBeenCalled();
       expect(getToasts().at(-1)).toMatchObject({ kind: 'error', message: 'sessionTouchUndo.undoNeedsNetwork' });
+    });
+  });
+
+  // P68. Skipping a set clears its outcome, its RPE and its actual values
+  // (`patchForSkipped`): the strip's Undo only dropped the flag, and the set
+  // came back pending. The skip is followed by a toast whose Undo writes all of
+  // it back; the strip's Undo does the same after a skip made on the row.
+  describe('a skipped set comes back as it was with Undo', () => {
+    const doneLog = {
+      ...baseLog,
+      target_reps: 10,
+      target_weight_kg: 80,
+      target_rest_seconds: 90,
+      done: true,
+      rpe: 8,
+      logged_at: '2026-10-15T18:02:11+00:00',
+      actual_reps: 8,
+      actual_weight_kg: null,
+    };
+
+    async function skip(user) {
+      await user.click(screen.getByRole('button', { name: /logged actual|log what you actually did/i }));
+      await user.click(screen.getByRole('button', { name: /^skip$/i }));
+    }
+
+    const order = (mock) => mock.mock.invocationCallOrder;
+
+    it('the skip says so, and its Undo writes back the outcome dated as it was, the RPE and the actual values', async () => {
+      const user = userEvent.setup();
+      renderSetRow(doneLog);
+      await skip(user);
+
+      expect(mockSetSkipped.mutate).toHaveBeenCalledWith({ logId: 'log-1', skipped: true });
+      const [toast] = getToasts();
+      expect(toast).toMatchObject({
+        kind: 'info',
+        message: 'sessionTouchUndo.setSkipped',
+        action: { label: 'uiSharedHelpers.undo' },
+      });
+
+      toast.action.onClick();
+
+      expect(mockSetSkipped.mutate).toHaveBeenLastCalledWith({ logId: 'log-1', skipped: false });
+      expect(mockToggleDone.mutate).toHaveBeenCalledWith({
+        logId: 'log-1',
+        done: true,
+        at: '2026-10-15T18:02:11+00:00',
+      });
+      expect(mockSetRpe.mutate).toHaveBeenCalledWith({ logId: 'log-1', rpe: 8 });
+      expect(mockLogActual.mutate).toHaveBeenCalledWith({ logId: 'log-1', actualReps: 8, actualWeightKg: null });
+      // In this order, on the row's queue.
+      expect(order(mockSetSkipped.mutate)[1]).toBeLessThan(order(mockToggleDone.mutate)[0]);
+      expect(order(mockToggleDone.mutate)[0]).toBeLessThan(order(mockSetRpe.mutate)[0]);
+      expect(order(mockSetRpe.mutate)[0]).toBeLessThan(order(mockLogActual.mutate)[0]);
+      expect(mockSetFailed.mutate).not.toHaveBeenCalled();
+      // The rest the skip cleared is not started again.
+      expect(startRestTimer).not.toHaveBeenCalled();
+    });
+
+    it('a failed set comes back failed, dated as it was', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...doneLog, done: false, rpe: null, logged_at: null, failed: true, failed_at: '2026-10-15T18:05:00+00:00', actual_reps: null });
+      await skip(user);
+
+      getToasts()[0].action.onClick();
+
+      expect(mockSetFailed.mutate).toHaveBeenCalledWith({ logId: 'log-1', failed: true, at: '2026-10-15T18:05:00+00:00' });
+      expect(mockToggleDone.mutate).not.toHaveBeenCalled();
+      expect(mockSetRpe.mutate).not.toHaveBeenCalled();
+      expect(mockLogActual.mutate).not.toHaveBeenCalled();
+    });
+
+    it('a pending set comes back pending: one write', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...baseLog, target_reps: 10, target_weight_kg: 80 });
+      await skip(user);
+
+      getToasts()[0].action.onClick();
+
+      expect(mockSetSkipped.mutate).toHaveBeenCalledTimes(2);
+      expect(mockSetSkipped.mutate).toHaveBeenLastCalledWith({ logId: 'log-1', skipped: false });
+      expect(mockToggleDone.mutate).not.toHaveBeenCalled();
+      expect(mockSetFailed.mutate).not.toHaveBeenCalled();
+      expect(mockSetRpe.mutate).not.toHaveBeenCalled();
+      expect(mockLogActual.mutate).not.toHaveBeenCalled();
+    });
+
+    it("the strip's Undo is the same way back, closes the toast, and the toast's does nothing more", async () => {
+      const user = userEvent.setup();
+      const { rerender } = render(<SetRow log={doneLog} />);
+      await skip(user);
+      const [toast] = getToasts();
+      // The optimistic skip on screen.
+      rerender(<SetRow log={{ ...doneLog, skipped: true, done: false, rpe: null, logged_at: null, actual_reps: null }} />);
+
+      await user.click(screen.getByRole('button', { name: /^undo$/i }));
+
+      expect(getToasts()).toEqual([]);
+      expect(mockToggleDone.mutate).toHaveBeenCalledWith({
+        logId: 'log-1',
+        done: true,
+        at: '2026-10-15T18:02:11+00:00',
+      });
+      expect(mockSetRpe.mutate).toHaveBeenCalledWith({ logId: 'log-1', rpe: 8 });
+
+      toast.action.onClick();
+      expect(mockSetSkipped.mutate).toHaveBeenCalledTimes(2);
+      expect(mockToggleDone.mutate).toHaveBeenCalledTimes(1);
     });
   });
 

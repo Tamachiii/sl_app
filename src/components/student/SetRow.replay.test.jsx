@@ -26,6 +26,7 @@ vi.mock('../../hooks/useRestTimer', async () => {
 import SetRow from './SetRow';
 import { supabase } from '../../lib/supabase';
 import { startRestTimer, clearRestTimer } from '../../hooks/useRestTimer';
+import { getToasts, dismissToast } from '../../lib/toast';
 
 const KEY = ['set-logs', 'sess-1', ['slot-1']];
 
@@ -181,5 +182,51 @@ describe('a workout logged offline and replayed', () => {
     expect(api.requests).toHaveLength(1);
     expect(api.server.get('a')).toMatchObject({ done: true, failed: false, rpe: 8, logged_at: tappedAt });
     expect(startRestTimer).toHaveBeenCalledTimes(1);
+  });
+});
+
+// P68 on the real hooks and cache: the Undo of a skip is four writes on one
+// row's queue, and what the database holds at the end is the set as it was.
+describe('a set skipped and taken back', () => {
+  it('ends as it was in the database: done at its time, rated, with its actual reps', async () => {
+    const user = userEvent.setup();
+    const before = {
+      ...pendingRow('a', 1),
+      done: true,
+      rpe: 8,
+      logged_at: '2026-10-15T18:02:11.000Z',
+      actual_reps: 4,
+    };
+    const api = fakeSetLogs([before]);
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
+    });
+    qc.setQueryData(KEY, await api.rows());
+    render(
+      <QueryClientProvider client={qc}>
+        <Sets read={api.rows} />
+      </QueryClientProvider>,
+    );
+    for (const toast of getToasts()) dismissToast(toast.id);
+
+    await user.click(screen.getByRole('button', { name: /logged actual/i }));
+    await user.click(screen.getByRole('button', { name: /^skip$/i }));
+    await waitFor(() => expect(qc.isMutating()).toBe(0));
+    expect(api.server.get('a')).toMatchObject({ skipped: true, done: false, rpe: null, logged_at: null, actual_reps: null });
+
+    act(() => getToasts()[0].action.onClick());
+    await waitFor(() => expect(qc.isMutating()).toBe(0));
+
+    expect(api.server.get('a')).toMatchObject({
+      skipped: false,
+      done: true,
+      failed: false,
+      rpe: 8,
+      logged_at: '2026-10-15T18:02:11.000Z',
+      actual_reps: 4,
+      actual_weight_kg: null,
+    });
+    expect(screen.getByRole('button', { name: /RPE 8, tap to change/i })).toBeInTheDocument();
+    expect(startRestTimer).not.toHaveBeenCalled();
   });
 });

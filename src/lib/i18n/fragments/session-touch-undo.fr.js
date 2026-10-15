@@ -6,5 +6,6 @@ export default {
     holdToFail: 'Maintiens appuyé pour marquer cette série ratée.',
     setRemoved: 'Série en plus supprimée.',
     undoNeedsNetwork: 'Hors ligne : la série n’a pas pu être rétablie.',
+    setSkipped: 'Série sautée.',
   },
 };

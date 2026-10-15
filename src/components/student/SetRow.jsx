@@ -12,7 +12,7 @@ import {
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useI18n } from '../../hooks/useI18n';
 import { startRestTimer, clearRestTimer } from '../../hooks/useRestTimer';
-import { pushToast } from '../../lib/toast';
+import { pushToast, dismissToast } from '../../lib/toast';
 import { formatSetTarget, formatActual, hasLoggedActual } from '../../lib/volume';
 import { decimalText, parseDecimalInput } from '../../lib/number';
 import DecimalInput from '../ui/DecimalInput';
@@ -55,6 +55,21 @@ const HOLD_HINT_MS = 4000;
 function extraValuesComplete({ reps, weightKg, durationBased }) {
   const repsOk = durationBased || (reps != null && reps > 0);
   return repsOk && weightKg != null && weightKg >= 0;
+}
+
+// What a skip clears on its set (`patchForSkipped(true)`: the outcome and its
+// date, the RPE, the actual values), read at the tap so that its Undo can write
+// it back.
+function outcomeOf(log) {
+  return {
+    done: !!log.done,
+    failed: !!log.failed,
+    rpe: log.rpe ?? null,
+    loggedAt: log.logged_at ?? null,
+    failedAt: log.failed_at ?? null,
+    actualReps: log.actual_reps ?? null,
+    actualWeightKg: log.actual_weight_kg ?? null,
+  };
 }
 
 /**
@@ -131,6 +146,10 @@ const SetRow = memo(function SetRow({
   // fired — the click that ends a press that fired is not a tap.
   const press = useRef({ timer: null, down: false, x: 0, y: 0, fired: false });
   const [holdHint, setHoldHint] = useState(false);
+
+  // The last skip of this set that can still be taken back: what it cleared,
+  // and its toast.
+  const skipUndo = useRef(null);
 
   useEffect(() => {
     if (!holdHint) return undefined;
@@ -410,13 +429,52 @@ const SetRow = memo(function SetRow({
 
   // A skipped set is neither done nor failed any more, so its rest goes like
   // the one of a cleared outcome.
+  //
+  // A skip clears what the set held (P68), so it is followed by a "Set
+  // skipped" toast whose Undo writes it back. The skip is a queued write, and
+  // so is each write of its Undo: both work without a network.
   function handleSkip() {
+    const undo = { logId: log.id, before: outcomeOf(log), toastId: null };
+    skipUndo.current = undo;
     setSkipped.mutate({ logId: log.id, skipped: true });
     clearRestTimer(log.id);
     setActualOpen(false);
+    undo.toastId = pushToast('sessionTouchUndo.setSkipped', {
+      kind: 'info',
+      action: { label: 'uiSharedHelpers.undo', onClick: () => takeBackSkip(undo) },
+    });
   }
 
+  // The Undo of a skip, from its toast or from the strip of the skipped set:
+  // the set un-skipped, then what the skip cleared written back by the hook of
+  // each field — the outcome dated as it was, the RPE, the actual values. One
+  // row, one FIFO scope (`rowScope`): the writes land in this order, and each
+  // row they leave satisfies the CHECKs of `set_logs`. The rest the skip
+  // cleared is not started again: it was the rest of a set done earlier.
+  function takeBackSkip(undo) {
+    // Once: the toast and the strip are two ways back from the same skip.
+    if (skipUndo.current !== undo) return;
+    skipUndo.current = null;
+    const { logId, before } = undo;
+    setSkipped.mutate({ logId, skipped: false });
+    if (before.done) toggleDone.mutate({ logId, done: true, at: before.loggedAt ?? undefined });
+    else if (before.failed) setFailed.mutate({ logId, failed: true, at: before.failedAt ?? undefined });
+    if (before.done && before.rpe != null) setRpe.mutate({ logId, rpe: before.rpe });
+    if (before.actualReps != null || before.actualWeightKg != null) {
+      logActual.mutate({ logId, actualReps: before.actualReps, actualWeightKg: before.actualWeightKg });
+    }
+  }
+
+  // The strip's Undo. After a skip made on this row it is the toast's Undo
+  // (and closes the toast); on a set skipped before the row was shown, what
+  // the skip cleared is not known any more: the set goes back to pending.
   function handleUnskip() {
+    const undo = skipUndo.current;
+    if (undo) {
+      dismissToast(undo.toastId);
+      takeBackSkip(undo);
+      return;
+    }
     setSkipped.mutate({ logId: log.id, skipped: false });
   }
 
