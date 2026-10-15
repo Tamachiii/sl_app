@@ -11,20 +11,18 @@ import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useI18n } from '../../hooks/useI18n';
 import { startRestTimer, clearRestTimer } from '../../hooks/useRestTimer';
 import { formatSetTarget, formatActual, hasLoggedActual } from '../../lib/volume';
+import { decimalText, parseDecimalInput } from '../../lib/number';
+import DecimalInput from '../ui/DecimalInput';
 import RpeInput from './RpeInput';
 import VideoUploadButton from './VideoUploadButton';
 
-function parseIntOrNull(s) {
-  if (s == null || String(s).trim() === '') return null;
-  const n = parseInt(s, 10);
-  return Number.isFinite(n) ? n : null;
-}
-
-function parseFloatOrNull(s) {
-  if (s == null || String(s).trim() === '') return null;
-  const n = parseFloat(s);
-  return Number.isFinite(n) ? n : null;
-}
+// What the Actual editor's two fields accept: what their columns hold
+// (`set_logs.actual_reps` is an int, `actual_weight_kg` a numeric(6,2)). A
+// value past them is refused here, where the athlete sees why, and not by the
+// server once the write replays — after the set was shown as saved.
+const ACTUAL_REPS_RULES = { integer: true, max: 2147483647 };
+const ACTUAL_WEIGHT_RULES = { max: 9999.99 };
+const NO_REPS = { ok: true, value: null };
 
 // Touch-swipe thresholds for the mobile outcome gestures (right-to-left
 // commits the set as done, left-to-right marks it failed). Two checks gate
@@ -212,8 +210,8 @@ const SetRow = memo(function SetRow({
   function openActual() {
     if (actualOpen) return;
     const seed = editorSeed();
-    setActualReps(repsApplies && seed.reps != null ? String(seed.reps) : '');
-    setActualWeight(seed.weightKg != null ? String(Number(seed.weightKg)) : '');
+    setActualReps(repsApplies ? decimalText(seed.reps) : '');
+    setActualWeight(decimalText(seed.weightKg));
     setActualOpen(true);
   }
 
@@ -223,16 +221,26 @@ const SetRow = memo(function SetRow({
     else openActual();
   }
 
-  // What the inputs hold now. An extra set saves only once they say what was
-  // done; a done one must keep saying it.
-  const typedReps = repsApplies ? parseIntOrNull(actualReps) : null;
-  const typedWeight = parseFloatOrNull(actualWeight);
+  // What the inputs hold now, read as typed: "82,5" and "82.5" are 82.5 in
+  // every browser (P31). Text that is not a number is refused, not read as an
+  // empty field: empty is "as prescribed" on a set the coach wrote — which
+  // wiped the actual it held — and no load (0 kg) on a swapped or extra set.
+  // An extra set saves only once they say what was done; a done one must keep
+  // saying it.
+  const repsInput = repsApplies ? parseDecimalInput(actualReps, ACTUAL_REPS_RULES) : NO_REPS;
+  const weightInput = parseDecimalInput(actualWeight, ACTUAL_WEIGHT_RULES);
+  const typedInvalid = !repsInput.ok || !weightInput.ok;
+  const typedReps = repsInput.ok ? repsInput.value : null;
+  const typedWeight = weightInput.ok ? weightInput.value : null;
   const typedIncomplete =
+    !typedInvalid &&
     isExtra &&
     !extraValuesComplete({ reps: typedReps, weightKg: typedWeight, durationBased: !repsApplies });
 
+  // Nothing is written while a field says something the editor cannot read:
+  // the editor stays open on the text, with the alert below it.
   function handleSaveActual() {
-    if (typedIncomplete) return;
+    if (typedInvalid || typedIncomplete) return;
     let nextReps;
     let nextWeight;
     if (swapped || isExtra) {
@@ -566,36 +574,33 @@ const SetRow = memo(function SetRow({
           <div className="pt-2 flex items-center flex-wrap gap-x-1.5 gap-y-2">
             {repsApplies && (
               <>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min="0"
+                <DecimalInput
+                  {...ACTUAL_REPS_RULES}
                   value={actualReps}
                   onChange={(e) => setActualReps(e.target.value)}
                   aria-label="Actual reps performed"
-                  className="w-12 rounded-lg bg-ink-50 border border-ink-200 px-2 py-1.5 text-[16px] text-gray-900"
+                  aria-describedby={!repsInput.ok ? hintId : undefined}
+                  className="w-12 rounded-lg bg-ink-50 border border-ink-200 px-2 py-1.5 text-gray-900"
                 />
                 <span className="sl-label normal-case text-ink-400" aria-hidden="true">@</span>
               </>
             )}
             <label className="flex items-center gap-1.5 text-[13px] text-ink-500">
-              <input
-                type="number"
-                inputMode="decimal"
-                min="0"
-                step="0.5"
+              <DecimalInput
+                {...ACTUAL_WEIGHT_RULES}
                 value={actualWeight}
                 onChange={(e) => setActualWeight(e.target.value)}
                 aria-label="Actual weight in kilograms"
-                className="w-16 rounded-lg bg-ink-50 border border-ink-200 px-2 py-1.5 text-[16px] text-gray-900"
+                aria-describedby={repsInput.ok && !weightInput.ok ? hintId : undefined}
+                className="w-16 rounded-lg bg-ink-50 border border-ink-200 px-2 py-1.5 text-gray-900"
               />
               <span className="sl-label normal-case">kg</span>
             </label>
             <button
               type="button"
               onClick={handleSaveActual}
-              disabled={typedIncomplete}
-              aria-describedby={typedIncomplete ? hintId : undefined}
+              disabled={typedInvalid || typedIncomplete}
+              aria-describedby={typedInvalid || typedIncomplete ? hintId : undefined}
               className="sl-pill shrink-0 min-h-11 px-4 bg-accent text-ink-900 hover:brightness-95 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Save
@@ -618,6 +623,16 @@ const SetRow = memo(function SetRow({
               >
                 Skip
               </button>
+            )}
+            {/* The reps field comes first on the line, so its message does. */}
+            {typedInvalid && (
+              <p id={hintId} role="alert" className="basis-full sl-mono text-[11px] text-danger">
+                {t(
+                  repsInput.ok
+                    ? 'uiSharedHelpers.decimalInvalid'
+                    : 'uiSharedHelpers.integerInvalid',
+                )}
+              </p>
             )}
             {typedIncomplete && (
               <p id={hintId} className="basis-full sl-mono text-[11px] text-ink-500">

@@ -107,17 +107,17 @@ describe('a swapped exercise (P59)', () => {
     });
 
     const first = await openEditorOf(user, 1);
-    expect(first.getByLabelText(/actual reps performed/i)).toHaveValue(10);
-    expect(first.getByLabelText(/actual weight in kilograms/i)).toHaveValue(20);
+    expect(first.getByLabelText(/actual reps performed/i)).toHaveValue('10');
+    expect(first.getByLabelText(/actual weight in kilograms/i)).toHaveValue('20');
 
     const second = await openEditorOf(user, 2);
-    expect(second.getByLabelText(/actual reps performed/i)).toHaveValue(8);
-    expect(second.getByLabelText(/actual weight in kilograms/i)).toHaveValue(22.5);
+    expect(second.getByLabelText(/actual reps performed/i)).toHaveValue('8');
+    expect(second.getByLabelText(/actual weight in kilograms/i)).toHaveValue('22.5');
 
     // Beyond the sets of last time: the last of them.
     const third = await openEditorOf(user, 3);
-    expect(third.getByLabelText(/actual reps performed/i)).toHaveValue(8);
-    expect(third.getByLabelText(/actual weight in kilograms/i)).toHaveValue(22.5);
+    expect(third.getByLabelText(/actual reps performed/i)).toHaveValue('8');
+    expect(third.getByLabelText(/actual weight in kilograms/i)).toHaveValue('22.5');
   });
 
   it('a Save stores both values even when they equal the original targets', async () => {
@@ -149,11 +149,11 @@ describe('a swapped exercise (P59)', () => {
     });
 
     const first = await openEditorOf(user, 1);
-    expect(first.getByLabelText(/actual reps performed/i)).toHaveValue(12);
+    expect(first.getByLabelText(/actual reps performed/i)).toHaveValue('12');
 
     const second = await openEditorOf(user, 2);
-    expect(second.getByLabelText(/actual reps performed/i)).toHaveValue(12);
-    expect(second.getByLabelText(/actual weight in kilograms/i)).toHaveValue(0);
+    expect(second.getByLabelText(/actual reps performed/i)).toHaveValue('12');
+    expect(second.getByLabelText(/actual weight in kilograms/i)).toHaveValue('0');
   });
 
   it('a skip deviation is not a swap', async () => {
@@ -177,8 +177,8 @@ describe('the exercise as the coach wrote it', () => {
     });
 
     const first = await openEditorOf(user, 1);
-    expect(first.getByLabelText(/actual reps performed/i)).toHaveValue(8);
-    expect(first.getByLabelText(/actual weight in kilograms/i)).toHaveValue(100);
+    expect(first.getByLabelText(/actual reps performed/i)).toHaveValue('8');
+    expect(first.getByLabelText(/actual weight in kilograms/i)).toHaveValue('100');
     await user.click(first.getByRole('button', { name: /^save$/i }));
 
     expect(mockLogActual.mutate).toHaveBeenCalledWith({
@@ -205,8 +205,8 @@ describe('an extra set', () => {
     renderCard({ logs: [prescribed(1, { done: true }), prescribed(2, { done: true }), extra(3)] });
 
     const added = await openEditorOf(user, 3);
-    expect(added.getByLabelText(/actual reps performed/i)).toHaveValue(8);
-    expect(added.getByLabelText(/actual weight in kilograms/i)).toHaveValue(100);
+    expect(added.getByLabelText(/actual reps performed/i)).toHaveValue('8');
+    expect(added.getByLabelText(/actual weight in kilograms/i)).toHaveValue('100');
     expect(added.getByRole('button', { name: /^save$/i })).toBeEnabled();
   });
 
@@ -222,12 +222,12 @@ describe('an extra set', () => {
     });
 
     const third = await openEditorOf(user, 3);
-    expect(third.getByLabelText(/actual reps performed/i)).toHaveValue(6);
-    expect(third.getByLabelText(/actual weight in kilograms/i)).toHaveValue(95);
+    expect(third.getByLabelText(/actual reps performed/i)).toHaveValue('6');
+    expect(third.getByLabelText(/actual weight in kilograms/i)).toHaveValue('95');
 
     const fourth = await openEditorOf(user, 4);
-    expect(fourth.getByLabelText(/actual reps performed/i)).toHaveValue(6);
-    expect(fourth.getByLabelText(/actual weight in kilograms/i)).toHaveValue(95);
+    expect(fourth.getByLabelText(/actual reps performed/i)).toHaveValue('6');
+    expect(fourth.getByLabelText(/actual weight in kilograms/i)).toHaveValue('95');
   });
 
   it('after a bodyweight set, the load it opens on is 0 — none added — and it can be saved as it is', async () => {
@@ -237,8 +237,8 @@ describe('an extra set', () => {
     });
 
     const added = await openEditorOf(user, 2);
-    expect(added.getByLabelText(/actual reps performed/i)).toHaveValue(12);
-    expect(added.getByLabelText(/actual weight in kilograms/i)).toHaveValue(0);
+    expect(added.getByLabelText(/actual reps performed/i)).toHaveValue('12');
+    expect(added.getByLabelText(/actual weight in kilograms/i)).toHaveValue('0');
     await user.click(added.getByRole('button', { name: /^save$/i }));
 
     expect(mockLogActual.mutate).toHaveBeenCalledWith({
@@ -260,7 +260,7 @@ describe('an extra set', () => {
 
     const added = await openEditorOf(user, 2);
     expect(added.queryByLabelText(/actual reps performed/i)).not.toBeInTheDocument();
-    expect(added.getByLabelText(/actual weight in kilograms/i)).toHaveValue(10);
+    expect(added.getByLabelText(/actual weight in kilograms/i)).toHaveValue('10');
     await user.click(added.getByRole('button', { name: /^save$/i }));
 
     expect(mockLogActual.mutate).toHaveBeenCalledWith({
@@ -277,6 +277,6 @@ describe('an extra set', () => {
 
     await user.click(row(2).getByRole('button', { name: /mark set done/i }));
 
-    expect(row(2).getByLabelText(/actual weight in kilograms/i)).toHaveValue(100);
+    expect(row(2).getByLabelText(/actual weight in kilograms/i)).toHaveValue('100');
   });
 });

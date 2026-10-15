@@ -367,8 +367,8 @@ describe('SetRow', () => {
       const user = userEvent.setup();
       renderSetRow(repLog);
       await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
-      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue(10);
-      expect(screen.getByLabelText(/actual weight in kilograms/i)).toHaveValue(80);
+      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue('10');
+      expect(screen.getByLabelText(/actual weight in kilograms/i)).toHaveValue('80');
     });
 
     it('stores only the dimension that differs; a value equal to target is nulled', async () => {
@@ -614,8 +614,8 @@ describe('SetRow', () => {
 
       await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
 
-      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue(6);
-      expect(screen.getByLabelText(/actual weight in kilograms/i)).toHaveValue(32.5);
+      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue('6');
+      expect(screen.getByLabelText(/actual weight in kilograms/i)).toHaveValue('32.5');
     });
 
     it('without seeds, the reps start from the prescribed ones and the load from nothing', async () => {
@@ -624,8 +624,8 @@ describe('SetRow', () => {
 
       await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
 
-      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue(8);
-      expect(screen.getByLabelText(/actual weight in kilograms/i)).toHaveValue(null);
+      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue('8');
+      expect(screen.getByLabelText(/actual weight in kilograms/i)).toHaveValue('');
     });
 
     it('what the set already holds comes before the seeds', async () => {
@@ -634,8 +634,8 @@ describe('SetRow', () => {
 
       await user.click(screen.getByRole('button', { name: /logged actual/i }));
 
-      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue(7);
-      expect(screen.getByLabelText(/actual weight in kilograms/i)).toHaveValue(40);
+      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue('7');
+      expect(screen.getByLabelText(/actual weight in kilograms/i)).toHaveValue('40');
     });
 
     it('a load left empty is no load, not the original exercise\'s', async () => {
@@ -673,8 +673,8 @@ describe('SetRow', () => {
 
       await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
       // Seeds are for a swap: this editor opens on the targets.
-      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue(8);
-      expect(screen.getByLabelText(/actual weight in kilograms/i)).toHaveValue(100);
+      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue('8');
+      expect(screen.getByLabelText(/actual weight in kilograms/i)).toHaveValue('100');
       await user.click(screen.getByRole('button', { name: /^save$/i }));
 
       expect(mockLogActual.mutate).toHaveBeenCalledWith({
@@ -757,8 +757,8 @@ describe('SetRow', () => {
       expect(mockToggleDone.mutate).not.toHaveBeenCalled();
       expect(startRestTimer).not.toHaveBeenCalled();
       expect(rpeGrid()).not.toBeInTheDocument();
-      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue(8);
-      expect(screen.getByLabelText(/actual weight in kilograms/i)).toHaveValue(100);
+      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue('8');
+      expect(screen.getByLabelText(/actual weight in kilograms/i)).toHaveValue('100');
       expect(hint()).not.toBeInTheDocument();
     });
 
@@ -820,7 +820,7 @@ describe('SetRow', () => {
       await user.click(screen.getByRole('button', { name: /log what you actually did/i }));
 
       const save = screen.getByRole('button', { name: /^save$/i });
-      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue(null);
+      expect(screen.getByLabelText(/actual reps performed/i)).toHaveValue('');
       expect(save).toBeDisabled();
       expect(hint()).toHaveTextContent('Enter the reps and the load (0 for bodyweight) to mark this extra set done.');
       expect(save).toHaveAttribute('aria-describedby', hint().id);
@@ -887,6 +887,178 @@ describe('SetRow', () => {
       expect(screen.queryByRole('button', { name: /^clear$/i })).not.toBeInTheDocument();
       await user.clear(screen.getByLabelText(/actual weight in kilograms/i));
       expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled();
+    });
+  });
+
+  // P31 (live N3, L9). The two fields were `type="number"`, which reads "82,5"
+  // by the language of the browser: 825 in a Chromium whose UI is English, ""
+  // in WebKit — and "" was read as null, which on a set written as prescribed
+  // erased the actual it held and on a swapped or extra set stored 0 kg. They
+  // are text fields now, read by lib/number: a comma or a point is a decimal
+  // separator, and text that is not a number is refused, never saved.
+  describe('a decimal comma is read, and text that is not a number is refused (P31)', () => {
+    // Prescribed 10 × 80 kg, done.
+    const log = { ...baseLog, done: true, target_reps: 10, target_weight_kg: 80 };
+    const reps = () => screen.getByLabelText(/actual reps performed/i);
+    const weight = () => screen.getByLabelText(/actual weight in kilograms/i);
+    const save = () => screen.getByRole('button', { name: /^save$/i });
+
+    async function openEditor(user, name = /log what you actually did/i) {
+      await user.click(screen.getByRole('button', { name }));
+    }
+
+    async function typeWeight(user, text) {
+      await user.clear(weight());
+      if (text) await user.type(weight(), text);
+    }
+
+    it('the fields are text with a numeric keypad, not number fields', async () => {
+      const user = userEvent.setup();
+      renderSetRow(log);
+      await openEditor(user);
+
+      expect(reps()).toHaveAttribute('type', 'text');
+      expect(reps()).toHaveAttribute('inputmode', 'numeric');
+      expect(weight()).toHaveAttribute('type', 'text');
+      expect(weight()).toHaveAttribute('inputmode', 'decimal');
+    });
+
+    it.each(['82,5', '82.5'])('"%s" is 82.5 kg, whatever the browser', async (text) => {
+      const user = userEvent.setup();
+      renderSetRow(log);
+      await openEditor(user);
+
+      await typeWeight(user, text);
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      await user.click(save());
+
+      expect(mockLogActual.mutate).toHaveBeenCalledWith({
+        logId: 'log-1',
+        actualReps: null,
+        actualWeightKg: 82.5,
+      });
+    });
+
+    it('a weight that is not a number is not saved, and the actual the set holds stays', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...log, actual_reps: 8, actual_weight_kg: 100 });
+      await openEditor(user, /logged actual/i);
+
+      await typeWeight(user, 'abc');
+
+      expect(screen.getByRole('alert')).toHaveTextContent('Enter a number, like 82.5');
+      expect(weight()).toHaveAttribute('aria-invalid', 'true');
+      expect(save()).toBeDisabled();
+      expect(save()).toHaveAttribute('aria-describedby', screen.getByRole('alert').id);
+      await user.click(save());
+      expect(mockLogActual.mutate).not.toHaveBeenCalled();
+      // The editor stays open on what was typed.
+      expect(weight()).toHaveValue('abc');
+    });
+
+    it('reps that are not a whole number are refused with their own message', async () => {
+      const user = userEvent.setup();
+      renderSetRow(log);
+      await openEditor(user);
+
+      await user.clear(reps());
+      await user.type(reps(), '8,5');
+
+      expect(screen.getByRole('alert')).toHaveTextContent('Enter a whole number');
+      expect(reps()).toHaveAttribute('aria-invalid', 'true');
+      await user.click(save());
+      expect(mockLogActual.mutate).not.toHaveBeenCalled();
+    });
+
+    it('a load past what the column holds is refused here, not by the server on replay', async () => {
+      const user = userEvent.setup();
+      renderSetRow(log);
+      await openEditor(user);
+
+      await typeWeight(user, '10000');
+
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+      await user.click(save());
+      expect(mockLogActual.mutate).not.toHaveBeenCalled();
+    });
+
+    it('a field left empty is still "as prescribed", and a corrected text clears the alert', async () => {
+      const user = userEvent.setup();
+      renderSetRow({ ...log, actual_reps: 8, actual_weight_kg: 100 });
+      await openEditor(user, /logged actual/i);
+
+      await typeWeight(user, '9o');
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+      await typeWeight(user, '');
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(weight()).not.toHaveAttribute('aria-invalid');
+      await user.click(save());
+
+      expect(mockLogActual.mutate).toHaveBeenCalledWith({
+        logId: 'log-1',
+        actualReps: 8,
+        actualWeightKg: null,
+      });
+    });
+
+    it('on a swapped exercise, text that is not a number is not stored as no load', async () => {
+      const user = userEvent.setup();
+      renderSetRow(log, { swapped: true, seedReps: 8, seedWeightKg: 30 });
+      await openEditor(user);
+
+      await typeWeight(user, 'abc');
+      await user.click(save());
+
+      expect(mockLogActual.mutate).not.toHaveBeenCalled();
+      expect(screen.getByRole('alert')).toHaveTextContent('Enter a number, like 82.5');
+
+      await typeWeight(user, '32,5');
+      await user.click(save());
+      expect(mockLogActual.mutate).toHaveBeenCalledWith({
+        logId: 'log-1',
+        actualReps: 8,
+        actualWeightKg: 32.5,
+      });
+    });
+
+    describe('on an extra set', () => {
+      const extra = {
+        ...baseLog,
+        id: 'log-4',
+        set_number: 4,
+        is_student_added: true,
+        actual_reps: null,
+        actual_weight_kg: null,
+      };
+
+      it('"82,5" is saved as 82.5 and marks the set done', async () => {
+        const user = userEvent.setup();
+        renderSetRow(extra, { seedReps: 8, seedWeightKg: 80 });
+        await openEditor(user);
+
+        await typeWeight(user, '82,5');
+        await user.click(save());
+
+        expect(mockLogActual.mutate).toHaveBeenCalledWith({
+          logId: 'log-4',
+          actualReps: 8,
+          actualWeightKg: 82.5,
+          done: true,
+        });
+      });
+
+      it('text that is not a number shows the alert, not the "needs reps and load" hint, and saves nothing', async () => {
+        const user = userEvent.setup();
+        renderSetRow(extra, { seedReps: 8, seedWeightKg: 80 });
+        await openEditor(user);
+
+        await typeWeight(user, 'abc');
+
+        expect(screen.getByRole('alert')).toHaveTextContent('Enter a number, like 82.5');
+        expect(screen.queryByText(/to mark this extra set done/i)).not.toBeInTheDocument();
+        await user.click(save());
+        expect(mockLogActual.mutate).not.toHaveBeenCalled();
+      });
     });
   });
 });
