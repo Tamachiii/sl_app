@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import {
   useExerciseLibrary,
   useCreateExercise,
@@ -8,11 +8,18 @@ import {
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
+import DecimalInput from '../ui/DecimalInput';
 import ExerciseDeleteDialog from './ExerciseDeleteDialog';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
+import { decimalText, parseDecimalInput } from '../../lib/number';
 
 const TYPE_FILTERS = ['all', 'pull', 'push'];
+
+// What a volume weight may be: what `exercise_library.volume_weight` holds, a
+// numeric(4,2) — 99.99 at most — and not under 0.1, where the exercise would
+// count for nothing in the volume. Never empty: the column is NOT NULL.
+const VOLUME_WEIGHT_RULES = { min: 0.1, max: 99.99, allowEmpty: false };
 
 const inputCls =
   'w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
@@ -42,13 +49,25 @@ function ExerciseForm({ initial, onSubmit, onCancel, submitLabel, pending, pendi
   const [name, setName] = useState(initial?.name || '');
   const [type, setType] = useState(initial?.type || 'pull');
   const [difficulty, setDifficulty] = useState(initial?.difficulty || 1);
-  const [volumeWeight, setVolumeWeight] = useState(initial?.volume_weight ?? 1);
+  const [volumeWeight, setVolumeWeight] = useState(decimalText(initial?.volume_weight ?? 1));
+  const [volumeRefused, setVolumeRefused] = useState(false);
+  const volumeId = useId();
+  const volumeErrId = useId();
   // Loading mode is opt-in: '' (unclassified) leaves records exactly as today.
   const [loadMode, setLoadMode] = useState(initial?.load_mode ?? '');
 
   function handleSubmit(e) {
     e.preventDefault();
-    onSubmit({ name, type, difficulty, volume_weight: Number(volumeWeight), load_mode: loadMode || null });
+    // "0,5" is 0.5 whatever the language of the browser (L9): a number field
+    // read it as 5 or as "", and Number("") sent 0. Text that is not a number
+    // is stopped by the field's `pattern` before this runs; a number out of
+    // the range is stopped here, with the alert below.
+    const parsed = parseDecimalInput(volumeWeight, VOLUME_WEIGHT_RULES);
+    if (!parsed.ok) {
+      setVolumeRefused(true);
+      return;
+    }
+    onSubmit({ name, type, difficulty, volume_weight: parsed.value, load_mode: loadMode || null });
   }
 
   return (
@@ -81,15 +100,25 @@ function ExerciseForm({ initial, onSubmit, onCancel, submitLabel, pending, pendi
         </select>
       </div>
       <div>
-        <label className="sl-label text-ink-400 block mb-1">{t('coach.library.volumeWeight')}</label>
-        <input
-          type="number"
-          min={0.1}
-          step={0.1}
+        <label htmlFor={volumeId} className="sl-label text-ink-400 block mb-1">{t('coach.library.volumeWeight')}</label>
+        <DecimalInput
+          id={volumeId}
+          {...VOLUME_WEIGHT_RULES}
+          required
           value={volumeWeight}
-          onChange={(e) => setVolumeWeight(e.target.value)}
+          onChange={(e) => {
+            setVolumeWeight(e.target.value);
+            setVolumeRefused(false);
+          }}
+          invalid={volumeRefused}
+          aria-describedby={volumeRefused ? volumeErrId : undefined}
           className={inputCls}
         />
+        {volumeRefused && (
+          <p id={volumeErrId} role="alert" className="sl-mono text-[11px] text-danger mt-1">
+            {t('coachDecimalInputs.volumeWeightRange')}
+          </p>
+        )}
       </div>
       <div>
         <label className="sl-label text-ink-400 block mb-1">{t('coach.library.loadMode')}</label>

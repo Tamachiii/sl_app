@@ -269,6 +269,96 @@ describe('ExerciseLibrary', () => {
   // Review item L15 and live finding N18: the filter pills were 23px tall,
   // "+ Add" 32px, and "edit" and "del" two words 4px apart, "del" 29×16. jsdom
   // lays nothing out (src/test/hitTargets.test.js holds the classes to 44px).
+  // Review finding L9 (P31): the volume weight was a `type="number"` field read
+  // with Number(). "0,5" was 5 in an English Chromium and "" in WebKit, and
+  // Number("") sent 0. It is a text field read by parseDecimalInput now; the
+  // form is submitted by clicking Create or Save, so its validation runs.
+  describe('the volume weight', () => {
+    async function openAddForm(user) {
+      await user.click(screen.getByText('+ ADD'));
+      await user.type(screen.getByPlaceholderText('Exercise name'), 'Muscle Up');
+      return screen.getByLabelText('Volume weight');
+    }
+
+    it('is a text field with the decimal keypad, starting at 1', async () => {
+      const user = userEvent.setup();
+      renderLibrary();
+      const field = await openAddForm(user);
+      expect(field).toHaveAttribute('type', 'text');
+      expect(field).toHaveAttribute('inputmode', 'decimal');
+      expect(field).toHaveValue('1');
+    });
+
+    it.each(['0,5', '0.5'])('"%s" creates the exercise with 0.5', async (text) => {
+      const user = userEvent.setup();
+      renderLibrary();
+      const field = await openAddForm(user);
+      await user.clear(field);
+      await user.type(field, text);
+      await user.click(screen.getByRole('button', { name: 'Create' }));
+      expect(mockCreate.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Muscle Up', volume_weight: 0.5 }),
+        expect.any(Object),
+      );
+    });
+
+    // Not a number: the field's pattern stops the submit, as the browser does.
+    it.each(['abc', '0,5x', ''])('"%s" creates nothing', async (text) => {
+      const user = userEvent.setup();
+      renderLibrary();
+      const field = await openAddForm(user);
+      await user.clear(field);
+      if (text) await user.type(field, text);
+      await user.click(screen.getByRole('button', { name: 'Create' }));
+      expect(mockCreate.mutate).not.toHaveBeenCalled();
+      expect(screen.getByPlaceholderText('Exercise name')).toBeInTheDocument();
+    });
+
+    // A number, out of the range: refused by the form, which says why.
+    it.each(['0', '0,05', '100'])('"%s" creates nothing and says the range', async (text) => {
+      const user = userEvent.setup();
+      renderLibrary();
+      const field = await openAddForm(user);
+      await user.clear(field);
+      await user.type(field, text);
+      await user.click(screen.getByRole('button', { name: 'Create' }));
+      expect(mockCreate.mutate).not.toHaveBeenCalled();
+      const alert = screen.getByRole('alert');
+      expect(alert).toHaveTextContent('Enter a number from 0.1 to 99.99');
+      expect(field).toHaveAttribute('aria-invalid', 'true');
+      expect(field).toHaveAttribute('aria-describedby', alert.id);
+
+      // Typing again takes the alert away; a good value then goes.
+      await user.clear(field);
+      await user.type(field, '1,5');
+      expect(screen.queryByRole('alert')).toBeNull();
+      await user.click(screen.getByRole('button', { name: 'Create' }));
+      expect(mockCreate.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ volume_weight: 1.5 }),
+        expect.any(Object),
+      );
+    });
+
+    it('the edit form starts from the stored value as text, and saves what is typed', async () => {
+      const user = userEvent.setup();
+      mockExercises = {
+        data: [{ id: 'ex-1', name: 'Pull Up', type: 'pull', difficulty: 2, volume_weight: '1.50' }],
+        isLoading: false,
+      };
+      renderLibrary();
+      await user.click(screen.getByRole('button', { name: /edit/i }));
+      const field = screen.getByLabelText('Volume weight');
+      expect(field).toHaveValue('1.5');
+      await user.clear(field);
+      await user.type(field, '0,75');
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+      expect(mockUpdate.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'ex-1', volume_weight: 0.75 }),
+        expect.any(Object),
+      );
+    });
+  });
+
   describe('44px targets', () => {
     it('filter pills are pill buttons', () => {
       renderLibrary();
