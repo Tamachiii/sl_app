@@ -13,7 +13,7 @@ import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useI18n } from '../../hooks/useI18n';
 import { startRestTimer, clearRestTimer } from '../../hooks/useRestTimer';
 import { pushToast, dismissToast } from '../../lib/toast';
-import { formatSetTarget, formatActual, hasLoggedActual } from '../../lib/volume';
+import { formatSetTarget, formatActual, hasLoggedActual, formatRestSeconds } from '../../lib/volume';
 import { decimalText, parseDecimalInput } from '../../lib/number';
 import DecimalInput from '../ui/DecimalInput';
 import RpeInput, { formatRpe } from './RpeInput';
@@ -105,6 +105,9 @@ const SetRow = memo(function SetRow({
   seedReps = null,
   seedWeightKg = null,
   durationBased = false,
+  // The exercise's sets are not all rested alike: the row says its own rest
+  // under its target (N5). Otherwise the card's header says it once.
+  showRest = false,
 }) {
   const { t, lang } = useI18n();
   const hintId = useId();
@@ -702,6 +705,13 @@ const SetRow = memo(function SetRow({
             ) : (
               <span className="sl-label normal-case text-ink-500">Extra set</span>
             )
+          ) : showRest && restSeconds != null ? (
+            <span className="flex flex-col gap-0.5 leading-tight min-w-0">
+              <span className="sl-label normal-case text-ink-500">{formatSetTarget(log)}</span>
+              <span className="sl-mono text-[10px] text-ink-400">
+                {t('student.session.restLabel')} {formatRestSeconds(restSeconds)}
+              </span>
+            </span>
           ) : (
             <span className="sl-label normal-case text-ink-500">{formatSetTarget(log)}</span>
           )}

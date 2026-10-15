@@ -55,6 +55,25 @@ function LastTimePlaceholder({ label }) {
   );
 }
 
+// The rest the coach prescribed after the sets of an exercise, when it is one
+// value: a number, or null when no set has one. `undefined` when the sets
+// differ (N5) — Dips with 3:00 after sets 1 to 3 and 2:00 after 4 to 6 — and
+// each row then shows its own. Sets without a target (extra sets) say nothing.
+function sharedRest(slotLogs) {
+  const prescribed = slotLogs.filter(
+    (l) =>
+      l.target_reps != null ||
+      l.target_duration_seconds != null ||
+      l.target_weight_kg != null ||
+      l.target_rest_seconds != null,
+  );
+  const rests = new Set(
+    prescribed.map((l) => (l.target_rest_seconds == null ? null : Number(l.target_rest_seconds))),
+  );
+  if (rests.size === 0) return null;
+  return rests.size === 1 ? [...rests][0] : undefined;
+}
+
 // What the Actual editor of a set opens with where the targets on its row are
 // no place to start from:
 //   - every set of a swapped exercise (P59): the substitute's last
@@ -142,6 +161,9 @@ function SlotBody({
     : slot.duration_seconds != null;
   const online = useOnlineStatus();
   const addSet = useAddStudentSet();
+  // The header shows the rest when it is one value; when the sets differ, each
+  // row shows its own (N5).
+  const restOnRows = sharedRest(slotLogs) === undefined;
 
   function handleAddSet() {
     const maxNum = slotLogs.reduce((m, l) => Math.max(m, l.set_number), 0);
@@ -194,6 +216,7 @@ function SlotBody({
                   seedReps={seed?.reps ?? null}
                   seedWeightKg={seed?.weightKg ?? null}
                   durationBased={durationBased}
+                  showRest={restOnRows}
                 />
               );
             })}
@@ -233,13 +256,16 @@ function SlotBody({
 }
 
 function SlotHeader({ slot, slotLogs, globalIdx }) {
+  const { t } = useI18n();
   const ex = slot.exercise;
   const composed = { ...slot, set_logs: slotLogs };
   const summary = summarizeSlotPrescription(composed);
-  // Rest is shown alongside the headline only when uniform across all sets;
-  // when sets diverge the per-row display owns rest so the headline stays terse.
+  // Rest is shown alongside the headline when every set has the same — also
+  // when their reps or loads differ (a drop set rested 2:00 throughout). When
+  // the rests themselves differ, each row shows its own (SetRow `showRest`).
   const uniform = isSlotUniform(composed);
-  const headRest = uniform ? getSlotTargetRest(composed) : null;
+  const shared = sharedRest(slotLogs);
+  const headRest = uniform ? getSlotTargetRest(composed) : shared ?? null;
   return (
     <div className="flex items-baseline gap-2.5 flex-1 min-w-0">
       <span className="sl-mono text-[12px]" style={{ color: 'var(--color-accent)' }}>{globalIdx}</span>
@@ -251,7 +277,7 @@ function SlotHeader({ slot, slotLogs, globalIdx }) {
           <p className="sl-mono text-[11px] text-ink-400 mt-1">
             {summary}
             {headRest != null && (
-              <span className="ml-2">· Rest {formatRestSeconds(headRest)}</span>
+              <span className="ml-2">· {t('student.session.restLabel')} {formatRestSeconds(headRest)}</span>
             )}
           </p>
         )}

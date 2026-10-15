@@ -442,3 +442,43 @@ describe('the note for the coach', () => {
     expect(screen.queryByLabelText('Note attached')).toBeNull();
   });
 });
+
+// N5. The header showed the rest only when every set of the exercise was the
+// same, and no row showed one: Dips rested 3:00 after sets 1 to 3 and 2:00
+// after 4 to 6 showed no rest anywhere.
+describe('the prescribed rest', () => {
+  const rested = (n, seconds, extra = {}) => prescribed(n, { target_rest_seconds: seconds, ...extra });
+
+  it('is on each row when the sets of the exercise are not rested alike', () => {
+    renderCard({
+      logs: [rested(1, 180), rested(2, 180), rested(3, 180), rested(4, 120), rested(5, 120), rested(6, 120)],
+    });
+    expect(screen.getAllByText('Rest 3:00')).toHaveLength(3);
+    expect(screen.getAllByText('Rest 2:00')).toHaveLength(3);
+    expect(row(1).getByText('Rest 3:00')).toBeInTheDocument();
+    expect(row(4).getByText('Rest 2:00')).toBeInTheDocument();
+    // Not once for the whole exercise: there is no one value to give.
+    expect(screen.queryByText(/· Rest/)).toBeNull();
+  });
+
+  it('is in the header once when every set has the same, and on no row', () => {
+    renderCard({ logs: [rested(1, 120), rested(2, 120), rested(3, 120)] });
+    expect(screen.getByText('· Rest 2:00')).toBeInTheDocument();
+    expect(screen.queryByText('Rest 2:00')).toBeNull();
+  });
+
+  it('is in the header once when the loads differ but the rest does not', () => {
+    renderCard({
+      logs: [rested(1, 120), rested(2, 120, { target_weight_kg: 90 }), rested(3, 120, { target_weight_kg: 80 })],
+    });
+    expect(screen.getByText('· Rest 2:00')).toBeInTheDocument();
+    expect(screen.queryByText('Rest 2:00')).toBeNull();
+  });
+
+  it('a set without a prescribed rest says nothing on its row', () => {
+    renderCard({ logs: [rested(1, 180), rested(2, null), rested(3, 120)] });
+    expect(row(1).getByText('Rest 3:00')).toBeInTheDocument();
+    expect(row(2).queryByText(/^Rest /)).toBeNull();
+    expect(row(3).getByText('Rest 2:00')).toBeInTheDocument();
+  });
+});
