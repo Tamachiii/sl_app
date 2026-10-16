@@ -471,12 +471,21 @@ export function useReorderPrograms(studentRowId) {
  * Coach dashboard summary: for each student the coach manages, resolve
  * { programName, position, total, daysSinceLast, weekDays } in a single pass.
  *
- * Both reads name the coach: `students!inner(coach_id)` plus a filter on it.
- * RLS alone answers "every program I may read", and that includes the
- * programs in which this account is the ATHLETE (a coach who also trains
- * under another coach, or under a forged link) — which are not this coach's
- * roster. Same rule as `useStudents`, so the summary cannot hold an athlete
- * the roster does not list.
+ * ONE read: the active blocks of the coach's athletes, sessions included. The
+ * read names the coach: `students!inner(coach_id)` plus a filter on it. RLS
+ * alone answers "every program I may read", and that includes the programs
+ * in which this account is the ATHLETE (a coach who also trains under another
+ * coach, or under a forged link) — which are not this coach's roster. Same
+ * rule as `useStudents`, so the summary cannot hold an athlete the roster does
+ * not list.
+ *
+ * Which sessions are done comes from the tree itself: a session is confirmed
+ * exactly while `sessions.performed_at` is set — `sync_session_performed_at`
+ * writes it when the confirmation is inserted and empties it when it is
+ * deleted, and migration 2026_08_21 filled it in for the confirmations made
+ * before. A second read of the confirmations used to say it, unbounded: past a
+ * thousand confirmations on the coach's active blocks PostgREST cut it without
+ * a word, and done sessions came back as "next" on the cards.
  *
  * Progress is the athlete's place in the QUEUE ("session 7 of 24"), not an
  * ordinal week number — the block is an ordered list the athlete works through
@@ -494,34 +503,17 @@ export function useCoachDashboardPrograms() {
   return useQuery({
     queryKey: ['coach-dashboard-programs', user?.id],
     queryFn: async () => {
-      // Both reads are independent — the confirmations query filters through
-      // the join rather than through an id list, so it no longer has to wait
-      // for the program tree. See useAllConfirmations for why: a
-      // `.in('session_id', [...])` over every session the coach owns grows the
-      // GET URL by ~37 bytes per session and hard-fails once a coach has a few
-      // hundred of them.
-      const [programsRes, confsRes] = await Promise.all([
-        supabase
-          .from('programs')
-          .select(`
-            student_id, name,
-            student:students!inner(coach_id),
-            weeks(id, week_number, label,
-              sessions(id, title, day_number, sort_order, scheduled_date, archived_at, performed_at))
-          `)
-          .eq('is_active', true)
-          .eq('student.coach_id', user.id),
-        supabase
-          .from('session_confirmations')
-          .select('session_id, session:sessions!inner(week:weeks!inner(program:programs!inner(is_active, student:students!inner(coach_id))))')
-          .eq('session.week.program.is_active', true)
-          .eq('session.week.program.student.coach_id', user.id),
-      ]);
-      if (programsRes.error) throw programsRes.error;
-      if (confsRes.error) throw confsRes.error;
-
-      const programs = programsRes.data;
-      const confirmedIds = new Set((confsRes.data || []).map((c) => c.session_id));
+      const { data: programs, error } = await supabase
+        .from('programs')
+        .select(`
+          student_id, name,
+          student:students!inner(coach_id),
+          weeks(id, week_number, label,
+            sessions(id, title, day_number, sort_order, scheduled_date, archived_at, performed_at))
+        `)
+        .eq('is_active', true)
+        .eq('student.coach_id', user.id);
+      if (error) throw error;
 
       const monday = startOfWeekMonday(new Date());
 
@@ -531,8 +523,9 @@ export function useCoachDashboardPrograms() {
           .slice()
           .sort((a, b) => a.week_number - b.week_number);
 
-        const queue = buildQueue(weeks, confirmedIds);
         const allSessions = weeks.flatMap((w) => w.sessions || []);
+        const confirmedIds = new Set(allSessions.filter((s) => s.performed_at).map((s) => s.id));
+        const queue = buildQueue(weeks, confirmedIds);
         const weekDays = buildDayStrip({
           sessions: allSessions,
           upcoming: queue.upcoming.map((e) => e.session),

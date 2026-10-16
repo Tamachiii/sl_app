@@ -655,10 +655,9 @@ describe('useCoachDashboardPrograms', () => {
   // programs in which the account is the ATHLETE. The roster is narrower: the
   // athletes this coach coaches. An embedded filter only drops the parent row
   // when the embed is `!inner`, so the select is part of the rule.
-  it('names the coach in both reads, through an inner join on students', async () => {
+  it('names the coach, through an inner join on students', async () => {
     const programsChain = readChain({ data: [], error: null });
-    const confChain = readChain({ data: [], error: null });
-    supabase.from.mockImplementation((table) => (table === 'programs' ? programsChain : confChain));
+    supabase.from.mockImplementation(() => programsChain);
 
     const { result } = renderHook(() => useCoachDashboardPrograms(), { wrapper: withClient(makeClient()) });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -668,14 +667,52 @@ describe('useCoachDashboardPrograms', () => {
       ['is_active', true],
       ['student.coach_id', 'coach-1'],
     ]);
+  });
 
-    expect(confChain.select.mock.calls[0][0]).toBe(
-      'session_id, session:sessions!inner(week:weeks!inner(program:programs!inner(is_active, student:students!inner(coach_id))))',
-    );
-    expect(confChain.eq.mock.calls).toEqual([
-      ['session.week.program.is_active', true],
-      ['session.week.program.student.coach_id', 'coach-1'],
-    ]);
+  // Review item L18: a second, unbounded read of every confirmation on the
+  // coach's active blocks said which sessions were done. PostgREST stops at a
+  // thousand rows without a word, and the sessions past it came back as
+  // "next". The tree says it: `performed_at` is set exactly while the session
+  // has a confirmation (`sync_session_performed_at`).
+  it('reads the active blocks alone, and no confirmation', async () => {
+    const programsChain = readChain({ data: [], error: null });
+    supabase.from.mockImplementation(() => programsChain);
+
+    const { result } = renderHook(() => useCoachDashboardPrograms(), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(supabase.from.mock.calls).toEqual([['programs']]);
+    expect(oneLine(programsChain.select.mock.calls[0][0])).toContain('performed_at');
+  });
+
+  it('counts a session as done exactly when it carries a performed_at', async () => {
+    const programsChain = readChain({
+      data: [
+        {
+          student_id: 'st-1',
+          name: 'Block A',
+          weeks: [
+            {
+              id: 'w-1',
+              week_number: 1,
+              label: null,
+              sessions: [
+                { id: 's-1', title: 'One', archived_at: null, day_number: null, performed_at: '2026-03-02T00:00:00+00:00' },
+                { id: 's-2', title: 'Two', archived_at: null, day_number: null, performed_at: null },
+                { id: 's-3', title: 'Three', archived_at: null, day_number: null, performed_at: '2026-03-04T00:00:00+00:00' },
+              ],
+            },
+          ],
+        },
+      ],
+      error: null,
+    });
+    supabase.from.mockImplementation(() => programsChain);
+
+    const { result } = renderHook(() => useCoachDashboardPrograms(), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    // Two done, the one between them is next: the queue skips what is done,
+    // and the position is that session's place in the block.
+    expect(result.current.data['st-1']).toMatchObject({ position: 2, totalSessions: 3, nextSessionTitle: 'Two' });
   });
 
   it('leaves out the program in which the coach is somebody else’s athlete', async () => {
@@ -691,8 +728,7 @@ describe('useCoachDashboardPrograms', () => {
       { student_id: 'st-1', name: 'Block A', is_active: true, student: { coach_id: 'coach-1' }, weeks: [week('w-1', 's-1')] },
       { student_id: 'st-self', name: 'My block', is_active: true, student: { coach_id: 'coach-other' }, weeks: [week('w-9', 's-9')] },
     ]);
-    const confChain = readChain({ data: [], error: null });
-    supabase.from.mockImplementation((table) => (table === 'programs' ? programsChain : confChain));
+    supabase.from.mockImplementation(() => programsChain);
 
     const { result } = renderHook(() => useCoachDashboardPrograms(), { wrapper: withClient(makeClient()) });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -711,26 +747,22 @@ describe('useCoachDashboardPrograms', () => {
               week_number: 1,
               label: 'Acc',
               sessions: [
-                { id: 's-1', archived_at: null, day_number: 1 },
-                { id: 's-2', archived_at: null, day_number: 3 },
+                { id: 's-1', archived_at: null, day_number: 1, performed_at: '2026-03-02T00:00:00+00:00' },
+                { id: 's-2', archived_at: null, day_number: 3, performed_at: '2026-03-04T00:00:00+00:00' },
               ],
             },
             {
               id: 'w-2',
               week_number: 2,
               label: 'Hyp',
-              sessions: [{ id: 's-3', archived_at: null, day_number: 2 }],
+              sessions: [{ id: 's-3', archived_at: null, day_number: 2, performed_at: null }],
             },
           ],
         },
       ],
       error: null,
     });
-    const confChain = readChain({
-      data: [{ session_id: 's-1' }, { session_id: 's-2' }],
-      error: null,
-    });
-    supabase.from.mockImplementation((table) => (table === 'programs' ? programsChain : confChain));
+    supabase.from.mockImplementation(() => programsChain);
 
     const qc = makeClient();
     const { result } = renderHook(() => useCoachDashboardPrograms(), {
@@ -753,18 +785,14 @@ describe('useCoachDashboardPrograms', () => {
           student_id: 'st-1',
           name: 'Done',
           weeks: [
-            { id: 'w-1', week_number: 1, label: 'A', sessions: [{ id: 's-1', archived_at: null, day_number: 1 }] },
-            { id: 'w-2', week_number: 2, label: 'B', sessions: [{ id: 's-2', archived_at: null, day_number: 1 }] },
+            { id: 'w-1', week_number: 1, label: 'A', sessions: [{ id: 's-1', archived_at: null, day_number: 1, performed_at: '2026-03-02T00:00:00+00:00' }] },
+            { id: 'w-2', week_number: 2, label: 'B', sessions: [{ id: 's-2', archived_at: null, day_number: 1, performed_at: '2026-03-04T00:00:00+00:00' }] },
           ],
         },
       ],
       error: null,
     });
-    const confChain = readChain({
-      data: [{ session_id: 's-1' }, { session_id: 's-2' }],
-      error: null,
-    });
-    supabase.from.mockImplementation((table) => (table === 'programs' ? programsChain : confChain));
+    supabase.from.mockImplementation(() => programsChain);
 
     const qc = makeClient();
     const { result } = renderHook(() => useCoachDashboardPrograms(), {
@@ -788,9 +816,11 @@ describe('useCoachDashboardPrograms', () => {
               week_number: 1,
               label: null,
               sessions: [
-                { id: 's-mon', title: 'Push', day_number: 1, archived_at: null },
-                { id: 's-wed', title: 'Pull', day_number: 3, archived_at: null },
-                { id: 's-fri', title: 'Legs', day_number: 5, archived_at: null },
+                // Trained in a week long gone: done, and not projected onto
+                // this week's Monday.
+                { id: 's-mon', title: 'Push', day_number: 1, archived_at: null, performed_at: '2025-01-06T12:00:00Z' },
+                { id: 's-wed', title: 'Pull', day_number: 3, archived_at: null, performed_at: null },
+                { id: 's-fri', title: 'Legs', day_number: 5, archived_at: null, performed_at: null },
               ],
             },
           ],
@@ -798,11 +828,7 @@ describe('useCoachDashboardPrograms', () => {
       ],
       error: null,
     });
-    const confChain = readChain({
-      data: [{ session_id: 's-mon' }],
-      error: null,
-    });
-    supabase.from.mockImplementation((table) => (table === 'programs' ? programsChain : confChain));
+    supabase.from.mockImplementation(() => programsChain);
 
     const qc = makeClient();
     const { result } = renderHook(() => useCoachDashboardPrograms(), {
@@ -812,8 +838,7 @@ describe('useCoachDashboardPrograms', () => {
 
     const days = result.current.data['st-1'].weekDays;
     expect(days).toHaveLength(7);
-    // s-mon is confirmed but carries no performed_at (nothing logged), so it
-    // falls back to counting as trained without inventing a date.
+    expect(days[0]).toMatchObject({ dayNumber: 1, session: null, state: 'rest' });
     expect(days[2]).toMatchObject({ dayNumber: 3, state: 'suggested' });
     expect(days[2].session).toMatchObject({ id: 's-wed' });
     expect(days[1].session).toBeNull();
@@ -842,8 +867,7 @@ describe('useCoachDashboardPrograms', () => {
       ],
       error: null,
     });
-    const confChain = readChain({ data: [], error: null });
-    supabase.from.mockImplementation((table) => (table === 'programs' ? programsChain : confChain));
+    supabase.from.mockImplementation(() => programsChain);
 
     const qc = makeClient();
     const { result } = renderHook(() => useCoachDashboardPrograms(), {
@@ -864,16 +888,12 @@ describe('useCoachDashboardPrograms', () => {
       vi.useRealTimers();
     });
 
-    function mockDashboard(weeks, confirmations = []) {
+    function mockDashboard(weeks) {
       const programsChain = readChain({
         data: [{ student_id: 'st-1', name: 'Block A', weeks }],
         error: null,
       });
-      const confChain = readChain({
-        data: confirmations.map((id) => ({ session_id: id })),
-        error: null,
-      });
-      supabase.from.mockImplementation((table) => (table === 'programs' ? programsChain : confChain));
+      supabase.from.mockImplementation(() => programsChain);
     }
 
     async function renderDashboard() {
@@ -933,25 +953,29 @@ describe('useCoachDashboardPrograms', () => {
     // hidden — it is the head of the queue, which is where the coach and the
     // athlete both read "what's next" now.
     it('gives the day to the session that was trained on it', async () => {
-      mockDashboard(
-        [
-          {
-            id: 'w-1',
-            week_number: 1,
-            label: null,
-            sessions: [{ id: 's-due', title: 'Due', day_number: 4, archived_at: null }],
-          },
-          {
-            id: 'w-2',
-            week_number: 2,
-            label: null,
-            sessions: [
-              { id: 's-done', title: 'Done', day_number: 4, scheduled_date: '2026-07-09', archived_at: null },
-            ],
-          },
-        ],
-        ['s-done']
-      );
+      mockDashboard([
+        {
+          id: 'w-1',
+          week_number: 1,
+          label: null,
+          sessions: [{ id: 's-due', title: 'Due', day_number: 4, archived_at: null, performed_at: null }],
+        },
+        {
+          id: 'w-2',
+          week_number: 2,
+          label: null,
+          sessions: [
+            {
+              id: 's-done',
+              title: 'Done',
+              day_number: 4,
+              scheduled_date: '2026-07-09',
+              archived_at: null,
+              performed_at: '2026-07-09T12:00:00Z',
+            },
+          ],
+        },
+      ]);
       const days = await renderDashboard();
       expect(days[3].session).toMatchObject({ id: 's-done' });
       expect(days[3].state).toBe('performed');
