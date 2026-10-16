@@ -123,8 +123,11 @@ const ICON = '/sl_app/icon-192.png';
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// `promise`, or `fallback` when it has not answered after `ms`.
-function within(ms, promise, fallback) {
+/**
+ * `promise`, or `fallback` when it has not answered after `ms`. The timer is
+ * cleared either way. For the worker and for a page (lib/restNotifications).
+ */
+export function within(ms, promise, fallback) {
   let timer;
   const late = new Promise((resolve) => {
     timer = setTimeout(() => resolve(fallback), ms);

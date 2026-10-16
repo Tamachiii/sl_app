@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { closeRestNotifications, createRestNotificationSweep } from './restNotifications';
+import { SWEEP_ANSWER_MS, closeRestNotifications, createRestNotificationSweep } from './restNotifications';
 import { REST_TIMER_TAG } from './swHandlers';
 
 // A registration with what the device shows right now.
@@ -158,6 +158,49 @@ describe('the watcher — each time the app comes back in front', () => {
     p.focus();
     await settle();
     expect(close).toHaveBeenCalledTimes(2);
+  });
+
+  it('a sweep that gets no answer is given up after SWEEP_ANSWER_MS, and the next return sweeps again', async () => {
+    vi.useFakeTimers();
+    try {
+      // A registration or a list of notifications that never answers.
+      const close = vi.fn(() => new Promise(() => {}));
+      const p = page('visible');
+      createRestNotificationSweep({ close }).install(p.doc, p.win);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(close).toHaveBeenCalledTimes(1);
+
+      // Still the same sweep: one return is one sweep.
+      await vi.advanceTimersByTimeAsync(SWEEP_ANSWER_MS - 1);
+      p.focus();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(close).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      p.focus();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(close).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a sweep that answers in time leaves no timer behind', async () => {
+    vi.useFakeTimers();
+    try {
+      const close = vi.fn(async () => 1);
+      const p = page('visible');
+      createRestNotificationSweep({ close }).install(p.doc, p.win);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+
+      p.focus();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(close).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('is installed once, and stops listening when it is removed', async () => {

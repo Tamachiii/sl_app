@@ -1,4 +1,4 @@
-import { REST_TIMER_TAG, closeNotifications } from './swHandlers';
+import { REST_TIMER_TAG, closeNotifications, within } from './swHandlers';
 
 // The page's half of "a `Rest done` that is no longer news goes away".
 //
@@ -34,6 +34,12 @@ export async function closeRestNotifications({
 }
 
 /**
+ * How long a sweep waits for the device to answer. Without an answer by then
+ * it is given up, and the next return of the app sweeps again.
+ */
+export const SWEEP_ANSWER_MS = 5000;
+
+/**
  * One watcher. The app uses the single instance at the end of this file; the
  * argument exists for the tests.
  */
@@ -48,8 +54,9 @@ export function createRestNotificationSweep({ close = closeRestNotifications } =
     if (!listeningOn || listeningOn.doc.visibilityState !== 'visible') return;
     if (running) return; // both events fire on one return
     running = true;
-    Promise.resolve()
-      .then(() => close())
+    // Bounded: a getRegistration() or a getNotifications() that never answers
+    // would keep `running` set, and every later return would sweep nothing.
+    within(SWEEP_ANSWER_MS, Promise.resolve().then(() => close()), 0)
       .catch(() => {})
       .finally(() => {
         running = false;
