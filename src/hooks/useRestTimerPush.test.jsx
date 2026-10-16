@@ -63,6 +63,7 @@ import { startRestTimer, clearRestTimer, resetRestTimer } from './useRestTimer';
 import { useRestTimerPush, MAX_REST_PUSH_SECONDS, PREVIOUS_REQUEST_WAIT_MS } from './useRestTimerPush';
 
 const NOW = Date.parse('2026-10-16T18:00:00.000Z');
+const BASE = import.meta.env.BASE_URL || '/';
 
 // The scheduling reads the browser, then asks the database: let it finish.
 const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -74,6 +75,7 @@ const pgError = (code, message) => ({ data: null, error: { code, message, detail
 
 const scheduleCalls = () => rpc.mock.calls.filter(([name]) => name === 'schedule_rest_push');
 const cancelCalls = () => rpc.mock.calls.filter(([name]) => name === 'cancel_rest_push');
+const lastPayload = () => scheduleCalls().at(-1)[1].p_payload;
 
 let queryClient;
 let restoring = false;
@@ -99,6 +101,14 @@ function mountShell({ strict = false } = {}) {
       return useI18n();
     },
     { wrapper: Providers, reactStrictMode: strict },
+  );
+}
+
+// The sets of one session as the device holds them (hooks/useSetLogs).
+function sessionOnDevice(sessionId, logIds) {
+  queryClient.setQueryData(
+    ['set-logs', sessionId, ['slot-a']],
+    logIds.map((id, index) => ({ id, exercise_slot_id: 'slot-a', set_number: index + 1 })),
   );
 }
 
@@ -293,6 +303,79 @@ describe('useRestTimerPush: a refusal schedules nothing, and never rings every d
 
     expect(tableRequests).toEqual([]);
     expect(invoke).not.toHaveBeenCalled();
+  });
+});
+
+describe('useRestTimerPush: what the notification says, and where a tap leads', () => {
+  it.each([
+    ['en', 'Rest done', 'Time for your next set.'],
+    ['fr', 'Repos terminé', 'C’est l’heure de ta prochaine série.'],
+    ['de', 'Pause vorbei', 'Zeit für deinen nächsten Satz.'],
+  ])('in %s, tagged rest-timer, back to the session of the set', async (lang, title, body) => {
+    localStorage.setItem('sl_app_lang', lang);
+    sessionOnDevice('session-7', ['log-0', 'log-1']);
+    startRestTimer('log-1', 90);
+    mountShell();
+    await settle();
+
+    expect(lastPayload()).toEqual({
+      title,
+      body,
+      tag: 'rest-timer',
+      data: { url: `${BASE}#/student/session/session-7` },
+    });
+  });
+
+  it('a set whose session the device does not hold: no address — never the training list', async () => {
+    sessionOnDevice('session-7', ['log-0']);
+    startRestTimer('log-unknown', 90);
+    mountShell();
+    await settle();
+
+    expect(lastPayload()).not.toHaveProperty('data');
+  });
+
+  it('a rest taken back after a relaunch waits for the stored cache, then leads to its session', async () => {
+    restoring = true;
+    startRestTimer('log-1', 90);
+    const app = mountShell();
+    await settle();
+    expect(rpc).not.toHaveBeenCalled();
+
+    // The cache is back from the device.
+    sessionOnDevice('session-7', ['log-1']);
+    restoring = false;
+    app.rerender();
+    await settle();
+
+    expect(scheduleCalls()).toHaveLength(1);
+    expect(lastPayload().data).toEqual({ url: `${BASE}#/student/session/session-7` });
+  });
+
+  it('a change of language in the middle of a rest neither cancels nor reschedules it', async () => {
+    startRestTimer('log-1', 90);
+    const app = mountShell();
+    await settle();
+    expect(scheduleCalls()).toHaveLength(1);
+
+    act(() => app.result.current.setLang('fr'));
+    await settle();
+
+    expect(scheduleCalls()).toHaveLength(1);
+    expect(cancelCalls()).toEqual([]);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it('the language is the one of the moment the rest is scheduled', async () => {
+    startRestTimer('log-1', 90);
+    const app = mountShell();
+    await settle();
+    act(() => app.result.current.setLang('de'));
+    await settle();
+
+    startRestTimer('log-2', 90);
+    await settle();
+    expect(lastPayload().title).toBe('Pause vorbei');
   });
 });
 

@@ -1,7 +1,11 @@
-import { useEffect } from 'react';
+import { useContext, useEffect, useRef } from 'react';
+import { QueryClientContext, useIsRestoring } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { isPushSupported, pushPermission, getActivePushSubscription } from '../lib/pushNotifications';
+import { getMessage } from '../lib/i18n';
+import { REST_TIMER_TAG } from '../lib/swHandlers';
 import { useAuth } from './useAuth';
+import { useI18n } from './useI18n';
 import { useRestTimer } from './useRestTimer';
 
 // Bridges the in-app rest-timer singleton to a "Rest done" Web Push, for the
@@ -18,8 +22,13 @@ import { useRestTimer } from './useRestTimer';
 //                 a phone whose clock is wrong rings on time all the same.
 //                 1 to 900 — what the database accepts; a rest outside that
 //                 asks for nothing and keeps its in-app cue.
-//   • p_payload   what the notification shows, under the tag the worker
-//                 knows (rest-timer).
+//   • p_payload   what the notification shows, in the app's language at the
+//                 moment the rest is scheduled, under the tag the worker
+//                 knows (REST_TIMER_TAG), and a tap that leads back to the
+//                 session the set belongs to — or nowhere, when the session
+//                 is not known: the worker then brings the app to the front
+//                 and moves no window. Never the training list: a tap there
+//                 takes the athlete out of the session they are resting in.
 //   • p_endpoint  this device's subscription. The push rings here, and only
 //                 here: without it every phone and laptop of the account
 //                 would ring for a rest taken on one of them.
@@ -68,12 +77,32 @@ async function deviceEndpoint() {
   return typeof endpoint === 'string' && endpoint !== '' ? endpoint : null;
 }
 
-const REST_PUSH_PAYLOAD = {
-  title: 'Rest done',
-  body: 'Time for your next set.',
-  tag: 'rest-timer',
-  data: { url: `${import.meta.env.BASE_URL || '/'}#/student` },
-};
+// The session the set `logId` belongs to, from the lists of sets the device
+// holds — ['set-logs', sessionId, slotIds] — or null. No request: the push
+// has to leave before the phone is put away.
+function sessionOfSet(queryClient, logId) {
+  if (!queryClient || !logId) return null;
+  for (const [key, rows] of queryClient.getQueriesData({ queryKey: ['set-logs'] })) {
+    if (Array.isArray(rows) && rows.some((row) => row?.id === logId)) {
+      const sessionId = key[1];
+      return typeof sessionId === 'string' && sessionId !== '' ? sessionId : null;
+    }
+  }
+  return null;
+}
+
+/** The "Rest done" notification, in `lang`, leading to `sessionId` when there is one. */
+export function restPushPayload(lang, sessionId) {
+  const payload = {
+    title: getMessage(lang, 'student.session.restDone'),
+    body: getMessage(lang, 'restPush.body'),
+    tag: REST_TIMER_TAG,
+  };
+  if (sessionId) {
+    payload.data = { url: `${import.meta.env.BASE_URL || '/'}#/student/session/${sessionId}` };
+  }
+  return payload;
+}
 
 // The whole seconds left until `endsAt`, rounded up so the push is never
 // early — or null when that is not a rest the database schedules.
@@ -168,9 +197,22 @@ export function useRestTimerPush() {
   const { user } = useAuth();
   const userId = user?.id;
   const { endsAt, logId } = useRestTimer();
+  const { lang } = useI18n();
+  // Read, not required: a page rendered without a cache provider still mounts.
+  const queryClient = useContext(QueryClientContext);
+  // A rest taken back after a relaunch waits for the stored cache, which
+  // holds the set's session.
+  const isRestoring = useIsRestoring();
+
+  // The language is read when the push is scheduled, not followed: a change
+  // of language in the middle of a rest must not take its push back.
+  const langRef = useRef(lang);
+  useEffect(() => {
+    langRef.current = lang;
+  }, [lang]);
 
   useEffect(() => {
-    if (!userId || endsAt == null) return undefined;
+    if (!userId || endsAt == null || isRestoring) return undefined;
     if (secondsUntil(endsAt) == null) return undefined;
 
     let cancelled = false;
@@ -180,10 +222,11 @@ export function useRestTimerPush() {
       try {
         const endpoint = await deviceEndpoint();
         if (!endpoint || cancelled) return;
+        const payload = restPushPayload(langRef.current, sessionOfSet(queryClient, logId));
         // A rest that changed while the request before was in flight asks
         // for nothing.
         const scheduled = await inTurn(() =>
-          cancelled ? null : scheduleRestPush({ userId, endsAt, payload: REST_PUSH_PAYLOAD, endpoint }),
+          cancelled ? null : scheduleRestPush({ userId, endsAt, payload, endpoint }),
         );
         if (!scheduled) return;
         if (cancelled) {
@@ -202,5 +245,5 @@ export function useRestTimerPush() {
       cancelled = true;
       if (scheduleId) cancelRestPush(scheduleId);
     };
-  }, [userId, endsAt, logId]);
+  }, [userId, endsAt, logId, isRestoring, queryClient]);
 }
