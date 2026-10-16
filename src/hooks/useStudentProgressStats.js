@@ -104,12 +104,12 @@ export function isPerformed(session, { confirmed = false, day = null, doneSets =
  *
  * Returns derived stats:
  *   - totalSessionsConfirmed (performed), totalSessions (open + archived performed)
- *   - totalSetsDone, totalSets
+ *   - totalSetsDone (prescribed sets done), totalSets (prescribed), totalExtraSetsDone (sets the athlete added, done)
  *   - weeksActive       (calendar weeks in which at least one session was trained)
  *   - backlogSessions   (open sessions with no training date yet)
- *   - avgRpe            (across sets with rpe logged)
+ *   - avgRpe            (across done sets with rpe logged, added ones included)
  *   - recentConfirmations[] (last 5, newest first)
- *   - weeklyVolume[]    [{ bucket_start, bucket_end, pull, push, *_planned, sets_done, sets_prescribed, sessions_confirmed (performed) }]
+ *   - weeklyVolume[]    [{ bucket_start, bucket_end, pull, push, *_planned, sets_done, extra_sets_done, sets_prescribed, sessions_confirmed (performed) }]
  *   - sessionCalendar[] [{ session_id, title, date, completed }] — trained sessions on their REAL date, open ones on their recommended date; `completed` is `isPerformed`
  *
  * Pass a `studentId` (students.id row id) to stat any student — used by the
@@ -146,11 +146,15 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
       //    The scope parameter swaps the program filter:
       //      - specific id  → single program by id (RLS enforces ownership)
       //      - 'active'     → only the active block (block-local stats)
-      //      - 'all'        → every program for this student
+      //      - 'all'        → every program for this student but a draft
+      //    A draft the athlete is writing is no block they train: its sessions
+      //    and sets would lower the completion of "All programs" for work no
+      //    one asked of them yet. A draft cannot be active, and one picked by
+      //    its id is still shown.
       let q = supabase
         .from('programs')
         .select(`
-          id, name, sort_order, is_active,
+          id, name, sort_order, is_active, status,
           weeks(
             id, week_number, label,
             sessions(
@@ -167,9 +171,11 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
         // Trashed programs sit out of stats until restored.
         .is('deleted_at', null);
 
-      if (scope === 'active') {
+      if (scope === 'all') {
+        q = q.neq('status', 'draft');
+      } else if (scope === 'active') {
         q = q.eq('is_active', true);
-      } else if (scope !== 'all') {
+      } else {
         // Treat any other value as a specific program id.
         q = q.eq('id', scope);
       }
@@ -184,8 +190,9 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
         let out = query
           .eq(`${prefix}.student_id`, resolvedStudentId)
           .is(`${prefix}.deleted_at`, null);
-        if (scope === 'active') out = out.eq(`${prefix}.is_active`, true);
-        else if (scope !== 'all') out = out.eq(`${prefix}.id`, scope);
+        if (scope === 'all') out = out.neq(`${prefix}.status`, 'draft');
+        else if (scope === 'active') out = out.eq(`${prefix}.is_active`, true);
+        else out = out.eq(`${prefix}.id`, scope);
         return out;
       };
 
@@ -204,6 +211,9 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
       const sessionBySlot = new Map();
 
       for (const prog of programs || []) {
+        // The filter above already leaves drafts out; a row that says it is
+        // one is not counted either way.
+        if (scope === 'all' && prog.status === 'draft') continue;
         const sortedWeeks = (prog.weeks || [])
           .slice()
           .sort((a, b) => a.week_number - b.week_number);
@@ -265,7 +275,7 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
                 supabase
                   .from('session_confirmations')
                   .select(
-                    'id, session_id, confirmed_at, performed_on, notes, sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at)))'
+                    'id, session_id, confirmed_at, performed_on, notes, sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at, status)))'
                   ),
                 'sessions.weeks.programs'
               )
@@ -283,7 +293,7 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
                 supabase
                   .from('set_logs')
                   .select(
-                    'id, exercise_slot_id, set_number, done, failed, skipped, is_student_added, rpe, logged_at, target_reps, target_weight_kg, actual_reps, actual_weight_kg, exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at))))'
+                    'id, exercise_slot_id, set_number, done, failed, skipped, is_student_added, rpe, logged_at, target_reps, target_weight_kg, actual_reps, actual_weight_kg, exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at, status))))'
                   )
                   .eq('done', true),
                 'exercise_slots.sessions.weeks.programs'
@@ -302,7 +312,7 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
                 supabase
                   .from('slot_deviations')
                   .select(
-                    'id, exercise_slot_id, kind, substitute:exercise_library(id, name, type, difficulty, volume_weight), exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at))))'
+                    'id, exercise_slot_id, kind, substitute:exercise_library(id, name, type, difficulty, volume_weight), exercise_slots!inner(sessions!inner(weeks!inner(programs!inner(id, student_id, is_active, deleted_at, status))))'
                   )
                   .eq('kind', 'swap'),
                 'exercise_slots.sessions.weeks.programs'
@@ -345,7 +355,15 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
       // VOLUME estimate. (The performance-reporting hooks — useStudentRecords /
       // useLastPerformance — intentionally differ: a PR / "last time" is a
       // measured fact, so they require a logged actual on a swap.)
-      const performedReps = (l) => (l.done ? (l.actual_reps ?? l.target_reps ?? 0) : 0);
+      // The SLOT says what a set counts: an exercise held for a time
+      // (`duration_seconds`, the database allows reps or a duration and never
+      // both) has no reps, so a number typed in its actual reps — or an extra
+      // set added to it — puts nothing into pull/push volume or tonnage. Its
+      // done sets still count as sets done.
+      const performedReps = (l, slot) => {
+        if (slot?.duration_seconds != null) return 0;
+        return l.done ? (l.actual_reps ?? l.target_reps ?? 0) : 0;
+      };
       // NOTE: performed LOAD is computed inline in the per-exercise tonnage loop
       // (not a shared helper) because a SWAPPED slot must not fall back to the
       // pinned target_weight_kg — that's the coach's ORIGINAL exercise's load.
@@ -404,16 +422,30 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
 
       const totalSessions = countedSessions.length;
       const totalSessionsConfirmed = countedSessions.filter((s) => performedIds.has(s.id)).length;
-      const totalSetsDone = setLogs.filter((l) => l.done).length;
 
+      // Sets done go by the rule of a week's `sets_done`: the PRESCRIBED sets
+      // done, out of the prescribed sets of `totalSets`. A set the athlete
+      // added is real work — it is in the volume and the tonnage — but no part
+      // of the prescription: counted with it, the card read "5 done, of 3
+      // prescribed" beside a week that said 3/3. It is reported apart, in
+      // `totalExtraSetsDone`. Only sets of the tree count: a row the scope
+      // would not have read (a draft's) adds nothing.
       let totalSets = 0;
+      let totalSetsDone = 0;
+      let totalExtraSetsDone = 0;
+      const rpeSamples = [];
       for (const s of countedSessions) {
         for (const slot of s.exercise_slots || []) {
           totalSets += slot.sets || 0;
+          for (const l of perfBySlot.get(slot.id) || []) {
+            if (!l.done) continue;
+            if (l.is_student_added) totalExtraSetsDone += 1;
+            else totalSetsDone += 1;
+            if (l.rpe != null) rpeSamples.push(l.rpe);
+          }
         }
       }
 
-      const rpeSamples = setLogs.filter((l) => l.done && l.rpe != null).map((l) => l.rpe);
       const avgRpe = rpeSamples.length
         ? rpeSamples.reduce((a, b) => a + b, 0) / rpeSamples.length
         : null;
@@ -436,6 +468,7 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
             pull_planned: 0,
             push_planned: 0,
             sets_done: 0,
+            extra_sets_done: 0,
             sets_prescribed: 0,
             sessions_confirmed: 0,
           };
@@ -468,6 +501,7 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
           // sets_prescribed never counts them). They still count toward
           // performed volume/tonnage below — that's real work.
           acc.sets_done += perf.filter((l) => l.done && !l.is_student_added).length;
+          acc.extra_sets_done += perf.filter((l) => l.done && l.is_student_added).length;
           // Performed volume follows an exercise SWAP: credit the
           // substitute's type/difficulty/volume_weight, since that's the work
           // the student did. Planned (computeSessionVolume above) stays on
@@ -478,7 +512,7 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
           // difficulty × reps × volume_weight, but sums ACTUAL reps of
           // done sets instead of prescribed reps.
           let doneReps = 0;
-          for (const l of perf) doneReps += performedReps(l);
+          for (const l of perf) doneReps += performedReps(l, slot);
           if (doneReps <= 0) continue;
           const vol = perfEx.difficulty * doneReps * Number(perfEx.volume_weight);
           if (perfEx.type === 'pull') acc.pull += vol;
@@ -546,7 +580,7 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
             const isSwapped = swapBySlot.has(slot.id);
             let performed = 0;
             for (const l of perfBySlot.get(slot.id) || []) {
-              const reps = performedReps(l);
+              const reps = performedReps(l, slot);
               if (reps <= 0) continue;
               const wRaw = isSwapped ? l.actual_weight_kg : (l.actual_weight_kg ?? l.target_weight_kg);
               const w_ = wRaw != null && Number(wRaw) > 0 ? Number(wRaw) : 1;
@@ -653,6 +687,7 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
         totalSessionsConfirmed,
         totalSets,
         totalSetsDone,
+        totalExtraSetsDone,
         weeksActive,
         backlogSessions,
         avgRpe,

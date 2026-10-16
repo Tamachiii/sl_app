@@ -159,6 +159,20 @@ describe('StudentDashboard', () => {
     expect(screen.getByText('7.3')).toBeInTheDocument();
   });
 
+  // "Sets done" counts the prescribed sets; the ones the athlete added are
+  // said apart, where the card used to read "5 done, of 3 prescribed".
+  it('says the sets the athlete added apart from the prescribed ones, and only when there are some', () => {
+    mockStats = { data: { ...sampleData, totalExtraSetsDone: 3 }, isLoading: false };
+    const { again } = renderDashboard();
+    expect(screen.getByText('42')).toBeInTheDocument();
+    expect(screen.getByText('of 100 prescribed · +3 extra')).toBeInTheDocument();
+
+    mockStats = { data: { ...sampleData, totalExtraSetsDone: 0 }, isLoading: false };
+    again();
+    expect(screen.getByText('of 100 prescribed')).toBeInTheDocument();
+    expect(screen.queryByText(/extra/)).not.toBeInTheDocument();
+  });
+
   // Volume rows are labelled by the real days they cover, so a block spread
   // over more time reads as more weeks instead of collapsing into "W1".
   it('labels each volume row with its calendar date range', () => {

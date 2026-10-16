@@ -130,6 +130,7 @@ export default function StudentDashboard() {
     totalSessionsConfirmed: 0,
     totalSets: 0,
     totalSetsDone: 0,
+    totalExtraSetsDone: 0,
     weeksActive: 0,
     avgRpe: null,
     weeklyVolume: [],
@@ -181,7 +182,11 @@ export default function StudentDashboard() {
                 <StatCard
                   label={t('student.stats.setsDone')}
                   value={stats.totalSetsDone}
-                  sub={t('student.stats.ofPrescribed', { n: stats.totalSets })}
+                  // The prescribed sets done, of the prescribed sets; what the athlete
+                  // added is said apart, never in the count.
+                  sub={stats.totalExtraSetsDone > 0
+                    ? `${t('student.stats.ofPrescribed', { n: stats.totalSets })} · ${t('statsCompletionRules.extraSets', { n: stats.totalExtraSetsDone })}`
+                    : t('student.stats.ofPrescribed', { n: stats.totalSets })}
                 />
                 <StatCard
                   label={t('student.stats.avgRpe')}

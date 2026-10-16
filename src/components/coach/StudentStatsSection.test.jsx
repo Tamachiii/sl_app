@@ -92,6 +92,20 @@ describe('StudentStatsSection', () => {
     expect(screen.getByLabelText(/stats scope/i)).toHaveValue('all');
   });
 
+  // The same card as the athlete's page: prescribed sets done of prescribed,
+  // and the sets the athlete added said apart.
+  it('says the sets the athlete added apart from the prescribed ones, and only when there are some', () => {
+    mockStats = { data: { ...sampleData, totalExtraSetsDone: 3 }, isLoading: false };
+    const { again } = renderSection();
+    expect(screen.getByText('42')).toBeInTheDocument();
+    expect(screen.getByText('of 100 prescribed · +3 extra')).toBeInTheDocument();
+
+    mockStats = { data: { ...sampleData, totalExtraSetsDone: 0 }, isLoading: false };
+    again();
+    expect(screen.getByText('of 100 prescribed')).toBeInTheDocument();
+    expect(screen.queryByText(/extra/)).not.toBeInTheDocument();
+  });
+
   it('shows a spinner, and no figures, while the stats load', () => {
     mockStats = { data: undefined, isLoading: true };
     renderSection();

@@ -135,6 +135,88 @@ describe('useStudentProgressStats — scope', () => {
     // No students lookup invoked.
     expect(setup.db.requestsTo('students')).toHaveLength(0);
   });
+
+  // A draft the athlete is writing is no block they train.
+  const withDraft = () => [
+    {
+      id: 'p-1', name: 'Block A', sort_order: 0, is_active: true, status: 'approved',
+      weeks: [{
+        id: 'w-1', week_number: 1, label: null,
+        sessions: [{
+          id: 's-1', title: 'Push', day_number: 1, sort_order: 0, scheduled_date: null,
+          archived_at: null, performed_at: TRAINED_AT,
+          exercise_slots: [{
+            id: 'sl-1', sets: 3, reps: 5, duration_seconds: null, weight_kg: 100,
+            exercise: { id: 'e-1', name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
+            set_logs: [],
+          }],
+        }],
+      }],
+    },
+    {
+      id: 'p-d', name: 'My draft', sort_order: 1, is_active: false, status: 'draft',
+      weeks: [{
+        id: 'w-d', week_number: 1, label: null,
+        sessions: [{
+          id: 's-d', title: 'Draft day', day_number: 1, sort_order: 0, scheduled_date: '2026-07-09',
+          archived_at: null, performed_at: null,
+          exercise_slots: [{
+            id: 'sl-d', sets: 10, reps: 5, duration_seconds: null, weight_kg: 100,
+            exercise: { id: 'e-1', name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
+            set_logs: [],
+          }],
+        }],
+      }],
+    },
+  ];
+  const FLAT_LISTS = {
+    session_confirmations: 'sessions.weeks.programs',
+    set_logs: 'exercise_slots.sessions.weeks.programs',
+    slot_deviations: 'exercise_slots.sessions.weeks.programs',
+  };
+
+  it('scope="all" leaves drafts out, in the tree and in the three lists', async () => {
+    const setup = setupChains({
+      programsData: withDraft(),
+      confirmationsData: [{ id: 'c-1', session_id: 's-1', confirmed_at: TRAINED_AT, performed_on: '2026-07-08' }],
+      // The fake does not apply filters: a row of the draft still arrives.
+      setLogsData: [
+        { id: 'l-1', exercise_slot_id: 'sl-1', done: true, target_reps: 5, target_weight_kg: 100 },
+        { id: 'l-2', exercise_slot_id: 'sl-d', done: true, target_reps: 5, target_weight_kg: 100 },
+      ],
+    });
+    setup.register();
+    const { result } = renderHook(() => useStudentProgressStats('st-1', 'all'), {
+      wrapper: withClient(makeClient()),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(setup.db.requestsTo('programs')[0].filters).toContainEqual(['neq', 'status', 'draft']);
+    for (const [table, prefix] of Object.entries(FLAT_LISTS)) {
+      expect(setup.db.requestsTo(table)[0].filters).toContainEqual(['neq', `${prefix}.status`, 'draft']);
+    }
+    const data = result.current.data;
+    expect(data.totalSessions).toBe(1);
+    expect(data.totalSessionsConfirmed).toBe(1);
+    expect(data.totalSets).toBe(3);
+    expect(data.totalSetsDone).toBe(1);
+    expect(data.sessionCalendar.map((e) => e.session_id)).toEqual(['s-1']);
+  });
+
+  it.each(['active', 'p-d'])('scope=%s asks nothing about drafts', async (scope) => {
+    const setup = setupChains({ programsData: withDraft() });
+    setup.register();
+    const { result } = renderHook(() => useStudentProgressStats('st-1', scope), {
+      wrapper: withClient(makeClient()),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    for (const table of ['programs', ...Object.keys(FLAT_LISTS)]) {
+      const request = setup.db.requestsTo(table)[0];
+      expect(request.filters.find(([, column]) => column.endsWith('status'))).toBeUndefined();
+    }
+    // A draft picked by its id is still shown.
+    if (scope === 'p-d') expect(result.current.data.totalSessions).toBe(2);
+  });
 });
 
 describe('useStudentProgressStats — completion + tonnage', () => {
@@ -398,10 +480,62 @@ describe('useStudentProgressStats — completion + tonnage', () => {
     // Adherence counts the 2 prescribed sets, NOT the extra → 2/2 = 100%.
     expect(wk.sets_done).toBe(2);
     expect(wk.sets_prescribed).toBe(2);
+    expect(wk.extra_sets_done).toBe(1);
+    // The summary card goes by the same rule: 2 done of 2 prescribed, +1 extra
+    // (it read "3 done, of 2 prescribed" beside a week that said 2/2).
+    expect(result.current.data.totalSetsDone).toBe(2);
+    expect(result.current.data.totalSets).toBe(2);
+    expect(result.current.data.totalExtraSetsDone).toBe(1);
     // The extra set still counts toward performed tonnage (real work):
     // (5×100)+(5×100)+(8×100) = 1800.
     const p = result.current.data.exerciseProgress.byExercise['e-1'][0];
     expect(p.tonnage).toBe(1800);
+  });
+
+  // The database allows reps or a duration on a slot, never both.
+  it('a slot held for a time adds no reps to volume or tonnage, whatever is typed in its actual reps', async () => {
+    const setup = setupChains({
+      programsData: [
+        {
+          id: 'p-1', name: 'A', sort_order: 0, is_active: true,
+          weeks: [{
+            id: 'w-1', week_number: 1, label: null,
+            sessions: [{
+              id: 's-1', title: 'Core', day_number: 1, sort_order: 0,
+              scheduled_date: null, archived_at: null, performed_at: TRAINED_AT,
+              exercise_slots: [{
+                id: 'sl-1', sets: 2, reps: null, duration_seconds: 30, weight_kg: null,
+                exercise: { id: 'e-3', name: 'Plank', type: 'push', difficulty: 1, volume_weight: 1 },
+                set_logs: [
+                  { set_number: 1, target_reps: null, target_duration_seconds: 30, target_weight_kg: null },
+                  { set_number: 2, target_reps: null, target_duration_seconds: 30, target_weight_kg: null },
+                ],
+              }],
+            }],
+          }],
+        },
+      ],
+      setLogsData: [
+        // 12 typed in the reps of a 30 s hold, with a plate on the back…
+        { id: 'l-1', exercise_slot_id: 'sl-1', set_number: 1, done: true, is_student_added: false, target_reps: null, target_weight_kg: null, actual_reps: 12, actual_weight_kg: 10 },
+        // …and a set added to it, with reps too.
+        { id: 'l-2', exercise_slot_id: 'sl-1', set_number: 3, done: true, is_student_added: true, target_reps: null, target_weight_kg: null, actual_reps: 5, actual_weight_kg: null },
+      ],
+    });
+    setup.register();
+    const { result } = renderHook(() => useStudentProgressStats(), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const wk = result.current.data.weeklyVolume[0];
+    expect(wk.push).toBe(0);
+    expect(wk.push_planned).toBe(0);
+    // The sets themselves are done.
+    expect(wk.sets_done).toBe(1);
+    expect(wk.extra_sets_done).toBe(1);
+    expect(result.current.data.totalSetsDone).toBe(1);
+    expect(result.current.data.totalExtraSetsDone).toBe(1);
+    // No tonnage, planned or performed: no point at all.
+    expect(result.current.data.exerciseProgress.byExercise['e-3']).toBeUndefined();
   });
 
   it('attributes performed work to the SWAP substitute, planned stays on the original', async () => {
