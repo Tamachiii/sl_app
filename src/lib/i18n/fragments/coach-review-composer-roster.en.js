@@ -18,5 +18,8 @@ export default {
     review: {
       trainedOn: 'Trained on {date}',
     },
+    copy: {
+      sessionRange: 'Sessions {from}–{to}',
+    },
   },
 };

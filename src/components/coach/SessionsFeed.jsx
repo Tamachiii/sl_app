@@ -187,7 +187,11 @@ export default function SessionsFeed() {
           </div>
         </div>
         <h3 className={`sl-display text-[16px] ${isArchived ? 'text-ink-600' : 'text-gray-900'}`}>
-          {c.session_title || `Session ${c.day_number}`}
+          {/* An untitled session is named by its place in the block, as the
+              sheet names it — "Session null" was the day number of a session
+              that has none (review item B28). */}
+          {c.session_title
+            || (position ? t('coach.week.sessionN', { n: position.n }) : t('coach.editor.titlePlaceholder'))}
         </h3>
         {where && <p className="sl-mono text-[11px] text-ink-400">{where}</p>}
         {c.notes && (

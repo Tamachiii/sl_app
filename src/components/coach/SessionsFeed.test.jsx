@@ -146,6 +146,29 @@ describe('SessionsFeed', () => {
       expect(card().querySelectorAll('p')).toHaveLength(0);
     });
 
+    // Review item B28: sessions are born untitled now, and the fallback was
+    // the day number — "Session null" for a session without a day.
+    it('names an untitled session by its place in the block', () => {
+      mockConfirmations = {
+        data: [makeConfirmation({ session_title: null, day_number: null, week_label: 'Volume' })],
+        isLoading: false,
+      };
+      mockPositions = { data: { 'sess-1': { n: 2, total: 9 } } };
+      renderFeed();
+      expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent(/^Session 2$/);
+      expect(screen.queryByText(/null/)).toBeNull();
+    });
+
+    it('names an untitled session "Session" while its place is not known', () => {
+      mockConfirmations = {
+        data: [makeConfirmation({ session_title: null, day_number: null })],
+        isLoading: false,
+      };
+      renderFeed();
+      expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent(/^Session$/);
+      expect(screen.queryByText(/null/)).toBeNull();
+    });
+
     // The confirmation of a workout logged offline reaches the server when
     // the queue is replayed, days later sometimes.
     it('dates the card with the day the athlete trained, in the app’s language', () => {

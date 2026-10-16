@@ -1,8 +1,25 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Dialog from './Dialog';
 import { useStudents } from '../../hooks/useStudents';
 import { useProgramsForStudent, useProgram } from '../../hooks/useProgram';
 import { useI18n } from '../../hooks/useI18n';
+import { flattenSessions } from '../../lib/sessionQueue';
+
+// The places the sessions of each phase hold in the block, `{ from, to }` by
+// phase id, numbered across phases as the Programming sheet numbers them; an
+// archived session holds none, and a phase without a session is not in it.
+function placesByPhase(weeks) {
+  const places = new Map();
+  let n = 0;
+  for (const { session, week } of flattenSessions(weeks)) {
+    if (session.archived_at) continue;
+    n += 1;
+    const place = places.get(week.id);
+    if (place) place.to = n;
+    else places.set(week.id, { from: n, to: n });
+  }
+  return places;
+}
 
 /**
  * Shared dialog for copying a week or session to another student's program —
@@ -65,8 +82,23 @@ function CopyForm({
   // select then shows its placeholder: Copy must not send what is not shown.
   const programId = (destPrograms || []).some((p) => p.id === copyProgramId) ? copyProgramId : '';
   const { data: destProgram } = useProgram(programId || undefined);
-  const destWeeks = destProgram?.weeks || [];
+  const destWeeks = useMemo(() => destProgram?.weeks || [], [destProgram]);
   const weekId = programId && destWeeks.some((w) => w.id === copyWeekId) ? copyWeekId : '';
+  const places = useMemo(() => placesByPhase(destWeeks), [destWeeks]);
+
+  // A phase as the sheet names it — never "Week 3": a phase is a free-text
+  // name, and an unnamed one is drawn as such (review item B28). The sessions
+  // it holds tell two phases of the same name apart.
+  function phaseOption(week) {
+    const name = week.label || t('coach.sheet.unnamedPhase');
+    const place = places.get(week.id);
+    const holds = !place
+      ? t('coach.week.noSessions')
+      : place.from === place.to
+        ? t('coach.week.sessionN', { n: place.from })
+        : t('coachReviewComposerRoster.copy.sessionRange', { from: place.from, to: place.to });
+    return `${name} · ${holds}`;
+  }
 
   function handleCopy() {
     if (showWeekSelect && !weekId) return;
@@ -162,8 +194,7 @@ function CopyForm({
             </option>
             {destWeeks.map((w) => (
               <option key={w.id} value={w.id}>
-                {t('coach.copy.weekOption', { n: w.week_number })}
-                {w.label ? t('coach.copy.weekLabelSuffix', { label: w.label }) : ''}
+                {phaseOption(w)}
               </option>
             ))}
           </select>

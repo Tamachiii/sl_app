@@ -43,8 +43,13 @@ beforeEach(() => {
     'p-2': {
       id: 'p-2',
       weeks: [
-        { id: 'w-2', week_number: 1, label: 'Volume' },
-        { id: 'w-3', week_number: 2, label: null },
+        {
+          id: 'w-2',
+          week_number: 1,
+          label: 'Volume',
+          sessions: [{ id: 's-1', sort_order: 0, archived_at: null }, { id: 's-2', sort_order: 1, archived_at: null }],
+        },
+        { id: 'w-3', week_number: 2, label: null, sessions: [{ id: 's-3', sort_order: 0, archived_at: null }] },
       ],
     },
     'p-3': { id: 'p-3', weeks: [] },
@@ -98,7 +103,7 @@ describe('CopyDialog', () => {
 
     await user.selectOptions(block(), 'p-2');
     expect(phase()).toBeEnabled();
-    expect(options(phase())).toEqual(['Select week…', 'Week 1 — Volume', 'Week 2']);
+    expect(options(phase())).toEqual(['Select week…', 'Volume · Sessions 1–2', 'Unnamed phase · Session 3']);
     expect(copyButton()).toBeDisabled();
 
     await user.selectOptions(phase(), 'w-3');
@@ -221,6 +226,44 @@ describe('CopyDialog', () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onCopy).not.toHaveBeenCalled();
+  });
+
+  // Review item B28: a phase is a free-text name, never "Week 3", and an
+  // unnamed one is drawn as the sheet draws it. What it holds tells two
+  // phases of the same name apart.
+  it('names each phase as the sheet does, with the places its sessions hold in the block', async () => {
+    const user = userEvent.setup();
+    const live = (id, sort_order) => ({ id, sort_order, archived_at: null });
+    blocks = {
+      ...blocks,
+      'p-2': {
+        id: 'p-2',
+        weeks: [
+          { id: 'w-a', week_number: 1, label: null, sessions: [live('a2', 1), live('a1', 0)] },
+          {
+            id: 'w-b',
+            week_number: 2,
+            label: null,
+            // The archived session holds no place.
+            sessions: [live('b1', 0), { id: 'b2', sort_order: 1, archived_at: '2026-04-01T00:00:00Z' }, live('b3', 2)],
+          },
+          { id: 'w-c', week_number: 3, label: 'Deload', sessions: [] },
+          { id: 'w-d', week_number: 4, label: 'Peak', sessions: [live('d1', 0)] },
+        ],
+      },
+    };
+    renderDialog({ showWeekSelect: true });
+    await user.selectOptions(athlete(), 'st-2');
+    await user.selectOptions(block(), 'p-2');
+
+    expect(options(phase())).toEqual([
+      'Select week…',
+      'Unnamed phase · Sessions 1–2',
+      'Unnamed phase · Sessions 3–4',
+      'Deload · No sessions yet',
+      'Peak · Session 5',
+    ]);
+    expect(options(phase()).join(' ')).not.toMatch(/Week \d/);
   });
 
   // What a refused copy is followed by: the lists are read again, and the
