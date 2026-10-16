@@ -22,5 +22,8 @@ export default {
     copy: {
       sessionRange: 'Sessions {from}–{to}',
     },
+    archive: {
+      done: 'Session archived',
+    },
   },
 };

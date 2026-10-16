@@ -22,5 +22,8 @@ export default {
     copy: {
       sessionRange: 'Einheiten {from}–{to}',
     },
+    archive: {
+      done: 'Einheit archiviert',
+    },
   },
 };

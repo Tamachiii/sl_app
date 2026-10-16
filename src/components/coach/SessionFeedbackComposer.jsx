@@ -146,7 +146,7 @@ export default function SessionFeedbackComposer({
           <button
             type="button"
             onClick={finish}
-            className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200"
+            className="sl-pill sl-pill-btn bg-ink-100 text-ink-700 hover:bg-ink-200"
           >
             {t('feedback.backToSessions')}
           </button>
@@ -197,7 +197,7 @@ export default function SessionFeedbackComposer({
             type="button"
             onClick={handleFinishWithoutFeedback}
             disabled={!isOnline}
-            className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 disabled:opacity-50"
+            className="sl-pill sl-pill-btn bg-ink-100 text-ink-700 hover:bg-ink-200 disabled:opacity-50"
           >
             {t('feedback.finishWithoutFeedback')}
           </button>

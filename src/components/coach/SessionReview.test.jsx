@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 let mockSessionData = { data: null, isLoading: false };
@@ -98,6 +98,7 @@ vi.mock('../../hooks/useMessages', () => ({
 
 import SessionReview from './SessionReview';
 import { I18nProvider } from '../../hooks/useI18n';
+import { dismissToast, getToasts } from '../../lib/toast';
 
 // `entry` is the history entry the review is opened from: a path, or
 // `{ pathname, state }` when the opener said where to come back to.
@@ -423,9 +424,62 @@ describe('<SessionReview />', () => {
     };
     renderReview();
     fireEvent.click(screen.getByText('archive'));
-    expect(mockArchive.mutate).toHaveBeenCalledWith({
+    expect(mockArchive.mutate).toHaveBeenCalledTimes(1);
+    expect(mockArchive.mutate.mock.calls[0][0]).toEqual({
       sessionId: 'sess-1',
       archived: true,
+    });
+  });
+
+  // Live finding N14: a 69×23 pill that archived on one tap, with nothing to
+  // say it had, nor a way back but finding the session again.
+  describe('archiving from the review', () => {
+    beforeEach(() => {
+      for (const toast of getToasts()) dismissToast(toast.id);
+    });
+
+    it('is a 44px button, like the way into the editor', () => {
+      mockSessionData = {
+        data: { id: 'sess-1', title: 'Push', archived_at: null, exercise_slots: [] },
+        isLoading: false,
+      };
+      renderReview();
+      expect(screen.getByRole('button', { name: 'archive' })).toHaveClass('sl-pill', 'sl-pill-btn');
+      expect(screen.getByRole('link', { name: /editor/i })).toHaveClass('sl-pill', 'sl-pill-btn');
+    });
+
+    it('says the session was archived once it is, and Undo restores it', () => {
+      mockSessionData = {
+        data: { id: 'sess-1', title: 'Push', archived_at: null, exercise_slots: [] },
+        isLoading: false,
+      };
+      renderReview();
+      fireEvent.click(screen.getByRole('button', { name: 'archive' }));
+      // Nothing is said before the database has answered.
+      expect(getToasts()).toEqual([]);
+
+      act(() => mockArchive.mutate.mock.calls[0][1].onSuccess());
+      const [toast] = getToasts();
+      expect(toast).toMatchObject({
+        kind: 'info',
+        message: 'Session archived',
+        action: { label: 'uiSharedHelpers.undo' },
+      });
+
+      toast.action.onClick();
+      expect(mockArchive.mutate).toHaveBeenCalledTimes(2);
+      expect(mockArchive.mutate.mock.calls[1][0]).toEqual({ sessionId: 'sess-1', archived: false });
+    });
+
+    it('restores an archived session with no toast', () => {
+      mockSessionData = {
+        data: { id: 'sess-1', title: 'Push', archived_at: '2026-04-22T10:00:00Z', exercise_slots: [] },
+        isLoading: false,
+      };
+      renderReview();
+      fireEvent.click(screen.getByRole('button', { name: 'unarchive' }));
+      expect(mockArchive.mutate).toHaveBeenCalledWith({ sessionId: 'sess-1', archived: false });
+      expect(getToasts()).toEqual([]);
     });
   });
 

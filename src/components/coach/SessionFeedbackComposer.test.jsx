@@ -196,6 +196,18 @@ describe('<SessionFeedbackComposer />', () => {
     expect(localStorage.getItem(KEY_A)).toBe('Brace harder');
   });
 
+  // Live finding N14's neighbours: the two pills of the composer are buttons
+  // a thumb has to hit.
+  it('draws its pills as 44px buttons', () => {
+    render(composer());
+    expect(finishButton()).toHaveClass('sl-pill', 'sl-pill-btn');
+
+    type('Brace harder');
+    fireEvent.click(screen.getByRole('button', { name: 'Send feedback' }));
+    act(() => mockSend.mutate.mock.calls[0][1].onSuccess());
+    expect(screen.getByRole('button', { name: 'Back to sessions' })).toHaveClass('sl-pill', 'sl-pill-btn');
+  });
+
   // A private window, a full or refused storage: the coach still types and
   // sends, the draft is only not kept.
   it('keeps working when the device storage throws', () => {

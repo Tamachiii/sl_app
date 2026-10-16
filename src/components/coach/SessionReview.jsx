@@ -50,6 +50,7 @@ import { readState } from '../../lib/readState';
 import { clearFeedbackDraft } from '../../lib/feedbackDraft';
 import { performedDate } from '../../lib/day';
 import { formatDate } from '../../lib/i18n/format';
+import { pushToast } from '../../lib/toast';
 import {
   formatRestSeconds,
   groupSlotsBySuperset,
@@ -218,6 +219,31 @@ function SessionReviewPage() {
   const isArchived = !!session?.archived_at;
   const [playing, setPlaying] = useState(null);
 
+  // One tap archives, and the session leaves the feed's lists: what was a
+  // 69×23 pill next to "editor" is a 44px button now, and the archive says
+  // so with a way back (live finding N14). Restoring is the same button, and
+  // needs neither.
+  function toggleArchived() {
+    if (isArchived) {
+      archiveSession.mutate({ sessionId, archived: false });
+      return;
+    }
+    archiveSession.mutate(
+      { sessionId, archived: true },
+      {
+        onSuccess: () => {
+          pushToast(t('coachReviewComposerRoster.archive.done'), {
+            kind: 'info',
+            action: {
+              label: 'uiSharedHelpers.undo',
+              onClick: () => archiveSession.mutate({ sessionId, archived: false }),
+            },
+          });
+        },
+      },
+    );
+  }
+
   // A read that got no answer is not a session: rendered as one, it was a
   // review titled "Session" with nothing in it and a live feedback form
   // (review items P49, L11).
@@ -287,14 +313,15 @@ function SessionReviewPage() {
           onClick={forgetReview}
           aria-label={t('coachLoggedHistory.review.openEditorAria')}
           title={t('coachLoggedHistory.review.openEditorAria')}
-          className="sl-pill shrink-0 bg-ink-100 text-ink-700 hover:bg-ink-200"
+          className="sl-pill sl-pill-btn shrink-0 bg-ink-100 text-ink-700 hover:bg-ink-200"
         >
           {t('coachLoggedHistory.review.openEditor')}
         </Link>
         <button
-          onClick={() => archiveSession.mutate({ sessionId, archived: !isArchived })}
+          type="button"
+          onClick={toggleArchived}
           disabled={archiveSession.isPending}
-          className={`sl-pill shrink-0 disabled:opacity-50 ${
+          className={`sl-pill sl-pill-btn shrink-0 disabled:opacity-50 ${
             isArchived ? 'text-ink-900' : 'bg-ink-100 text-ink-700 hover:bg-ink-200'
           }`}
           style={
