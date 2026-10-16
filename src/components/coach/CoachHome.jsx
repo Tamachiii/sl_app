@@ -5,7 +5,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { useStudents } from '../../hooks/useStudents';
 import { useCoachDashboardPrograms } from '../../hooks/useProgram';
-import { useAllConfirmations } from '../../hooks/useSessionConfirmation';
+import { useReviewCounts } from '../../hooks/useSessionConfirmation';
 import { useClientErrors } from '../../hooks/useClientErrors';
 import { buildRoster } from '../../lib/coachRoster';
 import { readState } from '../../lib/readState';
@@ -223,7 +223,9 @@ function RosterStatusNotice({ state, onRetry, retrying, t }) {
 
 function RosterView({ students, online, restoring, t }) {
   const summaryRead = useCoachDashboardPrograms();
-  const confirmationsRead = useAllConfirmations();
+  // How many sessions wait for a review, per athlete — counted by the
+  // database, or from the inbox alone: the chips need no history.
+  const countsRead = useReviewCounts();
   const { data: clientErrors } = useClientErrors();
   const [query, setQuery] = useState('');
 
@@ -231,14 +233,14 @@ function RosterView({ students, online, restoring, t }) {
   // has not answered is null — unknown, never "nobody has a program" (review
   // items P48, N16) — and data, however old, wins over a refresh that failed.
   // The app-errors list is not part of it: it flags no athlete.
-  const statusState = readState([summaryRead, confirmationsRead], { online, restoring });
+  const statusState = readState([summaryRead, countsRead], { online, restoring });
   const summary = summaryRead.data ?? null;
-  const confirmations = confirmationsRead.data ?? null;
-  const missingReads = [summaryRead, confirmationsRead].filter((read) => read.data == null);
+  const reviewCounts = countsRead.data ?? null;
+  const missingReads = [summaryRead, countsRead].filter((read) => read.data == null);
 
   const roster = useMemo(
-    () => buildRoster({ students, summary, confirmations }),
-    [students, summary, confirmations],
+    () => buildRoster({ students, summary, reviewCounts }),
+    [students, summary, reviewCounts],
   );
 
   const filtered = useMemo(() => {

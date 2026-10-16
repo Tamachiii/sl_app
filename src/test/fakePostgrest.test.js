@@ -29,6 +29,47 @@ describe('fakePostgrest', () => {
     expect(down.data.map((r) => r.n)).toEqual([2, 1, 0]);
   });
 
+  // An offset page: `.range(from, to)` is `offset=from&limit=to-from+1`, cut by
+  // max rows like any other request.
+  it('skips and cuts a range, after the sort, and never past max rows', async () => {
+    const db = fakePostgrest({ set_logs: rowsOf(1352).reverse() });
+    const { data } = await db.from('set_logs').select('id, n').order('id', { ascending: true }).range(30, 59);
+    expect(data.map((r) => r.n)).toEqual(Array.from({ length: 30 }, (_, i) => 30 + i));
+    expect(db.requests[0].range).toEqual({ from: 30, to: 59 });
+
+    const end = await db.from('set_logs').select('id').order('id').range(1340, 1369);
+    expect(end.data).toHaveLength(12);
+    expect((await db.from('set_logs').select('id').range(0, 1999)).data).toHaveLength(1000);
+  });
+
+  // `order=confirmed_at.desc,id.desc`: the first key decides, the next breaks
+  // its ties.
+  it('sorts by every order, the first one first', async () => {
+    const db = fakePostgrest({
+      t: [
+        { id: 'a', at: 1 },
+        { id: 'c', at: 2 },
+        { id: 'b', at: 2 },
+        { id: 'd', at: 1 },
+      ],
+    });
+    const { data } = await db.from('t').select('id, at').order('at', { ascending: false }).order('id', { ascending: false });
+    expect(data.map((r) => r.id)).toEqual(['c', 'b', 'd', 'a']);
+    expect(db.requests[0].orders).toEqual([
+      { column: 'at', ascending: false },
+      { column: 'id', ascending: false },
+    ]);
+  });
+
+  it('records every argument of a filter, the three of .not() included', async () => {
+    const db = fakePostgrest({ t: [] });
+    await db.from('t').select('id').not('session.archived_at', 'is', null).eq('a', 1);
+    expect(db.requests[0].filters).toEqual([
+      ['not', 'session.archived_at', 'is', null],
+      ['eq', 'a', 1],
+    ]);
+  });
+
   it('records the other filters without applying them', async () => {
     const db = fakePostgrest({ set_logs: [{ id: 'a', done: false }] });
     const { data } = await db.from('set_logs').select('id, done').eq('done', true).is('x.deleted_at', null);

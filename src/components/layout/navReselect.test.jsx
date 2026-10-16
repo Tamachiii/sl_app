@@ -22,7 +22,10 @@ vi.mock('../../hooks/useProgram', () => ({
   useCoachSessionPositions: () => ({ data: undefined }),
 }));
 vi.mock('../../hooks/useSessionConfirmation', () => ({
-  useAllConfirmations: () => ({ data: [], isLoading: false }),
+  useReviewInbox: () => ({ data: [], isLoading: false, isSuccess: true, fetchStatus: 'idle' }),
+  useConfirmationTotals: () => ({ data: { active: 0, archived: 0 }, isLoading: false }),
+  useConfirmationHistory: () => ({ data: undefined, isLoading: false, fetchStatus: 'idle' }),
+  useReviewCounts: () => ({ data: {} }),
 }));
 vi.mock('../../hooks/useClientErrors', () => ({
   useClientErrors: () => ({ data: [] }),

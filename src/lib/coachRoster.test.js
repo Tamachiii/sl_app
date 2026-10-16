@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildRoster } from './coachRoster';
+import { buildRoster, reviewCountsByStudent } from './coachRoster';
 
 const student = (id, name) => ({ id, profile: { full_name: name } });
 
@@ -39,7 +39,9 @@ describe('buildRoster', () => {
     { student_id: 's1', reviewed_at: null, archived_at: '2026-01-01' }, // archived → ignored
   ];
 
-  const roster = buildRoster({ students, summary, confirmations });
+  // What useReviewCounts holds: `{ [students.id]: n }`.
+  const reviewCounts = reviewCountsByStudent(confirmations);
+  const roster = buildRoster({ students, summary, reviewCounts });
   const byId = Object.fromEntries(roster.map((e) => [e.student.id, e]));
 
   it('orders attention-first (noProgram > toReview > stale), then calm A–Z', () => {
@@ -50,6 +52,12 @@ describe('buildRoster', () => {
     expect(byId.s2.chips).toEqual([{ kind: 'noProgram' }]);
     expect(byId.s2.hasAttention).toBe(true);
     expect(byId.s2.programName).toBeNull();
+  });
+
+  it('counts per athlete the confirmations neither reviewed nor archived', () => {
+    expect(reviewCounts).toEqual({ s3: 2 });
+    expect(reviewCountsByStudent([])).toEqual({});
+    expect(reviewCountsByStudent([{ student_id: null, reviewed_at: null, archived_at: null }])).toEqual({});
   });
 
   it('counts sessions awaiting review, ignoring reviewed/archived confirmations', () => {
@@ -86,7 +94,7 @@ describe('buildRoster', () => {
     const combined = buildRoster({
       students: [student('x', 'Zoe')],
       summary: {},
-      confirmations: [{ student_id: 'x', reviewed_at: null, archived_at: null }],
+      reviewCounts: { x: 1 },
     });
     expect(combined[0].chips.map((c) => c.kind)).toEqual(['noProgram', 'toReview']);
     expect(combined[0].priority).toBe(3);
@@ -98,7 +106,7 @@ describe('buildRoster', () => {
   describe('a read that has not answered', () => {
     it('invents no chip when neither read is known', () => {
       for (const unknown of [null, undefined]) {
-        const bare = buildRoster({ students, summary: unknown, confirmations: unknown });
+        const bare = buildRoster({ students, summary: unknown, reviewCounts: unknown });
         expect(bare.map((e) => e.chips)).toEqual([[], [], [], [], []]);
         expect(bare.every((e) => !e.hasAttention && e.priority === 0)).toBe(true);
         expect(bare.map((e) => e.fullName)).toEqual(['Alice', 'Bob', 'Cara', 'Dan', 'Eve']);
@@ -109,8 +117,8 @@ describe('buildRoster', () => {
       }
     });
 
-    it('still flags what the summary says when the confirmations are unknown', () => {
-      const partial = buildRoster({ students, summary, confirmations: null });
+    it('still flags what the summary says when the counts are unknown', () => {
+      const partial = buildRoster({ students, summary, reviewCounts: null });
       const of = Object.fromEntries(partial.map((e) => [e.student.id, e]));
       expect(of.s2.chips).toEqual([{ kind: 'noProgram' }]);
       expect(of.s4.chips).toEqual([{ kind: 'stale', days: 14 }]);
@@ -121,7 +129,7 @@ describe('buildRoster', () => {
     });
 
     it('still counts the reviews when the summary is unknown, and says nothing about programs', () => {
-      const partial = buildRoster({ students, summary: null, confirmations });
+      const partial = buildRoster({ students, summary: null, reviewCounts });
       const of = Object.fromEntries(partial.map((e) => [e.student.id, e]));
       expect(of.s3.chips).toEqual([{ kind: 'toReview', n: 2 }]);
       // Bob is not known to be without a program, nor Dan to be quiet.
@@ -131,7 +139,7 @@ describe('buildRoster', () => {
     });
 
     it('reads an empty summary as an answer: nobody has an active program', () => {
-      const answered = buildRoster({ students: [student('s1', 'Alice')], summary: {}, confirmations: [] });
+      const answered = buildRoster({ students: [student('s1', 'Alice')], summary: {}, reviewCounts: {} });
       expect(answered[0].chips).toEqual([{ kind: 'noProgram' }]);
     });
   });

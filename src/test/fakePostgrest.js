@@ -16,11 +16,14 @@
 //   expect(db.requestsTo('set_logs')).toHaveLength(2);
 //
 // What it does with a request:
-//   - `.order(column)` sorts, `.gt()` / `.lt()` on a column of the row filter,
-//     `.limit(n)` and `maxRows` cut — the three things paging depends on;
-//   - every other filter (`.eq`, `.is`, `.in`, `.neq`, …) is RECORDED, not
-//     applied: the fixture is taken to be what the WHERE clause lets through,
-//     and a test asserts the filter on `request.filters`;
+//   - `.order(column)` sorts — several calls sort by the first, then the next,
+//     as PostgREST does —, `.gt()` / `.lt()` on a column of the row filter,
+//     `.range(from, to)` skips and cuts, `.limit(n)` and `maxRows` cut — the
+//     things paging depends on;
+//   - every other filter (`.eq`, `.is`, `.in`, `.neq`, `.not`, …) is RECORDED
+//     with every argument it was given, not applied: the fixture is taken to
+//     be what the WHERE clause lets through, and a test asserts the filter on
+//     `request.filters` (or a table function applies it);
 //   - `.maybeSingle()` resolves to the first row or null; `.single()` to the
 //     row when there is exactly one, and to a PGRST116 error otherwise;
 //   - `select(…, { head: true })` resolves to `{ count }` with no rows, the
@@ -29,6 +32,8 @@
 //
 // Each awaited request is pushed to `requests` as
 //   { table, select, options, filters: [[op, column, value], …], order, limit }
+// plus `orders` (every `.order()`, in the order they were called; `order` is
+// the last of them) and `range` ({ from, to }) when the request has them.
 
 const compare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
@@ -50,14 +55,21 @@ export function fakePostgrest(tables, { maxRows = 1000 } = {}) {
       if (request.options?.head) {
         return { data: null, count: response.count ?? rows.length, error: null };
       }
-      if (request.order) {
-        const { column, ascending } = request.order;
-        rows.sort((a, b) => (ascending ? 1 : -1) * compare(a[column], b[column]));
+      const orders = request.orders || [];
+      if (orders.length) {
+        rows.sort((a, b) => {
+          for (const { column, ascending } of orders) {
+            const order = compare(a[column], b[column]);
+            if (order !== 0) return ascending ? order : -order;
+          }
+          return 0;
+        });
       }
       for (const [op, column, value] of request.filters) {
         if (op === 'gt') rows = rows.filter((r) => compare(r[column], value) > 0);
         if (op === 'lt') rows = rows.filter((r) => compare(r[column], value) < 0);
       }
+      if (request.range) rows = rows.slice(request.range.from, request.range.to + 1);
       rows = rows.slice(0, Math.min(request.limit ?? Infinity, maxRows));
       return { data: rows, count: response.count ?? null, error: null };
     };
@@ -75,6 +87,11 @@ export function fakePostgrest(tables, { maxRows = 1000 } = {}) {
       },
       order(column, { ascending = true } = {}) {
         request.order = { column, ascending };
+        request.orders = [...(request.orders || []), request.order];
+        return builder;
+      },
+      range(from, to) {
+        request.range = { from, to };
         return builder;
       },
       limit(n) {
@@ -97,8 +114,9 @@ export function fakePostgrest(tables, { maxRows = 1000 } = {}) {
       then: (resolve, reject) => settle().then(resolve, reject),
     };
     for (const op of RECORDED_FILTERS) {
-      builder[op] = (column, value) => {
-        request.filters.push([op, column, value]);
+      // `.not(column, operator, value)` takes three: every argument is kept.
+      builder[op] = (...args) => {
+        request.filters.push([op, ...args]);
         return builder;
       };
     }

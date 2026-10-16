@@ -26,6 +26,7 @@ describe('fetchAllRows', () => {
         // The caller's filter is kept; the helper adds no cursor to page one.
         filters: [['eq', 'done', true]],
         order: { column: 'id', ascending: true },
+        orders: [{ column: 'id', ascending: true }],
         limit: PAGE_SIZE,
       },
     ]);

@@ -4,7 +4,7 @@ import { MemoryRouter, Routes, Route, Navigate, useLocation, useOutletContext } 
 
 let mockStudentsData = { data: null, isLoading: false };
 let mockSummary = { data: {} };
-let mockConfirmations = { data: [] };
+let mockReviewCounts = { data: {} };
 let mockClientErrors = { data: [] };
 
 vi.mock('../../hooks/useStudents', () => ({
@@ -16,7 +16,7 @@ vi.mock('../../hooks/useProgram', () => ({
 }));
 
 vi.mock('../../hooks/useSessionConfirmation', () => ({
-  useAllConfirmations: () => mockConfirmations,
+  useReviewCounts: () => mockReviewCounts,
 }));
 
 vi.mock('../../hooks/useClientErrors', () => ({
@@ -85,7 +85,7 @@ describe('CoachHome', () => {
     sessionStorage.clear();
     mockStudentsData = { data: null, isLoading: false };
     mockSummary = { data: {} };
-    mockConfirmations = { data: [] };
+    mockReviewCounts = { data: {} };
     mockClientErrors = { data: [] };
   });
 
@@ -152,12 +152,8 @@ describe('CoachHome', () => {
           // s2 absent → no active program.
         },
       };
-      mockConfirmations = {
-        data: [
-          { student_id: 's3', reviewed_at: null, archived_at: null },
-          { student_id: 's3', reviewed_at: null, archived_at: null },
-        ],
-      };
+      // What useReviewCounts holds: sessions to review per `students.id`.
+      mockReviewCounts = { data: { s3: 2 } };
     });
 
     it('renders a card link per athlete', () => {
@@ -233,7 +229,7 @@ describe('CoachHome', () => {
     // re-sorted when the answer landed.
     describe('while the athletes\u2019 status is not known', () => {
       const refetchSummary = vi.fn();
-      const refetchConfirmations = vi.fn();
+      const refetchCounts = vi.fn();
       const loadingRead = (refetch) => ({
         data: undefined, isLoading: true, isError: false, isPaused: false, fetchStatus: 'fetching', isFetching: true, refetch,
       });
@@ -248,12 +244,12 @@ describe('CoachHome', () => {
 
       beforeEach(() => {
         refetchSummary.mockReset();
-        refetchConfirmations.mockReset();
+        refetchCounts.mockReset();
       });
 
       it('draws one placeholder per athlete while the reads are on their way, and nothing to tap', () => {
         mockSummary = loadingRead(refetchSummary);
-        mockConfirmations = loadingRead(refetchConfirmations);
+        mockReviewCounts = loadingRead(refetchCounts);
         renderCoachHome();
 
         const placeholder = screen.getByRole('status', { name: /loading your athletes/i });
@@ -266,7 +262,7 @@ describe('CoachHome', () => {
       });
 
       it('waits for both reads before it draws the cards', () => {
-        mockConfirmations = loadingRead(refetchConfirmations);
+        mockReviewCounts = loadingRead(refetchCounts);
         renderCoachHome();
         expect(cardNames()).toEqual([]);
         expect(screen.getByRole('status', { name: /loading your athletes/i })).toBeInTheDocument();
@@ -274,7 +270,7 @@ describe('CoachHome', () => {
 
       it('says the summary could not be read, invents no chip, and asks again on Retry', () => {
         mockSummary = failedRead(refetchSummary);
-        mockConfirmations = { data: [] };
+        mockReviewCounts = { data: {} };
         renderCoachHome();
 
         expect(screen.getByText('Athlete status couldn’t be loaded')).toBeInTheDocument();
@@ -285,7 +281,7 @@ describe('CoachHome', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
         expect(refetchSummary).toHaveBeenCalledWith({ cancelRefetch: false });
-        expect(refetchConfirmations).not.toHaveBeenCalled();
+        expect(refetchCounts).not.toHaveBeenCalled();
       });
 
       it('keeps the review chips it knows when only the summary failed', () => {
@@ -297,20 +293,20 @@ describe('CoachHome', () => {
       });
 
       it('shows no "to review" chip it could not count, and keeps what the summary says', () => {
-        mockConfirmations = failedRead(refetchConfirmations);
+        mockReviewCounts = failedRead(refetchCounts);
         renderCoachHome();
 
         expect(screen.getByText('Athlete status couldn’t be loaded')).toBeInTheDocument();
         expect(screen.queryByText(/^\d+ to review$/i)).toBeNull();
         expect(screen.getByText(/no program/i)).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
-        expect(refetchConfirmations).toHaveBeenCalledWith({ cancelRefetch: false });
+        expect(refetchCounts).toHaveBeenCalledWith({ cancelRefetch: false });
         expect(refetchSummary).not.toHaveBeenCalled();
       });
 
       it('asks both reads again when both failed', () => {
         mockSummary = failedRead(refetchSummary);
-        mockConfirmations = failedRead(refetchConfirmations);
+        mockReviewCounts = failedRead(refetchCounts);
         renderCoachHome();
 
         expect(screen.queryByText(/no program/i)).toBeNull();
@@ -318,7 +314,7 @@ describe('CoachHome', () => {
         expect(cardNames()).toEqual(['Open Alice', 'Open Bob', 'Open Cara']);
         fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
         expect(refetchSummary).toHaveBeenCalledWith({ cancelRefetch: false });
-        expect(refetchConfirmations).toHaveBeenCalledWith({ cancelRefetch: false });
+        expect(refetchCounts).toHaveBeenCalledWith({ cancelRefetch: false });
       });
 
       it('says the status waits for the network when a read is paused', () => {

@@ -1,13 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-vi.mock('../lib/supabase', () => ({ supabase: { from: vi.fn() } }));
+vi.mock('../lib/supabase', () => ({ supabase: { from: vi.fn(), rpc: vi.fn() } }));
 vi.mock('./useAuth', () => ({ useAuth: vi.fn() }));
 
 import {
+  HISTORY_PAGE_SIZE,
   useSessionConfirmation,
-  useAllConfirmations,
+  useReviewInbox,
+  useReviewCounts,
+  useConfirmationTotals,
+  useConfirmationHistory,
   useMyConfirmedSessionIds,
   useWeekConfirmedSessionIds,
   useConfirmSession,
@@ -15,6 +19,7 @@ import {
 } from './useSessionConfirmation';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
+import { fakePostgrest } from '../test/fakePostgrest';
 
 function makeClient() {
   return new QueryClient({
@@ -114,156 +119,330 @@ describe('useSessionConfirmation', () => {
   });
 });
 
-describe('useAllConfirmations', () => {
-  it('fetches confirmations through the session→week→program→student join and flattens them', async () => {
-    // One embedded-join query, filtered through the join — no full-tree fetch,
-    // no .in(id-list). The embed nests session → week → program → student.
-    const confChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      is: vi.fn().mockReturnThis(),
-      order: vi.fn().mockResolvedValue({
-        data: [
-          {
-            id: 'c-1',
-            session_id: 's-1',
-            student_id: 'st-1',
-            confirmed_at: '2026-04-26',
-            notes: 'felt good',
-            session: {
-              title: 'Push',
-              day_number: 1,
-              archived_at: null,
-              reviewed_at: null,
-              week: {
-                week_number: 2,
-                label: 'Hyp',
-                program: {
-                  deleted_at: null,
-                  student: { id: 'st-1', profile: { full_name: 'Alex' } },
-                },
-              },
-            },
-          },
-        ],
-        error: null,
+// What RLS lets a coach read, as PostgREST would filter it: a filter is a path
+// into the embedded rows, and a row whose embed does not match is dropped —
+// which holds because every embed on the way is `!inner` (asserted apart).
+const at = (row, path) => path.split('.').reduce((node, key) => node?.[key], row);
+function where(rows) {
+  return (request) =>
+    rows.filter((row) =>
+      request.filters.every(([op, path, a, b]) => {
+        if (op === 'eq' || op === 'is') return at(row, path) === a;
+        if (op === 'not' && a === 'is') return at(row, path) !== b;
+        return true; // the keyset's gt/lt: applied by the fake itself
       }),
-    };
-    supabase.from.mockReturnValue(confChain);
+    );
+}
 
-    const qc = makeClient();
-    const { result } = renderHook(() => useAllConfirmations(), {
-      wrapper: withClient(qc),
-    });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    // Filtered through the join, ordered newest-first — never an .in() list.
-    expect(confChain.eq).toHaveBeenCalledWith('session.week.program.student.coach_id', 'user-1');
-    expect(confChain.is).toHaveBeenCalledWith('session.week.program.deleted_at', null);
-    expect(confChain.order).toHaveBeenCalledWith('confirmed_at', { ascending: false });
-    expect(supabase.from).toHaveBeenCalledWith('session_confirmations');
-    const rows = result.current.data;
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      session_id: 's-1',
-      student_id: 'st-1',
-      student_name: 'Alex',
-      session_title: 'Push',
-      week_number: 2,
-      week_label: 'Hyp',
-      notes: 'felt good',
-    });
-  });
-
-  it('returns [] when there are no confirmations', async () => {
-    const confChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      is: vi.fn().mockReturnThis(),
-      order: vi.fn().mockResolvedValue({ data: [], error: null }),
-    };
-    supabase.from.mockReturnValue(confChain);
-
-    const qc = makeClient();
-    const { result } = renderHook(() => useAllConfirmations(), {
-      wrapper: withClient(qc),
-    });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data).toEqual([]);
-  });
-
-  // The feed and the roster's "to review" chips are the sessions of the
-  // athletes this coach coaches, which is narrower than what RLS lets the
-  // account read. The filter sits four embeds deep, and an embedded filter
-  // only drops the confirmation when every embed on the way is `!inner`.
-  it('names the coach, through inner joins all the way to students', async () => {
-    const confChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      is: vi.fn().mockReturnThis(),
-      order: vi.fn().mockResolvedValue({ data: [], error: null }),
-    };
-    supabase.from.mockReturnValue(confChain);
-
-    const { result } = renderHook(() => useAllConfirmations(), {
-      wrapper: withClient(makeClient()),
-    });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(confChain.eq.mock.calls).toEqual([['session.week.program.student.coach_id', 'user-1']]);
-    const select = confChain.select.mock.calls[0][0].replace(/\s+/g, '');
-    expect(select).toContain('session:sessions!inner(');
-    expect(select).toContain('week:weeks!inner(');
-    expect(select).toContain('program:programs!inner(');
-    expect(select).toContain('student:students!inner(id,coach_id,');
-  });
-
-  it('leaves out a confirmation that belongs to another coach’s athlete', async () => {
-    const row = (id, coachId, name) => ({
-      id,
-      session_id: `s-${id}`,
-      student_id: `profile-${id}`,
-      confirmed_at: '2026-04-26',
-      performed_on: null,
-      notes: null,
-      session: {
-        title: 'Push',
-        day_number: 1,
-        archived_at: null,
-        reviewed_at: null,
-        week: {
-          week_number: 1,
-          label: null,
-          program: {
-            deleted_at: null,
-            student: { id: `st-${id}`, coach_id: coachId, profile: { full_name: name } },
-          },
+// One confirmation as the coach's select returns it.
+function confirmationRow({
+  n,
+  coach = 'user-1',
+  student = 'st-1',
+  name = 'Alex',
+  reviewed = false,
+  archived = false,
+  trashed = false,
+  confirmedAt,
+}) {
+  const id = `c-${String(n).padStart(5, '0')}`;
+  return {
+    id,
+    session_id: `s-${id}`,
+    student_id: `profile-${student}`,
+    confirmed_at: confirmedAt ?? new Date(Date.UTC(2026, 0, 1) + n * 3_600_000).toISOString(),
+    performed_on: null,
+    notes: null,
+    session: {
+      title: `Session ${n}`,
+      day_number: null,
+      archived_at: archived ? '2026-09-01T00:00:00Z' : null,
+      reviewed_at: reviewed ? '2026-09-01T00:00:00Z' : null,
+      week: {
+        week_number: 1,
+        label: 'Phase',
+        program: {
+          deleted_at: trashed ? '2026-09-01T00:00:00Z' : null,
+          student: { id: student, coach_id: coach, profile: { full_name: name } },
         },
       },
-    });
-    // What RLS lets user-1 read; the chain applies the request's filters to
-    // it, each path leading into the embedded rows.
-    const visible = [row('1', 'user-1', 'Alex'), row('2', 'coach-other', 'Not mine')];
-    const at = (r, path) => path.split('.').reduce((node, key) => node?.[key], r);
-    const filters = [];
-    const confChain = {
-      select: vi.fn(() => confChain),
-      eq: vi.fn((path, value) => {
-        filters.push((r) => at(r, path) === value);
-        return confChain;
-      }),
-      is: vi.fn((path, value) => {
-        filters.push((r) => at(r, path) === value);
-        return confChain;
-      }),
-      order: vi.fn(async () => ({ data: visible.filter((r) => filters.every((f) => f(r))), error: null })),
-    };
-    supabase.from.mockReturnValue(confChain);
+    },
+  };
+}
 
-    const { result } = renderHook(() => useAllConfirmations(), {
+const rowsOf = (count, overrides = {}, from = 0) =>
+  Array.from({ length: count }, (_, i) => confirmationRow({ n: from + i, ...overrides }));
+
+const oneLine = (text) => text.replace(/\s+/g, '');
+
+// The embeds every coach-wide read walks: drop one `!inner` and the filter on
+// `coach_id` answers 200 and filters nothing.
+function expectCoachChain(request) {
+  const select = oneLine(request.select);
+  expect(select).toContain('session:sessions!inner(');
+  expect(select).toContain('week:weeks!inner(');
+  expect(select).toContain('program:programs!inner(');
+  expect(select).toContain('student:students!inner(id,coach_id');
+  expect(request.filters).toContainEqual(['eq', 'session.week.program.student.coach_id', 'user-1']);
+  expect(request.filters).toContainEqual(['is', 'session.week.program.deleted_at', null]);
+}
+
+describe('useReviewInbox', () => {
+  it('reads the sessions neither reviewed nor archived, names the coach, and flattens them newest first', async () => {
+    const db = fakePostgrest({
+      session_confirmations: where([
+        confirmationRow({ n: 1 }),
+        confirmationRow({ n: 3, student: 'st-2', name: 'Bea' }),
+        confirmationRow({ n: 2, reviewed: true }),
+        confirmationRow({ n: 4, archived: true }),
+        confirmationRow({ n: 5, trashed: true }),
+      ]),
+    });
+    supabase.from.mockImplementation(db.from);
+
+    const { result } = renderHook(() => useReviewInbox(), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const [request] = db.requestsTo('session_confirmations');
+    expectCoachChain(request);
+    expect(request.filters).toContainEqual(['is', 'session.reviewed_at', null]);
+    expect(request.filters).toContainEqual(['is', 'session.archived_at', null]);
+    expect(result.current.data.map((c) => c.id)).toEqual(['c-00003', 'c-00001']);
+    expect(result.current.data[0]).toMatchObject({
+      session_id: 's-c-00003',
+      student_id: 'st-2',
+      student_name: 'Bea',
+      session_title: 'Session 3',
+      week_label: 'Phase',
+      reviewed_at: null,
+      archived_at: null,
+    });
+  });
+
+  // Review item L18: the feed read every confirmation of the coach in one
+  // request, newest first, and PostgREST stops at 1000 rows without a word. A
+  // session confirmed before the thousand newest that nobody had reviewed yet
+  // left the inbox, its athlete's chip and the tab's number.
+  it('keeps an old session still waiting for its review behind 1,300 newer confirmations', async () => {
+    const old = rowsOf(15, {}, 0);
+    const newer = rowsOf(1285, { reviewed: true }, 100);
+    const db = fakePostgrest({ session_confirmations: where([...newer, ...old]) });
+    supabase.from.mockImplementation(db.from);
+
+    const { result } = renderHook(() => useReviewInbox(), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toHaveLength(15);
+    expect(result.current.data.at(-1).id).toBe('c-00000');
+  });
+
+  it('reads a backlog past a thousand sessions to its end', async () => {
+    const db = fakePostgrest({ session_confirmations: where(rowsOf(1001)) });
+    supabase.from.mockImplementation(db.from);
+
+    const { result } = renderHook(() => useReviewInbox(), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toHaveLength(1001);
+    expect(db.requestsTo('session_confirmations')).toHaveLength(2);
+    expect(result.current.data[0].id).toBe('c-01000');
+  });
+
+  it('leaves out the sessions of another coach’s athletes, the coach’s own training included', async () => {
+    const db = fakePostgrest({
+      session_confirmations: where([
+        confirmationRow({ n: 1, name: 'Alex' }),
+        confirmationRow({ n: 2, coach: 'coach-other', student: 'st-self', name: 'Me, as an athlete' }),
+      ]),
+    });
+    supabase.from.mockImplementation(db.from);
+
+    const { result } = renderHook(() => useReviewInbox(), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data.map((c) => c.student_name)).toEqual(['Alex']);
+  });
+});
+
+describe('useReviewCounts', () => {
+  const data = [
+    ...rowsOf(3, { student: 'st-1' }, 0),
+    ...rowsOf(2, { student: 'st-2', name: 'Bea' }, 10),
+    ...rowsOf(4, { student: 'st-2', name: 'Bea', reviewed: true }, 20),
+    ...rowsOf(5, { student: 'st-3', name: 'Cy', archived: true }, 30),
+    ...rowsOf(2, { student: 'st-9', coach: 'coach-other' }, 40),
+  ];
+  // What coach_review_counts() answers on the same rows: the inbox's
+  // predicate, grouped by `students.id`.
+  const rpcRows = [
+    { student_id: 'st-1', to_review: 3 },
+    { student_id: 'st-2', to_review: 2 },
+  ];
+
+  it('asks the database to count, and reads no confirmation', async () => {
+    supabase.rpc.mockResolvedValue({ data: rpcRows, error: null });
+    const { result } = renderHook(() => useReviewCounts(), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(supabase.rpc).toHaveBeenCalledWith('coach_review_counts');
+    expect(supabase.from).not.toHaveBeenCalled();
+    expect(result.current.data).toEqual({ 'st-1': 3, 'st-2': 2 });
+  });
+
+  it('counts the inbox itself when the database has no such function, to the same numbers', async () => {
+    supabase.rpc.mockResolvedValue({ data: null, error: { code: 'PGRST202', message: 'Could not find the function' } });
+    const db = fakePostgrest({ session_confirmations: where(data) });
+    supabase.from.mockImplementation(db.from);
+
+    const qc = makeClient();
+    const { result } = renderHook(() => useReviewCounts(), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const fromRpc = Object.fromEntries(rpcRows.map((r) => [r.student_id, r.to_review]));
+    expect(result.current.data).toEqual(fromRpc);
+    // …through the inbox's own entry, which the feed then finds read.
+    expect(qc.getQueryData(['all-confirmations', 'inbox', 'user-1'])).toHaveLength(5);
+    expect(db.requestsTo('session_confirmations')).toHaveLength(1);
+  });
+
+  it('fails on any other error, and counts nothing', async () => {
+    supabase.rpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'permission denied' } });
+    const { result } = renderHook(() => useReviewCounts(), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.data).toBeUndefined();
+    expect(supabase.from).not.toHaveBeenCalled();
+  });
+
+  it('is dropped with the confirmations', async () => {
+    supabase.rpc.mockResolvedValue({ data: rpcRows, error: null });
+    const qc = makeClient();
+    const { result } = renderHook(() => useReviewCounts(), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.data).toEqual({ 'st-1': 3, 'st-2': 2 }));
+    supabase.rpc.mockResolvedValue({ data: [{ student_id: 'st-1', to_review: 2 }], error: null });
+    await qc.invalidateQueries({ queryKey: ['all-confirmations'] });
+    await waitFor(() => expect(result.current.data).toEqual({ 'st-1': 2 }));
+  });
+});
+
+describe('useConfirmationTotals', () => {
+  it('counts the active and the archived confirmations with two head requests', async () => {
+    const db = fakePostgrest({
+      session_confirmations: where([
+        ...rowsOf(4, {}, 0),
+        ...rowsOf(3, { reviewed: true }, 10),
+        ...rowsOf(2, { archived: true }, 20),
+        ...rowsOf(6, { coach: 'coach-other' }, 30),
+      ]),
+    });
+    supabase.from.mockImplementation(db.from);
+
+    const { result } = renderHook(() => useConfirmationTotals(''), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual({ active: 7, archived: 2 });
+
+    const requests = db.requestsTo('session_confirmations');
+    expect(requests).toHaveLength(2);
+    for (const request of requests) {
+      expect(request.options).toEqual({ count: 'exact', head: true });
+      expectCoachChain(request);
+    }
+    expect(requests[0].filters).toContainEqual(['is', 'session.archived_at', null]);
+    expect(requests[1].filters).toContainEqual(['not', 'session.archived_at', 'is', null]);
+  });
+
+  it('counts one athlete when the feed is filtered on one', async () => {
+    const db = fakePostgrest({
+      session_confirmations: where([...rowsOf(4, {}, 0), ...rowsOf(3, { student: 'st-2' }, 10)]),
+    });
+    supabase.from.mockImplementation(db.from);
+
+    const { result } = renderHook(() => useConfirmationTotals('st-2'), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual({ active: 3, archived: 0 });
+    expect(db.requests[0].filters).toContainEqual(['eq', 'session.week.program.student.id', 'st-2']);
+  });
+});
+
+describe('useConfirmationHistory', () => {
+  const PAGE = HISTORY_PAGE_SIZE;
+
+  it('reads one page, newest first, and the next one when asked', async () => {
+    const db = fakePostgrest({ session_confirmations: where(rowsOf(PAGE + 5)) });
+    supabase.from.mockImplementation(db.from);
+
+    const { result } = renderHook(() => useConfirmationHistory(), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    let [request] = db.requestsTo('session_confirmations');
+    expectCoachChain(request);
+    expect(request.filters).toContainEqual(['is', 'session.archived_at', null]);
+    expect(request.orders).toEqual([
+      { column: 'confirmed_at', ascending: false },
+      { column: 'id', ascending: false },
+    ]);
+    expect(request.range).toEqual({ from: 0, to: PAGE - 1 });
+    expect(result.current.data).toHaveLength(PAGE);
+    expect(result.current.data[0].id).toBe(`c-${String(PAGE + 4).padStart(5, '0')}`);
+    expect(result.current.hasNextPage).toBe(true);
+
+    await act(() => result.current.fetchNextPage());
+    await waitFor(() => expect(result.current.data).toHaveLength(PAGE + 5));
+    request = db.requestsTo('session_confirmations')[1];
+    expect(request.range).toEqual({ from: PAGE, to: 2 * PAGE - 1 });
+    // A short page is the last one.
+    expect(result.current.hasNextPage).toBe(false);
+    expect(result.current.data.at(-1).id).toBe('c-00000');
+  });
+
+  it('reads the archived sessions of one athlete', async () => {
+    const db = fakePostgrest({
+      session_confirmations: where([
+        ...rowsOf(3, { archived: true }, 0),
+        ...rowsOf(2, { archived: true, student: 'st-2' }, 10),
+        ...rowsOf(4, { student: 'st-2' }, 20),
+      ]),
+    });
+    supabase.from.mockImplementation(db.from);
+
+    const { result } = renderHook(() => useConfirmationHistory({ studentId: 'st-2', archived: true }), {
       wrapper: withClient(makeClient()),
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data.map((c) => c.student_name)).toEqual(['Alex']);
+    expect(result.current.data.map((c) => c.id)).toEqual(['c-00011', 'c-00010']);
+    expect(db.requests[0].filters).toContainEqual(['eq', 'session.week.program.student.id', 'st-2']);
+    expect(db.requests[0].filters).toContainEqual(['not', 'session.archived_at', 'is', null]);
+    expect(result.current.hasNextPage).toBe(false);
+  });
+
+  // An offset moves when a confirmation arrives between two pages: the last
+  // row of the first page comes back first on the second.
+  it('keeps a row read twice across pages once', async () => {
+    let rows = rowsOf(PAGE + 3);
+    const db = fakePostgrest({ session_confirmations: (request) => where(rows)(request) });
+    supabase.from.mockImplementation(db.from);
+
+    const { result } = renderHook(() => useConfirmationHistory(), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toHaveLength(PAGE);
+    rows = [...rows, confirmationRow({ n: 9999 })];
+    await act(() => result.current.fetchNextPage());
+    await waitFor(() => expect(db.requests).toHaveLength(2));
+    // The second page was c-00003 … c-00000: c-00003 is already there.
+    await waitFor(() => expect(result.current.data).toHaveLength(PAGE + 3));
+    const ids = result.current.data.map((c) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.at(-1)).toBe('c-00000');
+  });
+
+  it('sends nothing until the view that shows it is open', async () => {
+    const db = fakePostgrest({ session_confirmations: where(rowsOf(3)) });
+    supabase.from.mockImplementation(db.from);
+
+    const { result, rerender } = renderHook(({ enabled }) => useConfirmationHistory({ enabled }), {
+      wrapper: withClient(makeClient()),
+      initialProps: { enabled: false },
+    });
+    await waitFor(() => expect(result.current.fetchStatus).toBe('idle'));
+    expect(db.requests).toHaveLength(0);
+
+    rerender({ enabled: true });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toHaveLength(3);
   });
 });
 

@@ -1,12 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useIsRestoring } from '@tanstack/react-query';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
-import { useAllConfirmations } from '../../hooks/useSessionConfirmation';
+import {
+  useReviewInbox,
+  useConfirmationTotals,
+  useConfirmationHistory,
+} from '../../hooks/useSessionConfirmation';
 import { useCoachSessionPositions } from '../../hooks/useProgram';
+import { useStudents } from '../../hooks/useStudents';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { readState } from '../../lib/readState';
+import { CoachReadProblem } from './CoachPageState';
 import { performedDate } from '../../lib/day';
 import { formatDate } from '../../lib/i18n/format';
 import {
@@ -15,12 +24,61 @@ import {
   rememberLastCoachSessionsStudent,
 } from '../../hooks/useRememberCoachStudentsPath';
 
+// The pages of the history read so far, the button that reads the next one,
+// and what a read that failed says. `read` is a `useConfirmationHistory`.
+function HistoryList({ read, renderCard, t }) {
+  const online = useOnlineStatus();
+  const state = readState([read], { online, restoring: false });
+  if (state === 'loading') return <div className="flex justify-center py-6"><Spinner /></div>;
+  if (state !== 'ready') {
+    return (
+      <CoachReadProblem
+        compact
+        state={state}
+        onRetry={() => read.refetch({ cancelRefetch: false })}
+        retrying={read.isFetching}
+      />
+    );
+  }
+  return (
+    <>
+      <div className="space-y-3 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">{read.data.map(renderCard)}</div>
+      {read.isFetchNextPageError && (
+        <p role="status" className="text-center text-[13px] text-ink-400">
+          {t('coachListsScale.loadMoreFailed')}
+        </p>
+      )}
+      {read.hasNextPage && (
+        <div className="flex justify-center">
+          <button
+            type="button"
+            onClick={() => read.fetchNextPage()}
+            disabled={read.isFetchingNextPage}
+            className="sl-pill sl-pill-btn bg-ink-100 text-ink-700 hover:bg-ink-200 disabled:opacity-50"
+          >
+            {read.isFetchingNextPage ? t('coachListsScale.loadingMore') : t('coachListsScale.loadMore')}
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function SessionsFeed() {
   const { t, lang } = useI18n();
   const { profile, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const { data: confirmations, isLoading } = useAllConfirmations();
+  const online = useOnlineStatus();
+  const restoring = useIsRestoring();
+  // Every session that waits for a review, of every athlete, read in full:
+  // the inbox the feed opens on. The rest of the history is read a page at a
+  // time, and only when its view is open (below).
+  const inboxRead = useReviewInbox();
+  const inbox = inboxRead.data;
+  // The athletes of the filter are the coach's athletes — not the ones whose
+  // confirmations happened to be read.
+  const { data: students } = useStudents();
   // Where each session stands in its block. A read of its own that nothing
   // waits for: while it is missing, a card names the phase alone.
   const { data: positions } = useCoachSessionPositions();
@@ -70,28 +128,29 @@ export default function SessionsFeed() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const studentOptions = useMemo(() => {
-    const map = new Map();
-    for (const c of confirmations || []) {
-      if (c.student_id && !map.has(c.student_id)) {
-        map.set(c.student_id, c.student_name || 'Student');
-      }
-    }
-    return Array.from(map, ([id, name]) => ({ id, name })).sort((a, b) =>
-      a.name.localeCompare(b.name)
-    );
-  }, [confirmations]);
+  const studentOptions = useMemo(
+    () =>
+      (students || [])
+        .map((s) => ({ id: s.id, name: s.profile?.full_name || 'Student' }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [students],
+  );
 
-  const { active, archived } = useMemo(() => {
-    const a = [];
-    const b = [];
-    for (const c of confirmations || []) {
-      if (studentFilter && c.student_id !== studentFilter) continue;
-      (c.archived_at ? b : a).push(c);
-    }
-    return { active: a, archived: b };
-  }, [confirmations, studentFilter]);
-  const needsReview = useMemo(() => active.filter((c) => !c.reviewed_at), [active]);
+  const needsReview = useMemo(
+    () => (inbox || []).filter((c) => !studentFilter || c.student_id === studentFilter),
+    [inbox, studentFilter],
+  );
+
+  // How many confirmations there are besides the inbox, for this filter:
+  // counted by the database, never read. Unknown (null) while another
+  // athlete's numbers are read, or when the count failed — then no empty
+  // state that depends on it is claimed.
+  const totalsRead = useConfirmationTotals(studentFilter);
+  const totals = totalsRead.isPlaceholderData ? null : totalsRead.data ?? null;
+  // The inbox is part of the active sessions; the larger of the two numbers
+  // holds while the two reads disagree for a moment.
+  const activeCount = totals ? Math.max(totals.active, needsReview.length) : null;
+  const archivedCount = totals ? totals.archived : null;
 
   // The feed defaults to an inbox: only confirmations still awaiting review,
   // with "All" restoring the full history. One exception, for a coach who was
@@ -103,9 +162,14 @@ export default function SessionsFeed() {
   //
   // `viewChoice` is null until the coach picks a view, so the default can
   // still follow the data when it arrives after the first render.
+  //
+  // Not before the inbox has answered: "nothing to review" is only known then,
+  // and deciding earlier would send the history read for nothing.
   const [viewChoice, setViewChoice] = useState(null);
-  const showAll = viewChoice ?? (arrivedForStudent && needsReview.length === 0);
-  const visibleActive = showAll ? active : needsReview;
+  const showAll = viewChoice ?? (inbox != null && arrivedForStudent && needsReview.length === 0);
+  // "All": every session that is not archived, reviewed or not, newest first.
+  const historyRead = useConfirmationHistory({ studentId: studentFilter, enabled: showAll });
+  const archivedRead = useConfirmationHistory({ studentId: studentFilter, archived: true, enabled: showArchived });
   // Handed to the review so its back button returns to this feed AND this
   // filter; without it the athlete filter of a `?student=` arrival is lost.
   const here = location.pathname + location.search;
@@ -119,7 +183,8 @@ export default function SessionsFeed() {
     rememberLastCoachSessionsStudent(value);
   }
 
-  if (isLoading) {
+  const inboxState = readState([inboxRead], { online, restoring });
+  if (inboxState === 'loading' || (inboxState === 'ready' && totalsRead.isLoading)) {
     return <div className="flex justify-center py-12"><Spinner /></div>;
   }
 
@@ -223,7 +288,16 @@ export default function SessionsFeed() {
         </label>
       )}
 
-      {(active.length > 0 || archived.length > 0) && (
+      {(inboxState === 'offline' || inboxState === 'failed') && (
+        <CoachReadProblem
+          state={inboxState}
+          onRetry={() => inboxRead.refetch({ cancelRefetch: false })}
+          retrying={inboxRead.isFetching}
+        />
+      )}
+
+      {/* Unknown numbers keep the controls: the history can still be asked for. */}
+      {(needsReview.length > 0 || activeCount !== 0 || archivedCount !== 0) && (
         <div
           className="flex items-center gap-1.5"
           role="group"
@@ -253,32 +327,35 @@ export default function SessionsFeed() {
         </div>
       )}
 
-      {active.length === 0 && archived.length === 0 && (
+      {inbox != null && activeCount === 0 && archivedCount === 0 && (
         <EmptyState message={studentFilter ? t('coach.sessions.noneForStudent') : t('coach.sessions.noneYet')} />
       )}
-      {active.length === 0 && archived.length > 0 && !showArchived && (
+      {inbox != null && activeCount === 0 && archivedCount > 0 && !showArchived && (
         <EmptyState message={t('coach.sessions.allArchived')} />
       )}
-      {!showAll && needsReview.length === 0 && active.length > 0 && (
+      {inbox != null && !showAll && needsReview.length === 0 && activeCount !== 0 && (
         <EmptyState message={t('coach.sessions.allReviewed')} />
       )}
 
-      <div className="space-y-3 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">{visibleActive.map(renderCard)}</div>
+      {showAll ? (
+        activeCount !== 0 && <HistoryList read={historyRead} renderCard={renderCard} t={t} />
+      ) : (
+        <div className="space-y-3 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">{needsReview.map(renderCard)}</div>
+      )}
 
-      {archived.length > 0 && (
+      {archivedCount > 0 && (
         <button
+          type="button"
           onClick={() => setShowArchived((v) => !v)}
           className="w-full sl-mono text-[11px] text-ink-400 hover:text-ink-700 py-2 underline"
         >
           {showArchived
-            ? t('coach.sessions.hideArchived', { n: archived.length })
-            : t('coach.sessions.showArchived', { n: archived.length })}
+            ? t('coach.sessions.hideArchived', { n: archivedCount })
+            : t('coach.sessions.showArchived', { n: archivedCount })}
         </button>
       )}
 
-      {showArchived && (
-        <div className="space-y-3 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">{archived.map(renderCard)}</div>
-      )}
+      {showArchived && archivedCount !== 0 && <HistoryList read={archivedRead} renderCard={renderCard} t={t} />}
     </div>
   );
 }

@@ -10,18 +10,21 @@ const WEIGHT = { noProgram: 3, toReview: 2, stale: 1 };
 export const STALE_AFTER_DAYS = 10;
 
 /**
- * Count sessions still awaiting the coach's review, grouped by `students.id`.
- * A confirmation needs review when it is neither reviewed nor archived — the
- * same predicate the Sessions feed uses, just aggregated per athlete. The
- * Sessions tab's badge is the sum of these counts (hooks/useToReviewCount),
- * so the tab and the cards' "N to review" chips say the same.
+ * Count sessions still awaiting the coach's review, grouped by `students.id`:
+ * `{ [studentId]: n }`, an athlete with none left out. A confirmation needs
+ * review when it is neither reviewed nor archived — the predicate of the
+ * Sessions feed's inbox, and of `coach_review_counts()` in the database, which
+ * `useReviewCounts` asks first; this is what it counts with when the database
+ * has no such function. The Sessions tab's badge is the sum of these counts
+ * (hooks/useToReviewCount), so the tab and the cards' "N to review" chips say
+ * the same. A plain object, which React Query compares and keeps as it is.
  */
 export function reviewCountsByStudent(confirmations) {
-  const counts = new Map();
+  const counts = {};
   for (const c of confirmations || []) {
     if (c.reviewed_at || c.archived_at) continue;
     if (!c.student_id) continue;
-    counts.set(c.student_id, (counts.get(c.student_id) || 0) + 1);
+    counts[c.student_id] = (counts[c.student_id] || 0) + 1;
   }
   return counts;
 }
@@ -29,8 +32,8 @@ export function reviewCountsByStudent(confirmations) {
 /**
  * Compose the coach's already-loaded roster data into one attention-first list.
  * Pure + synchronous — the component feeds it `useStudents`, the
- * `useCoachDashboardPrograms` summary map, and `useAllConfirmations`, all of
- * which are coach-wide and RLS-scoped, so no new query is needed.
+ * `useCoachDashboardPrograms` summary map, and the `useReviewCounts` counts
+ * (`{ [students.id]: n }`), all of which name the coach.
  *
  * Each entry carries the display fields the card needs plus a `chips` array
  * describing WHY the athlete wants attention. Sorting: athletes with any chip
@@ -39,16 +42,15 @@ export function reviewCountsByStudent(confirmations) {
  * program, so key-absence — not `activeWeek == null` — is what marks
  * "no active program" (an active program with no scheduled week is not a gap).
  *
- * `summary` and `confirmations` may be null (or undefined): the read has not
+ * `summary` and `reviewCounts` may be null (or undefined): the read has not
  * answered — it is on its way, it failed, it waits for the network. Null is
  * UNKNOWN, never empty. An unknown summary gives no "No program" and no
- * "Quiet" chip, and no program name, position or week strip; unknown
- * confirmations give no "to review" chip. Read as `{}`, a summary that had
+ * "Quiet" chip, and no program name, position or week strip; unknown counts
+ * give no "to review" chip. Read as `{}`, a summary that had
  * not arrived — or that was answered by a 500 — put a red "No program" on
  * every athlete and sorted them all to the top (review items P48, N16).
  */
-export function buildRoster({ students, summary, confirmations }) {
-  const reviewCounts = confirmations == null ? null : reviewCountsByStudent(confirmations);
+export function buildRoster({ students, summary, reviewCounts }) {
   const summaryKnown = summary != null;
 
   const entries = (students || []).map((student) => {
@@ -56,7 +58,7 @@ export function buildRoster({ students, summary, confirmations }) {
     const entry = summaryKnown ? summary[student.id] : undefined;
     const hasProgram = !!entry;
     const weekDays = entry?.weekDays || null;
-    const reviewCount = reviewCounts?.get(student.id) || 0;
+    const reviewCount = reviewCounts?.[student.id] || 0;
     const daysSinceLast = entry?.daysSinceLast ?? null;
 
     const chips = [];
