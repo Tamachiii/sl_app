@@ -115,6 +115,22 @@ describe('useNotificationsRealtime — the channel outlives a lost connection', 
     unmount();
   });
 
+  it('joins a read in flight on online and visible, and sends it again on SUBSCRIBED', () => {
+    const { invalidate, channel, unmount } = mount();
+    goOnline();
+    vi.advanceTimersByTime(5_000);
+    setVisibility('hidden');
+    vi.advanceTimersByTime(RESYNC_AFTER_HIDDEN_MS);
+    setVisibility('visible');
+    channel().status('SUBSCRIBED');
+    expect(rootReads(invalidate).map(([, options]) => options)).toEqual([
+      { cancelRefetch: false },
+      { cancelRefetch: false },
+      { cancelRefetch: true },
+    ]);
+    unmount();
+  });
+
   it('removes the channel when the hook unmounts', () => {
     const { channel, unmount } = mount();
     const ch = channel();

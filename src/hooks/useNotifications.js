@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
-import { watchPostgresChanges } from '../lib/realtimeChannel';
+import { resyncRefetchOptions, watchPostgresChanges } from '../lib/realtimeChannel';
 import { createRefresher } from '../lib/realtimeCache';
 import {
   NOTIFICATIONS_ROOT as ROOT,
@@ -114,7 +114,7 @@ export function useNotificationsRealtime() {
       topic: `notifications-${me}`,
       filters: notificationBindings(me),
       onChange: (payload) => applyNotificationChange(qc, me, payload, refresher.refresh),
-      onResync: () => qc.invalidateQueries({ queryKey: [ROOT] }),
+      onResync: (reason) => qc.invalidateQueries({ queryKey: [ROOT] }, resyncRefetchOptions(reason)),
     });
     return () => {
       stop();

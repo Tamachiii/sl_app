@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 
 const { realtime } = await vi.hoisted(async () => {
   const { createFakeRealtime } = await import('../test/fakeRealtime');
@@ -134,6 +134,40 @@ describe('useMessagesRealtime — the channel outlives a lost connection', () =>
     setVisibility('visible');
     expect(invalidate).not.toHaveBeenCalled();
     expect(qc.getQueryState(CONVERSATIONS).isInvalidated).toBe(false);
+    unmount();
+  });
+
+  it('a resync on online or visible joins a read already in flight; one on SUBSCRIBED sends it again', async () => {
+    const answers = [];
+    const queryFn = vi.fn(() => new Promise((resolve) => { answers.push(resolve); }));
+    const { qc, channel, unmount } = mount(() => useQuery({ queryKey: THREAD_S1, queryFn, staleTime: Infinity }));
+    const answer = async () => {
+      await act(async () => { answers.at(-1)([m1, m2]); });
+    };
+    expect(queryFn).toHaveBeenCalledTimes(1);
+    await answer();
+
+    // React Query's own refetch on reconnect goes first; the resync joins it.
+    act(() => { qc.refetchQueries({ queryKey: THREAD_S1 }); });
+    expect(queryFn).toHaveBeenCalledTimes(2);
+    goOnline();
+    expect(queryFn).toHaveBeenCalledTimes(2);
+    await answer();
+
+    vi.advanceTimersByTime(5_000);
+    act(() => { qc.refetchQueries({ queryKey: THREAD_S1 }); });
+    setVisibility('hidden');
+    vi.advanceTimersByTime(RESYNC_AFTER_HIDDEN_MS);
+    setVisibility('visible');
+    expect(queryFn).toHaveBeenCalledTimes(3);
+    await answer();
+
+    // A read sent before the join may be older than the first event: it is sent again.
+    act(() => { qc.refetchQueries({ queryKey: THREAD_S1 }); });
+    expect(queryFn).toHaveBeenCalledTimes(4);
+    channel().status('SUBSCRIBED');
+    expect(queryFn).toHaveBeenCalledTimes(5);
+    await answer();
     unmount();
   });
 

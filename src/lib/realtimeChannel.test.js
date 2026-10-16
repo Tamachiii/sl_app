@@ -9,6 +9,7 @@ vi.mock('./supabase', () => ({ supabase: realtime }));
 import { goOnline, setVisibility } from '../test/fakeRealtime';
 import {
   watchPostgresChanges,
+  resyncRefetchOptions,
   MAX_JOIN_FAILURES,
   REOPEN_AFTER_MS,
   RESYNC,
@@ -288,6 +289,18 @@ describe('watchPostgresChanges — resync on return', () => {
     channel().status('SUBSCRIBED');
     expect(onResync).toHaveBeenCalledTimes(2);
     expect(onResync).toHaveBeenLastCalledWith(RESYNC.SUBSCRIBED);
+  });
+});
+
+describe('resyncRefetchOptions', () => {
+  it('cancels and sends again a read in flight after SUBSCRIBED, and joins it after online and visible', () => {
+    expect(resyncRefetchOptions(RESYNC.SUBSCRIBED)).toEqual({ cancelRefetch: true });
+    expect(resyncRefetchOptions(RESYNC.ONLINE)).toEqual({ cancelRefetch: false });
+    expect(resyncRefetchOptions(RESYNC.VISIBLE)).toEqual({ cancelRefetch: false });
+  });
+
+  it('treats a resync that gives no reason as a SUBSCRIBED', () => {
+    expect(resyncRefetchOptions()).toEqual({ cancelRefetch: true });
   });
 });
 

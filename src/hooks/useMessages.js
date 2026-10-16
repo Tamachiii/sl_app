@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
-import { watchPostgresChanges } from '../lib/realtimeChannel';
+import { resyncRefetchOptions, watchPostgresChanges } from '../lib/realtimeChannel';
 import { createRefresher } from '../lib/realtimeCache';
 import {
   MESSAGES_ROOT,
@@ -357,10 +357,10 @@ export function useMessagesRealtime() {
       onChange: (payload) => applyMessageChange(qc, me, payload, refresher.refresh),
       // The session titles under the root are read from `sessions`, which no
       // message event changes.
-      onResync: () => qc.invalidateQueries({
+      onResync: (reason) => qc.invalidateQueries({
         queryKey: [MESSAGES_ROOT],
         predicate: (query) => query.queryKey[1] !== 'session-refs',
-      }),
+      }, resyncRefetchOptions(reason)),
     });
     return () => {
       stop();

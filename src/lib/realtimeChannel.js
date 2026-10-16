@@ -48,6 +48,23 @@ export const RESYNC = Object.freeze({
   VISIBLE: 'visible',
 });
 
+/**
+ * The options of the invalidation a resync of `reason` asks React Query for:
+ * what becomes of a read of the cache that is already in flight.
+ *
+ * After SUBSCRIBED — and a resync that gives no reason — it is cancelled and
+ * sent again: it may have been sent before the join, and be older than the
+ * first event the channel delivers. After `online` and `visible` it is kept:
+ * it is most often React Query's own refetch on reconnect or focus, sent a
+ * moment ago, and a cancel would only send a second request — most reads of
+ * these caches do not pass `signal` on, so the first one is not even stopped.
+ * A read that stalled while the page was away is kept too; if the socket died
+ * meanwhile, the SUBSCRIBED of the channel joined again sends it again.
+ */
+export function resyncRefetchOptions(reason) {
+  return { cancelRefetch: reason !== RESYNC.ONLINE && reason !== RESYNC.VISIBLE };
+}
+
 // supabase.channel(name) hands back the channel that is still registered under
 // that name, and a removal is only complete once the server has answered — so
 // a name that is reused straight away (StrictMode's second mount, a reopening)
