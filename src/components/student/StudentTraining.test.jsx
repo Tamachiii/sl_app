@@ -387,6 +387,37 @@ describe('StudentTraining', () => {
       expect(screen.queryByText(/last trained/i)).toBeNull();
       expect(screen.queryByText(/in the last 7 days/i)).toBeNull();
     });
+
+    // Live N7: an athlete with 24 confirmed sessions in earlier blocks, on the
+    // first session of a new one, read "No sessions logged yet". The queue
+    // knows the block being trained only; the confirmations are every block's.
+    describe('"No sessions logged yet"', () => {
+      const freshBlock = () =>
+        listOf([week('w-1', 1, [session('a', 'Upper 1'), session('b', 'Upper 2', { day_number: 3 })])]);
+
+      it('is said to an athlete who has never confirmed a session', () => {
+        mockList = freshBlock();
+        mockConfirmedIds = read(new Set());
+        renderTraining();
+        expect(screen.getByText('No sessions logged yet')).toBeInTheDocument();
+      });
+
+      it('is not said to an athlete who confirmed sessions in an earlier block', () => {
+        mockList = freshBlock();
+        mockConfirmedIds = read(new Set(['old-session']));
+        renderTraining();
+        expect(screen.queryByText('No sessions logged yet')).toBeNull();
+        expect(screen.getByText('Session 1 of 2')).toBeInTheDocument();
+      });
+
+      it('is not said while the confirmations could not be read', () => {
+        mockList = freshBlock();
+        mockConfirmedIds = failed();
+        renderTraining();
+        expect(screen.getByText(/couldn’t be loaded/i)).toBeInTheDocument();
+        expect(screen.queryByText('No sessions logged yet')).toBeNull();
+      });
+    });
   });
 
   describe('past blocks', () => {

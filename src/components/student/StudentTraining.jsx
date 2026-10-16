@@ -124,13 +124,18 @@ function holdsLoggedSet(session) {
 // Name plus at most ONE short line, and only when it says something. "Trained
 // today" told the athlete what they already knew; staleness and recent rhythm
 // are the two facts worth a line, and never both at once.
-function Greeting({ fullName, queue, onSignOut }) {
+//
+// `neverTrained`: no confirmation in any block. The queue knows the block being
+// trained only, so "No sessions logged yet" went to an athlete with 24
+// confirmed sessions in the blocks before it (live N7). It is said when it is
+// true, and only then.
+function Greeting({ fullName, queue, neverTrained, onSignOut }) {
   const { t, lang } = useI18n();
   const firstName = (fullName || '').split(' ')[0] || 'there';
 
   let line = null;
   if (queue.daysSinceLast == null) {
-    line = queue.total > 0 ? t('student.training.neverTrained') : null;
+    line = queue.total > 0 && neverTrained ? t('student.training.neverTrained') : null;
   } else if (queue.daysSinceLast === 0) {
     line = queue.doneLast7 > 0
       ? t(queue.doneLast7 === 1 ? 'student.training.last7One' : 'student.training.last7Many', {
@@ -299,6 +304,9 @@ export default function StudentTraining() {
   // work that is somehow still due, so the queue is built from these alone.
   const activeWeeks = details.data?.weeks ?? NO_WEEKS;
   const confirmedIds = confirmations.data ?? NO_IDS;
+  // Every confirmation of the athlete, whatever the block — and none known
+  // until the read has answered: an unanswered read says nothing either way.
+  const neverTrained = confirmations.data != null && confirmations.data.size === 0;
 
   const queue = useMemo(() => buildQueue(activeWeeks, confirmedIds), [activeWeeks, confirmedIds]);
 
@@ -402,7 +410,12 @@ export default function StudentTraining() {
     const offline = listState === 'offline';
     return (
       <div className="p-4 pb-6 md:p-8 space-y-6">
-        <Greeting fullName={profile?.full_name} queue={queue} onSignOut={signOut} />
+        <Greeting
+          fullName={profile?.full_name}
+          queue={queue}
+          neverTrained={neverTrained}
+          onSignOut={signOut}
+        />
         <Unavailable
           title={t(offline ? 'trainingListOffline.offlineTitle' : 'trainingListOffline.errorTitle')}
           body={t(offline ? 'trainingListOffline.offlineBody' : 'trainingListOffline.errorBody')}
@@ -439,7 +452,12 @@ export default function StudentTraining() {
 
   return (
     <div className="p-4 pb-6 md:p-8 space-y-6">
-      <Greeting fullName={profile?.full_name} queue={queue} onSignOut={signOut} />
+      <Greeting
+        fullName={profile?.full_name}
+        queue={queue}
+        neverTrained={neverTrained}
+        onSignOut={signOut}
+      />
 
       {activeWeeks.length === 0 && pastPrograms.length === 0 && (
         <EmptyState message={t('student.home.noProgram')} />
