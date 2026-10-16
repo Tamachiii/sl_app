@@ -426,3 +426,93 @@ describe('useLastPerformance — the history is read once', () => {
     expect(db.requestsTo('set_logs')).toHaveLength(2);
   });
 });
+
+// "Last time" is the session trained last, by the sets' logged_at. The
+// recommended date is advice: a copy of a block carries none, and an athlete
+// can train a session before its date.
+describe('useLastPerformance — the order of training', () => {
+  const set = (over) => setLog({ slotId: `sl-${over.sessionId}-${over.exerciseId}`, tReps: 5, ...over });
+
+  async function hint(args) {
+    const { result } = renderHook(() => useLastPerformance(...args), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    return result.current.data;
+  }
+
+  it('athlete flow: a session trained ahead of its recommended date is last time', async () => {
+    wire({
+      setLogs: [
+        set({ exerciseId: 'e-1', sessionId: 's-prior', scheduledDate: '2026-07-01', loggedAt: '2026-07-01T10:00:00Z', tW: 100 }),
+        // Recommended for August, trained on 5 July.
+        set({ exerciseId: 'e-1', sessionId: 's-ahead', scheduledDate: '2026-08-01', loggedAt: '2026-07-05T10:00:00Z', tW: 130 }),
+      ],
+    });
+
+    // As SessionView calls it: the open session is recommended for 10 July.
+    const data = await hint([OPEN, slotsE1, '2026-07-10', []]);
+    expect(data).toEqual({
+      'e-1': { performedAt: '2026-07-05T10:00:00Z', scheduledDate: '2026-08-01', sets: [{ weight: 130, reps: 5 }] },
+    });
+  });
+
+  it('athlete flow: an undated copy trained last week is last time, before an old dated session', async () => {
+    wire({
+      setLogs: [
+        set({ exerciseId: 'e-1', sessionId: 's-dated', scheduledDate: '2026-05-01', loggedAt: '2026-05-01T10:00:00Z', tW: 90 }),
+        set({ exerciseId: 'e-1', sessionId: 's-copy', scheduledDate: null, loggedAt: '2026-07-01T10:00:00Z', tW: 105 }),
+      ],
+    });
+
+    const data = await hint([OPEN, slotsE1, '2026-07-10', []]);
+    expect(data['e-1'].sets).toEqual([{ weight: 105, reps: 5 }]);
+  });
+
+  it('coach flow, as PreviousSessionPanel calls it (no date): a session dated in the future and trained is kept', async () => {
+    wire({
+      setLogs: [
+        set({ exerciseId: 'e-1', sessionId: 's-prior', scheduledDate: '2026-03-01', loggedAt: '2026-03-01T10:00:00Z', tW: 100 }),
+        set({ exerciseId: 'e-1', sessionId: 's-ahead', scheduledDate: '2099-01-01', loggedAt: '2026-03-08T10:00:00Z', tW: 110 }),
+      ],
+    });
+
+    const data = await hint([OPEN, slotsE1, null, null, true, 'st-4']);
+    expect(data['e-1'].sets).toEqual([{ weight: 110, reps: 5 }]);
+  });
+
+  it('an old session opened again shows what came before it, not what came after', async () => {
+    wire({
+      setLogs: [
+        set({ exerciseId: 'e-1', sessionId: 's-before', scheduledDate: '2026-04-01', loggedAt: '2026-04-01T10:00:00Z', tW: 100 }),
+        // The open session, trained on 8 April — with another exercise first.
+        set({ exerciseId: 'e-2', sessionId: OPEN, scheduledDate: '2026-04-08', loggedAt: '2026-04-08T10:00:00Z', tW: 40 }),
+        set({ exerciseId: 'e-1', sessionId: OPEN, scheduledDate: '2026-04-08', loggedAt: '2026-04-08T10:30:00Z', tW: 105 }),
+        set({ exerciseId: 'e-1', sessionId: 's-after', scheduledDate: '2026-04-15', loggedAt: '2026-04-15T10:00:00Z', tW: 110 }),
+      ],
+    });
+
+    for (const args of [[OPEN, slotsE1, '2026-04-08', []], [OPEN, slotsE1, null, null, true, 'st-4']]) {
+      const data = await hint(args);
+      expect(data).toEqual({
+        'e-1': { performedAt: '2026-04-01T10:00:00Z', scheduledDate: '2026-04-01', sets: [{ weight: 100, reps: 5 }] },
+      });
+    }
+  });
+
+  it('a session is placed by its first set of any exercise, outside the open session’s too', async () => {
+    wire({
+      setLogs: [
+        set({ exerciseId: 'e-1', sessionId: 's-before', loggedAt: '2026-04-01T10:00:00Z', tW: 100 }),
+        // Started at 09:00 with e-2, which the open session does not have, and
+        // reached e-1 at 10:30: started before the open session.
+        set({ exerciseId: 'e-2', sessionId: 's-early', loggedAt: '2026-04-08T09:00:00Z', tW: 40 }),
+        set({ exerciseId: 'e-1', sessionId: 's-early', loggedAt: '2026-04-08T10:30:00Z', tW: 105 }),
+        set({ exerciseId: 'e-1', sessionId: OPEN, loggedAt: '2026-04-08T10:00:00Z', tW: 110 }),
+      ],
+    });
+
+    const data = await hint([OPEN, slotsE1, '2026-04-08', []]);
+    expect(data).toEqual({
+      'e-1': { performedAt: '2026-04-08T10:30:00Z', scheduledDate: null, sets: [{ weight: 105, reps: 5 }] },
+    });
+  });
+});

@@ -1,6 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from './useAuth';
-import { isoDate } from '../lib/day';
 import { buildLastPerformance } from '../lib/lastPerformance';
 import { fetchDoneSetHistory } from '../lib/doneSetHistory';
 
@@ -9,6 +8,13 @@ import { fetchDoneSetHistory } from '../lib/doneSetHistory';
  * performance of that exercise (the done sets from their latest earlier
  * session). Feeds the "Last time" hint on the logging surface so the student
  * has a target to beat.
+ *
+ * "Latest" and "earlier" are the order of TRAINING, read from `logged_at`
+ * (see buildLastPerformance): the session whose sets of the exercise were
+ * logged last, leaving out the open session and any session started after it.
+ * The recommended date takes no part, so the third parameter,
+ * `_currentScheduledDate`, is not read — it stays for the callers
+ * (SessionView passes the session's date, PreviousSessionPanel null).
  *
  * THE HISTORY IS NOT READ HERE. "Last time" needs one prior session per
  * exercise, but that session can be anywhere in the athlete's history, under
@@ -58,7 +64,7 @@ import { fetchDoneSetHistory } from '../lib/doneSetHistory';
 export function useLastPerformance(
   sessionId,
   slots,
-  currentScheduledDate,
+  _currentScheduledDate,
   currentDeviations,
   deviationsReady = true,
   studentRowId = null,
@@ -93,19 +99,11 @@ export function useLastPerformance(
         studentRowId: studentRowId ?? null,
         userId: user?.id ?? null,
       });
-      const wanted = new Set(exerciseIds);
-
-      return buildLastPerformance(
-        history.filter((set) => wanted.has(set.exerciseId)),
-        {
-          currentSessionId: sessionId,
-          // Fall back to today (LOCAL date) when the open session is undated
-          // (legacy day_number sessions have no scheduled_date). Without a
-          // boundary, a future-scheduled session the student logged ahead would
-          // outrank genuine priors and surface as "last time".
-          currentScheduledDate: currentScheduledDate || isoDate(new Date()),
-        },
-      );
+      // The whole history, not the open session's exercises only: the sets of
+      // the other exercises say when each session started, and the open
+      // session's own sets when it did — a session started after it is not
+      // its "last time". Only `exerciseIds` get an entry.
+      return buildLastPerformance(history, { currentSessionId: sessionId, exerciseIds });
     },
     // `exerciseIds` is part of the key and shifts the moment a current-session
     // swap resolves. Firing before the deviations query has settled would show
