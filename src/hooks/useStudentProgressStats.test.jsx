@@ -138,44 +138,46 @@ describe('useStudentProgressStats — scope', () => {
 });
 
 describe('useStudentProgressStats — completion + tonnage', () => {
-  it('treats archived sessions as completed even without a confirmation row', async () => {
-    const setup = setupChains({
-      programsData: [
-        {
-          id: 'p-1',
-          name: 'Block A',
-          sort_order: 0,
-          is_active: true,
-          weeks: [
-            {
-              id: 'w-1',
-              week_number: 1,
-              label: null,
-              sessions: [
-                {
-                  id: 's-1',
-                  title: 'Push',
-                  day_number: 1,
-                  sort_order: 0,
-                  scheduled_date: null,
-                  archived_at: '2026-04-22T10:00:00Z',
-                  exercise_slots: [],
-                },
-                {
-                  id: 's-2',
-                  title: 'Pull',
-                  day_number: 2,
-                  sort_order: 1,
-                  scheduled_date: null,
-                  archived_at: null,
-                  exercise_slots: [],
-                },
-              ],
-            },
-          ],
-        },
+  // Archiving is the coach's clean-up gesture: it says nothing about training.
+  it('counts an archived session only when it was trained', async () => {
+    const bench = { id: 'e-1', name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 };
+    const slot = (id) => ({
+      id, sets: 2, reps: 5, duration_seconds: null, weight_kg: 100, exercise: bench,
+      set_logs: [
+        { set_number: 1, target_reps: 5, target_weight_kg: 100 },
+        { set_number: 2, target_reps: 5, target_weight_kg: 100 },
       ],
-      confirmationsData: [],
+    });
+    const session = (id, over) => ({
+      id, title: id, day_number: 1, sort_order: 0, scheduled_date: null,
+      archived_at: null, reviewed_at: null, performed_at: null, exercise_slots: [], ...over,
+    });
+    const ARCHIVED = '2026-07-20T10:00:00Z';
+    const setup = setupChains({
+      programsData: [{
+        id: 'p-1', name: 'Block A', sort_order: 0, is_active: true,
+        weeks: [{
+          id: 'w-1', week_number: 1, label: null,
+          sessions: [
+            session('confirmed', { performed_at: TRAINED_AT, exercise_slots: [slot('sl-c')] }),
+            session('open', { exercise_slots: [slot('sl-o')] }),
+            // Cleared by the coach, never trained: dated or not, it is out.
+            session('cleared', { archived_at: ARCHIVED, scheduled_date: '2026-07-07', exercise_slots: [slot('sl-x')] }),
+            session('cleared-undated', { archived_at: ARCHIVED, exercise_slots: [slot('sl-y')] }),
+            // Archived with a done set and nothing else: trained, undated.
+            session('archived-done', { archived_at: ARCHIVED, exercise_slots: [slot('sl-d')] }),
+            // Reviewed before confirmations existed: the plan date is its date.
+            session('legacy', {
+              archived_at: ARCHIVED, reviewed_at: ARCHIVED, scheduled_date: '2026-07-09', exercise_slots: [slot('sl-l')],
+            }),
+          ],
+        }],
+      }],
+      confirmationsData: [{ id: 'c-1', session_id: 'confirmed', confirmed_at: TRAINED_AT, performed_on: '2026-07-08' }],
+      setLogsData: [
+        { id: 'l-1', exercise_slot_id: 'sl-c', set_number: 1, done: true, target_reps: 5, target_weight_kg: 100 },
+        { id: 'l-2', exercise_slot_id: 'sl-d', set_number: 1, done: true, target_reps: 5, target_weight_kg: 100 },
+      ],
     });
     setup.register();
     const qc = makeClient();
@@ -183,8 +185,24 @@ describe('useStudentProgressStats — completion + tonnage', () => {
       wrapper: withClient(qc),
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data.totalSessions).toBe(2);
-    expect(result.current.data.totalSessionsConfirmed).toBe(1);
+    const data = result.current.data;
+
+    // confirmed + archived-done + legacy, out of those three and the open one.
+    expect(data.totalSessions).toBe(4);
+    expect(data.totalSessionsConfirmed).toBe(3);
+    expect(data.totalSets).toBe(8);
+    expect(data.backlogSessions).toBe(1);
+    // The week of 6 July holds the confirmed session and the legacy one; the
+    // cleared session dated 7 July adds neither its sets nor its volume.
+    expect(data.weeklyVolume).toHaveLength(1);
+    expect(data.weeklyVolume[0].sets_prescribed).toBe(4);
+    expect(data.weeklyVolume[0].push_planned).toBe(20);
+    // No progression point of 0 kg for the session nobody trained.
+    expect(data.exerciseProgress.byExercise['e-1'].map((p) => p.session_id)).toEqual(['confirmed', 'legacy']);
+    expect(data.sessionCalendar).toEqual([
+      { session_id: 'confirmed', title: 'confirmed', date: '2026-07-08', completed: true },
+      { session_id: 'legacy', title: 'legacy', date: '2026-07-09', completed: true },
+    ]);
   });
 
   it('counts a session as completed when there is a confirmation row', async () => {

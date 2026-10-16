@@ -6,6 +6,58 @@ import { computeSessionVolume } from '../lib/volume';
 import { addDays, isoDate, parseISODate, startOfWeekMonday } from '../lib/day';
 import { fetchAllRows } from '../lib/supabasePaging';
 
+// The local calendar day of a timestamp, or null.
+function localDay(stamp) {
+  if (!stamp) return null;
+  const d = new Date(stamp);
+  return Number.isNaN(d.getTime()) ? null : isoDate(d);
+}
+
+/**
+ * The day a session was trained on, or null when nothing says it was.
+ *
+ * From the most to the least truthful:
+ *   1. `sessions.performed_at` — the mirror of the confirmation's date.
+ *   2. the confirmation's `performed_on` / `confirmed_at` — rows written
+ *      before `performed_at` existed. `confirmed_at` is the REPLAY moment of
+ *      an offline confirm: a fallback, never the primary.
+ *   3. `scheduled_date`, for a LEGACY row only: archived AND reviewed. That is
+ *      the shape of a session the coach reviewed before confirmations existed,
+ *      and the plan date is all it has. A session archived without a review is
+ *      the coach's clean-up gesture, and its plan date says nothing about
+ *      training.
+ */
+export function trainedOn(session, { confirmation = null } = {}) {
+  return (
+    localDay(session.performed_at) ||
+    (confirmation?.performed_on ? confirmation.performed_on.slice(0, 10) : null) ||
+    localDay(confirmation?.confirmed_at) ||
+    (session.archived_at && session.reviewed_at && session.scheduled_date
+      ? session.scheduled_date.slice(0, 10)
+      : null)
+  );
+}
+
+/**
+ * The one definition of a PERFORMED session, behind every figure of the page:
+ * confirmed, or archived with a training date or at least one done set.
+ *
+ * Archiving is no proof of training. It once followed a review; today it is
+ * also how a coach clears a session nobody will train, and a block copied by
+ * `duplicate_week` / `duplicate_program` can arrive with archived sessions. An
+ * archived session that was never trained is neither done nor to do: it leaves
+ * every figure — numerator, denominator, prescribed sets, weekly buckets,
+ * progression points and calendar — as `buildQueue` already leaves it out of
+ * the athlete's list.
+ *
+ * `day` is what `trainedOn` answered; `doneSets` counts the done sets of the
+ * session, student-added ones included.
+ */
+export function isPerformed(session, { confirmed = false, day = null, doneSets = 0 } = {}) {
+  if (confirmed) return true;
+  return !!session.archived_at && (!!day || doneSets > 0);
+}
+
 /**
  * Aggregates everything the Student Stats page needs in a single fetch:
  *   - weeks[] with sessions + slots + exercise metadata (for volume maths)
@@ -24,15 +76,19 @@ import { fetchAllRows } from '../lib/supabasePaging';
  * chart shows the weeks the student lived. Work that hasn't been done yet has
  * no date, so it never enters a time bucket — it is counted as backlog.
  *
+ * Every figure goes by ONE definition of a performed session (`isPerformed`
+ * above): confirmed, or archived with a training date or a done set. An
+ * archived session that was never trained is in none of them.
+ *
  * Returns derived stats:
- *   - totalSessionsConfirmed, totalSessions
+ *   - totalSessionsConfirmed (performed), totalSessions (open + archived performed)
  *   - totalSetsDone, totalSets
  *   - weeksActive       (calendar weeks in which at least one session was trained)
  *   - backlogSessions   (open sessions with no training date yet)
  *   - avgRpe            (across sets with rpe logged)
  *   - recentConfirmations[] (last 5, newest first)
  *   - weeklyVolume[]    [{ bucket_start, bucket_end, pull, push, *_planned, sets_done, sets_prescribed, sessions_confirmed }]
- *   - sessionCalendar[] [{ session_id, title, date, completed }] — performed sessions on their REAL date, open ones on their recommended date
+ *   - sessionCalendar[] [{ session_id, title, date, completed }] — trained sessions on their REAL date, open ones on their recommended date; `completed` is `isPerformed`
  *
  * Pass a `studentId` (students.id row id) to stat any student — used by the
  * coach Students view. Omit it to stat the signed-in user (student flow).
@@ -76,7 +132,7 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
           weeks(
             id, week_number, label,
             sessions(
-              id, title, day_number, sort_order, scheduled_date, archived_at, performed_at,
+              id, title, day_number, sort_order, scheduled_date, archived_at, reviewed_at, performed_at,
               exercise_slots(
                 id, sets, reps, duration_seconds, weight_kg,
                 exercise:exercise_library(id, name, type, difficulty, volume_weight),
@@ -121,14 +177,18 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
       const weeks = [];
       const allSessions = [];
       const allSlotIds = [];
+      // slot id → session id: the flat set_logs list is keyed by slot, and
+      // whether a session was trained is a question about the session.
+      const sessionBySlot = new Map();
 
       for (const prog of programs || []) {
         const sortedWeeks = (prog.weeks || [])
           .slice()
           .sort((a, b) => a.week_number - b.week_number);
         for (const w of sortedWeeks) {
-          // Include archived sessions in every aggregate — completed work
-          // shouldn't vanish from stats if the coach later archives the session.
+          // Archived sessions are read too: one that was trained keeps every
+          // figure it earned when the coach archives it. One that was never
+          // trained is left out below (`isPerformed`).
           const allWeekSessions = w.sessions || [];
 
           weeks.push({
@@ -145,6 +205,7 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
             allSessions.push(s);
             for (const slot of s.exercise_slots || []) {
               allSlotIds.push(slot.id);
+              sessionBySlot.set(slot.id, s.id);
             }
           }
         }
@@ -269,42 +330,44 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
 
       // ─── Derived aggregates ───────────────────────────────────────────────
 
-      // A session counts as "completed" if it's confirmed OR archived (archiving
-      // happens after the coach reviews a confirmed session, and legacy sessions
-      // may have been archived without ever getting a confirmation row).
-      const isCompleted = (s) => confirmedIds.has(s.id) || !!s.archived_at;
-
-      // ─── When each session was actually trained ──────────────────────────
-      // The one date every time-based aggregate below keys off. Preference
-      // order runs from most to least truthful:
-      //   1. sessions.performed_at — the day the student trained, derived from
-      //      the set logs at confirm time (survives an offline queue intact).
-      //   2. the confirmation's performed_on / confirmed_at — for rows written
-      //      before performed_at existed. confirmed_at is the REPLAY moment for
-      //      an offline confirm, so it is a fallback, never the primary.
-      //   3. scheduled_date, only for a session archived without ever being
-      //      confirmed — legacy shape, and the plan date is all it has.
-      // A session with none of these has no place on a timeline and is counted
-      // as backlog rather than being parked on an invented date.
+      // ─── When each session was trained, and whether it was ───────────────
+      // `trainedOn` is the one date every time-based aggregate below keys off;
+      // `isPerformed` the one answer to "was it done" (both above, at module
+      // level). A session with no date has no place on a timeline: an open
+      // one is counted as backlog rather than parked on an invented day.
       const confBySession = new Map();
       for (const c of confirmations) confBySession.set(c.session_id, c);
 
-      const localDay = (stamp) => {
-        if (!stamp) return null;
-        const d = new Date(stamp);
-        return Number.isNaN(d.getTime()) ? null : isoDate(d);
-      };
+      // Done sets per session, student-added ones included: one of them is
+      // enough to say an archived session was trained.
+      const doneSetsBySession = new Map();
+      for (const l of setLogs) {
+        if (!l.done) continue;
+        const sessionId = sessionBySlot.get(l.exercise_slot_id);
+        if (!sessionId) continue;
+        doneSetsBySession.set(sessionId, (doneSetsBySession.get(sessionId) || 0) + 1);
+      }
 
       const performedOnBySession = new Map();
+      const performedIds = new Set();
       for (const s of allSessions) {
-        const conf = confBySession.get(s.id);
-        const on =
-          localDay(s.performed_at) ||
-          (conf?.performed_on ? conf.performed_on.slice(0, 10) : null) ||
-          localDay(conf?.confirmed_at) ||
-          (s.archived_at && s.scheduled_date ? s.scheduled_date.slice(0, 10) : null);
-        if (on) performedOnBySession.set(s.id, on);
+        const day = trainedOn(s, { confirmation: confBySession.get(s.id) });
+        const performed = isPerformed(s, {
+          confirmed: confirmedIds.has(s.id),
+          day,
+          doneSets: doneSetsBySession.get(s.id) || 0,
+        });
+        if (performed) performedIds.add(s.id);
+        // An archived session that was not performed has no day by
+        // construction (a day makes it performed): nothing time-based can
+        // pick it up.
+        if (day) performedOnBySession.set(s.id, day);
       }
+
+      // Every figure counts these: the open sessions (done or still to do)
+      // and the archived ones that were trained. An archived session never
+      // trained is in no numerator and no denominator.
+      const countedSessions = allSessions.filter((s) => !s.archived_at || performedIds.has(s.id));
 
       // Monday of the real calendar week a session was trained in.
       const bucketOf = (sessionId) => {
@@ -314,12 +377,12 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
         return d ? isoDate(startOfWeekMonday(d)) : null;
       };
 
-      const totalSessions = allSessions.length;
-      const totalSessionsConfirmed = allSessions.filter(isCompleted).length;
+      const totalSessions = countedSessions.length;
+      const totalSessionsConfirmed = countedSessions.filter((s) => performedIds.has(s.id)).length;
       const totalSetsDone = setLogs.filter((l) => l.done).length;
 
       let totalSets = 0;
-      for (const s of allSessions) {
+      for (const s of countedSessions) {
         for (const slot of s.exercise_slots || []) {
           totalSets += slot.sets || 0;
         }
@@ -357,7 +420,7 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
       };
 
       let backlogSessions = 0;
-      for (const s of allSessions) {
+      for (const s of countedSessions) {
         const key = bucketOf(s.id);
         if (!key) {
           if (!s.archived_at) backlogSessions += 1;
@@ -540,16 +603,21 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
       // what was supposed to happen. It also means a session trained without
       // any coach-set date finally appears at all, where before an undated
       // session was simply missing from the month view.
+      // An archived session is on the calendar only where it was trained: its
+      // plan date is not a training date (the legacy rows that have nothing
+      // else get theirs from `trainedOn`), and one that was never trained is
+      // not on it at all — it is neither done nor still to do.
       const sessionCalendar = [];
-      for (const s of allSessions) {
+      for (const s of countedSessions) {
         const performedOn = performedOnBySession.get(s.id);
-        const date = performedOn || (s.scheduled_date ? s.scheduled_date.slice(0, 10) : null);
+        const planned = !s.archived_at && s.scheduled_date ? s.scheduled_date.slice(0, 10) : null;
+        const date = performedOn || planned;
         if (!date) continue;
         sessionCalendar.push({
           session_id: s.id,
           title: s.title,
           date,
-          completed: isCompleted(s),
+          completed: performedIds.has(s.id),
         });
       }
 
