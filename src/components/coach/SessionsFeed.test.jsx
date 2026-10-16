@@ -1,12 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation, useParams } from 'react-router-dom';
 
 let mockConfirmations = { data: [], isLoading: false };
+let mockPositions = { data: undefined };
 
 vi.mock('../../hooks/useSessionConfirmation', () => ({
   useAllConfirmations: () => mockConfirmations,
+}));
+
+vi.mock('../../hooks/useProgram', () => ({
+  useCoachSessionPositions: () => mockPositions,
 }));
 
 import SessionsFeed from './SessionsFeed';
@@ -38,6 +43,7 @@ describe('SessionsFeed', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockConfirmations = { data: [], isLoading: false };
+    mockPositions = { data: undefined };
     localStorage.clear();
   });
 
@@ -91,6 +97,72 @@ describe('SessionsFeed', () => {
     await user.selectOptions(screen.getByRole('combobox'), 's-1');
     expect(screen.getByText('Alice Push')).toBeInTheDocument();
     expect(screen.queryByText('Bob Pull')).not.toBeInTheDocument();
+  });
+
+  // Review item L14: the line under the title was "W{week} · {label} ·
+  // D{day}" — a phase is not a calendar week and a session needs no weekday
+  // any more, so live cards ended in a bare "· D" or read "W1 · W1 · D2".
+  describe('where the session sits', () => {
+    const card = () => screen.getByText('Push Day').closest('a');
+
+    it('names the phase and the place in the block, never a week or a weekday', () => {
+      mockConfirmations = {
+        data: [makeConfirmation({ week_number: 3, day_number: 2, week_label: 'Volume' })],
+        isLoading: false,
+      };
+      mockPositions = { data: { 'sess-1': { n: 2, total: 9 } } };
+      renderFeed();
+      expect(within(card()).getByText('Volume · Session 2/9')).toBeInTheDocument();
+      expect(card().textContent).not.toMatch(/W3|D2/);
+    });
+
+    it('says nothing about a phase without a name and a session without a day', () => {
+      mockConfirmations = {
+        data: [makeConfirmation({ week_number: 3, day_number: null, week_label: null })],
+        isLoading: false,
+      };
+      mockPositions = { data: { 'sess-1': { n: 4, total: 12 } } };
+      renderFeed();
+      expect(within(card()).getByText('Session 4/12')).toBeInTheDocument();
+      expect(card().textContent).not.toMatch(/W3|· D|null/);
+    });
+
+    it('names the phase alone while the places are not known', () => {
+      mockConfirmations = {
+        data: [makeConfirmation({ week_number: 1, day_number: 2, week_label: 'Volume' })],
+        isLoading: false,
+      };
+      renderFeed();
+      expect(within(card()).getByText('Volume')).toBeInTheDocument();
+      expect(card().textContent).not.toMatch(/Session \d|W1|D2/);
+    });
+
+    it('draws no empty line when there is nothing to say', () => {
+      mockConfirmations = {
+        data: [makeConfirmation({ week_number: 1, day_number: null, week_label: null })],
+        isLoading: false,
+      };
+      renderFeed();
+      expect(card().querySelectorAll('p')).toHaveLength(0);
+    });
+
+    // The confirmation of a workout logged offline reaches the server when
+    // the queue is replayed, days later sometimes.
+    it('dates the card with the day the athlete trained, in the app’s language', () => {
+      mockConfirmations = {
+        data: [makeConfirmation({ performed_on: '2026-04-12', confirmed_at: '2026-04-16T10:00:00Z' })],
+        isLoading: false,
+      };
+      renderFeed();
+      expect(within(card()).getByText('Apr 12, 2026')).toBeInTheDocument();
+      expect(card().textContent).not.toMatch(/Apr 16|4\/16\/2026/);
+    });
+
+    it('falls back to the day of the confirmation for a row without a training date', () => {
+      mockConfirmations = { data: [makeConfirmation({ performed_on: null })], isLoading: false };
+      renderFeed();
+      expect(within(card()).getByText('Apr 16, 2026')).toBeInTheDocument();
+    });
   });
 
   it('displays student notes on the card', () => {

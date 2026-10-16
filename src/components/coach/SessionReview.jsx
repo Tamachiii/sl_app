@@ -48,6 +48,8 @@ import SessionReviewNotConfirmed from './SessionReviewNotConfirmed';
 import { CoachNotFound, CoachReadProblem } from './CoachPageState';
 import { readState } from '../../lib/readState';
 import { clearFeedbackDraft } from '../../lib/feedbackDraft';
+import { performedDate } from '../../lib/day';
+import { formatDate } from '../../lib/i18n/format';
 import {
   formatRestSeconds,
   groupSlotsBySuperset,
@@ -88,7 +90,7 @@ function SessionReviewPage() {
   const { studentId, sessionId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const [openedAt] = useState(() => Date.now());
 
   // Where the coach came from: the surface that opened this review says so in
@@ -334,9 +336,16 @@ function SessionReviewPage() {
             </svg>
             Confirmed by student
           </div>
-          <p className="sl-mono text-[11px] text-ink-400">
-            {new Date(confirmation.confirmed_at).toLocaleString()}
-          </p>
+          {/* The day the athlete trained, from the sets they logged — not
+              the moment the confirmation reached the server, which for one
+              sent offline is when the queue was replayed (review item L14). */}
+          {performedDate(confirmation) && (
+            <p className="sl-mono text-[11px] text-ink-400">
+              {t('coachReviewComposerRoster.review.trainedOn', {
+                date: formatDate(lang, performedDate(confirmation)),
+              })}
+            </p>
+          )}
           {confirmation.notes && (
             <p className="text-[13px] text-ink-700 whitespace-pre-wrap pt-1">{confirmation.notes}</p>
           )}

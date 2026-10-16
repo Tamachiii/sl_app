@@ -4,19 +4,24 @@ import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
 import { useAllConfirmations } from '../../hooks/useSessionConfirmation';
+import { useCoachSessionPositions } from '../../hooks/useProgram';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { performedDate } from '../../lib/day';
+import { formatDate } from '../../lib/i18n/format';
 
 const LAST_COACH_SESSION_KEY = 'sl_last_coach_session';
 const LAST_SESSIONS_STUDENT_KEY = 'sl_last_coach_sessions_student';
 
 export default function SessionsFeed() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { profile, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const { data: confirmations, isLoading } = useAllConfirmations();
+  // Where each session stands in its block. A read of its own that nothing
+  // waits for: while it is missing, a card names the phase alone.
+  const { data: positions } = useCoachSessionPositions();
   const [showArchived, setShowArchived] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const studentFilter = searchParams.get('student') || '';
@@ -127,6 +132,15 @@ export default function SessionsFeed() {
   function renderCard(c) {
     const isArchived = !!c.archived_at;
     const isReviewed = !!c.reviewed_at;
+    const position = positions?.[c.session_id];
+    // Where the session sits: the name of its phase and its place in the
+    // block, as the Programming sheet says them. Not "W3 · D2": a phase is not
+    // a calendar week, and a session no longer needs a weekday — the card
+    // ended in a bare "· D", or read "W1 · W1 · D2" (review item L14).
+    const where = [
+      c.week_label,
+      position ? t('coach.roster.sessionOf', { n: position.n, total: position.total }) : null,
+    ].filter(Boolean).join(' · ');
     return (
       <Link
         key={c.id}
@@ -164,18 +178,18 @@ export default function SessionsFeed() {
                 {t('common.archived')}
               </span>
             )}
+            {/* The day the athlete trained, not the day the confirmation
+                reached the server — which, for one sent offline, is the day
+                the queue was replayed. */}
             <span className="sl-mono text-[11px] text-ink-400">
-              {(performedDate(c) || new Date(c.confirmed_at)).toLocaleDateString()}
+              {formatDate(lang, performedDate(c))}
             </span>
           </div>
         </div>
         <h3 className={`sl-display text-[16px] ${isArchived ? 'text-ink-600' : 'text-gray-900'}`}>
           {c.session_title || `Session ${c.day_number}`}
         </h3>
-        <p className="sl-mono text-[11px] text-ink-400">
-          W{c.week_number}
-          {c.week_label ? ` · ${c.week_label}` : ''} · D{c.day_number}
-        </p>
+        {where && <p className="sl-mono text-[11px] text-ink-400">{where}</p>}
         {c.notes && (
           <p className="mt-2 text-[13px] text-ink-700 whitespace-pre-wrap">{c.notes}</p>
         )}

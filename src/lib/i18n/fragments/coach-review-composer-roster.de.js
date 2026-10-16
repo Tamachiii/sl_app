@@ -15,5 +15,8 @@ export default {
       offlineTitle: 'Der Status der Athleten ist noch nicht auf diesem Gerät',
       offlineBody: 'Du bist offline. Programme und zu prüfende Einheiten können auf den Karten unten fehlen, bis die Verbindung wieder da ist.',
     },
+    review: {
+      trainedOn: 'Trainiert am {date}',
+    },
   },
 };

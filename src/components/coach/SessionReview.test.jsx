@@ -26,7 +26,8 @@ function confirmationQuery(row, overrides = {}) {
     ...overrides,
   };
 }
-const CONFIRMED = { confirmed_at: '2026-04-25T14:00:00Z', notes: null };
+// Trained on the 23rd, offline; the confirmation reached the server on the 25th.
+const CONFIRMED = { confirmed_at: '2026-04-25T14:00:00Z', performed_on: '2026-04-23', notes: null };
 let mockConfirmation = confirmationQuery(null);
 let mockSessionFeedback = { data: null, isLoading: false };
 let mockDeviations = { data: [], isLoading: false };
@@ -269,6 +270,31 @@ describe('<SessionReview />', () => {
     expect(screen.getByText(/Confirmed by student/i)).toBeInTheDocument();
     expect(screen.getByText(/felt strong/)).toBeInTheDocument();
     expect(screen.queryByText('Not confirmed')).not.toBeInTheDocument();
+  });
+
+  // Review item L14: the banner printed `confirmed_at`, which for a workout
+  // confirmed offline is the moment the queue was replayed — another day,
+  // for 40 of 293 confirmations in production.
+  describe('the day on the confirmed banner', () => {
+    beforeEach(() => {
+      mockSessionData = {
+        data: { id: 'sess-1', title: 'Push', archived_at: null, exercise_slots: [] },
+        isLoading: false,
+      };
+    });
+
+    it('is the day the athlete trained, not the day the confirmation arrived', () => {
+      mockConfirmation = confirmationQuery(CONFIRMED);
+      renderReview();
+      expect(screen.getByText('Trained on Apr 23, 2026')).toBeInTheDocument();
+      expect(screen.queryByText(/Apr 25|4\/25\/2026/)).toBeNull();
+    });
+
+    it('falls back to the day of the confirmation for a row without a training date', () => {
+      mockConfirmation = confirmationQuery({ ...CONFIRMED, performed_on: null });
+      renderReview();
+      expect(screen.getByText('Trained on Apr 25, 2026')).toBeInTheDocument();
+    });
   });
 
   it('persists the studentId/sessionId pair to localStorage on render', () => {

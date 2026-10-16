@@ -2,7 +2,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 import { startOfWeekMonday } from '../lib/day';
-import { buildQueue, buildDayStrip } from '../lib/sessionQueue';
+import { buildQueue, buildDayStrip, flattenSessions } from '../lib/sessionQueue';
+import { fetchAllRows } from '../lib/supabasePaging';
 import { mutationScope, laterWriteQueued } from '../lib/mutationScope';
 
 /**
@@ -555,6 +556,52 @@ export function useCoachDashboardPrograms() {
         };
       }
       return summary;
+    },
+    enabled: !!user?.id,
+  });
+}
+
+/**
+ * Where each session of this coach's athletes stands in its block, as the
+ * Programming sheet numbers it: `{ [sessionId]: { n, total } }` — the 1-based
+ * place of the session among the non-archived sessions of its block, read
+ * across phases in their order, and how many there are. An archived session
+ * has no place. Every block that is not in the trash, active or not: the
+ * Sessions feed lists confirmations of past blocks too, and names them "Session
+ * 7/24" where it used to print "W3 · D2" — a week number and a weekday that
+ * stopped meaning anything once a phase could run any number of sessions and a
+ * day became optional (review item L14).
+ *
+ * The coach is named in the request, through an inner join on `students`:
+ * RLS also lets an account read the blocks in which it is the ATHLETE.
+ * Programs are read by pages of a thousand (lib/supabasePaging); the sessions
+ * ride inside them.
+ *
+ * The key sits under `coach-dashboard-programs`, so every write that drops the
+ * dashboard (`invalidateCoachDashboard` — sessions added, moved, archived,
+ * copied; phases reordered) drops this one too. A missing answer is no
+ * position: the feed then names the phase alone.
+ */
+export function useCoachSessionPositions() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ['coach-dashboard-programs', 'session-positions', user?.id],
+    queryFn: async () => {
+      const programs = await fetchAllRows(() =>
+        supabase
+          .from('programs')
+          .select('id, student:students!inner(coach_id), weeks(id, week_number, sessions(id, sort_order, archived_at))')
+          .eq('student.coach_id', user.id)
+          .is('deleted_at', null),
+      );
+      const positions = {};
+      for (const program of programs) {
+        const placed = flattenSessions(program.weeks).filter(({ session }) => !session.archived_at);
+        placed.forEach(({ session }, i) => {
+          positions[session.id] = { n: i + 1, total: placed.length };
+        });
+      }
+      return positions;
     },
     enabled: !!user?.id,
   });

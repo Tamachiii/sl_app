@@ -18,11 +18,13 @@ import {
   useSetActiveProgram,
   useReorderPrograms,
   useCoachDashboardPrograms,
+  useCoachSessionPositions,
   useApproveProgram,
   useSendBackProgram,
 } from './useProgram';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
+import { fakePostgrest } from '../test/fakePostgrest';
 
 function makeClient() {
   return new QueryClient({
@@ -962,6 +964,159 @@ describe('useCoachDashboardPrograms', () => {
 // flips status to 'approved'; send-back clears submitted_at. Both are
 // coach-only SECURITY DEFINER RPCs — the client half is just the call and the
 // cache drop, and neither was covered before.
+// Review item L14: the Sessions feed names a session by its place in its
+// block ("Session 7/24") instead of "W3 · D2".
+describe('useCoachSessionPositions', () => {
+  // What RLS lets coach-1 read, as the WHERE clause of the request would
+  // leave it: the recorded filters are applied here the way PostgREST applies
+  // them — 'student.coach_id' through the `!inner` embed, `deleted_at` on the
+  // row.
+  function programsTable(rows) {
+    const at = (row, path) => path.split('.').reduce((node, key) => node?.[key], row);
+    return (request) =>
+      rows.filter((row) =>
+        request.filters.every(([op, column, value]) => {
+          if (op === 'eq') return at(row, column) === value;
+          if (op === 'is') return (at(row, column) ?? null) === value;
+          return true;
+        }),
+      );
+  }
+  const session = (id, sort_order, archived_at = null) => ({ id, sort_order, archived_at });
+
+  async function positionsOf(rows) {
+    const db = fakePostgrest({ programs: programsTable(rows) });
+    supabase.from.mockImplementation(db.from);
+    const { result } = renderHook(() => useCoachSessionPositions(), { wrapper: withClient(makeClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    return { positions: result.current.data, db };
+  }
+
+  it('numbers the sessions of a block across its phases, in their order', async () => {
+    const { positions } = await positionsOf([
+      {
+        id: 'p-1',
+        student: { coach_id: 'coach-1' },
+        deleted_at: null,
+        // Phases and sessions arrive in no particular order.
+        weeks: [
+          { id: 'w-2', week_number: 2, sessions: [session('s-4', 1), session('s-3', 0)] },
+          { id: 'w-1', week_number: 1, sessions: [session('s-2', 1), session('s-1', 0)] },
+        ],
+      },
+    ]);
+    expect(positions).toEqual({
+      's-1': { n: 1, total: 4 },
+      's-2': { n: 2, total: 4 },
+      's-3': { n: 3, total: 4 },
+      's-4': { n: 4, total: 4 },
+    });
+  });
+
+  it('gives an archived session no place, and does not count it', async () => {
+    const { positions } = await positionsOf([
+      {
+        id: 'p-1',
+        student: { coach_id: 'coach-1' },
+        deleted_at: null,
+        weeks: [
+          {
+            id: 'w-1',
+            week_number: 1,
+            sessions: [session('s-1', 0), session('s-gone', 1, '2026-04-01T00:00:00Z'), session('s-2', 2)],
+          },
+        ],
+      },
+    ]);
+    expect(positions).toEqual({ 's-1': { n: 1, total: 2 }, 's-2': { n: 2, total: 2 } });
+  });
+
+  it('numbers each block on its own, past blocks included', async () => {
+    const { positions } = await positionsOf([
+      {
+        id: 'p-old',
+        is_active: false,
+        student: { coach_id: 'coach-1' },
+        deleted_at: null,
+        weeks: [{ id: 'w-1', week_number: 1, sessions: [session('s-a', 0), session('s-b', 1)] }],
+      },
+      {
+        id: 'p-new',
+        is_active: true,
+        student: { coach_id: 'coach-1' },
+        deleted_at: null,
+        weeks: [{ id: 'w-9', week_number: 1, sessions: [session('s-c', 0)] }],
+      },
+    ]);
+    expect(positions['s-b']).toEqual({ n: 2, total: 2 });
+    expect(positions['s-c']).toEqual({ n: 1, total: 1 });
+  });
+
+  // RLS answers every program the account may read, which includes the
+  // blocks in which this coach is somebody else's athlete.
+  it('names the coach through an inner join on students, and leaves the trash out', async () => {
+    const { positions, db } = await positionsOf([
+      {
+        id: 'p-1',
+        student: { coach_id: 'coach-1' },
+        deleted_at: null,
+        weeks: [{ id: 'w-1', week_number: 1, sessions: [session('s-1', 0)] }],
+      },
+      {
+        id: 'p-self',
+        student: { coach_id: 'coach-other' },
+        deleted_at: null,
+        weeks: [{ id: 'w-8', week_number: 1, sessions: [session('s-mine', 0)] }],
+      },
+      {
+        id: 'p-trash',
+        student: { coach_id: 'coach-1' },
+        deleted_at: '2026-04-01T00:00:00Z',
+        weeks: [{ id: 'w-9', week_number: 1, sessions: [session('s-trash', 0)] }],
+      },
+    ]);
+    expect(Object.keys(positions)).toEqual(['s-1']);
+
+    const [request] = db.requestsTo('programs');
+    expect(oneLine(request.select)).toContain('student:students!inner(coach_id)');
+    expect(request.filters).toEqual(expect.arrayContaining([
+      ['eq', 'student.coach_id', 'coach-1'],
+      ['is', 'deleted_at', null],
+    ]));
+  });
+
+  it('reads every program, a thousand at a time', async () => {
+    const rows = Array.from({ length: 1001 }, (_, i) => ({
+      id: `p-${String(i).padStart(4, '0')}`,
+      student: { coach_id: 'coach-1' },
+      deleted_at: null,
+      weeks: [{ id: `w-${i}`, week_number: 1, sessions: [session(`s-${i}`, 0)] }],
+    }));
+    const { positions, db } = await positionsOf(rows);
+    expect(Object.keys(positions)).toHaveLength(1001);
+    expect(db.requestsTo('programs')).toHaveLength(2);
+  });
+
+  // Every write that moves, adds, archives or copies a session drops the
+  // dashboard; the positions live under the same root and go with it.
+  it('is dropped with the coach dashboard', async () => {
+    const db = fakePostgrest({ programs: [] });
+    supabase.from.mockImplementation(db.from);
+    const qc = makeClient();
+    const { result } = renderHook(() => useCoachSessionPositions(), { wrapper: withClient(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    await act(() => qc.invalidateQueries({ queryKey: ['coach-dashboard-programs'] }));
+    await waitFor(() => expect(db.requestsTo('programs')).toHaveLength(2));
+  });
+
+  it('asks nothing before the account is known', () => {
+    useAuth.mockReturnValue({ user: null });
+    renderHook(() => useCoachSessionPositions(), { wrapper: withClient(makeClient()) });
+    expect(supabase.from).not.toHaveBeenCalled();
+  });
+});
+
 describe('useApproveProgram / useSendBackProgram', () => {
   beforeEach(() => {
     supabase.rpc.mockResolvedValue({ data: null, error: null });
