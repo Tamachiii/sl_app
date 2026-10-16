@@ -257,17 +257,23 @@ export function handlePush(scope, event) {
 // route, and so are "#/", "#" and no hash at all.
 const routeOf = (url) => url.hash.replace(/^#/, '').replace(/\/+$/, '');
 
+// The server answers "/sl_app/" with "/sl_app/index.html": one document under
+// two paths. Only a whole last segment counts — "/sl_app/myindex.html" is a
+// file of its own.
+const documentOf = (url) => url.pathname.replace(/\/index\.html$/, '/');
+
 /**
  * Do two addresses show the same page of the app? `clientUrl` is what a window
  * reports — absolute — and `target` what a payload carries — a path. Both are
  * read against `base`, the scope of the registration: compared as text they
- * never match, and every tap would move the window it finds.
+ * never match, and every tap would move the window it finds. A path that ends
+ * in `index.html` is its directory.
  */
 export function isSameRoute(clientUrl, target, base) {
   try {
     const a = new URL(clientUrl, base);
     const b = new URL(target, base);
-    return a.origin === b.origin && a.pathname === b.pathname && routeOf(a) === routeOf(b);
+    return a.origin === b.origin && documentOf(a) === documentOf(b) && routeOf(a) === routeOf(b);
   } catch {
     return false;
   }

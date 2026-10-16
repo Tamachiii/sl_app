@@ -575,6 +575,9 @@ describe('two addresses, one page?', () => {
     ['the root, with an empty hash', `${SCOPE}#`, '/sl_app/'],
     ['two absolute addresses', `${SCOPE}#/coach/sessions?student=a1`, `${SCOPE}#/coach/sessions?student=a1`],
     ['a query in front of the hash, which the router does not read', `${SCOPE}?source=pwa#/student`, '/sl_app/#/student'],
+    ['the window on index.html, the payload on its directory', `${SCOPE}index.html#/student`, '/sl_app/#/student'],
+    ['the window on its directory, the payload on index.html', `${SCOPE}#/student`, '/sl_app/index.html#/student'],
+    ['index.html without a hash, and the root', `${SCOPE}index.html`, '/sl_app/'],
   ])('yes: %s', (_name, clientUrl, target) => {
     expect(isSameRoute(clientUrl, target, SCOPE)).toBe(true);
   });
@@ -587,6 +590,9 @@ describe('two addresses, one page?', () => {
     ['the same route on another origin', 'https://elsewhere.test/sl_app/#/student', '/sl_app/#/student'],
     ['an address that cannot be read', 'http://', '/sl_app/#/student'],
     ['no address', undefined, '/sl_app/#/student'],
+    ['a file whose name ends in index.html', `${SCOPE}myindex.html#/student`, '/sl_app/#/student'],
+    ['index.html of another directory', 'https://example.test/other/index.html#/student', '/sl_app/#/student'],
+    ['index.html on two sessions', `${SCOPE}index.html#/student/session/s1`, '/sl_app/#/student/session/s2'],
   ])('no: %s', (_name, clientUrl, target) => {
     expect(isSameRoute(clientUrl, target, SCOPE)).toBe(false);
   });
@@ -643,6 +649,15 @@ describe('notificationclick — the app comes to the front', () => {
     const there = appWindow(route);
     const scope = notifier({ windows: [there] });
     await tap(scope, { ...FEEDBACK, data: { url } });
+
+    expect(there.focus).toHaveBeenCalledTimes(1);
+    expect(there.navigate).not.toHaveBeenCalled();
+  });
+
+  it('a window that reports index.html is on the page of the same route', async () => {
+    const there = appWindow(null, { url: `${SCOPE}index.html#/student/session/s1` });
+    const scope = notifier({ windows: [there] });
+    await tap(scope);
 
     expect(there.focus).toHaveBeenCalledTimes(1);
     expect(there.navigate).not.toHaveBeenCalled();
