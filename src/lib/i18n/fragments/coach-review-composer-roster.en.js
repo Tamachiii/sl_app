@@ -8,5 +8,12 @@ export default {
       confirmMessage: 'What you typed has not been sent. Finishing marks the session as reviewed, which cannot be undone, and discards the text.',
       confirmAction: 'Finish and discard',
     },
+    roster: {
+      loading: 'Loading your athletes’ status',
+      failedTitle: 'Athlete status couldn’t be loaded',
+      failedBody: 'Programs and sessions to review may be missing from the cards below. Check your connection, then try again.',
+      offlineTitle: 'Athlete status isn’t on this device yet',
+      offlineBody: 'You’re offline. Programs and sessions to review may be missing from the cards below until the connection is back.',
+    },
   },
 };

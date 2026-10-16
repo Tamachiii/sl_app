@@ -218,6 +218,115 @@ describe('CoachHome', () => {
       expect(screen.getByText(/app errors/i)).toBeInTheDocument();
       expect(screen.getByText('boom')).toBeInTheDocument();
     });
+
+    // Review items P48, N16: the cards read only `data` of the two reads, and
+    // a summary that had not arrived — or was answered by a 500 — was "nobody
+    // has a program": a red chip on every athlete, all sorted to the top, and
+    // re-sorted when the answer landed.
+    describe('while the athletes\u2019 status is not known', () => {
+      const refetchSummary = vi.fn();
+      const refetchConfirmations = vi.fn();
+      const loadingRead = (refetch) => ({
+        data: undefined, isLoading: true, isError: false, isPaused: false, fetchStatus: 'fetching', isFetching: true, refetch,
+      });
+      const failedRead = (refetch) => ({
+        data: undefined, isLoading: false, isError: true, isPaused: false, fetchStatus: 'idle', isFetching: false, refetch,
+      });
+      const pausedRead = (refetch) => ({
+        data: undefined, isLoading: true, isError: false, isPaused: true, fetchStatus: 'paused', isFetching: false, refetch,
+      });
+      const cardNames = () =>
+        screen.queryAllByRole('link', { name: /open /i }).map((el) => el.getAttribute('aria-label'));
+
+      beforeEach(() => {
+        refetchSummary.mockReset();
+        refetchConfirmations.mockReset();
+      });
+
+      it('draws one placeholder per athlete while the reads are on their way, and nothing to tap', () => {
+        mockSummary = loadingRead(refetchSummary);
+        mockConfirmations = loadingRead(refetchConfirmations);
+        renderCoachHome();
+
+        const placeholder = screen.getByRole('status', { name: /loading your athletes/i });
+        expect(placeholder).toHaveAttribute('aria-busy', 'true');
+        expect(placeholder.children).toHaveLength(3);
+        expect(screen.queryByText(/no program/i)).toBeNull();
+        expect(screen.queryByText(/^\d+ to review$/i)).toBeNull();
+        expect(cardNames()).toEqual([]);
+        expect(screen.queryByText(/no athletes match/i)).toBeNull();
+      });
+
+      it('waits for both reads before it draws the cards', () => {
+        mockConfirmations = loadingRead(refetchConfirmations);
+        renderCoachHome();
+        expect(cardNames()).toEqual([]);
+        expect(screen.getByRole('status', { name: /loading your athletes/i })).toBeInTheDocument();
+      });
+
+      it('says the summary could not be read, invents no chip, and asks again on Retry', () => {
+        mockSummary = failedRead(refetchSummary);
+        mockConfirmations = { data: [] };
+        renderCoachHome();
+
+        expect(screen.getByText('Athlete status couldn’t be loaded')).toBeInTheDocument();
+        expect(screen.queryByText(/no program/i)).toBeNull();
+        // Every athlete is still there, A–Z, and opens.
+        expect(cardNames()).toEqual(['Open Alice', 'Open Bob', 'Open Cara']);
+        expect(screen.getByRole('link', { name: /open bob/i })).toHaveAttribute('href', '/coach/students/s2');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+        expect(refetchSummary).toHaveBeenCalledWith({ cancelRefetch: false });
+        expect(refetchConfirmations).not.toHaveBeenCalled();
+      });
+
+      it('keeps the review chips it knows when only the summary failed', () => {
+        mockSummary = failedRead(refetchSummary);
+        renderCoachHome();
+        expect(screen.getByText(/2 to review/i)).toBeInTheDocument();
+        expect(screen.queryByText(/no program/i)).toBeNull();
+        expect(cardNames()).toEqual(['Open Cara', 'Open Alice', 'Open Bob']);
+      });
+
+      it('shows no "to review" chip it could not count, and keeps what the summary says', () => {
+        mockConfirmations = failedRead(refetchConfirmations);
+        renderCoachHome();
+
+        expect(screen.getByText('Athlete status couldn’t be loaded')).toBeInTheDocument();
+        expect(screen.queryByText(/^\d+ to review$/i)).toBeNull();
+        expect(screen.getByText(/no program/i)).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+        expect(refetchConfirmations).toHaveBeenCalledWith({ cancelRefetch: false });
+        expect(refetchSummary).not.toHaveBeenCalled();
+      });
+
+      it('asks both reads again when both failed', () => {
+        mockSummary = failedRead(refetchSummary);
+        mockConfirmations = failedRead(refetchConfirmations);
+        renderCoachHome();
+
+        expect(screen.queryByText(/no program/i)).toBeNull();
+        expect(screen.queryByText(/^\d+ to review$/i)).toBeNull();
+        expect(cardNames()).toEqual(['Open Alice', 'Open Bob', 'Open Cara']);
+        fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+        expect(refetchSummary).toHaveBeenCalledWith({ cancelRefetch: false });
+        expect(refetchConfirmations).toHaveBeenCalledWith({ cancelRefetch: false });
+      });
+
+      it('says the status waits for the network when a read is paused', () => {
+        mockSummary = pausedRead(refetchSummary);
+        renderCoachHome();
+        expect(screen.getByText('Athlete status isn’t on this device yet')).toBeInTheDocument();
+        expect(screen.queryByText(/no program/i)).toBeNull();
+      });
+
+      it('shows what it last read when a refresh fails', () => {
+        mockSummary = { ...failedRead(refetchSummary), data: { s1: { programName: 'Hyp', weekDays: CALM_WEEK } } };
+        renderCoachHome();
+        expect(screen.queryByText('Athlete status couldn’t be loaded')).toBeNull();
+        expect(screen.getAllByText(/no program/i)).toHaveLength(2);
+      });
+    });
   });
 
   describe('with a selected student', () => {

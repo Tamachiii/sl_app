@@ -36,21 +36,29 @@ function reviewCountsByStudent(confirmations) {
  * athletes fall below, A–Z. `summary` only holds students with an ACTIVE
  * program, so key-absence — not `activeWeek == null` — is what marks
  * "no active program" (an active program with no scheduled week is not a gap).
+ *
+ * `summary` and `confirmations` may be null (or undefined): the read has not
+ * answered — it is on its way, it failed, it waits for the network. Null is
+ * UNKNOWN, never empty. An unknown summary gives no "No program" and no
+ * "Quiet" chip, and no program name, position or week strip; unknown
+ * confirmations give no "to review" chip. Read as `{}`, a summary that had
+ * not arrived — or that was answered by a 500 — put a red "No program" on
+ * every athlete and sorted them all to the top (review items P48, N16).
  */
 export function buildRoster({ students, summary, confirmations }) {
-  const reviewCounts = reviewCountsByStudent(confirmations);
-  const summaryMap = summary || {};
+  const reviewCounts = confirmations == null ? null : reviewCountsByStudent(confirmations);
+  const summaryKnown = summary != null;
 
   const entries = (students || []).map((student) => {
     const fullName = student.profile?.full_name || 'Student';
-    const entry = summaryMap[student.id];
+    const entry = summaryKnown ? summary[student.id] : undefined;
     const hasProgram = !!entry;
     const weekDays = entry?.weekDays || null;
-    const reviewCount = reviewCounts.get(student.id) || 0;
+    const reviewCount = reviewCounts?.get(student.id) || 0;
     const daysSinceLast = entry?.daysSinceLast ?? null;
 
     const chips = [];
-    if (!hasProgram) chips.push({ kind: 'noProgram' });
+    if (summaryKnown && !hasProgram) chips.push({ kind: 'noProgram' });
     if (reviewCount > 0) chips.push({ kind: 'toReview', n: reviewCount });
     // An athlete who has never logged anything shows no chip: they may have
     // just been assigned a block, and "quiet for ∞ days" is not a finding.

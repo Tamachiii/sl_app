@@ -162,11 +162,78 @@ function ErrorsTriage({ errors, t }) {
   );
 }
 
-function RosterView({ students, t }) {
-  const { data: summary } = useCoachDashboardPrograms();
-  const { data: confirmations } = useAllConfirmations();
+// What stands where the cards will be while the athletes' status is read: the
+// names are known, but the order is not — an athlete without a program or with
+// sessions to review goes to the top — so cards drawn now would jump when the
+// answer lands. Nothing in it can be tapped.
+function RosterSkeleton({ count, t }) {
+  return (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label={t('coachReviewComposerRoster.roster.loading')}
+      className="space-y-2 md:grid md:grid-cols-2 md:gap-2 md:space-y-0"
+    >
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="sl-card p-3 motion-safe:animate-pulse" aria-hidden="true">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-ink-100 shrink-0" />
+            <div className="flex-1 space-y-2">
+              <div className="h-3.5 w-1/2 rounded bg-ink-100" />
+              <div className="h-2.5 w-1/3 rounded bg-ink-100" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// The athletes' status — programs, sessions to review — got no answer. The
+// cards below show what was read and nothing else: no chip is invented for
+// what was not.
+function RosterStatusNotice({ state, onRetry, retrying, t }) {
+  const offline = state === 'offline';
+  return (
+    <div role="status" className="sl-card p-3 flex items-center gap-3">
+      <div className="flex-1 min-w-0">
+        <p className="text-[13px] text-gray-900">
+          {offline
+            ? t('coachReviewComposerRoster.roster.offlineTitle')
+            : t('coachReviewComposerRoster.roster.failedTitle')}
+        </p>
+        <p className="text-[12px] text-ink-400 mt-0.5">
+          {offline
+            ? t('coachReviewComposerRoster.roster.offlineBody')
+            : t('coachReviewComposerRoster.roster.failedBody')}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={retrying}
+        className="sl-pill sl-pill-btn shrink-0 bg-ink-100 text-ink-700 hover:bg-ink-200 disabled:opacity-50"
+      >
+        {t('coachEditorNavErrors.read.retry')}
+      </button>
+    </div>
+  );
+}
+
+function RosterView({ students, online, restoring, t }) {
+  const summaryRead = useCoachDashboardPrograms();
+  const confirmationsRead = useAllConfirmations();
   const { data: clientErrors } = useClientErrors();
   const [query, setQuery] = useState('');
+
+  // The two coach-wide reads the chips and the order come from. A read that
+  // has not answered is null — unknown, never "nobody has a program" (review
+  // items P48, N16) — and data, however old, wins over a refresh that failed.
+  // The app-errors list is not part of it: it flags no athlete.
+  const statusState = readState([summaryRead, confirmationsRead], { online, restoring });
+  const summary = summaryRead.data ?? null;
+  const confirmations = confirmationsRead.data ?? null;
+  const missingReads = [summaryRead, confirmationsRead].filter((read) => read.data == null);
 
   const roster = useMemo(
     () => buildRoster({ students, summary, confirmations }),
@@ -183,6 +250,8 @@ function RosterView({ students, t }) {
     );
   }, [roster, query]);
 
+  const loading = statusState === 'loading';
+
   return (
     <div className="space-y-4">
       <label className="block">
@@ -196,13 +265,28 @@ function RosterView({ students, t }) {
         />
       </label>
 
-      {filtered.length === 0 && <EmptyState message={t('coach.roster.noMatches')} />}
+      {(statusState === 'offline' || statusState === 'failed') && (
+        <RosterStatusNotice
+          state={statusState}
+          onRetry={() => missingReads.forEach((read) => read.refetch({ cancelRefetch: false }))}
+          retrying={missingReads.some((read) => read.isFetching)}
+          t={t}
+        />
+      )}
 
-      <div className="space-y-2 md:grid md:grid-cols-2 md:gap-2 md:space-y-0">
-        {filtered.map((entry) => (
-          <RosterCard key={entry.student.id} entry={entry} t={t} />
-        ))}
-      </div>
+      {loading ? (
+        <RosterSkeleton count={students.length} t={t} />
+      ) : (
+        <>
+          {filtered.length === 0 && <EmptyState message={t('coach.roster.noMatches')} />}
+
+          <div className="space-y-2 md:grid md:grid-cols-2 md:gap-2 md:space-y-0">
+            {filtered.map((entry) => (
+              <RosterCard key={entry.student.id} entry={entry} t={t} />
+            ))}
+          </div>
+        </>
+      )}
 
       {clientErrors && clientErrors.length > 0 && <ErrorsTriage errors={clientErrors} t={t} />}
     </div>
@@ -327,7 +411,9 @@ export default function CoachHome() {
           // No tab strip and no identity block: the athlete is ONE page
           // (StudentOverview) under a header that already names them.
           ? selected && <Outlet context={{ student: selected }} />
-          : students.length > 0 && <RosterView students={students} t={t} />
+          : students.length > 0 && (
+            <RosterView students={students} online={online} restoring={restoring} t={t} />
+          )
       )}
     </div>
   );

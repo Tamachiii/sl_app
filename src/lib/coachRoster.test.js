@@ -92,10 +92,47 @@ describe('buildRoster', () => {
     expect(combined[0].priority).toBe(3);
   });
 
-  it('is resilient to undefined summary / confirmations', () => {
-    const bare = buildRoster({ students: [student('s1', 'Alice')], summary: undefined, confirmations: undefined });
-    expect(bare).toHaveLength(1);
-    expect(bare[0].chips).toEqual([{ kind: 'noProgram' }]);
-    expect(bare[0].weekDays).toBeNull();
+  // Review items P48, N16: a summary that had not arrived, or that was
+  // answered by a 500, was read as "nobody has a program" — a red chip on
+  // every athlete, all of them sorted to the top. Null is unknown, not empty.
+  describe('a read that has not answered', () => {
+    it('invents no chip when neither read is known', () => {
+      for (const unknown of [null, undefined]) {
+        const bare = buildRoster({ students, summary: unknown, confirmations: unknown });
+        expect(bare.map((e) => e.chips)).toEqual([[], [], [], [], []]);
+        expect(bare.every((e) => !e.hasAttention && e.priority === 0)).toBe(true);
+        expect(bare.map((e) => e.fullName)).toEqual(['Alice', 'Bob', 'Cara', 'Dan', 'Eve']);
+        expect(bare[0].weekDays).toBeNull();
+        expect(bare[0].programName).toBeNull();
+        expect(bare[0].position).toBeNull();
+        expect(bare[0].totalSessions).toBeNull();
+      }
+    });
+
+    it('still flags what the summary says when the confirmations are unknown', () => {
+      const partial = buildRoster({ students, summary, confirmations: null });
+      const of = Object.fromEntries(partial.map((e) => [e.student.id, e]));
+      expect(of.s2.chips).toEqual([{ kind: 'noProgram' }]);
+      expect(of.s4.chips).toEqual([{ kind: 'stale', days: 14 }]);
+      // Cara has two sessions to review, which nobody knows yet.
+      expect(of.s3.chips).toEqual([]);
+      expect(of.s1.programName).toBe('Hyp');
+      expect(partial.map((e) => e.student.id)).toEqual(['s2', 's4', 's1', 's3', 's5']);
+    });
+
+    it('still counts the reviews when the summary is unknown, and says nothing about programs', () => {
+      const partial = buildRoster({ students, summary: null, confirmations });
+      const of = Object.fromEntries(partial.map((e) => [e.student.id, e]));
+      expect(of.s3.chips).toEqual([{ kind: 'toReview', n: 2 }]);
+      // Bob is not known to be without a program, nor Dan to be quiet.
+      expect(of.s2.chips).toEqual([]);
+      expect(of.s4.chips).toEqual([]);
+      expect(partial.map((e) => e.student.id)).toEqual(['s3', 's1', 's2', 's4', 's5']);
+    });
+
+    it('reads an empty summary as an answer: nobody has an active program', () => {
+      const answered = buildRoster({ students: [student('s1', 'Alice')], summary: {}, confirmations: [] });
+      expect(answered[0].chips).toEqual([{ kind: 'noProgram' }]);
+    });
   });
 });
