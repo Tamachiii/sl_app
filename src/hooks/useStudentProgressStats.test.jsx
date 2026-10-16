@@ -777,6 +777,269 @@ describe('useStudentProgressStats — completion + tonnage', () => {
   });
 });
 
+// Every state a set or a session can be in, against every figure the page
+// shows. One row, one state, in a block of one session with one slot — so a
+// figure that moves can only have moved for that state. The fake serves every
+// row it is given, filters or not: the pending, failed and skipped rows below
+// reach the hook as they would if the `done = true` filter were dropped, and a
+// draft's rows as if the `status` one were.
+describe('useStudentProgressStats — one state per row, every figure', () => {
+  const BENCH = { id: 'e-1', name: 'Bench', type: 'push', difficulty: 2, volume_weight: 1 };
+  const ROW = { id: 'e-2', name: 'Row', type: 'pull', difficulty: 1, volume_weight: 1 };
+  const PLANK = { id: 'e-3', name: 'Plank', type: 'push', difficulty: 1, volume_weight: 1 };
+  // 2 × 5 @ 100 kg: planned volume 2 × 10 × 1 = 20 push, planned tonnage 1000.
+  const REPS_SLOT = {
+    id: 'sl-1', sets: 2, reps: 5, duration_seconds: null, weight_kg: 100, exercise: BENCH,
+    set_logs: [1, 2].map((n) => ({
+      set_number: n, target_reps: 5, target_duration_seconds: null, target_weight_kg: 100, target_rest_seconds: null,
+    })),
+  };
+  // 2 × 30 s: no reps, so no planned volume and no planned tonnage.
+  const TIMED_SLOT = {
+    id: 'sl-1', sets: 2, reps: null, duration_seconds: 30, weight_kg: null, exercise: PLANK,
+    set_logs: [1, 2].map((n) => ({
+      set_number: n, target_reps: null, target_duration_seconds: 30, target_weight_kg: null, target_rest_seconds: null,
+    })),
+  };
+  const ON = '2026-07-08T12:00:00Z'; // a Wednesday, week of 6 July
+  const LATER = '2026-07-15T12:00:00Z'; // a Wednesday, week of 13 July
+  const ARCHIVED = '2026-07-25T09:00:00Z';
+  const set = (n, over = {}) => ({
+    id: `l-${n}`, exercise_slot_id: 'sl-1', set_number: n, done: true, failed: false, skipped: false,
+    is_student_added: false, rpe: null, logged_at: ON, target_reps: 5, target_weight_kg: 100,
+    actual_reps: null, actual_weight_kg: null, ...over,
+  });
+  const week = (over = {}) => ({
+    start: '2026-07-06', pull: 0, push: 20, pull_planned: 0, push_planned: 20, sets: '2/2 +0', sessions: 1, ...over,
+  });
+  const NOTHING = { sessions: '0/0', sets: '0/0 +0', backlog: 0, weeks: [], points: [], calendar: [] };
+
+  const ROWS = [
+    {
+      state: 'every set done as prescribed',
+      confirmed: true,
+      logs: [set(1), set(2)],
+      expected: {
+        sessions: '1/1', sets: '2/2 +0', backlog: 0,
+        weeks: [week()],
+        points: [['e-1', '2026-07-08', 1000, 1000]],
+        calendar: [['2026-07-08', true]],
+      },
+    },
+    {
+      state: 'a set failed',
+      confirmed: true,
+      logs: [set(1), set(2, { done: false, failed: true })],
+      expected: {
+        sessions: '1/1', sets: '1/2 +0', backlog: 0,
+        weeks: [week({ push: 10, sets: '1/2 +0' })],
+        points: [['e-1', '2026-07-08', 500, 1000]],
+        calendar: [['2026-07-08', true]],
+      },
+    },
+    {
+      state: 'a set skipped',
+      confirmed: true,
+      logs: [set(1), set(2, { done: false, skipped: true })],
+      expected: {
+        sessions: '1/1', sets: '1/2 +0', backlog: 0,
+        weeks: [week({ push: 10, sets: '1/2 +0' })],
+        points: [['e-1', '2026-07-08', 500, 1000]],
+        calendar: [['2026-07-08', true]],
+      },
+    },
+    {
+      state: 'a set still pending',
+      confirmed: true,
+      logs: [set(1), set(2, { done: false, logged_at: null })],
+      expected: {
+        sessions: '1/1', sets: '1/2 +0', backlog: 0,
+        weeks: [week({ push: 10, sets: '1/2 +0' })],
+        points: [['e-1', '2026-07-08', 500, 1000]],
+        calendar: [['2026-07-08', true]],
+      },
+    },
+    {
+      state: 'a set added, with its actuals',
+      confirmed: true,
+      logs: [set(1), set(2), set(3, {
+        is_student_added: true, target_reps: null, target_weight_kg: null, actual_reps: 8, actual_weight_kg: 100,
+      })],
+      expected: {
+        // Real work: in the volume (2 × 18) and the tonnage, never in the
+        // prescribed count.
+        sessions: '1/1', sets: '2/2 +1', backlog: 0,
+        weeks: [week({ push: 36, sets: '2/2 +1' })],
+        points: [['e-1', '2026-07-08', 1800, 1000]],
+        calendar: [['2026-07-08', true]],
+      },
+    },
+    {
+      state: 'a set added, without actuals',
+      confirmed: true,
+      logs: [set(1), set(2), set(3, { is_student_added: true, target_reps: null, target_weight_kg: null })],
+      expected: {
+        sessions: '1/1', sets: '2/2 +1', backlog: 0,
+        weeks: [week({ sets: '2/2 +1' })],
+        points: [['e-1', '2026-07-08', 1000, 1000]],
+        calendar: [['2026-07-08', true]],
+      },
+    },
+    {
+      state: 'a set held for a time, reps typed in',
+      confirmed: true,
+      slot: TIMED_SLOT,
+      logs: [set(1, { target_reps: null, target_weight_kg: null, actual_reps: 12, actual_weight_kg: 10 })],
+      expected: {
+        sessions: '1/1', sets: '1/2 +0', backlog: 0,
+        weeks: [week({ push: 0, push_planned: 0, sets: '1/2 +0' })],
+        points: [],
+        calendar: [['2026-07-08', true]],
+      },
+    },
+    {
+      state: 'the exercise swapped',
+      confirmed: true,
+      swappedTo: ROW,
+      logs: [set(1), set(2, { actual_reps: 5, actual_weight_kg: 60 })],
+      expected: {
+        // Performed goes to the substitute (pull 1 × 10 × 1), planned stays on
+        // the original; the original's 100 kg never reaches the substitute.
+        sessions: '1/1', sets: '2/2 +0', backlog: 0,
+        weeks: [week({ pull: 10, push: 0 })],
+        points: [['e-1', '2026-07-08', 0, 1000], ['e-2', '2026-07-08', 5 + 300, null]],
+        calendar: [['2026-07-08', true]],
+      },
+    },
+    {
+      state: 'trained, not confirmed',
+      logs: [set(1, { logged_at: '2026-07-15T12:05:00Z' }), set(2, { logged_at: LATER })],
+      expected: {
+        // Dated by its earliest set, in every figure; not counted as done.
+        sessions: '0/1', sets: '2/2 +0', backlog: 0,
+        weeks: [week({ start: '2026-07-13', sessions: 0 })],
+        points: [['e-1', '2026-07-15', 1000, 1000]],
+        calendar: [['2026-07-15', false]],
+      },
+    },
+    {
+      state: 'not started, planned',
+      session: { scheduled_date: '2026-07-20' },
+      logs: [set(1, { done: false, logged_at: null }), set(2, { done: false, logged_at: null })],
+      expected: {
+        sessions: '0/1', sets: '0/2 +0', backlog: 1,
+        weeks: [], points: [],
+        calendar: [['2026-07-20', false]],
+      },
+    },
+    {
+      state: 'archived, never trained, with a plan date',
+      session: { archived_at: ARCHIVED, scheduled_date: '2026-07-09' },
+      logs: [set(1, { done: false, logged_at: null }), set(2, { done: false, logged_at: null })],
+      expected: NOTHING,
+    },
+    {
+      state: 'archived, never trained, undated',
+      session: { archived_at: ARCHIVED },
+      logs: [],
+      expected: NOTHING,
+    },
+    {
+      state: 'archived with a done set, not confirmed',
+      session: { archived_at: ARCHIVED, scheduled_date: '2026-07-09' },
+      logs: [set(1, { logged_at: LATER })],
+      expected: {
+        // Trained: on the day of its set, never on its plan date.
+        sessions: '1/1', sets: '1/2 +0', backlog: 0,
+        weeks: [week({ start: '2026-07-13', push: 10, sets: '1/2 +0' })],
+        points: [['e-1', '2026-07-15', 500, 1000]],
+        calendar: [['2026-07-15', true]],
+      },
+    },
+    {
+      state: 'archived and reviewed before confirmations existed (legacy)',
+      session: { archived_at: ARCHIVED, reviewed_at: ARCHIVED, scheduled_date: '2026-07-09' },
+      logs: [],
+      expected: {
+        sessions: '1/1', sets: '0/2 +0', backlog: 0,
+        weeks: [week({ push: 0, sets: '0/2 +0' })],
+        points: [['e-1', '2026-07-09', 0, 1000]],
+        calendar: [['2026-07-09', true]],
+      },
+    },
+    {
+      state: 'archived after it was confirmed and reviewed',
+      confirmed: true,
+      session: { archived_at: ARCHIVED, reviewed_at: ARCHIVED, scheduled_date: '2026-07-01' },
+      logs: [set(1), set(2)],
+      expected: {
+        sessions: '1/1', sets: '2/2 +0', backlog: 0,
+        weeks: [week()],
+        points: [['e-1', '2026-07-08', 1000, 1000]],
+        calendar: [['2026-07-08', true]],
+      },
+    },
+    {
+      state: 'in a draft the athlete is writing',
+      draft: true,
+      session: { scheduled_date: '2026-07-09' },
+      logs: [set(1)],
+      expected: NOTHING,
+    },
+  ];
+
+  // What the page shows, in one object a row can be compared with.
+  const figures = (data) => ({
+    sessions: `${data.totalSessionsConfirmed}/${data.totalSessions}`,
+    sets: `${data.totalSetsDone}/${data.totalSets} +${data.totalExtraSetsDone}`,
+    backlog: data.backlogSessions,
+    weeks: data.weeklyVolume.map((w) => ({
+      start: w.bucket_start,
+      pull: w.pull,
+      push: w.push,
+      pull_planned: w.pull_planned,
+      push_planned: w.push_planned,
+      sets: `${w.sets_done}/${w.sets_prescribed} +${w.extra_sets_done}`,
+      sessions: w.sessions_confirmed,
+    })),
+    points: Object.keys(data.exerciseProgress.byExercise).sort().flatMap((id) =>
+      data.exerciseProgress.byExercise[id].map((p) => [id, p.date, p.tonnage, p.plannedTonnage ?? null]),
+    ),
+    calendar: data.sessionCalendar.map((e) => [e.date, e.completed]),
+  });
+
+  it.each(ROWS)('$state', async ({ confirmed, draft, session, slot, swappedTo, logs, expected }) => {
+    const setup = setupChains({
+      programsData: [{
+        id: 'p-1', name: 'Block', sort_order: 0, is_active: !draft, status: draft ? 'draft' : 'approved',
+        weeks: [{
+          id: 'w-1', week_number: 1, label: null,
+          sessions: [{
+            id: 's-1', title: 'Session', day_number: 1, sort_order: 0, scheduled_date: null,
+            archived_at: null, reviewed_at: null,
+            performed_at: confirmed ? ON : null,
+            exercise_slots: [slot || REPS_SLOT],
+            ...session,
+          }],
+        }],
+      }],
+      confirmationsData: confirmed
+        ? [{ id: 'c-1', session_id: 's-1', confirmed_at: ON, performed_on: '2026-07-08', notes: null }]
+        : [],
+      setLogsData: logs,
+      deviationsData: swappedTo
+        ? [{ id: 'd-1', exercise_slot_id: 'sl-1', kind: 'swap', substitute: swappedTo }]
+        : [],
+    });
+    setup.register();
+    const { result } = renderHook(() => useStudentProgressStats('st-1', 'all'), {
+      wrapper: withClient(makeClient()),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(figures(result.current.data)).toEqual(expected);
+  });
+});
+
 // The whole point of Phase 3: time-based aggregates key off the day the
 // student TRAINED, not the ordinal week the coach authored the session under.
 describe('useStudentProgressStats — real-calendar bucketing', () => {
