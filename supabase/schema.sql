@@ -6481,6 +6481,142 @@ END;
 $$;
 
 -- ============================================================
+-- THE COACH'S LISTS, ANSWERED BY THE DATABASE
+-- (2026_10_16_26_coach_list_rpcs — optional; the database's half of review
+-- L18 and P9)
+--
+-- Two lists of the coach are folded by the app from the whole history: the
+-- sessions to review of each athlete (useAllConfirmations, then
+-- reviewCountsByStudent of src/lib/coachRoster.js) and the conversations
+-- (useConversations of src/hooks/useMessages.js). The API answers 1000 rows
+-- at most, silently: past that, old sessions to review and old conversations
+-- drop out of the lists. Two functions give each list in one request, one
+-- row per athlete or per counterpart:
+--
+--   coach_review_counts()  → (student_id, to_review)
+--   my_conversations()     → (counterpart_id, full_name, last_body, last_at,
+--                             unread, last_id, last_sender_id,
+--                             last_recipient_id, last_session_id,
+--                             last_read_at)
+--
+-- On the same rows each answers what the app's fold answers
+-- (supabase/tests/coach-list-rpcs.test.js holds them to a copy of it).
+-- Columns are added at the end, never renamed: a RETURNS TABLE is changed by
+-- dropping the function and creating it again.
+--
+-- STABLE, SECURITY INVOKER: they read with the rights of their caller. They
+-- NAME the caller (auth.uid()) — row-level security is not the filter of a
+-- coach-wide list: an account that coaches and is somebody's athlete reads
+-- its own block too. A request without a user id gets no row.
+--
+-- OPTIONAL: a client that calls them reads the lists page by page where they
+-- are not there (PGRST202). Nothing else may need them.
+-- Who may execute them: the FUNCTION PRIVILEGES block at the end of this file.
+-- ============================================================
+
+-- One row per athlete of the caller (students.coach_id = auth.uid()) who has
+-- at least one session to review; an athlete with none has no row, so a
+-- missing athlete reads 0 — as the Map of reviewCountsByStudent
+-- (src/lib/coachRoster.js) the roster reads with `|| 0`.
+--
+--   student_id   students.id — the link, not the profile: the roster and
+--                the Sessions feed go by it (session_confirmations.student_id
+--                is the athlete's PROFILE id, and is not read here)
+--   to_review    the confirmations of sessions that are neither reviewed nor
+--                archived, in a block out of the trash — the predicate of the
+--                roster and of the Sessions feed
+--
+-- A confirmation per session (session_confirmations.session_id is unique):
+-- the count is a count of sessions. The block may be any block of the
+-- athlete — the active one, a past one, an approved one waiting — as the
+-- app's read takes them all.
+CREATE OR REPLACE FUNCTION public.coach_review_counts()
+RETURNS TABLE (student_id uuid, to_review integer)
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+  SELECT st.id, count(*)::integer
+    FROM public.session_confirmations c
+    JOIN public.sessions s  ON s.id = c.session_id
+    JOIN public.weeks w     ON w.id = s.week_id
+    JOIN public.programs p  ON p.id = w.program_id
+    JOIN public.students st ON st.id = p.student_id
+   WHERE st.coach_id = auth.uid()
+     AND p.deleted_at IS NULL
+     AND s.reviewed_at IS NULL
+     AND s.archived_at IS NULL
+   GROUP BY st.id
+   ORDER BY st.id;
+$$;
+
+-- One row per account the caller has exchanged a message with — sent or
+-- received, feedback included — the newest conversation first. What
+-- useConversations (src/hooks/useMessages.js) folds from the rows of the
+-- account:
+--
+--   counterpart_id      the other side of each message
+--   full_name           its name as the caller may read it: NULL when the
+--                       caller may not read that profile (a former coach
+--                       after transfer_student, a former athlete) or when the
+--                       name is empty — `full_name || null` in the app
+--   last_body, last_at  the newest message of the pair: by created_at, then
+--                       by id when two share the time
+--   unread              the messages of the pair the caller received and has
+--                       not opened (read_at IS NULL)
+--   last_id, last_sender_id, last_recipient_id, last_session_id,
+--   last_read_at        the rest of the newest message: with last_body and
+--                       last_at, the seven columns the app holds of a
+--                       message (MESSAGE_COLUMNS in src/lib/messageCache.js)
+--                       — the "You:" of the list and the patches of the
+--                       realtime events read them
+CREATE OR REPLACE FUNCTION public.my_conversations()
+RETURNS TABLE (
+  counterpart_id    uuid,
+  full_name         text,
+  last_body         text,
+  last_at           timestamptz,
+  unread            integer,
+  last_id           uuid,
+  last_sender_id    uuid,
+  last_recipient_id uuid,
+  last_session_id   uuid,
+  last_read_at      timestamptz
+)
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+  WITH mine AS (
+    SELECT m.id, m.sender_id, m.recipient_id, m.body, m.session_id, m.read_at, m.created_at,
+           CASE WHEN m.sender_id = auth.uid() THEN m.recipient_id ELSE m.sender_id END AS counterpart
+      FROM public.messages m
+     WHERE m.sender_id = auth.uid()
+        OR m.recipient_id = auth.uid()
+  ),
+  newest AS (
+    SELECT DISTINCT ON (x.counterpart)
+           x.counterpart, x.id, x.sender_id, x.recipient_id, x.body, x.session_id, x.read_at, x.created_at
+      FROM mine x
+     ORDER BY x.counterpart, x.created_at DESC, x.id DESC
+  ),
+  counted AS (
+    SELECT x.counterpart,
+           (count(*) FILTER (WHERE x.recipient_id = auth.uid() AND x.read_at IS NULL))::integer AS unread
+      FROM mine x
+     GROUP BY x.counterpart
+  )
+  SELECT n.counterpart, NULLIF(pr.full_name, ''), n.body, n.created_at, k.unread,
+         n.id, n.sender_id, n.recipient_id, n.session_id, n.read_at
+    FROM newest n
+    JOIN counted k ON k.counterpart = n.counterpart
+    LEFT JOIN public.profiles pr ON pr.id = n.counterpart
+   ORDER BY n.created_at DESC, n.id DESC;
+$$;
+
+-- ============================================================
 -- THE JOBS: WHAT RUNS ON A TIMER, WHERE pg_cron IS SWITCHED ON
 -- (2026_10_13_19_pg_cron_jobs — optional; the scheduled halves of review
 -- P10, L27 and P35)
@@ -6719,7 +6855,10 @@ TO authenticated;
 -- cancel_rest_push, for the account that calls; save_draft_tree,
 -- move_session, activate_program, reorder_sessions, reorder_weeks and the
 -- four that copy (duplicate_session, copy_sessions, duplicate_week,
--- duplicate_program) are SECURITY INVOKER and ride the caller's RLS.
+-- duplicate_program) are SECURITY INVOKER and ride the caller's RLS; so do
+-- the two that read the coach's lists (coach_review_counts,
+-- my_conversations — optional, 2026_10_16_26), which also name their caller
+-- (auth.uid()) themselves.
 GRANT EXECUTE ON FUNCTION
   public.adopt_swap(uuid, uuid, boolean),
   public.adopt_skip(uuid, boolean),
@@ -6738,7 +6877,9 @@ GRANT EXECUTE ON FUNCTION
   public.ensure_set_logs(uuid),
   public.claim_push_subscription(text, text, text, text),
   public.schedule_rest_push(integer, jsonb, text),
-  public.cancel_rest_push(uuid)
+  public.cancel_rest_push(uuid),
+  public.coach_review_counts(),
+  public.my_conversations()
 TO authenticated;
 
 -- ============================================================
@@ -6862,7 +7003,8 @@ INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_16_22_client_errors_scope'),
   ('2026_10_16_23_library_read_follows_program'),
   ('2026_10_16_24_indexes_cleanup'),
-  ('2026_10_16_25_storage_video_policies');
+  ('2026_10_16_25_storage_video_policies'),
+  ('2026_10_16_26_coach_list_rpcs');
 
 -- An optional migration that needs an extension is on record where its block
 -- above ran, and nowhere else: a project that switches pg_cron on later must

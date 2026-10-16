@@ -85,6 +85,7 @@ const RPCS = [
   'approve_program(uuid)',
   'cancel_rest_push(uuid)',           // 2026_10_13_16_rest_push_scheduling
   'claim_push_subscription(text, text, text, text)',   // 2026_10_13_13_ensure_claim_rpcs
+  'coach_review_counts()',            // 2026_10_16_26_coach_list_rpcs (optional)
   'copy_sessions(uuid[], uuid)',      // 2026_10_13_12_copy_rpcs
   'decline_promote_request(uuid)',
   'duplicate_program(uuid, uuid, text)',   // 2026_10_13_12_copy_rpcs
@@ -92,6 +93,7 @@ const RPCS = [
   'duplicate_week(uuid, uuid, text)', // 2026_10_13_12_copy_rpcs
   'ensure_set_logs(uuid)',            // 2026_10_13_13_ensure_claim_rpcs
   'move_session(uuid, uuid, uuid[], uuid[])',
+  'my_conversations()',               // 2026_10_16_26_coach_list_rpcs (optional)
   'reorder_sessions(uuid, uuid[])',   // 2026_10_13_11_activate_reorder_rpcs
   'reorder_weeks(uuid, uuid[])',      // 2026_10_13_11_activate_reorder_rpcs
   'save_draft_tree(jsonb)',

@@ -226,6 +226,15 @@
       "covers": ["B7"],
       "reversible": true,
       "summary": "A coach reads a file of the bucket set-videos when it is in the folder of one of their athletes, as before, and a video of that athlete names it: \"Coaches read student set videos\" on storage.objects, written again under its name, also asks for a row of set_log_videos whose storage_path is the name of the file and whose set is a set of the athlete whose folder holds it, read with the rights of the coach. A file no video names — the old file of a replace, the file of a deleted video, an upload that was cancelled — is read by its athlete alone; after a change of coach the new coach reads the files the videos of the athlete name, the former coach none. The athlete's three policies on the files are not touched. No row and no file is written or removed: the runbook page lists the files no video names, and says how one is removed."
+    },
+    {
+      "name": "2026_10_16_26_coach_list_rpcs",
+      "kind": "optional",
+      "wave": 3,
+      "checkpoint": "C1",
+      "covers": ["L18", "P9"],
+      "reversible": true,
+      "summary": "Two functions read two lists of the coach in one request each, so that the app no longer folds them from the whole history the API cuts at 1000 rows: coach_review_counts() answers one row (student_id = students.id, to_review) per athlete of the caller with sessions to review — confirmations of sessions neither reviewed nor archived, in a block out of the trash; my_conversations() answers one row per account the caller has exchanged a message with, the newest first — counterpart_id, full_name (NULL when the caller may not read the profile), last_body, last_at, unread, then last_id, last_sender_id, last_recipient_id, last_session_id and last_read_at of the newest message. Both are STABLE, run with the rights of their caller, name the caller (auth.uid()) themselves, give no row to a request without a user id, and are executable by a signed-in user only. Optional: the app that is deployed does not call them, and the app that follows wave 3 reads the lists page by page without them. No table, no column, no policy, no row."
     }
   ]
 }
