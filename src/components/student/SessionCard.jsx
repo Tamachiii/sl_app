@@ -2,13 +2,16 @@ import { useState } from 'react';
 import { summarizeSlotPrescription } from '../../lib/volume';
 import { useI18n } from '../../hooks/useI18n';
 
+// An exercise whose library row the athlete may not read (a former coach's
+// library: row-level security hides it, and the embed is null) keeps its row,
+// named as unavailable — the card counts it in "N EX" (B8).
 function SlotSummary({ slot }) {
-  const ex = slot.exercise;
-  if (!ex) return null;
+  const { t } = useI18n();
+  const name = slot.exercise?.name ?? t('sessionNavPastReview.exerciseUnavailable');
   const summary = summarizeSlotPrescription(slot);
   return (
     <div className="flex items-center gap-2.5">
-      <span className="sl-display text-[14px] text-gray-900 truncate">{ex.name}</span>
+      <span className="sl-display text-[14px] text-gray-900 truncate">{name}</span>
       <span className="sl-mono text-[11px] text-ink-400 shrink-0 ml-auto">{summary}</span>
     </div>
   );

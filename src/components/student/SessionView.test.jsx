@@ -162,6 +162,33 @@ describe('SessionView', () => {
     expect(screen.getAllByRole('button', { name: /mark set done/i })).toHaveLength(2);
   });
 
+  // B8, the athlete's half: the library row of an exercise of a former
+  // coach's library is hidden by row-level security, and the embed is null.
+  // The page used to throw on its name and go down whole.
+  it('opens a session whose exercise cannot be read, and names it as unavailable', () => {
+    mockSessionData = {
+      data: {
+        title: 'Push Day',
+        exercise_slots: [
+          { id: 'slot-1', sets: 2, reps: 10, weight_kg: 20, sort_order: 0, exercise: null },
+        ],
+      },
+      isLoading: false,
+    };
+    mockSetLogsData = {
+      data: [
+        { id: 'log-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, rpe: null },
+        { id: 'log-2', exercise_slot_id: 'slot-1', set_number: 2, done: false, rpe: null },
+      ],
+      isLoading: false,
+    };
+    renderSessionView();
+
+    expect(screen.getByText('Exercise unavailable')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /mark set done/i })).toHaveLength(2);
+    expect(screen.getByRole('button', { name: /^confirm session$/i })).toBeInTheDocument();
+  });
+
   it('renders header with session title', () => {
     mockSessionData = {
       data: { title: 'Pull Day', exercise_slots: [] },

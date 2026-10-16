@@ -110,6 +110,17 @@ describe('SessionCard', () => {
     });
   });
 
+  // B8: row-level security hides the library row of a former coach's
+  // exercise, and the embed is null. The card counts it; it lists it too.
+  it('lists an exercise that cannot be read as unavailable, with its prescription', () => {
+    const hidden = { id: 'slot-2', sets: 2, reps: 5, exercise: null };
+    render(<SessionCard session={{ ...baseSession, exercise_slots: [slot, hidden] }} defaultOpen />);
+    expect(screen.getByText(/2\s+EX/)).toBeInTheDocument();
+    expect(screen.getByText('Front Squat')).toBeInTheDocument();
+    expect(screen.getByText('Exercise unavailable')).toBeInTheDocument();
+    expect(screen.getByText('2 × 5')).toBeInTheDocument();
+  });
+
   it('uncontrolled mode: clicking the header toggles open', async () => {
     const user = userEvent.setup();
     render(<SessionCard session={baseSession} />);

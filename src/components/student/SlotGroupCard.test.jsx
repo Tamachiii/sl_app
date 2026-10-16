@@ -482,3 +482,54 @@ describe('the prescribed rest', () => {
     expect(row(3).getByText('Rest 2:00')).toBeInTheDocument();
   });
 });
+
+// B8, the athlete's half. The session read embeds the exercise's library row,
+// and row-level security hides a row the athlete may not read — an exercise of
+// a former coach's library. `exercise` is then null, and `.name` on it threw:
+// the whole session page went down.
+describe('an exercise the athlete cannot read', () => {
+  const HIDDEN = { id: 'slot-1', exercise: null, sets: 2, reps: 5, weight_kg: 60 };
+  const ROW = { id: 'slot-2', exercise: { id: 'ex-row', name: 'Row' }, sets: 3, reps: 8 };
+  const logs = [prescribed(1), prescribed(2)];
+
+  function renderGroup({ open, slots }) {
+    return render(
+      <SlotGroupCard
+        group={{ key: slots[0].id, slots }}
+        slotOffset={0}
+        open={open}
+        onToggle={() => {}}
+        getLogsForSlot={() => logs}
+        slotComments={[]}
+        slotDeviations={[]}
+        lastPerformance={{}}
+        exerciseLibrary={[]}
+        sessionId="sess-1"
+        isConfirmed={false}
+        isReadOnly={false}
+      />,
+    );
+  }
+
+  it('is named as unavailable on a collapsed card, its note control too', () => {
+    renderGroup({ open: false, slots: [HIDDEN] });
+    expect(screen.getByText('Exercise unavailable')).toBeInTheDocument();
+    expect(screen.getByTestId('note-box')).toHaveAttribute('data-name', 'Exercise unavailable');
+  });
+
+  it('keeps its sets on an open card', () => {
+    renderGroup({ open: true, slots: [HIDDEN] });
+    expect(screen.getByText('Exercise unavailable')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /mark set done/i })).toHaveLength(2);
+  });
+
+  it('in a superset, beside an exercise that can be read', () => {
+    const { unmount } = renderGroup({ open: false, slots: [HIDDEN, ROW] });
+    expect(screen.getByTestId('note-box')).toHaveAttribute('data-name', 'Exercise unavailable + Row');
+    unmount();
+
+    renderGroup({ open: true, slots: [HIDDEN, ROW] });
+    expect(screen.getByText('Exercise unavailable')).toBeInTheDocument();
+    expect(screen.getByText('Row')).toBeInTheDocument();
+  });
+});

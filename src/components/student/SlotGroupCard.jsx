@@ -12,6 +12,14 @@ import {
 } from '../../lib/volume';
 import { formatLastPerformance, daysSince } from '../../lib/lastPerformance';
 
+// The name of a slot's exercise. The session read embeds the library row, and
+// row-level security hides a row the athlete may not read — an exercise of a
+// former coach's library — which leaves `exercise` null. The page says so
+// instead of throwing on `.name` (B8, the athlete's half).
+function exerciseNameOf(slot, t) {
+  return slot.exercise?.name ?? t('sessionNavPastReview.exerciseUnavailable');
+}
+
 // The box of the "Last time" hint, shared with the placeholder that keeps its
 // place: the same padding and the same two lines of type, so the same height.
 const HINT_BOX = 'flex items-baseline gap-2 rounded-lg bg-ink-50 px-3 py-2';
@@ -257,7 +265,6 @@ function SlotBody({
 
 function SlotHeader({ slot, slotLogs, globalIdx }) {
   const { t } = useI18n();
-  const ex = slot.exercise;
   const composed = { ...slot, set_logs: slotLogs };
   const summary = summarizeSlotPrescription(composed);
   // Rest is shown alongside the headline when every set has the same — also
@@ -271,7 +278,7 @@ function SlotHeader({ slot, slotLogs, globalIdx }) {
       <span className="sl-mono text-[12px]" style={{ color: 'var(--color-accent)' }}>{globalIdx}</span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="sl-display text-[20px] text-gray-900">{ex.name}</span>
+          <span className="sl-display text-[20px] text-gray-900">{exerciseNameOf(slot, t)}</span>
         </div>
         {summary && (
           <p className="sl-mono text-[11px] text-ink-400 mt-1">
@@ -347,6 +354,7 @@ export default function SlotGroupCard({
   isReadOnly,
   getVideoForLog,
 }) {
+  const { t } = useI18n();
   const groupLogs = group.slots.flatMap((s) => getLogsForSlot(s.id));
   const done = groupLogs.filter((l) => l.done).length;
   const total = groupLogs.length;
@@ -390,7 +398,7 @@ export default function SlotGroupCard({
               sessionId={sessionId}
               slotId={leadSlot.id}
               comment={groupComment}
-              exerciseName={group.slots.map((s) => s.exercise?.name).filter(Boolean).join(' + ')}
+              exerciseName={group.slots.map((s) => exerciseNameOf(s, t)).join(' + ')}
               fieldClassName="px-2 pb-1"
             />
           )}
@@ -463,7 +471,7 @@ export default function SlotGroupCard({
             sessionId={sessionId}
             slotId={slot.id}
             comment={slotComment}
-            exerciseName={slot.exercise?.name || ''}
+            exerciseName={exerciseNameOf(slot, t)}
             fieldClassName="px-4 pb-3"
           />
         )}
