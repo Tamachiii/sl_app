@@ -194,12 +194,15 @@ describe('three workers on one device', () => {
 
 const SCOPE = 'https://example.test/sl_app/';
 
-// What hooks/useRestTimerPush puts into `scheduled_pushes.payload` today.
+// The shape of what hooks/useRestTimerPush writes (`restPushPayload`, in
+// English, for a set of session s1). That the worker knows the payload the
+// hook really writes is held by hooks/useRestTimerPush.test.jsx, which runs it
+// through these handlers.
 const REST_DONE = {
   title: 'Rest done',
   body: 'Time for your next set.',
   tag: 'rest-timer',
-  data: { url: '/sl_app/#/student' },
+  data: { url: '/sl_app/#/student/session/s1' },
 };
 
 // What `notify_student_on_session_feedback` sends through send-push.
@@ -391,7 +394,7 @@ describe('push — "Rest done" while the athlete is looking at the app', () => {
       icon: '/sl_app/icon-192.png',
       badge: '/sl_app/icon-192.png',
       tag: REST_TIMER_TAG,
-      data: { url: '/sl_app/#/student' },
+      data: { url: '/sl_app/#/student/session/s1' },
       silent: true,
       renotify: false,
     });
@@ -537,8 +540,12 @@ describe('the notification of a payload', () => {
     expect(readPushPayload(message('plain text'))).toEqual({ body: 'plain text' });
   });
 
-  it('the tag is the one the rest timer writes', () => {
-    expect(REST_TIMER_TAG).toBe(REST_DONE.tag);
+  it('the tag stays "rest-timer": the client deployed before wave 3 and the rows it scheduled carry it as text', () => {
+    // Not REST_DONE.tag, which is a copy typed in this file: the hook's own
+    // payload is checked against the worker in hooks/useRestTimerPush.test.jsx.
+    // This value cannot follow a rename — main@2bb6495 writes the literal
+    // 'rest-timer', and `scheduled_pushes` holds payloads written by it.
+    expect(REST_TIMER_TAG).toBe('rest-timer');
   });
 });
 
@@ -640,7 +647,7 @@ describe('notificationclick — the app comes to the front', () => {
   it('a "Rest done" that names the session in progress leaves the athlete in it', async () => {
     const session = inFront('/student/session/s1');
     const scope = notifier({ windows: [session] });
-    await tap(scope, { ...REST_DONE, data: { url: '/sl_app/#/student/session/s1' } });
+    await tap(scope, REST_DONE);
 
     expect(session.focus).toHaveBeenCalledTimes(1);
     expect(session.navigate).not.toHaveBeenCalled();

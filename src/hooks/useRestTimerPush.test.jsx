@@ -61,6 +61,7 @@ vi.mock('../lib/supabase', () => ({
 import { I18nProvider, useI18n } from './useI18n';
 import { startRestTimer, clearRestTimer, resetRestTimer } from './useRestTimer';
 import { useRestTimerPush, MAX_REST_PUSH_SECONDS, PREVIOUS_REQUEST_WAIT_MS } from './useRestTimerPush';
+import { FOCUSED_REST_CLOSE_MS, handleNotificationClick, handlePush } from '../lib/swHandlers';
 
 const NOW = Date.parse('2026-10-16T18:00:00.000Z');
 const BASE = import.meta.env.BASE_URL || '/';
@@ -376,6 +377,118 @@ describe('useRestTimerPush: what the notification says, and where a tap leads', 
     startRestTimer('log-2', 90);
     await settle();
     expect(lastPayload().title).toBe('Pause vorbei');
+  });
+});
+
+// The service worker (lib/swHandlers) as far as a "Rest done" goes: one
+// notification per tag, as on a device, and the windows of the app. The
+// payload it is handed is the one the hook wrote — not a copy typed here, so
+// a tag the worker does not know fails below and not on a phone.
+const SITE = 'https://example.test';
+
+function serviceWorker(windows) {
+  const shown = [];
+  const remove = (notification) => {
+    const at = shown.indexOf(notification);
+    if (at !== -1) shown.splice(at, 1);
+  };
+  const scope = {
+    registration: {
+      scope: `${SITE}${BASE}`,
+      showNotification: vi.fn(async (title, options = {}) => {
+        if (options.silent === true && 'vibrate' in options) throw new TypeError('silent with vibrate');
+        const replaced = shown.find((n) => n.tag === options.tag);
+        if (replaced) remove(replaced);
+        const notification = { title, ...options };
+        notification.close = () => remove(notification);
+        shown.push(notification);
+      }),
+      getNotifications: vi.fn(async ({ tag } = {}) => shown.filter((n) => tag === undefined || n.tag === tag)),
+    },
+    clients: { matchAll: vi.fn(async () => windows), openWindow: vi.fn(async () => null) },
+  };
+  return { scope, shown };
+}
+
+function appWindow(route, { focused = false } = {}) {
+  const client = {
+    url: `${SITE}${BASE}#${route}`,
+    focused,
+    visibilityState: focused ? 'visible' : 'hidden',
+    focus: vi.fn(async () => client),
+    navigate: vi.fn(async (to) => {
+      client.url = to;
+      return client;
+    }),
+  };
+  return client;
+}
+
+// An ExtendableEvent: `done()` is what the browser waits for.
+function workerEvent(fields) {
+  const waits = [];
+  return { ...fields, waitUntil: (promise) => waits.push(promise), done: () => Promise.all(waits) };
+}
+
+const pushOf = (payload) => workerEvent({ data: { json: () => payload, text: () => JSON.stringify(payload) } });
+const tapOn = (notification) => workerEvent({ notification: { ...notification, close: vi.fn() } });
+
+describe('useRestTimerPush: the service worker knows the push the hook writes', () => {
+  it('in front of the athlete: shown quietly, closed after FOCUSED_REST_CLOSE_MS, and a tap leaves the session as it is', async () => {
+    sessionOnDevice('session-7', ['log-1']);
+    startRestTimer('log-1', 90);
+    mountShell();
+    await settle();
+    const payload = lastPayload();
+
+    // The worker's own wait, from here on.
+    vi.useFakeTimers();
+    const session = appWindow('/student/session/session-7', { focused: true });
+    const { scope, shown } = serviceWorker([session]);
+
+    const pushed = pushOf(payload);
+    handlePush(scope, pushed);
+    await vi.advanceTimersByTimeAsync(0);
+    // The quiet form exists only for REST_TIMER_TAG: the worker read the tag.
+    expect(shown).toHaveLength(1);
+    expect(shown[0]).toMatchObject({ title: 'Rest done', tag: payload.tag, silent: true, renotify: false });
+    expect('vibrate' in shown[0]).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(FOCUSED_REST_CLOSE_MS);
+    await pushed.done();
+    expect(shown).toEqual([]);
+
+    const tapped = tapOn({ tag: payload.tag, data: payload.data });
+    handleNotificationClick(scope, tapped);
+    await tapped.done();
+    expect(session.focus).toHaveBeenCalledTimes(1);
+    expect(session.navigate).not.toHaveBeenCalled();
+    expect(scope.clients.openWindow).not.toHaveBeenCalled();
+  });
+
+  it('in a pocket: shown as usual, and a tap from another page leads into the session', async () => {
+    sessionOnDevice('session-7', ['log-1']);
+    startRestTimer('log-1', 90);
+    mountShell();
+    await settle();
+    const payload = lastPayload();
+
+    const list = appWindow('/student');
+    const { scope, shown } = serviceWorker([list]);
+
+    const pushed = pushOf(payload);
+    handlePush(scope, pushed);
+    await pushed.done();
+    expect(shown).toHaveLength(1);
+    expect(shown[0]).toMatchObject({ tag: payload.tag, renotify: true, vibrate: [200, 100, 200] });
+
+    // A tap on it, while it is still shown: it is closed, the window goes to the session.
+    const tapped = tapOn(shown[0]);
+    handleNotificationClick(scope, tapped);
+    await tapped.done();
+    expect(shown).toEqual([]);
+    expect(list.focus).toHaveBeenCalledTimes(1);
+    expect(list.navigate).toHaveBeenCalledWith(`${SITE}${BASE}#/student/session/session-7`);
   });
 });
 
