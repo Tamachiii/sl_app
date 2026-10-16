@@ -214,23 +214,34 @@ export async function closeNotifications(registration, tag) {
   }
 }
 
+// How many times this worker has asked for a "Rest done" to be shown. A quiet
+// one is closed by its tag, a few seconds after it is shown — and the tag is
+// also the one of a "Rest done" that took its place in the meantime, which may
+// be loud. So a quiet one keeps the number it was shown under, and is closed
+// only while no other has been shown since.
+let restShows = 0;
+
 async function showPush(scope, message) {
   const payload = readPushPayload(message);
   const loud = notificationFor(payload);
+  const isRest = payload.tag === REST_TIMER_TAG;
 
   // Only "Rest done" asks the question; every other push is shown at once.
   // The page that runs the rest is the one that beeps at its end
   // (hooks/useRestTimerEffects) and the one that takes the push back when it is
   // left (hooks/useRestTimerPush), so the app in front means the athlete has
   // the cue already.
-  const quietly =
-    payload.tag === REST_TIMER_TAG && (await within(IN_FRONT_ANSWER_MS, appIsInFront(scope), false));
+  const quietly = isRest && (await within(IN_FRONT_ANSWER_MS, appIsInFront(scope), false));
   if (!quietly) {
+    if (isRest) restShows += 1;
     await scope.registration.showNotification(loud.title, loud.options);
     return;
   }
 
   const quiet = notificationFor(payload, { quiet: true });
+  // Counted when it is asked for, not once it is shown: a close that lands
+  // while the next one is being shown would take that one away.
+  const mine = ++restShows;
   try {
     await scope.registration.showNotification(quiet.title, quiet.options);
   } catch {
@@ -240,8 +251,12 @@ async function showPush(scope, message) {
   }
   // `silent` is a request a browser may ignore; taking the notification away
   // is the part that does not depend on it. One tag, one notification: what is
-  // closed is the one shown above.
+  // closed is the one shown above — unless another "Rest done" has been shown
+  // since. That one replaced it, and is its own push's to close (a quiet one,
+  // FOCUSED_REST_CLOSE_MS after it was shown) or to leave (a loud one: the app
+  // went out of sight in between).
   await wait(FOCUSED_REST_CLOSE_MS);
+  if (mine !== restShows) return;
   await closeNotifications(scope.registration, REST_TIMER_TAG);
 }
 

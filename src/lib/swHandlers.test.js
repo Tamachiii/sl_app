@@ -517,6 +517,73 @@ describe('push — "Rest done" while the athlete is looking at the app', () => {
     await arrive(scope);
     expect(scope.centre.shown).toHaveLength(1);
   });
+
+  it('a loud "Rest done" that takes the place of the quiet one before it is closed stays', async () => {
+    const windows = [inFront('/student/session/s1')];
+    const scope = notifier({ windows });
+    const first = await arrive(scope);
+    expect(scope.centre.shown[0].silent).toBe(true);
+
+    // The phone goes into a pocket, and the next rest ends before the worker
+    // has closed the first push.
+    windows.length = 0;
+    await vi.advanceTimersByTimeAsync(FOCUSED_REST_CLOSE_MS / 2);
+    const second = await arrive(scope);
+    await second.done();
+    expect(scope.centre.shown).toHaveLength(1);
+    expect(scope.centre.shown[0]).toMatchObject({ renotify: true, vibrate: [200, 100, 200] });
+
+    await vi.advanceTimersByTimeAsync(FOCUSED_REST_CLOSE_MS * 10);
+    await first.done();
+    expect(scope.centre.shown).toHaveLength(1);
+    expect(scope.centre.shown[0].silent).toBeUndefined();
+  });
+
+  it('a quiet "Rest done" that takes the place of another is closed FOCUSED_REST_CLOSE_MS after it is shown', async () => {
+    const scope = notifier({ windows: [inFront('/student/session/s1')] });
+    const first = await arrive(scope);
+    await vi.advanceTimersByTimeAsync(1000);
+    const second = await arrive(scope);
+
+    // The first one's close is due: the notification on screen is not its own.
+    await vi.advanceTimersByTimeAsync(FOCUSED_REST_CLOSE_MS - 1000);
+    await first.done();
+    expect(scope.centre.shown).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await second.done();
+    expect(scope.centre.shown).toHaveLength(0);
+  });
+
+  it('a "Rest done" still waiting to learn where the app is does not keep the quiet one from its close', async () => {
+    const scope = notifier({ windows: [inFront('/student/session/s1')] });
+    const first = await arrive(scope);
+    await vi.advanceTimersByTimeAsync(FOCUSED_REST_CLOSE_MS - 500);
+    scope.clients.matchAll.mockReturnValue(new Promise(() => {}));
+    const second = await arrive(scope);
+
+    // Nothing has taken the quiet one's place yet: it goes on time.
+    await vi.advanceTimersByTimeAsync(500);
+    await first.done();
+    expect(scope.centre.shown).toHaveLength(0);
+
+    // And the second, without an answer, is shown the usual way.
+    await vi.advanceTimersByTimeAsync(IN_FRONT_ANSWER_MS);
+    await second.done();
+    expect(scope.centre.shown).toHaveLength(1);
+    expect(scope.centre.shown[0]).toMatchObject({ renotify: true, vibrate: [200, 100, 200] });
+  });
+
+  it('another push of the device does not keep a quiet "Rest done" from being closed', async () => {
+    const scope = notifier({ windows: [inFront('/student/session/s1')] });
+    const rest = await arrive(scope);
+    await vi.advanceTimersByTimeAsync(1000);
+    await arrive(scope, FEEDBACK);
+
+    await vi.advanceTimersByTimeAsync(FOCUSED_REST_CLOSE_MS - 1000);
+    await rest.done();
+    expect(scope.centre.shown.map((n) => n.tag)).toEqual(['feedback-s1']);
+  });
 });
 
 describe('the notification of a payload', () => {
