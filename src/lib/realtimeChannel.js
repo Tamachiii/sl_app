@@ -28,6 +28,26 @@ export const REOPEN_AFTER_MS = 30_000;
  */
 export const RESYNC_GAP_MS = 1_000;
 
+/**
+ * A page that is visible again after being hidden for less than this, its
+ * channel joined, reads nothing again. A desktop tab that is switched away
+ * from keeps its socket and is handed every event meanwhile: a resync at each
+ * switch read the conversation list, the profiles and the open thread again
+ * for nothing. A longer absence — more than one heartbeat of the client, which
+ * sends one every 25 s — may have been a suspension whose socket died without
+ * the page being told, and is read again at once. A socket that dies in a
+ * short absence is not missed either: it is closed or fails its heartbeat,
+ * the client joins the channel again, and that SUBSCRIBED reads everything.
+ */
+export const RESYNC_AFTER_HIDDEN_MS = 30_000;
+
+/** Why `onResync` is called. */
+export const RESYNC = Object.freeze({
+  SUBSCRIBED: 'subscribed',
+  ONLINE: 'online',
+  VISIBLE: 'visible',
+});
+
 // supabase.channel(name) hands back the channel that is still registered under
 // that name, and a removal is only complete once the server has answered — so
 // a name that is reused straight away (StrictMode's second mount, a reopening)
@@ -40,34 +60,42 @@ let openings = 0;
  *
  * - `filters`: one `postgres_changes` filter per binding; `onChange(payload)`
  *   receives the events of all of them.
- * - `onResync()`: called when the cache may be missing events — each time the
- *   channel is SUBSCRIBED, the first time included (what the page read while
- *   the channel was joining arrived on no channel), when the browser is back
- *   online and when the page is visible again (a suspended page is not told
- *   that its socket died).
+ * - `onResync(reason)`: called when the cache may be missing events, with one
+ *   of RESYNC — `subscribed` each time the channel is SUBSCRIBED, the first
+ *   time included (what the page read while the channel was joining arrived
+ *   on no channel); `online` when the browser is back online; `visible` when
+ *   the page is visible again after RESYNC_AFTER_HIDDEN_MS or more, or with
+ *   its channel not joined (a suspended page is not told that its socket
+ *   died).
  *
  * Returns the function that ends it.
  *
  * CHANNEL_ERROR and TIMED_OUT leave the channel where it is: the client joins
- * it again by itself. It is removed after MAX_JOIN_FAILURES of them in a row
- * with no SUBSCRIBED in between, and opened again, with a new count, on the
- * next `online` or `visibilitychange`. A channel the server closed — which the
- * client never joins again — is opened again then too, or once it is
- * REOPEN_AFTER_MS old.
+ * it again by itself, and a channel removed on its first error is never
+ * joined again — the chat and the bell would stay as they are until a reload
+ * after every dropped socket and every suspension of the page. It is removed
+ * after MAX_JOIN_FAILURES of them in a row with no SUBSCRIBED in between, and
+ * opened again, with a new count, on the next `online` or `visibilitychange`.
+ * A channel the server closed — which the client never joins again — is
+ * opened again then too, or once it is REOPEN_AFTER_MS old.
  */
 export function watchPostgresChanges({ topic, filters, onChange, onResync }) {
   let stopped = false;
   let channel = null;
+  // The last status of `channel` was SUBSCRIBED.
+  let joined = false;
   let openedAt = 0;
   let failures = 0;
   let reopenTimer = null;
   let lastResync = Number.NEGATIVE_INFINITY;
+  // When the page was hidden; null while it is shown, or when that was not seen.
+  let hiddenAt = document.visibilityState === 'hidden' ? Date.now() : null;
 
-  function resync(always) {
+  function resync(reason, { always = false } = {}) {
     const now = Date.now();
     if (!always && now - lastResync < RESYNC_GAP_MS) return;
     lastResync = now;
-    onResync();
+    onResync(reason);
   }
 
   function cancelReopen() {
@@ -85,16 +113,18 @@ export function watchPostgresChanges({ topic, filters, onChange, onResync }) {
       });
     }
     channel = opened;
+    joined = false;
     openedAt = Date.now();
     failures = 0;
     opened.subscribe((status) => {
       // A channel that was let go still reports its own CLOSED.
       if (stopped || channel !== opened) return;
+      joined = status === 'SUBSCRIBED';
       if (status === 'SUBSCRIBED') {
         failures = 0;
         // Never held back: what a refetch sent before this join read may be
         // older than the first event the channel delivers.
-        resync(true);
+        resync(RESYNC.SUBSCRIBED, { always: true });
       } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
         failures += 1;
         if (failures >= MAX_JOIN_FAILURES) {
@@ -110,24 +140,36 @@ export function watchPostgresChanges({ topic, filters, onChange, onResync }) {
     });
   }
 
-  function catchUp() {
+  function onOnline() {
     if (stopped) return;
     if (!channel) open();
-    resync(false);
+    resync(RESYNC.ONLINE);
   }
 
   function onVisibility() {
-    if (document.visibilityState === 'visible') catchUp();
+    if (stopped) return;
+    const state = document.visibilityState;
+    if (state === 'hidden') {
+      if (hiddenAt === null) hiddenAt = Date.now();
+      return;
+    }
+    if (state !== 'visible') return;
+    const away = hiddenAt === null ? Number.POSITIVE_INFINITY : Date.now() - hiddenAt;
+    hiddenAt = null;
+    if (!channel) open();
+    // A joined channel was handed every event of a short absence.
+    if (joined && away < RESYNC_AFTER_HIDDEN_MS) return;
+    resync(RESYNC.VISIBLE);
   }
 
   open();
-  window.addEventListener('online', catchUp);
+  window.addEventListener('online', onOnline);
   document.addEventListener('visibilitychange', onVisibility);
 
   return () => {
     stopped = true;
     cancelReopen();
-    window.removeEventListener('online', catchUp);
+    window.removeEventListener('online', onOnline);
     document.removeEventListener('visibilitychange', onVisibility);
     const last = channel;
     channel = null;

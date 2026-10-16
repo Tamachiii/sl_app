@@ -12,7 +12,7 @@ vi.mock('../lib/supabase', () => ({ supabase: realtime }));
 vi.mock('./useAuth', () => ({ useAuth: () => ({ user: { id: 'me' } }) }));
 
 import { goOnline, setVisibility } from '../test/fakeRealtime';
-import { MAX_JOIN_FAILURES } from '../lib/realtimeChannel';
+import { MAX_JOIN_FAILURES, RESYNC_AFTER_HIDDEN_MS } from '../lib/realtimeChannel';
 import { REFRESH_DELAY_MS } from '../lib/realtimeCache';
 import {
   useMessagesRealtime,
@@ -108,14 +108,32 @@ describe('useMessagesRealtime — the channel outlives a lost connection', () =>
     unmount();
   });
 
-  it('reads the messages root again when the browser is back online and when the page is visible again', () => {
-    const { invalidate, unmount } = mount();
+  it('reads the messages root again when the browser is back online and when the page is visible after a long absence', () => {
+    const { invalidate, channel, unmount } = mount();
+    channel().status('SUBSCRIBED');
+    invalidate.mockClear();
+    vi.advanceTimersByTime(5_000);
     goOnline();
     expect(rootReads(invalidate)).toHaveLength(1);
     vi.advanceTimersByTime(5_000);
     setVisibility('hidden');
+    vi.advanceTimersByTime(RESYNC_AFTER_HIDDEN_MS);
     setVisibility('visible');
     expect(rootReads(invalidate)).toHaveLength(2);
+    unmount();
+  });
+
+  it('reads nothing again when the page was hidden a short while and the channel stayed joined', () => {
+    const { qc, invalidate, channel, unmount } = mount();
+    channel().status('SUBSCRIBED');
+    seed(qc);
+    invalidate.mockClear();
+    vi.advanceTimersByTime(5_000);
+    setVisibility('hidden');
+    vi.advanceTimersByTime(5_000);
+    setVisibility('visible');
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(qc.getQueryState(CONVERSATIONS).isInvalidated).toBe(false);
     unmount();
   });
 

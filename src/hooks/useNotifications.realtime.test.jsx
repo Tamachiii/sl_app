@@ -13,6 +13,7 @@ vi.mock('./useAuth', () => ({ useAuth: () => ({ user: { id: 'me' } }) }));
 
 import { goOnline, setVisibility } from '../test/fakeRealtime';
 import { REFRESH_DELAY_MS } from '../lib/realtimeCache';
+import { RESYNC_AFTER_HIDDEN_MS } from '../lib/realtimeChannel';
 import { useNotificationsRealtime } from './useNotifications';
 
 const LIST = ['notifications', 'list', 'me'];
@@ -93,10 +94,22 @@ describe('useNotificationsRealtime — the channel outlives a lost connection', 
     unmount();
   });
 
-  it('reads the bell again on online and on visibilitychange', () => {
-    const { invalidate, unmount } = mount();
-    goOnline();
+  it('reads the bell again on online, and on visibilitychange after a long absence only', () => {
+    const { invalidate, channel, unmount } = mount();
+    channel().status('SUBSCRIBED');
+    invalidate.mockClear();
     vi.advanceTimersByTime(5_000);
+    goOnline();
+    expect(rootReads(invalidate)).toHaveLength(1);
+
+    vi.advanceTimersByTime(5_000);
+    setVisibility('hidden');
+    vi.advanceTimersByTime(5_000);
+    setVisibility('visible');
+    expect(rootReads(invalidate)).toHaveLength(1);
+
+    setVisibility('hidden');
+    vi.advanceTimersByTime(RESYNC_AFTER_HIDDEN_MS);
     setVisibility('visible');
     expect(rootReads(invalidate)).toHaveLength(2);
     unmount();

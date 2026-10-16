@@ -11,6 +11,8 @@ import {
   watchPostgresChanges,
   MAX_JOIN_FAILURES,
   REOPEN_AFTER_MS,
+  RESYNC,
+  RESYNC_AFTER_HIDDEN_MS,
   RESYNC_GAP_MS,
 } from './realtimeChannel';
 
@@ -147,16 +149,127 @@ describe('watchPostgresChanges — a channel the server closes', () => {
 });
 
 describe('watchPostgresChanges — resync on return', () => {
-  it('resyncs on online and on visibilitychange to visible, not on hidden', () => {
-    const { onResync } = watch();
+  it('resyncs on online, and on visibilitychange to visible after a long absence, not on hidden', () => {
+    const { onResync, channel } = watch();
+    channel().status('SUBSCRIBED');
+    onResync.mockClear();
+    vi.advanceTimersByTime(RESYNC_GAP_MS);
+
     goOnline();
     expect(onResync).toHaveBeenCalledTimes(1);
+    expect(onResync).toHaveBeenLastCalledWith(RESYNC.ONLINE);
 
     vi.advanceTimersByTime(RESYNC_GAP_MS);
     setVisibility('hidden');
     expect(onResync).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(RESYNC_AFTER_HIDDEN_MS);
     setVisibility('visible');
     expect(onResync).toHaveBeenCalledTimes(2);
+    expect(onResync).toHaveBeenLastCalledWith(RESYNC.VISIBLE);
+  });
+
+  it('reads nothing again when the page was hidden a short while and its channel stayed joined', () => {
+    const { onResync, channel } = watch();
+    const ch = channel();
+    ch.status('SUBSCRIBED');
+    onResync.mockClear();
+    vi.advanceTimersByTime(10_000);
+
+    // A tab that is switched away from and back: its socket was handed every event.
+    setVisibility('hidden');
+    vi.advanceTimersByTime(RESYNC_AFTER_HIDDEN_MS - 1);
+    setVisibility('visible');
+    expect(onResync).not.toHaveBeenCalled();
+    expect(realtime.live()).toEqual([ch]);
+    expect(realtime.channel).toHaveBeenCalledTimes(1);
+  });
+
+  it('a short absence still reads again when the channel is not joined', () => {
+    const { onResync, channel } = watch();
+    const ch = channel();
+    ch.status('SUBSCRIBED');
+    vi.advanceTimersByTime(10_000);
+    ch.status('CHANNEL_ERROR');
+    onResync.mockClear();
+
+    setVisibility('hidden');
+    vi.advanceTimersByTime(2_000);
+    setVisibility('visible');
+    expect(onResync).toHaveBeenCalledTimes(1);
+    expect(onResync).toHaveBeenLastCalledWith(RESYNC.VISIBLE);
+    // The client joins it again itself: the channel is not replaced.
+    expect(realtime.live()).toEqual([ch]);
+  });
+
+  it('a short absence still reads again for a channel that is still joining, or that the server closed', () => {
+    const { onResync, channel } = watch();
+    vi.advanceTimersByTime(10_000);
+    setVisibility('hidden');
+    vi.advanceTimersByTime(2_000);
+    setVisibility('visible');
+    expect(onResync).toHaveBeenCalledTimes(1);
+
+    channel().status('SUBSCRIBED');
+    vi.advanceTimersByTime(10_000);
+    channel().status('CLOSED');
+    onResync.mockClear();
+    setVisibility('hidden');
+    vi.advanceTimersByTime(2_000);
+    setVisibility('visible');
+    expect(onResync).toHaveBeenCalledTimes(1);
+  });
+
+  it('a visible page whose absence was not seen reads again', () => {
+    const { onResync, channel } = watch();
+    channel().status('SUBSCRIBED');
+    onResync.mockClear();
+    vi.advanceTimersByTime(10_000);
+    setVisibility('visible');
+    expect(onResync).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts the absence of a page that was hidden when the channel opened from the opening', () => {
+    setVisibility('hidden');
+    const { onResync, channel } = watch();
+    channel().status('SUBSCRIBED');
+    onResync.mockClear();
+    vi.advanceTimersByTime(5_000);
+    setVisibility('visible');
+    expect(onResync).not.toHaveBeenCalled();
+
+    setVisibility('hidden');
+    const late = watch();
+    late.channel().status('SUBSCRIBED');
+    late.onResync.mockClear();
+    vi.advanceTimersByTime(RESYNC_AFTER_HIDDEN_MS);
+    setVisibility('visible');
+    expect(late.onResync).toHaveBeenCalledTimes(1);
+  });
+
+  it('a visible that reads nothing leaves the gap alone: online right after still resyncs', () => {
+    const { onResync, channel } = watch();
+    channel().status('SUBSCRIBED');
+    onResync.mockClear();
+    vi.advanceTimersByTime(10_000);
+    setVisibility('hidden');
+    vi.advanceTimersByTime(2_000);
+    setVisibility('visible');
+    goOnline();
+    expect(onResync).toHaveBeenCalledTimes(1);
+    expect(onResync).toHaveBeenLastCalledWith(RESYNC.ONLINE);
+  });
+
+  it('online resyncs however short the absence', () => {
+    const { onResync, channel } = watch();
+    channel().status('SUBSCRIBED');
+    onResync.mockClear();
+    vi.advanceTimersByTime(10_000);
+    setVisibility('hidden');
+    goOnline();
+    vi.advanceTimersByTime(500);
+    setVisibility('visible');
+    expect(onResync).toHaveBeenCalledTimes(1);
+    expect(onResync).toHaveBeenLastCalledWith(RESYNC.ONLINE);
   });
 
   it('asks once for online and visible arriving together', () => {
@@ -174,6 +287,7 @@ describe('watchPostgresChanges — resync on return', () => {
     goOnline();
     channel().status('SUBSCRIBED');
     expect(onResync).toHaveBeenCalledTimes(2);
+    expect(onResync).toHaveBeenLastCalledWith(RESYNC.SUBSCRIBED);
   });
 });
 
