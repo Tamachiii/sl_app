@@ -3,6 +3,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { getNavItems, reselectOnClick } from './navItems';
 import UnreadMessagesBadge from '../messaging/UnreadMessagesBadge';
+import ReviewCountBadge from './ReviewCountBadge';
 
 function NavItem({ to, label, icon, end = false, matches, badge, onReselect }) {
   const { pathname } = useLocation();
@@ -33,6 +34,9 @@ function NavItem({ to, label, icon, end = false, matches, badge, onReselect }) {
             {icon}
             {badge === 'unread-messages' && <UnreadMessagesBadge variant="dot" />}
             <span className="sl-label text-[10px]">{label}</span>
+            {/* After the label in the DOM, so the tab reads "Sessions, 3
+                sessions to review"; drawn over the icon all the same. */}
+            {badge === 'to-review' && <ReviewCountBadge variant="icon" />}
           </>
         );
       }}

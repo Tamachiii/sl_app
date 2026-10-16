@@ -80,6 +80,9 @@ export function getNavItems(role, t) {
         end: true,
         matches: isCoachSessionsPath,
         onReselect: clearLastCoachSessionsTab,
+        // The sessions waiting for review (live finding N17: the roster's
+        // chips are on every card, the tab says how many in all).
+        badge: 'to-review',
       },
       {
         to: '/coach/messages',

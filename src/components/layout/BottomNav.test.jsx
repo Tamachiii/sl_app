@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -13,6 +13,17 @@ vi.mock('../../hooks/useAuth', () => ({
 // so we don't need a fake supabase chain; tests below just care about layout.
 vi.mock('../../hooks/useMessages', () => ({
   useUnreadMessageCount: () => ({ data: 0 }),
+}));
+
+// The Sessions tab's badge reads the number of sessions to review. Stubbed at
+// the one hook the navigation asks; the hook has its own tests.
+let mockToReview;
+const toReviewCalls = vi.fn();
+vi.mock('../../hooks/useToReviewCount', () => ({
+  useToReviewCount: () => {
+    toReviewCalls();
+    return mockToReview;
+  },
 }));
 
 import BottomNav from './BottomNav';
@@ -40,6 +51,7 @@ describe('BottomNav', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRole = 'coach';
+    mockToReview = undefined;
   });
 
   it('renders all 4 coach nav tabs (incl. Messages)', () => {
@@ -186,6 +198,72 @@ describe('BottomNav', () => {
       expect(sessionStorage.getItem(REVIEW)).toBeNull();
       expect(sessionStorage.getItem(FILTER)).toBeNull();
       expect(screen.getByTestId('location')).toHaveTextContent(/^\/coach\/sessions$/);
+    });
+  });
+
+  // Live finding N17 / review item L35: nothing outside the roster said how
+  // many sessions wait for review. The Sessions tab says it now.
+  describe('the number of sessions to review', () => {
+    const sessionsTab = () => screen.getByRole('link', { name: /^sessions/i });
+    // The tab's name: its label, then what the badge says. A browser lays the
+    // two out as flex items and reads a space between them; jsdom has no
+    // layout and joins them, hence the optional space.
+    const named = (words) => new RegExp(`^Sessions ?${words}$`);
+
+    it.each([
+      ['not known yet', undefined],
+      ['zero', 0],
+    ])('draws nothing when it is %s', (_label, n) => {
+      mockToReview = n;
+      renderBottomNav();
+      expect(sessionsTab()).toHaveAccessibleName('Sessions');
+      expect(sessionsTab().textContent).toBe('Sessions');
+    });
+
+    it('draws the number on the tab, and says it in words', () => {
+      mockToReview = 3;
+      renderBottomNav();
+      expect(within(sessionsTab()).getByText('3')).toHaveAttribute('aria-hidden', 'true');
+      expect(sessionsTab()).toHaveAccessibleName(named('3 sessions to review'));
+    });
+
+    it('counts one session in the singular', () => {
+      mockToReview = 1;
+      renderBottomNav();
+      expect(sessionsTab()).toHaveAccessibleName(named('1 session to review'));
+    });
+
+    // 147 on production when this was written: the badge stays two digits.
+    it('caps the number it draws, not the one it says', () => {
+      mockToReview = 147;
+      renderBottomNav();
+      expect(within(sessionsTab()).getByText('99+')).toBeInTheDocument();
+      expect(within(sessionsTab()).queryByText('147')).toBeNull();
+      expect(sessionsTab()).toHaveAccessibleName(named('147 sessions to review'));
+    });
+
+    it('is on the Sessions tab only', () => {
+      mockToReview = 3;
+      renderBottomNav();
+      for (const name of [/athletes/i, /messages/i, /library/i]) {
+        expect(within(screen.getByRole('link', { name })).queryByText('3')).toBeNull();
+      }
+    });
+
+    it('is in the side nav too, as a count at the end of the row', () => {
+      mockToReview = 12;
+      renderBottomNav('/coach/students', SideNav);
+      expect(within(sessionsTab()).getByText('12')).toBeInTheDocument();
+      expect(sessionsTab()).toHaveAccessibleName(named('12 sessions to review'));
+    });
+
+    it('is never asked for in the athlete’s nav', () => {
+      mockRole = 'student';
+      mockToReview = 3;
+      renderBottomNav('/student');
+      renderBottomNav('/student', SideNav);
+      expect(toReviewCalls).not.toHaveBeenCalled();
+      expect(screen.queryByText('3')).toBeNull();
     });
   });
 });

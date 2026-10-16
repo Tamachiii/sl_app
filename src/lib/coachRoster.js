@@ -12,9 +12,11 @@ export const STALE_AFTER_DAYS = 10;
 /**
  * Count sessions still awaiting the coach's review, grouped by `students.id`.
  * A confirmation needs review when it is neither reviewed nor archived — the
- * same predicate the Sessions feed uses, just aggregated per athlete.
+ * same predicate the Sessions feed uses, just aggregated per athlete. The
+ * Sessions tab's badge is the sum of these counts (hooks/useToReviewCount),
+ * so the tab and the cards' "N to review" chips say the same.
  */
-function reviewCountsByStudent(confirmations) {
+export function reviewCountsByStudent(confirmations) {
   const counts = new Map();
   for (const c of confirmations || []) {
     if (c.reviewed_at || c.archived_at) continue;

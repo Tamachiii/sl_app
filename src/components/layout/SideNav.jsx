@@ -3,6 +3,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { getNavItems, reselectOnClick } from './navItems';
 import UnreadMessagesBadge from '../messaging/UnreadMessagesBadge';
+import ReviewCountBadge from './ReviewCountBadge';
 
 function SideNavItem({ to, label, icon, end = false, matches, badge, onReselect }) {
   const { pathname } = useLocation();
@@ -30,6 +31,7 @@ function SideNavItem({ to, label, icon, end = false, matches, badge, onReselect 
       {icon}
       <span className="sl-display text-[14px] tracking-tight">{label}</span>
       {badge === 'unread-messages' && <UnreadMessagesBadge variant="count" />}
+      {badge === 'to-review' && <ReviewCountBadge variant="count" />}
     </NavLink>
   );
 }
