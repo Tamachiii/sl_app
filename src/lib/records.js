@@ -63,7 +63,9 @@ const round1 = (x) => Math.round(x * 10) / 10;
  * means the strongest relative single always wins, and a bodyweight-only set on
  * an 'added' movement (system load = bodyweight) still contributes.
  *
- * `recentSince` (a Date) flags a record set on/after it as freshly earned.
+ * `recentSince` (a Date) flags a record set on/after it as freshly earned
+ * (`recent`): the best e1RM for an exercise that has one, the best reps for
+ * one that has none — the number its card shows.
  * `bodyweightAt(loggedAtIso)` returns the student's bodyweight at a set's date
  * (default () => null → no ×BW, every existing caller/test stays byte-identical).
  */
@@ -135,7 +137,14 @@ export function buildRecords(logs, { recentSince, bodyweightAt = () => null } = 
         bestE1rm,
         relStrength: r.bestRel > 0 ? round1(r.bestRel) : null,
         bwAtBest: r.bestRelBw ?? null,
-        recent: isRecent(r.bestE1rmAt) || isRecent(r.bestRepsAt),
+        // "New" is said of the record the card shows, and only of it. A record
+        // with an e1RM is shown as that e1RM (PersonalRecords tests the same
+        // rounded `bestE1rm`), so only a new best e1RM makes it new: the most
+        // reps in a set move with any set at any load — a light back-off of
+        // 12, an extra set with no weight — and would light the pill beside
+        // an e1RM that has not changed. A record without one is shown as its
+        // best reps, which is then what makes it new.
+        recent: bestE1rm ? isRecent(r.bestE1rmAt) : isRecent(r.bestRepsAt),
       };
     })
     // Weighted records first (they carry an e1RM), then by e1RM / reps desc.

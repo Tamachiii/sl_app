@@ -64,6 +64,90 @@ describe('buildRecords', () => {
     expect(recs[1].recent).toBe(false); // 07-05 < 07-08
   });
 
+  describe('a "New PR" is a new best of the number the card shows', () => {
+    const since = { recentSince: new Date('2026-07-08') };
+    const old = '2026-03-01T10:00:00Z';
+    const recent = '2026-07-10T10:00:00Z';
+
+    it('a light back-off set with more reps does not make an old e1RM new', () => {
+      const logs = [
+        { done: true, exercise: ex, logged_at: old, actual_reps: 3, actual_weight_kg: 120 }, // e1RM 132
+        { done: true, exercise: ex, logged_at: recent, actual_reps: 12, actual_weight_kg: 60 }, // e1RM 84
+      ];
+      const [rec] = buildRecords(logs, since);
+      // The rep best moved…
+      expect(rec.bestReps).toBe(12);
+      expect(rec.bestRepsAt).toBe(recent);
+      // …the record the card shows did not.
+      expect(rec.bestE1rm).toBe(132);
+      expect(rec.bestE1rmAt).toBe(old);
+      expect(rec.recent).toBe(false);
+    });
+
+    it('an extra set logged with reps and no weight does not make a weighted lift new', () => {
+      const logs = [
+        { done: true, exercise: ex, logged_at: old, actual_reps: 5, actual_weight_kg: 100 },
+        { done: true, exercise: ex, logged_at: recent, actual_reps: 15, actual_weight_kg: 0 },
+      ];
+      const [rec] = buildRecords(logs, since);
+      expect(rec.bestReps).toBe(15);
+      expect(rec.bestE1rmAt).toBe(old);
+      expect(rec.recent).toBe(false);
+    });
+
+    it('a new best e1RM is new', () => {
+      const logs = [
+        { done: true, exercise: ex, logged_at: old, actual_reps: 5, actual_weight_kg: 100 },
+        { done: true, exercise: ex, logged_at: recent, actual_reps: 3, actual_weight_kg: 120 },
+      ];
+      const [rec] = buildRecords(logs, since);
+      expect(rec.bestE1rmAt).toBe(recent);
+      expect(rec.recent).toBe(true);
+    });
+
+    it('a new best e1RM is new even when the rep best is old', () => {
+      const logs = [
+        { done: true, exercise: ex, logged_at: old, actual_reps: 15, actual_weight_kg: 40 },
+        { done: true, exercise: ex, logged_at: recent, actual_reps: 2, actual_weight_kg: 120 },
+      ];
+      const [rec] = buildRecords(logs, since);
+      expect(rec.bestRepsAt).toBe(old);
+      expect(rec.recent).toBe(true);
+    });
+
+    it('an exercise with no weighted set is new on its best reps', () => {
+      const fresh = buildRecords(
+        [
+          { done: true, exercise: bw, logged_at: old, actual_reps: 20 },
+          { done: true, exercise: bw, logged_at: recent, actual_reps: 25 },
+        ],
+        since,
+      );
+      expect(fresh[0].bestE1rm).toBeNull();
+      expect(fresh[0].recent).toBe(true);
+
+      const stale = buildRecords(
+        [
+          { done: true, exercise: bw, logged_at: old, actual_reps: 25 },
+          { done: true, exercise: bw, logged_at: recent, actual_reps: 20 },
+        ],
+        since,
+      );
+      expect(stale[0].recent).toBe(false);
+    });
+
+    it('the first weighted set after reps-only sets gives the exercise an e1RM, and it is new', () => {
+      const logs = [
+        { done: true, exercise: ex, logged_at: old, actual_reps: 12, actual_weight_kg: 0 },
+        { done: true, exercise: ex, logged_at: recent, actual_reps: 3, actual_weight_kg: 10 },
+      ];
+      const [rec] = buildRecords(logs, since);
+      expect(rec.bestE1rm).toBe(11);
+      expect(rec.bestRepsAt).toBe(old);
+      expect(rec.recent).toBe(true);
+    });
+  });
+
   it('defaults to no ×BW (unclassified exercise / no bodyweight resolver)', () => {
     const logs = [{ done: true, exercise: ex, logged_at: '2026-07-01', actual_reps: 3, actual_weight_kg: 120 }];
     const recs = buildRecords(logs); // no bodyweightAt, no load_mode

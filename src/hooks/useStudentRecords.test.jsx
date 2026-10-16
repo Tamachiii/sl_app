@@ -287,6 +287,25 @@ describe('useStudentRecords — the order of the rows does not decide a record',
   });
 });
 
+describe('useStudentRecords — a new PR is a new best of what the card shows', () => {
+  it('a light back-off yesterday leaves last year’s e1RM where it was: no new PR', async () => {
+    const now = Date.now();
+    const yesterday = new Date(now - 24 * 3600 * 1000).toISOString();
+    const lastYear = new Date(now - 365 * 24 * 3600 * 1000).toISOString();
+    wire({
+      setLogs: [
+        log({ slotId: 'sl-1', exercise: BENCH, loggedAt: lastYear, aReps: 3, aW: 120 }),
+        // More reps than any set before, at half the load.
+        log({ slotId: 'sl-2', exercise: BENCH, loggedAt: yesterday, aReps: 12, aW: 60 }),
+      ],
+    });
+
+    const [bench] = await records();
+    expect(bench).toMatchObject({ bestE1rm: 132, bestE1rmAt: lastYear, bestReps: 12, bestRepsAt: yesterday });
+    expect(bench.recent).toBe(false);
+  });
+});
+
 describe('useStudentRecords — whose rows', () => {
   it('coach flow: the history is filtered on the athlete, and the bodyweight is that of the athlete’s profile', async () => {
     const db = wire({
