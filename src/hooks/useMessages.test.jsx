@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 // they close over must also be hoisted via `vi.hoisted` (otherwise we hit a
 // TDZ "cannot access X before initialization" at import time).
 const { mockSupabase } = vi.hoisted(() => ({
-  mockSupabase: { from: vi.fn() },
+  mockSupabase: { from: vi.fn(), rpc: vi.fn() },
 }));
 
 vi.mock('../lib/supabase', () => ({ supabase: mockSupabase }));
@@ -14,6 +14,7 @@ vi.mock('./useAuth', () => ({
   useAuth: () => ({ user: { id: 'me' }, profile: { id: 'me' } }),
 }));
 
+import { fakePostgrest } from '../test/fakePostgrest';
 import { pairKey, formatMessageStamp, useGroupedThread, useMessageThread, useConversations, useSendMessage, useDeleteMessage } from './useMessages';
 
 function makeWrapper() {
@@ -28,6 +29,7 @@ function makeWrapper() {
 
 beforeEach(() => {
   mockSupabase.from.mockReset();
+  mockSupabase.rpc.mockReset();
 });
 
 describe('pairKey', () => {
@@ -99,42 +101,103 @@ describe('useMessageThread', () => {
 });
 
 describe('useConversations', () => {
-  it('rolls up the message list into one row per counterpart, newest-first', async () => {
-    const rows = [
-      { id: 'm3', sender_id: 'me',  recipient_id: 's1', body: 'latest', read_at: null, created_at: '2026-04-30T12:00:00Z' },
-      { id: 'm2', sender_id: 's1',  recipient_id: 'me', body: 'earlier from s1', read_at: null, created_at: '2026-04-30T11:00:00Z' },
-      { id: 'm1', sender_id: 's2',  recipient_id: 'me', body: 'older s2', read_at: '2026-04-30T10:30:00Z', created_at: '2026-04-30T10:00:00Z' },
-    ];
-    const profiles = [
-      { id: 's1', full_name: 'Student One', role: 'student' },
-      { id: 's2', full_name: 'Student Two', role: 'student' },
-    ];
+  const NO_FUNCTION = { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.my_conversations' } };
 
-    // Two from() calls happen: messages first, then profiles. Wire them up
-    // with a counter so each call returns its own builder.
-    let call = 0;
-    mockSupabase.from.mockImplementation(() => {
-      call += 1;
-      if (call === 1) {
-        // messages query
-        return {
-          select: vi.fn().mockReturnThis(),
-          or: vi.fn().mockReturnThis(),
-          order: vi.fn().mockReturnThis(),
-          limit: vi.fn().mockResolvedValue({ data: rows, error: null }),
-        };
-      }
-      // profiles query
-      return {
-        select: vi.fn().mockReturnThis(),
-        in: vi.fn().mockResolvedValue({ data: profiles, error: null }),
-      };
+  it('asks the database for one row per counterpart, and gives the list its shape, newest first', async () => {
+    mockSupabase.rpc.mockResolvedValue({
+      data: [
+        {
+          counterpart_id: 's2', full_name: 'Student Two', role: 'student',
+          last_id: 'm1', last_sender_id: 's2', last_recipient_id: 'me', last_body: 'older s2',
+          last_session_id: null, last_read_at: '2026-04-30T10:30:00Z', last_at: '2026-04-30T10:00:00Z', unread: 0,
+        },
+        {
+          counterpart_id: 's1', full_name: 'Student One', role: 'student',
+          last_id: 'm3', last_sender_id: 'me', last_recipient_id: 's1', last_body: 'latest',
+          last_session_id: null, last_read_at: null, last_at: '2026-04-30T12:00:00Z', unread: '1',
+        },
+      ],
+      error: null,
     });
 
     const { Wrapper } = makeWrapper();
     const { result } = renderHook(() => useConversations(), { wrapper: Wrapper });
-
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(mockSupabase.rpc).toHaveBeenCalledWith('my_conversations');
+    expect(mockSupabase.from).not.toHaveBeenCalled();
+    expect(result.current.data).toEqual([
+      {
+        otherProfileId: 's1',
+        otherFullName: 'Student One',
+        otherRole: 'student',
+        lastMessage: {
+          id: 'm3', sender_id: 'me', recipient_id: 's1', body: 'latest',
+          session_id: null, read_at: null, created_at: '2026-04-30T12:00:00Z',
+        },
+        // A bigint may travel as a string.
+        unreadCount: 1,
+      },
+      {
+        otherProfileId: 's2',
+        otherFullName: 'Student Two',
+        otherRole: 'student',
+        lastMessage: {
+          id: 'm1', sender_id: 's2', recipient_id: 'me', body: 'older s2',
+          session_id: null, read_at: '2026-04-30T10:30:00Z', created_at: '2026-04-30T10:00:00Z',
+        },
+        unreadCount: 0,
+      },
+    ]);
+  });
+
+  it('keeps a row that names only the counterpart, the last body, its time and the unread count', async () => {
+    mockSupabase.rpc.mockResolvedValue({
+      data: [{ counterpart_id: 's1', full_name: 'Student One', last_body: 'hey', last_at: '2026-04-30T12:00:00Z', unread: 2 }],
+      error: null,
+    });
+
+    const { Wrapper } = makeWrapper();
+    const { result } = renderHook(() => useConversations(), { wrapper: Wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual([
+      {
+        otherProfileId: 's1',
+        otherFullName: 'Student One',
+        otherRole: null,
+        lastMessage: {
+          id: null, sender_id: null, recipient_id: null, body: 'hey',
+          session_id: null, read_at: null, created_at: '2026-04-30T12:00:00Z',
+        },
+        unreadCount: 2,
+      },
+    ]);
+  });
+
+  it('rolls up the messages itself when the database has no such function', async () => {
+    mockSupabase.rpc.mockResolvedValue(NO_FUNCTION);
+    const db = fakePostgrest({
+      messages: [
+        { id: 'm3', sender_id: 'me',  recipient_id: 's1', body: 'latest', session_id: null, read_at: null, created_at: '2026-04-30T12:00:00Z' },
+        { id: 'm2', sender_id: 's1',  recipient_id: 'me', body: 'earlier from s1', session_id: null, read_at: null, created_at: '2026-04-30T11:00:00Z' },
+        { id: 'm1', sender_id: 's2',  recipient_id: 'me', body: 'older s2', session_id: null, read_at: '2026-04-30T10:30:00Z', created_at: '2026-04-30T10:00:00Z' },
+      ],
+      profiles: [
+        { id: 's1', full_name: 'Student One', role: 'student' },
+        { id: 's2', full_name: 'Student Two', role: 'student' },
+      ],
+    });
+    mockSupabase.from.mockImplementation(db.from);
+
+    const { Wrapper } = makeWrapper();
+    const { result } = renderHook(() => useConversations(), { wrapper: Wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const [read] = db.requestsTo('messages');
+    expect(read.select).toBe('id, sender_id, recipient_id, body, session_id, read_at, created_at');
+    expect(read.filters).toContainEqual(['or', 'sender_id.eq.me,recipient_id.eq.me']);
+    expect(db.requestsTo('profiles')[0].filters).toContainEqual(['in', 'id', ['s1', 's2']]);
+
     const data = result.current.data;
     expect(data).toHaveLength(2);
     // s1 conversation is newest (m3 at 12:00).
@@ -146,6 +209,53 @@ describe('useConversations', () => {
     // s2 has no unread (read_at was set).
     expect(data[1].otherProfileId).toBe('s2');
     expect(data[1].unreadCount).toBe(0);
+  });
+
+  // Review item L18: the list was the newest 2000 messages, which PostgREST
+  // answers with 1000. A conversation older than the account's thousand
+  // newest messages was not in the list, nor were its unread messages.
+  it('keeps a conversation that sits behind 1,300 newer messages, with its unread count', async () => {
+    mockSupabase.rpc.mockResolvedValue(NO_FUNCTION);
+    const at = (minutes) => new Date(Date.UTC(2026, 3, 1) + minutes * 60_000).toISOString();
+    const recent = Array.from({ length: 1300 }, (_, i) => ({
+      id: `m-${String(i + 100).padStart(5, '0')}`,
+      sender_id: i % 2 ? 'me' : 's1',
+      recipient_id: i % 2 ? 's1' : 'me',
+      body: `chat ${i}`,
+      session_id: null,
+      read_at: '2026-05-01T00:00:00Z',
+      created_at: at(1000 + i),
+    }));
+    const old = [
+      { id: 'm-00001', sender_id: 's-old', recipient_id: 'me', body: 'are you there?', session_id: null, read_at: null, created_at: at(1) },
+      { id: 'm-00002', sender_id: 's-old', recipient_id: 'me', body: 'hello?', session_id: null, read_at: null, created_at: at(2) },
+    ];
+    const db = fakePostgrest({
+      messages: [...recent, ...old],
+      profiles: [
+        { id: 's1', full_name: 'Student One', role: 'student' },
+        { id: 's-old', full_name: 'Quiet Athlete', role: 'student' },
+      ],
+    });
+    mockSupabase.from.mockImplementation(db.from);
+
+    const { Wrapper } = makeWrapper();
+    const { result } = renderHook(() => useConversations(), { wrapper: Wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(db.requestsTo('messages')).toHaveLength(2);
+    expect(result.current.data.map((c) => [c.otherProfileId, c.unreadCount, c.lastMessage.body])).toEqual([
+      ['s1', 0, 'chat 1299'],
+      ['s-old', 2, 'hello?'],
+    ]);
+  });
+
+  it('fails on any other error, and reads nothing else', async () => {
+    mockSupabase.rpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'permission denied' } });
+    const { Wrapper } = makeWrapper();
+    const { result } = renderHook(() => useConversations(), { wrapper: Wrapper });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(mockSupabase.from).not.toHaveBeenCalled();
   });
 });
 

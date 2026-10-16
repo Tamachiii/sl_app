@@ -3,8 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { resyncRefetchOptions, watchPostgresChanges } from '../lib/realtimeChannel';
 import { createRefresher } from '../lib/realtimeCache';
+import { fetchAllRows } from '../lib/supabasePaging';
 import {
   MESSAGES_ROOT,
+  MESSAGE_COLUMNS,
   THREAD_LIMIT,
   applyMessageChange,
   applyMessageDelete,
@@ -45,15 +47,98 @@ export function useMessageThread(otherProfileId) {
   });
 }
 
+// What PostgREST answers when it knows no function of that name and those
+// arguments: a database without migration 26 (coach_list_rpcs).
+const NO_SUCH_FUNCTION = 'PGRST202';
+
+/**
+ * One conversation as `my_conversations()` returns it, in the shape the list
+ * and lib/messageCache read: `{ otherProfileId, otherFullName, otherRole,
+ * lastMessage, unreadCount }`, `lastMessage` holding the columns of a message
+ * (MESSAGE_COLUMNS).
+ *
+ * The function answers one row per counterpart: `counterpart_id`, `full_name`,
+ * `last_body`, `last_at`, `unread`, and — for the last message to be a whole
+ * row — `role`, `last_id`, `last_sender_id`, `last_recipient_id`,
+ * `last_session_id`, `last_read_at`. A column it does not return is null here:
+ * the list then shows no "You:" before a message whose sender is not known,
+ * and a change to that message reads the list again instead of patching it.
+ */
+function conversationFromRow(row, me) {
+  const other = row.counterpart_id;
+  const sender = row.last_sender_id ?? null;
+  return {
+    otherProfileId: other,
+    otherFullName: row.full_name ?? null,
+    otherRole: row.role ?? null,
+    lastMessage: {
+      id: row.last_id ?? null,
+      sender_id: sender,
+      recipient_id: row.last_recipient_id ?? (sender === null ? null : sender === me ? other : me),
+      body: row.last_body ?? '',
+      session_id: row.last_session_id ?? null,
+      read_at: row.last_read_at ?? null,
+      created_at: row.last_at ?? null,
+    },
+    unreadCount: Number(row.unread) || 0,
+  };
+}
+
+// The list without the function: every message of the account, read a
+// thousand at a time, then folded here — the newest of each pair is its last
+// message, the ones sent to me and not read are its unread count — and the
+// names read for the counterparts found.
+async function readConversations(me) {
+  const rows = await fetchAllRows(() =>
+    supabase
+      .from('messages')
+      .select(MESSAGE_COLUMNS.join(', '))
+      .or(`sender_id.eq.${me},recipient_id.eq.${me}`),
+  );
+  // fetchAllRows answers in id order, which for a uuid is no order.
+  rows.sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
+
+  const byOther = new Map();
+  for (const m of rows) {
+    const other = m.sender_id === me ? m.recipient_id : m.sender_id;
+    let conv = byOther.get(other);
+    if (!conv) {
+      conv = { otherProfileId: other, lastMessage: m, unreadCount: 0 };
+      byOther.set(other, conv);
+    }
+    if (m.recipient_id === me && !m.read_at) conv.unreadCount += 1;
+  }
+  const otherIds = Array.from(byOther.keys());
+  if (otherIds.length === 0) return [];
+
+  const { data: profiles, error } = await supabase
+    .from('profiles')
+    .select('id, full_name, role')
+    .in('id', otherIds);
+  if (error) throw error;
+  const byProfile = new Map((profiles || []).map((p) => [p.id, p]));
+
+  return Array.from(byOther.values()).map((c) => ({
+    ...c,
+    otherFullName: byProfile.get(c.otherProfileId)?.full_name || null,
+    otherRole: byProfile.get(c.otherProfileId)?.role || null,
+  }));
+}
+
 /**
  * All conversations the signed-in user is part of, one row per counterpart.
- * Returns `[{ otherProfileId, otherFullName, lastMessage, unreadCount }]`
- * sorted newest-first by last message.
+ * Returns `[{ otherProfileId, otherFullName, otherRole, lastMessage,
+ * unreadCount }]` sorted newest-first by last message.
  *
- * Implementation detail: pulls every message touching me, then folds in JS.
- * Acceptable for the volumes coaches see (a coach with 50 students chatting
- * heavily still produces well under 10k rows). If the table grows, swap this
- * for a SQL view or RPC that returns the rollup.
+ * The database folds the messages when it has `my_conversations()` (migration
+ * 26, optional): one row per counterpart, whatever the number of messages.
+ * Without it (PGRST202) every message of the account is read, page after
+ * page, and folded here. Any other error is the read's failure.
+ *
+ * The list used to be one request for the newest 2000 messages, which
+ * PostgREST answers with 1000: a conversation whose last message was older
+ * than the account's thousand newest was not in the list at all, and the
+ * unread messages past them were not counted.
  */
 export function useConversations() {
   const { user } = useAuth();
@@ -61,41 +146,12 @@ export function useConversations() {
   return useQuery({
     queryKey: messageKeys.conversations(me),
     queryFn: async () => {
-      const { data: rows, error } = await supabase
-        .from('messages')
-        .select('id, sender_id, recipient_id, body, session_id, read_at, created_at')
-        .or(`sender_id.eq.${me},recipient_id.eq.${me}`)
-        .order('created_at', { ascending: false })
-        .limit(2000);
-      if (error) throw error;
-
-      const byOther = new Map();
-      for (const m of rows || []) {
-        const other = m.sender_id === me ? m.recipient_id : m.sender_id;
-        let conv = byOther.get(other);
-        if (!conv) {
-          conv = { otherProfileId: other, lastMessage: m, unreadCount: 0 };
-          byOther.set(other, conv);
-        }
-        if (m.recipient_id === me && !m.read_at) conv.unreadCount += 1;
-      }
-      const otherIds = Array.from(byOther.keys());
-      if (otherIds.length === 0) return [];
-
-      const { data: profiles, error: pErr } = await supabase
-        .from('profiles')
-        .select('id, full_name, role')
-        .in('id', otherIds);
-      if (pErr) throw pErr;
-      const byProfile = new Map((profiles || []).map((p) => [p.id, p]));
-
-      return Array.from(byOther.values())
-        .map((c) => ({
-          ...c,
-          otherFullName: byProfile.get(c.otherProfileId)?.full_name || null,
-          otherRole: byProfile.get(c.otherProfileId)?.role || null,
-        }))
-        .sort(compareConversations);
+      const { data, error } = await supabase.rpc('my_conversations');
+      if (error && error.code !== NO_SUCH_FUNCTION) throw error;
+      const conversations = error
+        ? await readConversations(me)
+        : (data || []).map((row) => conversationFromRow(row, me));
+      return conversations.sort(compareConversations);
     },
     enabled: !!me,
   });

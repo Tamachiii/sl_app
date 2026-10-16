@@ -210,11 +210,8 @@ describe('no read asks PostgREST for more than a page', () => {
     });
 
   // Reads known to ask for more than a page, each waiting for the package that
-  // pages it. Delete the entry with the fix.
-  const WAITING = {
-    // The conversation list: 2000 asked, 1000 received (coach-lists-scale).
-    'src/hooks/useMessages.js': [2000],
-  };
+  // pages it. Delete the entry with the fix. None waits today.
+  const WAITING = {};
 
   it('holds for every source file', () => {
     const offenders = {};
