@@ -49,8 +49,12 @@ export function flattenSessions(weeks) {
  *
  * `upcoming` is what the student can start right now, in order — archived
  * sessions (the coach pulled them) and confirmed ones drop out. `position` is
- * the 1-based place of the next session among the non-archived sessions of the
- * block, so the UI can say "Session 7 of 24" without recounting.
+ * the 1-based place of the next session — `upcoming[0]`, the card marked Next —
+ * among the non-archived sessions of the block, so the UI can say "Session 7
+ * of 24" without recounting. It is a place in the list, not a count of
+ * confirmations: with sessions 1, 2, 3 and 5 confirmed the next one is 4, and
+ * the header says 4, where `completed + 1` said 5 above a card numbered 4.
+ * A finished block reads `total` of `total`; an empty one 0.
  *
  * Activity is measured from the day the student actually trained —
  * `sessions.performed_at`, read by `performedDate` as the CALENDAR DATE it
@@ -72,6 +76,8 @@ export function buildQueue(weeks, confirmedIds, { now } = {}) {
   const upcoming = [];
   let total = 0;
   let completed = 0;
+  // The place of upcoming[0] among the non-archived sessions, once it is met.
+  let nextPosition = 0;
   let lastPerformedAt = null;
   let doneLast7 = 0;
 
@@ -90,6 +96,7 @@ export function buildQueue(weeks, confirmedIds, { now } = {}) {
       }
       continue;
     }
+    if (upcoming.length === 0) nextPosition = total;
     upcoming.push(entry);
   }
 
@@ -97,9 +104,9 @@ export function buildQueue(weeks, confirmedIds, { now } = {}) {
     upcoming,
     total,
     completed,
-    // Where the next session sits in the block. Clamped to `total` so a fully
-    // finished block reads "24 of 24" rather than "25 of 24".
-    position: total === 0 ? 0 : Math.min(completed + 1, total),
+    // Where the next session sits in the block; `total` once nothing is left,
+    // so a finished block reads "24 of 24" rather than "25 of 24".
+    position: nextPosition || total,
     lastPerformedAt,
     daysSinceLast: daysSince(lastPerformedAt, ref),
     doneLast7,

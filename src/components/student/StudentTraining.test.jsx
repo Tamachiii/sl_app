@@ -187,6 +187,21 @@ describe('StudentTraining', () => {
     expect(screen.queryByText('Then')).toBeNull();
   });
 
+  // B33: done out of order, the header named one session and the Next card
+  // another — "Session 5 of 6" above the card of session 4.
+  it('names the session of the Next card when sessions were done out of order', () => {
+    mockList = listOf([
+      week('w-1', 1, ['S1', 'S2', 'S3', 'S4', 'S5', 'S6'].map((title, i) =>
+        session(title.toLowerCase(), title, { sort_order: i, day_number: null }))),
+    ]);
+    mockConfirmedIds = read(new Set(['s1', 's2', 's3', 's5']));
+    renderTraining();
+    expect(screen.getByText('Session 4 of 6')).toBeInTheDocument();
+    // The finished ones are in the closed drawer: the first card is the Next one.
+    expect(screen.getAllByText(/^S\d$/).map((n) => n.textContent)).toEqual(['S4', 'S6']);
+    expect(screen.getByText('Next')).toBeInTheDocument();
+  });
+
   // The defect that prompted the merge: finished sessions were ordered by
   // RECOMMENDED weekday, so one trained on the 18th sat above one trained on
   // the 21st. A log has exactly one honest order — when it happened.

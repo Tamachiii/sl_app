@@ -109,6 +109,50 @@ describe('buildQueue', () => {
     expect(q.total).toBe(2);
   });
 
+  // B33: the header counted confirmations, the Next card is the first session
+  // not confirmed. Done out of order, the two named different sessions.
+  describe('position is the place of the Next card', () => {
+    const six = () => [
+      week('w-1', 1, [1, 2, 3].map((n) => session(`s${n}`, { sort_order: n - 1 }))),
+      week('w-2', 2, [4, 5, 6].map((n) => session(`s${n}`, { sort_order: n - 4 }))),
+    ];
+
+    it('says 4 when sessions 1, 2, 3 and 5 are confirmed, as the Next card is session 4', () => {
+      const q = buildQueue(six(), new Set(['s1', 's2', 's3', 's5']));
+      expect(q.upcoming[0].session.id).toBe('s4');
+      expect(q.completed).toBe(4);
+      expect(q.position).toBe(4);
+      expect(q.total).toBe(6);
+    });
+
+    it('says 1 when only a later session is confirmed', () => {
+      const q = buildQueue(six(), new Set(['s3']));
+      expect(q.upcoming[0].session.id).toBe('s1');
+      expect(q.position).toBe(1);
+    });
+
+    it('does not count an archived session before the Next card', () => {
+      const weeks = [
+        week('w-1', 1, [
+          session('a', { sort_order: 0 }),
+          session('pulled', { sort_order: 1, archived_at: '2026-08-01T00:00:00Z' }),
+          session('b', { sort_order: 2 }),
+          session('c', { sort_order: 3 }),
+        ]),
+      ];
+      const q = buildQueue(weeks, new Set(['a', 'c']));
+      expect(q.upcoming[0].session.id).toBe('b');
+      expect(q.position).toBe(2);
+      expect(q.total).toBe(3);
+    });
+
+    it('says total of total when nothing is left, whatever the order of the confirmations', () => {
+      const q = buildQueue(six(), new Set(['s6', 's1', 's4', 's2', 's5', 's3']));
+      expect(q.upcoming).toEqual([]);
+      expect(q.position).toBe(6);
+    });
+  });
+
   it('is empty and inert for a student with no program', () => {
     const q = buildQueue(null, new Set());
     expect(q).toMatchObject({ upcoming: [], total: 0, completed: 0, position: 0 });
