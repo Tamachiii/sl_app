@@ -172,5 +172,5 @@ commit;
 - The setting ends with the transaction. There is nothing to switch back, and the next statement is guarded again.
 - It is read only when the statement comes without a signed-in user: the SQL editor, the CLI, a function called with the service-role key. From the app it does nothing, for the coach as for an athlete.
 - Without `begin` / `commit` around it, `set local` has no effect and the delete is refused: paste the four lines together.
-- A video file is not removed with its set: delete it in Dashboard → Storage → `set-videos` (folder of the athlete, then of the exercise).
+- A video file is not removed with its set: delete it in Dashboard → Storage → `set-videos` (folder of the athlete, then of the exercise). [25 — Files that no video names](25-storage-video-policies.md#files-that-no-video-names) lists every file of the bucket that no video names any more.
 - Correcting the reps or the load of a logged set needs no setting: the pin of point 4 only applies to a signed-in user. An `update public.set_logs set target_reps = … where id = …` from the SQL editor goes through.

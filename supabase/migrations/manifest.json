@@ -217,6 +217,15 @@
       "covers": ["L28", "P62", "N9"],
       "reversible": true,
       "summary": "The nine indexes that repeat the first column of a unique key of their table are dropped (idx_students_profile_id, idx_weeks_program_id, idx_sessions_week_id, idx_set_logs_slot_id, idx_session_confirmations_session_id, idx_slot_comments_slot_id, idx_slot_deviations_slot_id, idx_set_log_videos_set_log, bodyweight_logs_student_idx), and every foreign key of public has an index that starts with its column: client_errors (user_id, created_at DESC), exercise_slots (exercise_id), goals (coach_id), slot_comments (student_id), slot_deviations (student_id) and (substitute_exercise_id), messages (sender_id, created_at DESC) and (recipient_id, created_at DESC). lock_message_fields_on_update lets the ON DELETE SET NULL of messages.session_id through — session_id goes to NULL when, and only when, the session it names is gone — and the messages that already named a session that is gone lose that id, which does not come back with the rollback. The six indexes the advisors call unused stay."
+    },
+    {
+      "name": "2026_10_16_25_storage_video_policies",
+      "kind": "required",
+      "wave": 3,
+      "checkpoint": "C1",
+      "covers": ["B7"],
+      "reversible": true,
+      "summary": "A coach reads a file of the bucket set-videos when it is in the folder of one of their athletes, as before, and a video of that athlete names it: \"Coaches read student set videos\" on storage.objects, written again under its name, also asks for a row of set_log_videos whose storage_path is the name of the file and whose set is a set of the athlete whose folder holds it, read with the rights of the coach. A file no video names — the old file of a replace, the file of a deleted video, an upload that was cancelled — is read by its athlete alone; after a change of coach the new coach reads the files the videos of the athlete name, the former coach none. The athlete's three policies on the files are not touched. No row and no file is written or removed: the runbook page lists the files no video names, and says how one is removed."
     }
   ]
 }

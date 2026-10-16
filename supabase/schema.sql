@@ -1649,8 +1649,14 @@ ON CONFLICT (id) DO UPDATE
 -- account nobody coaches has no slot and uploads nothing; nobody uploads
 -- under another athlete's exercise; and the file of a reviewed or archived
 -- session stays where it is. There is no UPDATE policy: a file is not
--- overwritten or renamed. Reading is by folder, for the athlete and for the
--- coach.
+-- overwritten or renamed.
+-- Reading: the athlete reads every file of their folder; a coach reads a
+-- file of the folder of one of their athletes when a video of that athlete
+-- names it — a row of set_log_videos, read with the coach's rights, whose
+-- storage_path is the file and whose set is the athlete's (2026_10_16_25,
+-- review B7). storage.objects has no foreign key to set_log_videos: a file
+-- no row names (the old file of a replace, the file of a deleted video, an
+-- upload that was cancelled) is the athlete's alone.
 CREATE POLICY "Students upload own set videos"
   ON storage.objects FOR INSERT TO authenticated
   WITH CHECK (
@@ -1684,6 +1690,12 @@ CREATE POLICY "Coaches read student set videos"
     bucket_id = 'set-videos'
     AND (storage.foldername(name))[1] IN (
       SELECT profile_id::text FROM public.students WHERE coach_id = auth.uid()
+    )
+    AND EXISTS (
+      SELECT 1
+        FROM public.set_log_videos v
+       WHERE v.storage_path = objects.name
+         AND public.student_profile_for_set_log(v.set_log_id)::text = (storage.foldername(objects.name))[1]
     )
   );
 
@@ -6849,7 +6861,8 @@ INSERT INTO app_private.app_migrations (name) VALUES
   ('2026_10_16_21_rpe_half_steps_day_check'),
   ('2026_10_16_22_client_errors_scope'),
   ('2026_10_16_23_library_read_follows_program'),
-  ('2026_10_16_24_indexes_cleanup');
+  ('2026_10_16_24_indexes_cleanup'),
+  ('2026_10_16_25_storage_video_policies');
 
 -- An optional migration that needs an extension is on record where its block
 -- above ran, and nowhere else: a project that switches pg_cron on later must

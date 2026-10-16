@@ -767,17 +767,20 @@ describe('the files of the set-videos bucket', () => {
     expect(await upload(ids.studentA, fileOf(ids.studentA, open.pullUp, '9-late.mp4'))).toBe('refused');
   }));
 
-  it('reading is by folder, as before: the athlete their own files, the coach their athletes\', nobody else any', () => scenario(async () => {
+  it('reading is not gated by the session: the athlete reads their own files, the coach the files their athletes\' videos name, nobody else any', () => scenario(async () => {
     const t = await train(0);
+    // An upload whose row never came: the athlete's file, and no video names it.
+    await asUser(ids.studentA, (q) => app.upload(q, fileOf(ids.studentA, t.pullUp, '2-orphan.mp4')));
     await confirmAsAthlete(t.id);
     await sendFeedback(t.id);
     const sees = (as) => as((q) => q.value(`select count(*) from storage.objects where bucket_id = 'set-videos'`));
-    expect(await sees((fn) => asUser(ids.studentA, fn))).toBe(1);
+    expect(await sees((fn) => asUser(ids.studentA, fn))).toBe(2);
+    // Migration 25: the coach reads the file the video names, not the other one.
     expect(await sees((fn) => asUser(ids.coach, fn))).toBe(1);
     expect(await sees((fn) => asUser(ids.studentB, fn))).toBe(0);
     expect(await sees((fn) => asUser(una, fn))).toBe(0);
     expect(await sees(asAnon)).toBe(0);
-    expect(await sees(asService)).toBe(1);
+    expect(await sees(asService)).toBe(2);
   }));
 
   // What the deployed useUploadSetVideo does to replace a video, request by

@@ -128,6 +128,10 @@ async function buildWorld() {
       [inProgress.setLogs[0], `${A.id}/${inProgress.id}/1-clip.mp4`]);
     await q(`insert into storage.objects (bucket_id, name) values ('set-videos', $1)`,
       [`${A.id}/${inProgress.id}/1-clip.mp4`]);
+    // …and a file no video names: an upload whose row never came. A reads it
+    // and may remove it; the coach does not read it (migration 25).
+    await q(`insert into storage.objects (bucket_id, name) values ('set-videos', $1)`,
+      [`${A.id}/${inProgress.id}/2-orphan.mp4`]);
     // …and A has confirmed it, which the coach has not reviewed yet: a second
     // confirmation, in a session nobody has closed, next to the one of
     // session 1 — so that "their own confirmation" and "a confirmation they
@@ -364,8 +368,8 @@ Callers
   anon         the public anon key, no session
   athlete A    signed in; coached by "coach". Programs: an active block (session 1 trained,
                confirmed and reviewed; session 2 archived; 3 to come; 4 trained and
-               confirmed, not reviewed yet, with an extra set, a note, a skip and a video),
-               a past block, a trashed block, and a draft A is writing
+               confirmed, not reviewed yet, with an extra set, a note, a skip, a video, and
+               a file no video names), a past block, a trashed block, and a draft A is writing
   athlete B    signed in; same coach, one active block
   coach        signed in; coach of A and B
   other coach  signed in; coach of athlete C only (C has one active block)

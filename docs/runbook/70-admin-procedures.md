@@ -36,6 +36,7 @@ A procedure that belongs to a rule of the database is written on the page of the
 | change the secret itself | [30 — Edge Functions](30-edge-functions.md), the section on rotating `INTERNAL_BEARER` | — |
 | create a table or a function by hand | [14 — From now on: a table you create by hand](migrations/14-table-grants-lockdown.md#from-now-on-a-table-you-create-by-hand), [03 — From now on: a function you create by hand](migrations/03-function-grants-lockdown.md#from-now-on-a-function-you-create-by-hand) | 14, 03 |
 | look at the jobs of pg_cron, switch one off for a while, or switch the four off for good — where pg_cron is switched on | [50 — Looking at the jobs](50-pg-cron.md#looking-at-the-jobs), [50 — Pausing a job, and starting it again](50-pg-cron.md#pausing-a-job-and-starting-it-again), [50 — Turning it off](50-pg-cron.md#turning-it-off) | — |
+| look at, or remove, a video file that no video of its athlete names any more | [25 — Files that no video names](migrations/25-storage-video-policies.md#files-that-no-video-names) | 25 |
 | delete what nobody reads any more | [below](#once-a-month-delete-what-nobody-reads-any-more) | 18 |
 
 ## Once a month: delete what nobody reads any more

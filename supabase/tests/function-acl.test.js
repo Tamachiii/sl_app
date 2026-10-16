@@ -588,16 +588,22 @@ describe('signed in', () => {
     ]);
   }));
 
-  it('the storage policies: an athlete reads and deletes their own video, the coach reads it, another athlete does not', () => scenario(async (q) => {
+  it('the storage policies: an athlete reads and deletes their own files, the coach the one a video names, another athlete none', () => scenario(async (q) => {
     const name = `${ids.studentA.id}/${ids.programA.slots[0]}/1-clip.mp4`;
+    const orphan = `${ids.studentA.id}/${ids.programA.slots[0]}/2-orphan.mp4`;
     const seen = (user) => asUser(user, (caller) => caller.value(`select count(*) from storage.objects`));
-    await asUser(ids.studentA, (athlete) => athlete(
-      `insert into storage.objects (bucket_id, name) values ('set-videos', $1)`, [name],
-    ));
+    await asUser(ids.studentA, async (athlete) => {
+      await athlete(`insert into storage.objects (bucket_id, name) values ('set-videos', $1), ('set-videos', $2)`, [name, orphan]);
+      await athlete(
+        `insert into set_log_videos (set_log_id, storage_path, mime_type, size_bytes) values ($1, $2, 'video/mp4', 1000)`,
+        [ids.programA.setLogs[0], name],
+      );
+    });
+    // The coach reads a file through the video that names it (migration 25): the orphan is the athlete's alone.
     expect({ athlete: await seen(ids.studentA), coach: await seen(ids.coach), other: await seen(ids.studentB) })
-      .toEqual({ athlete: 1, coach: 1, other: 0 });
+      .toEqual({ athlete: 2, coach: 1, other: 0 });
     expect((await asUser(ids.studentB, (other) => other(`delete from storage.objects`))).rowCount).toBe(0);
-    expect((await asUser(ids.studentA, (athlete) => athlete(`delete from storage.objects`))).rowCount).toBe(1);
+    expect((await asUser(ids.studentA, (athlete) => athlete(`delete from storage.objects`))).rowCount).toBe(2);
     expect(await q.value(`select count(*) from storage.objects`)).toBe(0);
   }));
 });
