@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import Spinner from '../ui/Spinner';
 import Dialog from '../ui/Dialog';
 import LanguageSelect from '../ui/LanguageSelect';
 import EditableText from '../ui/EditableText';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
+import { useBackOr } from '../../hooks/useBackOr';
 import { useMyCoach } from '../../hooks/useStudents';
 import { useMyGoals } from '../../hooks/useGoals';
 import { useStudentLifetimeStats } from '../../hooks/useStudentLifetimeStats';
@@ -189,7 +190,9 @@ function RestNotificationToggle() {
 
 export default function StudentProfile() {
   const { t } = useI18n();
-  const navigate = useNavigate();
+  // Back on the first entry of the tab (a link, a cold start) goes to the
+  // athlete's home instead of leaving the app (L31).
+  const goBack = useBackOr('/student');
   const { user, profile, signOut, updateProfile } = useAuth();
   const { data: coach } = useMyCoach();
   const { data: goals } = useMyGoals();
@@ -231,7 +234,7 @@ export default function StudentProfile() {
         </div>
         <button
           type="button"
-          onClick={() => navigate(-1)}
+          onClick={goBack}
           aria-label={t('common.back')}
           className="w-10 h-10 rounded-full bg-ink-100 flex items-center justify-center text-ink-700 hover:brightness-95 active:scale-95 transition-transform shrink-0"
         >

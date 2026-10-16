@@ -70,12 +70,17 @@ vi.mock('../../hooks/useOnlineStatus', () => ({
 
 import StudentProfile from './StudentProfile';
 
-function renderProfile() {
+// `entries`: the tab's history, the profile last. Left out, the profile is the
+// first entry of the tab — a link, a cold start of the installed app.
+function renderProfile({ entries } = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
       <ThemeProvider>
-        <MemoryRouter>
+        <MemoryRouter
+          initialEntries={entries}
+          initialIndex={entries ? entries.length - 1 : undefined}
+        >
           <StudentProfile />
         </MemoryRouter>
       </ThemeProvider>
@@ -160,11 +165,21 @@ describe('StudentProfile', () => {
     expect(mockSignOut).toHaveBeenCalled();
   });
 
-  it('back button calls navigate(-1)', async () => {
+  // L31. `navigate(-1)` on the first entry of the tab does nothing in the
+  // installed app and leaves the app in a browser.
+  it('back button goes one step back when the app has a page behind it', async () => {
     const user = userEvent.setup();
-    renderProfile();
+    renderProfile({ entries: ['/student/stats', '/student/profile'] });
     await user.click(screen.getByRole('button', { name: /back/i }));
     expect(mockNavigate).toHaveBeenCalledWith(-1);
+  });
+
+  it('back button on the first entry of the tab goes to the athlete\'s home, in place of the profile', async () => {
+    const user = userEvent.setup();
+    renderProfile({ entries: ['/student/profile'] });
+    await user.click(screen.getByRole('button', { name: /back/i }));
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/student', { replace: true });
   });
 
   it('renaming via EditableText calls updateProfile with the new full_name', async () => {

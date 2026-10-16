@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { IsRestoringProvider } from '@tanstack/react-query';
 
 let mockSessionData = { data: null, isLoading: false };
@@ -1928,5 +1928,63 @@ describe('SessionView: the place of the "Last time" hint', () => {
     renderSessionView();
     expect(screen.getByText('Last time')).toBeInTheDocument();
     expect(placeholder()).toBeNull();
+  });
+});
+
+// L31. A session is opened from a push notification, a pasted link or a cold
+// start of the installed app as often as from the list. On that first entry of
+// the tab `navigate(-1)` has nowhere to go: the installed app does nothing and
+// a browser leaves the app. Back then goes to the athlete's list.
+describe('SessionView: the way back', () => {
+  function Where() {
+    const location = useLocation();
+    return <p data-testid="where">{location.pathname}</p>;
+  }
+
+  // `entries`: the tab's history, the session last.
+  function renderAt(entries) {
+    return render(
+      <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1}>
+        <Routes>
+          <Route path="/student/session/:sessionId" element={<SessionView />} />
+          <Route path="*" element={<Where />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  const where = () => screen.getByTestId('where').textContent;
+  const back = () => fireEvent.click(screen.getByRole('button', { name: /go back/i }));
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetRestTimer();
+    mockOnline = true;
+    mockConfirmation = { data: null, isLoading: false };
+    mockFeedback = { data: null };
+    mockDeviations = { data: [], isLoading: false };
+    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false, fetchStatus: 'idle' };
+    mockSetLogsData = { data: [], isLoading: false, fetchStatus: 'idle' };
+  });
+
+  it('goes to the list from a session opened on the first entry of the tab', () => {
+    renderAt(['/student/session/sess-1']);
+    back();
+    expect(where()).toBe('/student');
+  });
+
+  it('goes one step back, to the page the session was opened from, when there is one', () => {
+    renderAt(['/student/stats', '/student/session/sess-1']);
+    back();
+    expect(where()).toBe('/student/stats');
+  });
+
+  it('works from the page that says the session could not be loaded', () => {
+    mockSessionData = { data: undefined, isLoading: false, fetchStatus: 'idle', isError: true };
+    mockSetLogsData = { data: undefined, isLoading: false, fetchStatus: 'idle' };
+    renderAt(['/student/session/sess-1']);
+    expect(screen.getByText(/this session couldn’t be loaded/i)).toBeInTheDocument();
+    back();
+    expect(where()).toBe('/student');
   });
 });

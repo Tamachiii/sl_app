@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import { useI18n } from '../../hooks/useI18n';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { useBackOr } from '../../hooks/useBackOr';
 import {
   useMyGoals,
   useAddGoalProgress,
@@ -245,7 +245,9 @@ function GoalCard({ goal }) {
 
 export default function MyGoals() {
   const { t } = useI18n();
-  const navigate = useNavigate();
+  // Back on the first entry of the tab (a link, a cold start) goes to the
+  // athlete's home instead of leaving the app (L31).
+  const goBack = useBackOr('/student');
   const { data: goals, isLoading } = useMyGoals();
 
   if (isLoading) {
@@ -270,7 +272,7 @@ export default function MyGoals() {
         </div>
         <button
           type="button"
-          onClick={() => navigate(-1)}
+          onClick={goBack}
           aria-label={t('common.back')}
           className="w-10 h-10 rounded-full bg-ink-100 flex items-center justify-center text-ink-700 hover:brightness-95 active:scale-95 transition-transform shrink-0"
         >

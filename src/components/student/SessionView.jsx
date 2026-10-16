@@ -17,6 +17,7 @@ import {
 import { useSessionFeedback, formatMessageStamp } from '../../hooks/useMessages';
 import { useI18n } from '../../hooks/useI18n';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { useBackOr } from '../../hooks/useBackOr';
 import { readState } from '../../lib/readState';
 import Spinner from '../ui/Spinner';
 import Dialog from '../ui/Dialog';
@@ -95,6 +96,10 @@ function ReviewedLock({ children }) {
 export default function SessionView() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
+  // A session is opened from a push notification, a link or a cold start as
+  // often as from the list: on the first entry of the tab, back goes to the
+  // list instead of doing nothing (L31).
+  const goBack = useBackOr('/student');
   const { t, lang } = useI18n();
   const online = useOnlineStatus();
   const restoring = useIsRestoring();
@@ -318,7 +323,7 @@ export default function SessionView() {
       <div className="p-4 pb-6 md:p-8 space-y-5">
         <SessionTopBar
           title={session?.title || t('sessionUnavailable.title')}
-          onBack={() => navigate(-1)}
+          onBack={goBack}
         />
         <Unavailable
           title={t(offline ? 'sessionUnavailable.offlineTitle' : 'sessionUnavailable.errorTitle')}
@@ -424,7 +429,7 @@ export default function SessionView() {
       <SessionTopBar
         title={session?.title || t('sessionUnavailable.title')}
         meta={metaBits.join(' · ')}
-        onBack={() => navigate(-1)}
+        onBack={goBack}
       />
 
       {/* Progress bar */}
