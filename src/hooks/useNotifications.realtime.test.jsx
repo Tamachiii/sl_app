@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { renderHook, act } from '@testing-library/react';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 
 const { realtime } = await vi.hoisted(async () => {
   const { createFakeRealtime } = await import('../test/fakeRealtime');
@@ -47,7 +47,7 @@ function exactReads(invalidate) {
     .map(([filters]) => filters.queryKey);
 }
 
-function mount() {
+function mount(useExtra = () => null) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
   });
@@ -55,7 +55,10 @@ function mount() {
   function Wrapper({ children }) {
     return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
   }
-  const view = renderHook(() => useNotificationsRealtime(), { wrapper: Wrapper });
+  const view = renderHook(() => {
+    useNotificationsRealtime();
+    return useExtra();
+  }, { wrapper: Wrapper });
   return { qc, invalidate, unmount: view.unmount, channel: () => realtime.live().at(-1) };
 }
 
@@ -163,6 +166,33 @@ describe('useNotificationsRealtime — one event, one line of the bell', () => {
     expect(rootReads(invalidate)).toEqual([]);
     expect(exactReads(invalidate)).toEqual([]);
     expect(realtime.from).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('a list whose first read is in flight when an INSERT arrives is read again once that read has answered', async () => {
+    const answers = [];
+    const queryFn = vi.fn(() => new Promise((resolve) => { answers.push(resolve); }));
+    const { qc, unmount, channel } = mount(() => useQuery({ queryKey: LIST, queryFn, staleTime: Infinity }));
+    channel().emit('INSERT', notification('c', 30));
+    vi.advanceTimersByTime(REFRESH_DELAY_MS);
+    expect(queryFn).toHaveBeenCalledTimes(1);
+    await act(async () => { answers[0]([unread, read]); });
+    vi.advanceTimersByTime(REFRESH_DELAY_MS);
+    expect(queryFn).toHaveBeenCalledTimes(2);
+    const c = { id: 'c', kind: 'session_completed', payload: { session_id: 's-c' }, read_at: null, created_at: '2026-10-15T09:30:00.25+00:00' };
+    await act(async () => { answers[1]([c, unread, read]); });
+    expect(qc.getQueryData(LIST).map((n) => n.id)).toEqual(['c', 'b', 'a']);
+    unmount();
+  });
+
+  it('a DELETE reads the list again when a read of it is in flight', async () => {
+    const answers = [];
+    const queryFn = vi.fn(() => new Promise((resolve) => { answers.push(resolve); }));
+    const { unmount, channel } = mount(() => useQuery({ queryKey: LIST, queryFn, staleTime: Infinity }));
+    channel().emit('DELETE', { id: 'b' });
+    await act(async () => { answers[0]([unread, read]); });
+    vi.advanceTimersByTime(REFRESH_DELAY_MS);
+    expect(queryFn).toHaveBeenCalledTimes(2);
     unmount();
   });
 

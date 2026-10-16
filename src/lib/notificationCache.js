@@ -5,6 +5,7 @@ import {
   mergeRow,
   patchCached,
   pickRow,
+  refreshInFlight,
 } from './realtimeCache';
 
 // The bell's cache, kept up to date one change at a time: a notification that
@@ -101,8 +102,10 @@ export function applyNotificationDelete(qc, me, id, { refresh }) {
   if (!inList) {
     // The binding on deletions hears every notification taken back. A whole
     // list shorter than a page holds all of the user's, so one it lacks was
-    // someone else's; a full page or a list behind cannot say.
+    // someone else's; a full page or a list behind cannot say. A read of the
+    // list in flight may answer with it.
     if (!(whole && list.length < NOTIFICATIONS_PAGE_SIZE)) refresh(countKey);
+    refreshInFlight(qc, listKey, refresh);
     return;
   }
   patchCached(qc, listKey, (l) => l.filter((n) => n.id !== id), refresh);

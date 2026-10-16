@@ -5,6 +5,7 @@ import {
   mergeRow,
   patchCached,
   pickRow,
+  refreshInFlight,
 } from './realtimeCache';
 
 // The messages cache, kept up to date one change at a time: a message that
@@ -185,20 +186,20 @@ export function applyMessageUpsert(qc, me, record, { insert, refresh }) {
   patchCached(qc, threadKey, (t) => placeInThread(t, message, { insert }), refresh);
   if (delta !== 0) patchCached(qc, unreadKey, addToCount(delta), refresh);
 
-  if (Array.isArray(conversations)) {
-    if (!conversation) {
-      // A counterpart the list does not hold: its name and role come with a read.
-      refresh(conversationsKey);
-    } else {
-      patchCached(qc, conversationsKey, (list) => patchConversation(list, other, (c) => {
-        let lastMessage = c.lastMessage;
-        if (lastMessage?.id === id) lastMessage = mergeRow(lastMessage, message);
-        else if (insert && !isAfter(lastMessage, message)) lastMessage = message;
-        const unreadCount = Math.max(0, c.unreadCount + delta);
-        if (lastMessage === c.lastMessage && unreadCount === c.unreadCount) return c;
-        return { ...c, lastMessage, unreadCount };
-      }), refresh);
-    }
+  if (!Array.isArray(conversations)) {
+    refreshInFlight(qc, conversationsKey, refresh);
+  } else if (!conversation) {
+    // A counterpart the list does not hold: its name and role come with a read.
+    refresh(conversationsKey);
+  } else {
+    patchCached(qc, conversationsKey, (list) => patchConversation(list, other, (c) => {
+      let lastMessage = c.lastMessage;
+      if (lastMessage?.id === id) lastMessage = mergeRow(lastMessage, message);
+      else if (insert && !isAfter(lastMessage, message)) lastMessage = message;
+      const unreadCount = Math.max(0, c.unreadCount + delta);
+      if (lastMessage === c.lastMessage && unreadCount === c.unreadCount) return c;
+      return { ...c, lastMessage, unreadCount };
+    }), refresh);
   }
 
   // A message attached to a session is that session's coach feedback: the
@@ -230,7 +231,12 @@ export function applyMessageDelete(qc, me, id, { refresh }) {
   for (const query of qc.getQueryCache().findAll({ queryKey: [MESSAGES_ROOT, 'thread'] })) {
     const thread = query.state.data;
     const found = Array.isArray(thread) ? thread.find((m) => m.id === id) : undefined;
-    if (!found) continue;
+    if (!found) {
+      // A read of it in flight may answer with the message: an id alone does
+      // not say whose it was.
+      refreshInFlight(qc, query.queryKey, refresh);
+      continue;
+    }
     base = found;
     if (!query.state.isInvalidated) before = found;
     patchCached(qc, query.queryKey, (t) => t.filter((m) => m.id !== id), refresh);
@@ -258,7 +264,9 @@ export function applyMessageDelete(qc, me, id, { refresh }) {
   if (delta !== 0) patchCached(qc, unreadKey, addToCount(delta), refresh);
 
   const other = base.sender_id === me ? base.recipient_id : base.sender_id;
-  if (Array.isArray(conversations)) {
+  if (!Array.isArray(conversations)) {
+    refreshInFlight(qc, conversationsKey, refresh);
+  } else {
     const threadKey = messageKeys.thread(me, other);
     const thread = qc.getQueryData(threadKey);
     const threadWhole = Array.isArray(thread) && isWhole(qc, threadKey);

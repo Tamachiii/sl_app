@@ -68,32 +68,56 @@ export function isWhole(qc, queryKey) {
 }
 
 /**
+ * Asks for `queryKey` to be read again when a read of it is in flight: that
+ * read was sent before the change that is being applied arrived, and may
+ * answer without it. For an entry a change cannot be written into — not read
+ * yet, or marked as behind — that is all the change can do.
+ */
+export function refreshInFlight(qc, queryKey, refresh) {
+  if (qc.getQueryState(queryKey)?.fetchStatus === 'fetching') refresh(queryKey);
+}
+
+/**
  * Changes a cached entry with `update(data)`, and leaves an entry that is not
  * cached as it is — a patch never creates one. A read in flight answers with
  * what the server held when it was sent and would put back what the patch
  * changed, so that entry is read again.
  *
- * An entry already marked as behind is not patched: writing it would mark it
- * current, and a page that shows it later would trust data that missed
- * events. It is read when it is shown; one being read now is read again.
+ * An entry that has no data yet is not patched, and its first read, if it is
+ * in flight, is read again once it has answered. An entry already marked as
+ * behind is not patched either: writing it would mark it current, and a page
+ * that shows it later would trust data that missed events. It is read when it
+ * is shown; one being read now is read again.
  */
 export function patchCached(qc, queryKey, update, refresh) {
   const state = qc.getQueryState(queryKey);
-  if (!state || state.data === undefined) return;
-  if (state.isInvalidated) {
-    if (state.fetchStatus === 'fetching') refresh(queryKey);
+  if (!state) return;
+  if (state.data === undefined || state.isInvalidated) {
+    refreshInFlight(qc, queryKey, refresh);
     return;
   }
   const next = update(state.data);
   if (next === state.data) return;
   qc.setQueryData(queryKey, next);
-  if (state.fetchStatus === 'fetching') refresh(queryKey);
+  refreshInFlight(qc, queryKey, refresh);
+}
+
+// An invalidation cancels and sends again the read in flight of an entry that
+// has data and is shown. Any other read in flight — a first read, the read of
+// an entry nobody shows — it joins, and that read, sent before the change,
+// clears the mark when it answers.
+function invalidationJoins(qc, queryKey) {
+  const query = qc.getQueryCache().find({ queryKey, exact: true });
+  if (!query || query.state.fetchStatus !== 'fetching') return false;
+  return query.state.data === undefined || !query.isActive();
 }
 
 /**
  * Gathers the exact keys to read again and invalidates each once, after
  * `delayMs`, or at `flush()`. Never the root of a cache: a key whose entry is
- * not shown on the page is only marked stale.
+ * not shown on the page is only marked stale. A key whose read in flight the
+ * invalidation would only join waits, a round of `delayMs` at a time, until
+ * that read has answered.
  */
 export function createRefresher(qc, delayMs = REFRESH_DELAY_MS) {
   const pending = new Map();
@@ -102,9 +126,13 @@ export function createRefresher(qc, delayMs = REFRESH_DELAY_MS) {
   function flush() {
     if (timer !== null) clearTimeout(timer);
     timer = null;
-    const keys = [...pending.values()];
+    const keys = [...pending];
     pending.clear();
-    for (const queryKey of keys) qc.invalidateQueries({ queryKey, exact: true });
+    for (const [hash, queryKey] of keys) {
+      if (invalidationJoins(qc, queryKey)) pending.set(hash, queryKey);
+      else qc.invalidateQueries({ queryKey, exact: true });
+    }
+    if (pending.size > 0) timer = setTimeout(flush, delayMs);
   }
 
   return {

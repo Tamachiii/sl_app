@@ -453,16 +453,13 @@ describe('useMessagesRealtime — one event, one thread', () => {
     unmount();
   });
 
-  it('a thread being read when its event arrives is read again, so the answer cannot drop the message', () => {
+  it('a thread being read when its event arrives is read again, so the answer cannot drop the message', async () => {
     const { qc, invalidate, channel, unmount } = mount();
     seed(qc);
     let release;
-    realtime.from.mockReturnValue({
-      select: () => ({ or: () => ({ order: () => ({ limit: () => new Promise((resolve) => { release = resolve; }) }) }) }),
-    });
     qc.fetchQuery({
       queryKey: THREAD_S1,
-      queryFn: () => realtime.from('messages').select().or().order().limit(),
+      queryFn: () => new Promise((resolve) => { release = resolve; }),
       staleTime: 0,
     });
     expect(qc.getQueryState(THREAD_S1).fetchStatus).toBe('fetching');
@@ -470,8 +467,78 @@ describe('useMessagesRealtime — one event, one thread', () => {
       id: 'm3', sender_id: 's1', recipient_id: 'me', body: 'x', session_id: null, read_at: null,
       created_at: '2026-10-15 09:00:00+00',
     });
+    // Nobody shows the thread: an invalidation now would be cleared by the
+    // answer of the read in flight, sent before m3. It waits for that answer.
+    expect(exactReads(invalidate)).not.toContainEqual(THREAD_S1);
+    await act(async () => { release([m1, m2]); });
     expect(exactReads(invalidate)).toContainEqual(THREAD_S1);
-    release({ data: [], error: null });
+    expect(qc.getQueryState(THREAD_S1).isInvalidated).toBe(true);
+    unmount();
+  });
+
+  it('a thread shown on the page, being read when its event arrives, is sent again at once', () => {
+    const queryFn = vi.fn(() => new Promise(() => {}));
+    const { qc, channel, unmount } = mount(() => useQuery({ queryKey: THREAD_S1, queryFn, staleTime: Infinity }));
+    seed(qc);
+    act(() => { qc.refetchQueries({ queryKey: THREAD_S1 }); });
+    const sent = queryFn.mock.calls.length;
+    channel().emit('INSERT', {
+      id: 'm3', sender_id: 's1', recipient_id: 'me', body: 'x', session_id: null, read_at: null,
+      created_at: '2026-10-15 09:00:00+00',
+    });
+    expect(qc.getQueryData(THREAD_S1).map((m) => m.id)).toEqual(['m1', 'm2', 'm3']);
+    vi.advanceTimersByTime(REFRESH_DELAY_MS);
+    expect(queryFn).toHaveBeenCalledTimes(sent + 1);
+    unmount();
+  });
+
+  it('a thread whose first read is in flight when its event arrives is read again once that read has answered', async () => {
+    const answers = [];
+    const queryFn = vi.fn(() => new Promise((resolve) => { answers.push(resolve); }));
+    const { qc, channel, unmount } = mount(() => useQuery({ queryKey: THREAD_S1, queryFn, staleTime: Infinity }));
+    expect(queryFn).toHaveBeenCalledTimes(1);
+    const m3 = { id: 'm3', sender_id: 's1', recipient_id: 'me', body: 'x', session_id: null, read_at: null, created_at: '2026-10-15T09:00:00+00:00' };
+    channel().emit('INSERT', { ...m3, created_at: '2026-10-15 09:00:00+00' });
+
+    // An invalidation would only join the read in flight, sent before m3.
+    vi.advanceTimersByTime(REFRESH_DELAY_MS);
+    expect(queryFn).toHaveBeenCalledTimes(1);
+    await act(async () => { answers[0]([m1, m2]); });
+    vi.advanceTimersByTime(REFRESH_DELAY_MS);
+    expect(queryFn).toHaveBeenCalledTimes(2);
+    await act(async () => { answers[1]([m1, m2, m3]); });
+    expect(qc.getQueryData(THREAD_S1).map((m) => m.id)).toEqual(['m1', 'm2', 'm3']);
+    unmount();
+  });
+
+  it('a conversation list whose first read is in flight is read again for a message its thread places', async () => {
+    const answers = [];
+    const queryFn = vi.fn(() => new Promise((resolve) => { answers.push(resolve); }));
+    const { qc, channel, unmount } = mount(() => useQuery({ queryKey: CONVERSATIONS, queryFn, staleTime: Infinity }));
+    qc.setQueryData(THREAD_S1, [m1, m2]);
+    qc.setQueryData(UNREAD, 0);
+    channel().emit('INSERT', {
+      id: 'm3', sender_id: 's1', recipient_id: 'me', body: 'x', session_id: null, read_at: null,
+      created_at: '2026-10-15 09:00:00+00',
+    });
+    expect(qc.getQueryData(UNREAD)).toBe(1);
+    await act(async () => { answers[0]([]); });
+    vi.advanceTimersByTime(REFRESH_DELAY_MS);
+    expect(queryFn).toHaveBeenCalledTimes(2);
+    unmount();
+  });
+
+  it('a DELETE reads again a thread whose read is in flight: it may answer with the message', async () => {
+    const answers = [];
+    const queryFn = vi.fn(() => new Promise((resolve) => { answers.push(resolve); }));
+    const { qc, channel, unmount } = mount(() => useQuery({ queryKey: THREAD_S2, queryFn, staleTime: Infinity }));
+    qc.setQueryData(THREAD_S1, [m1, m2]);
+    channel().emit('DELETE', { id: 'n1' });
+    await act(async () => { answers[0]([n1]); });
+    vi.advanceTimersByTime(REFRESH_DELAY_MS);
+    expect(queryFn).toHaveBeenCalledTimes(2);
+    await act(async () => { answers[1]([]); });
+    expect(qc.getQueryData(THREAD_S2)).toEqual([]);
     unmount();
   });
 

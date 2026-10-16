@@ -104,6 +104,43 @@ describe('createRefresher', () => {
     ]);
   });
 
+  it('a key whose read in flight an invalidation would only join waits until that read has answered', async () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    let answer;
+    const read = qc.fetchQuery({ queryKey: ['a'], queryFn: () => new Promise((resolve) => { answer = resolve; }) });
+    const refresher = createRefresher(qc, 300);
+    refresher.refresh(['a']);
+    refresher.refresh(['b']);
+    vi.advanceTimersByTime(300);
+    expect(invalidate.mock.calls).toEqual([[{ queryKey: ['b'], exact: true }]]);
+    vi.advanceTimersByTime(900);
+    expect(invalidate).toHaveBeenCalledTimes(1);
+
+    answer('first');
+    await read;
+    expect(qc.getQueryState(['a']).fetchStatus).toBe('idle');
+    vi.advanceTimersByTime(300);
+    expect(invalidate.mock.calls.at(-1)).toEqual([{ queryKey: ['a'], exact: true }]);
+    expect(qc.getQueryState(['a']).isInvalidated).toBe(true);
+    vi.advanceTimersByTime(3_000);
+    expect(invalidate).toHaveBeenCalledTimes(2);
+  });
+
+  it('dispose drops a key that waits for a read in flight', () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    qc.fetchQuery({ queryKey: ['a'], queryFn: () => new Promise(() => {}) });
+    const refresher = createRefresher(qc, 300);
+    refresher.refresh(['a']);
+    refresher.flush();
+    refresher.dispose();
+    vi.advanceTimersByTime(3_000);
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
   it('flush sends at once, and dispose drops what waits', () => {
     vi.useFakeTimers();
     const qc = new QueryClient();
