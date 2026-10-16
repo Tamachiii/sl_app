@@ -242,6 +242,22 @@ describe('Stats page — what it sends', () => {
     expect(screen.getByLabelText(/stats scope/i)).toHaveValue('all');
   });
 
+  // B41: Block B was picked while it was the active block; Block A is active
+  // now. Letting go of it costs nothing: the block is never read.
+  it('reads "all" once for a saved block that a new active block replaced', async () => {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ scope: 'p-2', activeBlock: 'p-2' }));
+    renderPage();
+    expect(await screen.findByText('1/2')).toBeInTheDocument();
+    await settle();
+
+    expect(kinds().slice(0, 3)).toEqual(['students', 'programs:list', 'programs:tree']);
+    expect(db.requests).toHaveLength(6);
+    const tree = db.requests.find((r) => kindOf(r) === 'programs:tree');
+    expect(filterOf(tree, 'id')).toBeUndefined();
+    expect(screen.getByLabelText(/stats scope/i)).toHaveValue('all');
+    expect(JSON.parse(localStorage.getItem(PREFS_KEY))).toEqual({});
+  });
+
   it('adds the two reads of the history overlay for the active block, and still one row id', async () => {
     renderPage('/student/stats?scope=active');
     expect(await screen.findByText('1/1')).toBeInTheDocument();

@@ -13,9 +13,10 @@ import {
   exerciseStorageKey,
   readStatsPrefs,
   resolveStatsScope,
+  saveStatsScope,
   scopeReachesToday,
+  settleSavedScope,
   statsPrefsKey,
-  writeStatsPref,
 } from '../../lib/statsPrefs';
 import SessionCalendar from './SessionCalendar';
 import ExerciseProgressChart from './ExerciseProgressChart';
@@ -54,39 +55,45 @@ export default function StudentDashboard() {
   // (localStorage, which survives a tab switch — the new URL has no search
   // params). Both are read DURING RENDER, so the first render already knows
   // what to compute, and the stats query waits until it does: a saved program
-  // id is only known once the programs list says the block still exists.
+  // id is only known once the programs list says the block still exists —
+  // and that no new block has been made active since it was picked.
   // Stale ids fall back to 'all' rather than fetching ∅.
   const studentIdQuery = useMyStudentId();
   const programsQuery = useProgramsForStudent(studentIdQuery.data);
   const programs = programsQuery.data;
   const rawScope = searchParams.get('scope') || '';
-  const { scope, resolved: scopeResolved } = resolveStatsScope({
+  // Not memoized: picking "All" clears it, and the next render must see that.
+  const saved = readStatsPrefs(STATS_PREFS_KEY);
+  const { scope, resolved: scopeResolved, reset: scopeReset = false } = resolveStatsScope({
     urlScope: rawScope,
-    // Not memoized: picking "All" clears it, and the next render must see that.
-    savedScope: readStatsPrefs(STATS_PREFS_KEY)?.scope,
+    savedScope: saved?.scope,
+    savedActiveBlock: saved?.activeBlock,
     programs,
     listUnavailable: [studentIdQuery, programsQuery].some((q) => q.isError || q.isPaused),
   });
 
-  // Mirrors the saved scope into the address, so the URL names what the page
-  // shows. Nothing waits for it: the scope above is already the saved one.
+  // Once the scope is known, with no scope in the URL: the saved scope is
+  // settled (forgotten when a new block replaced it, stamped when it was saved
+  // before the stamp existed) and the scope is mirrored into the address, so
+  // the URL names what the page shows. It waits for the scope to be known:
+  // written at mount, the saved block reached the URL before the list could
+  // say it was replaced, and the URL wins over what was saved. The stats
+  // query never waits for this.
   useEffect(() => {
-    if (rawScope) return;
-    const saved = readStatsPrefs(STATS_PREFS_KEY)?.scope;
-    if (!saved || saved === 'all') return;
+    if (!scopeResolved || rawScope) return;
+    settleSavedScope(STATS_PREFS_KEY, { reset: scopeReset, programs });
+    if (scope === 'all') return;
     const sp = new URLSearchParams(searchParams);
-    sp.set('scope', saved);
+    sp.set('scope', scope);
     setSearchParams(sp, { replace: true });
-    // Mount-only — subsequent changes flow through handleScopeChange.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [scopeResolved, rawScope, scopeReset, scope, programs, searchParams, setSearchParams]);
 
   function handleScopeChange(next) {
     const sp = new URLSearchParams(searchParams);
     if (next === 'all') sp.delete('scope');
     else sp.set('scope', next);
     setSearchParams(sp, { replace: true });
-    writeStatsPref(STATS_PREFS_KEY, 'scope', next === 'all' ? null : next);
+    saveStatsScope(STATS_PREFS_KEY, next, programs);
   }
 
   const statsQuery = useStudentProgressStats(undefined, scope, { enabled: scopeResolved });

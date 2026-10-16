@@ -7,9 +7,10 @@ import {
   exerciseStorageKey,
   readStatsPrefs,
   resolveStatsScope,
+  saveStatsScope,
   scopeReachesToday,
+  settleSavedScope,
   statsPrefsKey,
-  writeStatsPref,
 } from '../../lib/statsPrefs';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
@@ -50,36 +51,37 @@ export default function StudentStatsSection() {
   // tab switch — that drops the URL search params). Both are read DURING
   // RENDER, so the first render already knows what to compute, and the stats
   // query waits until it does: a saved program id is only known once the
-  // programs list says the block still exists.
+  // programs list says the block still exists — and that no new block has
+  // been made active since it was picked.
   const rawScope = searchParams.get('statsScope') || '';
-  const { scope, resolved: scopeResolved } = resolveStatsScope({
+  // Not memoized: picking "All" clears it, and the next render must see that.
+  const saved = readStatsPrefs(prefsKey);
+  const { scope, resolved: scopeResolved, reset: scopeReset = false } = resolveStatsScope({
     urlScope: rawScope,
-    // Not memoized: picking "All" clears it, and the next render must see that.
-    savedScope: readStatsPrefs(prefsKey)?.scope,
+    savedScope: saved?.scope,
+    savedActiveBlock: saved?.activeBlock,
     programs,
     listUnavailable: !!(programsQuery.isError || programsQuery.isPaused),
   });
 
-  // Mirrors the saved scope into the address, so the URL names what the
-  // section shows. Nothing waits for it: the scope above is already the saved
-  // one.
+  // Once the scope of THIS athlete is known, with no scope in the URL: the
+  // saved scope is settled and the scope mirrored into the address, as on the
+  // athlete's own page (StudentDashboard says why it waits).
   useEffect(() => {
-    if (rawScope) return;
-    const saved = readStatsPrefs(prefsKey)?.scope;
-    if (!saved || saved === 'all') return;
+    if (!scopeResolved || rawScope) return;
+    settleSavedScope(prefsKey, { reset: scopeReset, programs });
+    if (scope === 'all') return;
     const sp = new URLSearchParams(searchParams);
-    sp.set('statsScope', saved);
+    sp.set('statsScope', scope);
     setSearchParams(sp, { replace: true });
-    // Re-run when the student changes — the saved scope is per-student.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prefsKey]);
+  }, [prefsKey, scopeResolved, rawScope, scopeReset, scope, programs, searchParams, setSearchParams]);
 
   function handleScopeChange(next) {
     const sp = new URLSearchParams(searchParams);
     if (next === 'all') sp.delete('statsScope');
     else sp.set('statsScope', next);
     setSearchParams(sp, { replace: true });
-    writeStatsPref(prefsKey, 'scope', next === 'all' ? null : next);
+    saveStatsScope(prefsKey, next, programs);
   }
 
   const statsQuery = useStudentProgressStats(studentId, scope, { enabled: scopeResolved });

@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { ThemeProvider } from '../../hooks/useTheme';
+
+// The address the page leaves, printed for the test to read.
+function LocationProbe() {
+  return <output data-testid="location-search">{useLocation().search}</output>;
+}
+const search = () => screen.getByTestId('location-search').textContent;
 
 let mockStats = { data: null, isLoading: true };
 let lastScope = null;
@@ -52,6 +58,7 @@ function dashboard(initialPath) {
     <ThemeProvider>
       <MemoryRouter initialEntries={[initialPath]}>
         <StudentDashboard />
+        <LocationProbe />
       </MemoryRouter>
     </ThemeProvider>
   );
@@ -497,5 +504,125 @@ describe('StudentDashboard — changing the scope keeps the page', () => {
     const { container } = renderDashboard();
     expect(screen.queryByLabelText(/stats scope/i)).not.toBeInTheDocument();
     expect(container.querySelector('[aria-busy]')).toBeNull();
+  });
+});
+
+// B41: the selector offers the active block by its id, so a block picked as
+// "the one I am training" stayed on screen after the coach made the next one
+// active — "I trained yesterday and Stats doesn't show it".
+describe('StudentDashboard — a saved block, and a new block made active since', () => {
+  const heldBack = { data: undefined, isLoading: false };
+  const before = [
+    { id: 'p-1', name: 'Block A', is_active: true, sort_order: 0 },
+    { id: 'p-2', name: 'Block B', is_active: false, sort_order: 1 },
+  ];
+  // The coach has made Block C active since.
+  const later = [
+    { id: 'p-1', name: 'Block A', is_active: false, sort_order: 0 },
+    { id: 'p-2', name: 'Block B', is_active: false, sort_order: 1 },
+    { id: 'p-3', name: 'Block C', is_active: true, sort_order: 2 },
+  ];
+  const save = (prefs) => localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  const saved = () => JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
+  const enabledScopes = () => [...new Set(statsCalls.filter((c) => c.enabled).map((c) => c.scope))];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    mockStats = { data: sampleData, isLoading: false };
+    lastScope = null;
+    mockProgramsQuery = null;
+    mockStudentIdQuery = null;
+    statsCalls = [];
+    historyCalls = [];
+    mockPrograms = later;
+  });
+
+  it('shows every program, and forgets the block, when it was picked as the active one', () => {
+    save({ scope: 'p-1', activeBlock: 'p-1' });
+    renderDashboard();
+    expect(enabledScopes()).toEqual(['all']);
+    expect(screen.getByLabelText(/stats scope/i)).toHaveValue('all');
+    expect(saved()).toEqual({});
+    expect(search()).toBe('');
+  });
+
+  it('does the same for a past block picked while another block was active', () => {
+    save({ scope: 'p-2', activeBlock: 'p-1' });
+    renderDashboard();
+    expect(enabledScopes()).toEqual(['all']);
+    expect(saved()).toEqual({});
+  });
+
+  // The address used to be written at mount, before the list could say the
+  // block was replaced — and the address wins over what was saved.
+  it('decides once the list is there, and the block never reaches the address first', () => {
+    save({ scope: 'p-1', activeBlock: 'p-1' });
+    mockProgramsQuery = { data: undefined };
+    mockStats = heldBack;
+    const view = renderDashboard();
+    expect(statsCalls.every((c) => c.enabled === false)).toBe(true);
+    expect(search()).toBe('');
+
+    mockProgramsQuery = null;
+    mockStats = { data: sampleData, isLoading: false };
+    view.again();
+    expect(enabledScopes()).toEqual(['all']);
+    expect(search()).toBe('');
+    expect(saved()).toEqual({});
+  });
+
+  it('keeps the active block while it is still the active one, and names it in the address once known', () => {
+    mockPrograms = before;
+    save({ scope: 'p-1', activeBlock: 'p-1' });
+    renderDashboard();
+    expect(enabledScopes()).toEqual(['p-1']);
+    expect(search()).toBe('?scope=p-1');
+    expect(saved()).toEqual({ scope: 'p-1', activeBlock: 'p-1' });
+  });
+
+  it('keeps a past block while the block active when it was picked is still the active one', () => {
+    mockPrograms = before;
+    save({ scope: 'p-2', activeBlock: 'p-1' });
+    renderDashboard();
+    expect(enabledScopes()).toEqual(['p-2']);
+  });
+
+  it('keeps a block the address names', () => {
+    save({ scope: 'p-1', activeBlock: 'p-1' });
+    renderDashboard('/student/stats?scope=p-1');
+    expect(enabledScopes()).toEqual(['p-1']);
+    expect(saved()).toEqual({ scope: 'p-1', activeBlock: 'p-1' });
+  });
+
+  it('keeps a block saved by the app before, and gives it the active block for next time', () => {
+    mockPrograms = before;
+    save({ scope: 'p-2' });
+    renderDashboard();
+    expect(enabledScopes()).toEqual(['p-2']);
+    expect(saved()).toEqual({ scope: 'p-2', activeBlock: 'p-1' });
+  });
+
+  it('computes "all" without the list, and forgets nothing', () => {
+    save({ scope: 'p-1', activeBlock: 'p-1' });
+    mockProgramsQuery = { data: undefined, isError: true };
+    renderDashboard();
+    expect(enabledScopes()).toEqual(['all']);
+    expect(saved()).toEqual({ scope: 'p-1', activeBlock: 'p-1' });
+    expect(search()).toBe('');
+  });
+
+  it('saves the active block with the one picked, and lets go of it when the next block is made active', () => {
+    mockPrograms = before;
+    const first = renderDashboard();
+    fireEvent.change(screen.getByLabelText(/stats scope/i), { target: { value: 'p-1' } });
+    expect(saved()).toEqual({ scope: 'p-1', activeBlock: 'p-1' });
+    first.unmount();
+
+    mockPrograms = later;
+    statsCalls = [];
+    renderDashboard();
+    expect(enabledScopes()).toEqual(['all']);
+    expect(screen.getByLabelText(/stats scope/i)).toHaveValue('all');
   });
 });

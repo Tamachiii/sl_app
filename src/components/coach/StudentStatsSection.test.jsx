@@ -301,3 +301,63 @@ describe('StudentStatsSection — changing the scope keeps the section', () => {
     expect(container.querySelector('[aria-busy]')).toBeNull();
   });
 });
+
+// B41, on the coach's side: a block picked for an athlete stayed picked after
+// the coach made that athlete's next block active.
+describe('StudentStatsSection — a saved block, and a new block made active since', () => {
+  const later = [
+    { id: 'p-1', name: 'Block A', is_active: false, sort_order: 0 },
+    { id: 'p-2', name: 'Block B', is_active: false, sort_order: 1 },
+    { id: 'p-3', name: 'Block C', is_active: true, sort_order: 2 },
+  ];
+  const save = (studentId, prefs) => localStorage.setItem(prefsKey(studentId), JSON.stringify(prefs));
+  const saved = (studentId) => JSON.parse(localStorage.getItem(prefsKey(studentId)) || '{}');
+
+  it('shows every program for this athlete, and forgets only this athlete\'s block', () => {
+    mockPrograms = later;
+    save('st-1', { scope: 'p-1', activeBlock: 'p-1' });
+    save('st-2', { scope: 'p-1', activeBlock: 'p-1' });
+    renderSection({ studentId: 'st-1' });
+    expect(enabledScopes()).toEqual(['all']);
+    expect(saved('st-1')).toEqual({});
+    expect(saved('st-2')).toEqual({ scope: 'p-1', activeBlock: 'p-1' });
+  });
+
+  it('decides once the list is there, never on the block first', () => {
+    mockPrograms = later;
+    save('st-1', { scope: 'p-1', activeBlock: 'p-1' });
+    mockProgramsQuery = { data: undefined };
+    mockStats = heldBack;
+    const view = renderSection();
+    expect(enabledScopes()).toEqual([]);
+
+    mockProgramsQuery = null;
+    mockStats = { data: sampleData, isLoading: false };
+    view.again();
+    expect(enabledScopes()).toEqual(['all']);
+  });
+
+  it('keeps the block while the block active when it was picked is still the active one', () => {
+    save('st-1', { scope: 'p-2', activeBlock: 'p-1' });
+    renderSection();
+    expect(enabledScopes()).toEqual(['p-2']);
+    expect(saved('st-1')).toEqual({ scope: 'p-2', activeBlock: 'p-1' });
+  });
+
+  it('saves the athlete\'s active block with the block the coach picks', () => {
+    renderSection();
+    fireEvent.change(screen.getByLabelText(/stats scope/i), { target: { value: 'p-2' } });
+    expect(saved('st-1')).toEqual({ scope: 'p-2', activeBlock: 'p-1' });
+  });
+
+  it('follows the athlete: the next one is decided on their own block', () => {
+    mockPrograms = later;
+    save('st-2', { scope: 'p-1', activeBlock: 'p-1' });
+    const view = renderSection({ studentId: 'st-1' });
+    statsCalls = [];
+    view.rerender(section('st-2', ''));
+    expect(statsCalls.filter((c) => c.enabled).every((c) => c.studentId === 'st-2' && c.scope === 'all')).toBe(true);
+    expect(saved('st-2')).toEqual({});
+  });
+});
+
