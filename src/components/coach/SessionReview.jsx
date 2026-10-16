@@ -47,6 +47,7 @@ import SessionReviewedNoFeedback from './SessionReviewedNoFeedback';
 import SessionReviewNotConfirmed from './SessionReviewNotConfirmed';
 import { CoachNotFound, CoachReadProblem } from './CoachPageState';
 import { readState } from '../../lib/readState';
+import { clearFeedbackDraft } from '../../lib/feedbackDraft';
 import {
   formatRestSeconds,
   groupSlotsBySuperset,
@@ -197,6 +198,14 @@ function SessionReviewPage() {
     confirmationState = 'unverified';
   }
   const { data: existingFeedback, isLoading: feedbackLoading } = useSessionFeedback(sessionId);
+  // A feedback draft kept for a session that is reviewed has nowhere left to
+  // go: the review was finished on another device, or the feedback was sent
+  // from here while the coach had already left the page (the composer then
+  // never heard back, and could not forget its draft itself).
+  const reviewedAlready = !!existingFeedback || !!session?.reviewed_at;
+  useEffect(() => {
+    if (reviewedAlready) clearFeedbackDraft(sessionId);
+  }, [reviewedAlready, sessionId]);
   const archiveSession = useArchiveSession();
   const { data: students } = useStudents();
   const student = useMemo(

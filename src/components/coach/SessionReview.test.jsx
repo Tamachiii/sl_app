@@ -710,6 +710,78 @@ describe('<SessionReview />', () => {
         expectNoFeedbackForm();
         expect(notConfirmedCard()).toBeInTheDocument();
       });
+
+      // Review item P47: the draft lived in the composer's state, so the
+      // withdrawal above threw it away for good.
+      it('brings back what was typed when the confirmation is read again', () => {
+        mockConfirmation = confirmationQuery(CONFIRMED);
+        const view = renderReview();
+        fireEvent.change(composer(), { target: { value: 'Good depth on the dips.' } });
+
+        mockConfirmation = confirmationQuery(null);
+        view.rerender(reviewTree());
+        expectNoFeedbackForm();
+
+        mockConfirmation = confirmationQuery(CONFIRMED);
+        view.rerender(reviewTree());
+        expect(composer()).toHaveValue('Good depth on the dips.');
+      });
+
+      it('asks before "Finish without feedback" throws a typed draft away', () => {
+        mockConfirmation = confirmationQuery(CONFIRMED);
+        renderReview();
+        fireEvent.change(composer(), { target: { value: 'Good depth on the dips.' } });
+        fireEvent.click(finishButton());
+
+        expect(screen.getByText('Finish without sending?')).toBeInTheDocument();
+        expect(mockMarkReviewed.mutate).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Finish and discard' }));
+        expect(mockMarkReviewed.mutate).toHaveBeenCalledWith(
+          { sessionId: 'sess-1' },
+          expect.objectContaining({ onSettled: expect.any(Function) }),
+        );
+        expect(localStorage.getItem('sl_feedback_draft:sess-1')).toBeNull();
+      });
+    });
+
+    // The composer forgets its draft when the send succeeds — unless the
+    // coach had left the page before the answer came, or the review was
+    // finished on another device. The page forgets it then.
+    describe('a draft kept for a session that is reviewed', () => {
+      const KEY = 'sl_feedback_draft:sess-1';
+
+      it('is forgotten once the session says it is reviewed', () => {
+        localStorage.setItem(KEY, 'Sent from the phone');
+        mockSessionData = {
+          data: {
+            id: 'sess-1', title: 'Push', archived_at: null, reviewed_at: '2026-04-26T09:00:00Z', exercise_slots: [],
+          },
+          isLoading: false,
+        };
+        mockConfirmation = confirmationQuery(CONFIRMED);
+        renderReview();
+        expect(localStorage.getItem(KEY)).toBeNull();
+      });
+
+      it('is forgotten once its feedback is there', () => {
+        localStorage.setItem(KEY, 'Sent from the phone');
+        mockSessionFeedback = {
+          data: { id: 'm-1', body: 'Sent from the phone', created_at: '2026-04-26T09:00:00Z' },
+          isLoading: false,
+        };
+        mockConfirmation = confirmationQuery(CONFIRMED);
+        renderReview();
+        expect(localStorage.getItem(KEY)).toBeNull();
+      });
+
+      it('is kept while the session waits for its review', () => {
+        localStorage.setItem(KEY, 'Half written');
+        mockConfirmation = confirmationQuery(CONFIRMED);
+        renderReview();
+        expect(localStorage.getItem(KEY)).toBe('Half written');
+        expect(composer()).toHaveValue('Half written');
+      });
     });
 
     // Sessions reviewed before the rule existed have no confirmation. Their

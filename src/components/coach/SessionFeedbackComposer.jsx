@@ -4,6 +4,8 @@ import { useI18n } from '../../hooks/useI18n';
 import { useSendMessage } from '../../hooks/useMessages';
 import { useMarkSessionReviewed } from '../../hooks/useSession';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import ConfirmDialog from '../ui/ConfirmDialog';
+import { clearFeedbackDraft, readFeedbackDraft, writeFeedbackDraft } from '../../lib/feedbackDraft';
 
 const MAX_LEN = 4000;
 
@@ -21,6 +23,13 @@ const MAX_LEN = 4000;
  *   1. composer (default)
  *   2. sending (composer disabled)
  *   3. sent (confirmation card with "open thread" / "back to sessions")
+ *
+ * What is typed is a draft of THIS session, kept on the device as it is typed
+ * (lib/feedbackDraft) and read back when the composer mounts: leaving the
+ * page, a reload, or a read that takes the composer off screen for a while do
+ * not lose it. It goes when it is sent, when it is emptied, and when the coach
+ * finishes without sending it — which, with text in the box, asks first: the
+ * review is one-shot, and what was typed would be gone for good.
  */
 export default function SessionFeedbackComposer({
   sessionId,
@@ -38,9 +47,11 @@ export default function SessionFeedbackComposer({
   // "Sending…" forever and a reload would silently drop the feedback.
   const isOnline = useOnlineStatus();
 
-  const [body, setBody] = useState('');
+  // Read once: the review page mounts one composer per session (its `key`).
+  const [body, setBody] = useState(() => readFeedbackDraft(sessionId));
   const [error, setError] = useState(null);
   const [sentAt, setSentAt] = useState(null);
+  const [askingToFinish, setAskingToFinish] = useState(false);
 
   const trimmed = body.trim();
   const tooLong = body.length > MAX_LEN;
@@ -59,6 +70,7 @@ export default function SessionFeedbackComposer({
       { recipientProfileId: studentProfileId, body: trimmed, sessionId },
       {
         onSuccess: () => {
+          clearFeedbackDraft(sessionId);
           setSentAt(new Date());
           setError(null);
         },
@@ -67,13 +79,21 @@ export default function SessionFeedbackComposer({
     );
   }
 
-  function handleSkip() {
+  function handleChange(value) {
+    setBody(value);
+    setError(null);
+    // Blank text is no draft: writeFeedbackDraft removes the key for it.
+    writeFeedbackDraft(sessionId, value);
+  }
+
+  function finish() {
     // "Finish without feedback" is the explicit completion gesture — stamp
     // reviewed_at so the session can't be re-reviewed. The mutation is
     // idempotent (no-op when reviewed_at is already set), and we navigate
     // away regardless of success so a transient network blip doesn't strand
     // the coach on the review page.
     if (!isOnline) return;
+    clearFeedbackDraft(sessionId);
     if (sessionId) {
       markReviewed.mutate(
         { sessionId },
@@ -82,6 +102,17 @@ export default function SessionFeedbackComposer({
     } else {
       onFinish?.();
     }
+  }
+
+  // The composer's "Finish without feedback". With nothing typed it finishes
+  // at once; with a draft it asks, and Cancel leaves the text where it is.
+  function handleFinishWithoutFeedback() {
+    if (!isOnline) return;
+    if (trimmed.length > 0) {
+      setAskingToFinish(true);
+      return;
+    }
+    finish();
   }
 
   if (sentAt) {
@@ -114,7 +145,7 @@ export default function SessionFeedbackComposer({
           </button>
           <button
             type="button"
-            onClick={handleSkip}
+            onClick={finish}
             className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200"
           >
             {t('feedback.backToSessions')}
@@ -137,10 +168,7 @@ export default function SessionFeedbackComposer({
       <form onSubmit={handleSubmit} className="space-y-2">
         <textarea
           value={body}
-          onChange={(e) => {
-            setBody(e.target.value);
-            setError(null);
-          }}
+          onChange={(e) => handleChange(e.target.value)}
           rows={4}
           placeholder={t('feedback.placeholder')}
           aria-label={t('feedback.coachKicker')}
@@ -167,7 +195,7 @@ export default function SessionFeedbackComposer({
           </button>
           <button
             type="button"
-            onClick={handleSkip}
+            onClick={handleFinishWithoutFeedback}
             disabled={!isOnline}
             className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 disabled:opacity-50"
           >
@@ -175,6 +203,15 @@ export default function SessionFeedbackComposer({
           </button>
         </div>
       </form>
+
+      <ConfirmDialog
+        open={askingToFinish}
+        onClose={() => setAskingToFinish(false)}
+        onConfirm={finish}
+        title={t('coachReviewComposerRoster.finish.confirmTitle')}
+        message={t('coachReviewComposerRoster.finish.confirmMessage')}
+        confirmText={t('coachReviewComposerRoster.finish.confirmAction')}
+      />
     </div>
   );
 }
