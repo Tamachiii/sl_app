@@ -1,3 +1,8 @@
+import {
+  clearLastCoachStudentsPath,
+  clearLastCoachSessionsTab,
+} from '../../hooks/useRememberCoachStudentsPath';
+
 const StudentsIcon = (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -39,6 +44,24 @@ const isCoachStudentsPath = (p) =>
 const isCoachSessionsPath = (p) =>
   p.startsWith('/coach/sessions') || /^\/coach\/student\/[^/]+\/session\//.test(p);
 
+/**
+ * A tap on the tab that is already open returns to its root. Athletes and
+ * Sessions remember where the coach was (hooks/useRememberCoachStudentsPath)
+ * and bounce back there when their root is opened, so their `onReselect`
+ * forgets that place first; the NavLink's own navigation then lands on the
+ * roster or the plain feed and stays there. The other tabs need nothing:
+ * their root never sends the coach anywhere.
+ *
+ * Called by the navs' click handler before the navigation. `active` is the
+ * item's `matches(pathname)`; a click that does not navigate in this window —
+ * another button, or a modifier that opens a new tab — forgets nothing.
+ */
+export function reselectOnClick(event, active, onReselect) {
+  if (!active || !onReselect) return;
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  onReselect();
+}
+
 export function getNavItems(role, t) {
   if (role === 'coach') {
     return [
@@ -48,6 +71,7 @@ export function getNavItems(role, t) {
         icon: StudentsIcon,
         end: false,
         matches: isCoachStudentsPath,
+        onReselect: clearLastCoachStudentsPath,
       },
       {
         to: '/coach/sessions',
@@ -55,6 +79,7 @@ export function getNavItems(role, t) {
         icon: SessionsIcon,
         end: true,
         matches: isCoachSessionsPath,
+        onReselect: clearLastCoachSessionsTab,
       },
       {
         to: '/coach/messages',

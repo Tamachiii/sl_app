@@ -1,16 +1,17 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
-import { getNavItems } from './navItems';
+import { getNavItems, reselectOnClick } from './navItems';
 import UnreadMessagesBadge from '../messaging/UnreadMessagesBadge';
 
-function NavItem({ to, label, icon, end = false, matches, badge }) {
+function NavItem({ to, label, icon, end = false, matches, badge, onReselect }) {
   const { pathname } = useLocation();
   const customActive = matches ? matches(pathname) : null;
   return (
     <NavLink
       to={to}
       end={end}
+      onClick={(event) => reselectOnClick(event, customActive, onReselect)}
       className={({ isActive }) => {
         const active = customActive ?? isActive;
         return `relative flex-1 flex flex-col items-center justify-center gap-1 py-2.5 transition-colors ${

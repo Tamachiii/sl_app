@@ -1,16 +1,17 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
-import { getNavItems } from './navItems';
+import { getNavItems, reselectOnClick } from './navItems';
 import UnreadMessagesBadge from '../messaging/UnreadMessagesBadge';
 
-function SideNavItem({ to, label, icon, end = false, matches, badge }) {
+function SideNavItem({ to, label, icon, end = false, matches, badge, onReselect }) {
   const { pathname } = useLocation();
   const customActive = matches ? matches(pathname) : null;
   return (
     <NavLink
       to={to}
       end={end}
+      onClick={(event) => reselectOnClick(event, customActive, onReselect)}
       className={({ isActive }) => {
         const active = customActive ?? isActive;
         return `relative flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
