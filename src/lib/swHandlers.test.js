@@ -205,6 +205,10 @@ const REST_DONE = {
   data: { url: '/sl_app/#/student/session/s1' },
 };
 
+// What the client deployed before wave 3 (main@2bb6495) writes, and what the
+// rows it scheduled still carry: the address is the training list.
+const LEGACY_REST_DONE = { ...REST_DONE, data: { url: '/sl_app/#/student' } };
+
 // What `notify_student_on_session_feedback` sends through send-push.
 const FEEDBACK = {
   title: 'Feedback from Coach',
@@ -652,6 +656,85 @@ describe('notificationclick — the app comes to the front', () => {
     expect(session.focus).toHaveBeenCalledTimes(1);
     expect(session.navigate).not.toHaveBeenCalled();
     expect(session.url).toBe(TARGET);
+  });
+
+  describe('a "Rest done" of the client deployed before wave 3, which names the training list', () => {
+    it.each([
+      ['in front', () => inFront('/student/session/s1')],
+      ['in the background', () => appWindow('/student/session/s1')],
+      ['with a trailing slash', () => appWindow('/student/session/s1/')],
+      ['another session than the one of the rest', () => appWindow('/student/session/s2')],
+    ])('leaves a window that is on a session where it is (%s)', async (_name, make) => {
+      const session = make();
+      const before = session.url;
+      const scope = notifier({ windows: [session] });
+      await tap(scope, LEGACY_REST_DONE);
+
+      expect(session.focus).toHaveBeenCalledTimes(1);
+      expect(session.navigate).not.toHaveBeenCalled();
+      expect(session.url).toBe(before);
+      expect(scope.clients.openWindow).not.toHaveBeenCalled();
+    });
+
+    it('prefers the window on a session to one that would have to be moved', async () => {
+      const messages = appWindow('/student/messages');
+      const session = appWindow('/student/session/s1');
+      const scope = notifier({ windows: [messages, session] });
+      await tap(scope, LEGACY_REST_DONE);
+
+      expect(session.focus).toHaveBeenCalledTimes(1);
+      expect(session.navigate).not.toHaveBeenCalled();
+      expect(messages.focus).not.toHaveBeenCalled();
+      expect(messages.navigate).not.toHaveBeenCalled();
+    });
+
+    it('a window on the list itself is still the one that is there', async () => {
+      const session = appWindow('/student/session/s1');
+      const list = appWindow('/student');
+      const scope = notifier({ windows: [session, list] });
+      await tap(scope, LEGACY_REST_DONE);
+
+      expect(list.focus).toHaveBeenCalledTimes(1);
+      expect(list.navigate).not.toHaveBeenCalled();
+      expect(session.focus).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['the messages', '/student/messages'],
+      ['the profile', '/student/profile'],
+      ['a page under /student/session that is not a session', '/student/sessions'],
+    ])('a window on %s is still sent to the list', async (_name, route) => {
+      const elsewhere = appWindow(route);
+      const scope = notifier({ windows: [elsewhere] });
+      await tap(scope, LEGACY_REST_DONE);
+
+      expect(elsewhere.focus).toHaveBeenCalledTimes(1);
+      expect(elsewhere.navigate).toHaveBeenCalledWith(`${SCOPE}#/student`);
+    });
+
+    it('with no window, the list is opened', async () => {
+      const scope = notifier();
+      await tap(scope, LEGACY_REST_DONE);
+      expect(scope.clients.openWindow).toHaveBeenCalledWith(`${SCOPE}#/student`);
+    });
+  });
+
+  it('a "Rest done" that names its session takes a window on another session there', async () => {
+    const other = appWindow('/student/session/s2');
+    const scope = notifier({ windows: [other] });
+    await tap(scope, REST_DONE);
+
+    expect(other.focus).toHaveBeenCalledTimes(1);
+    expect(other.navigate).toHaveBeenCalledWith(TARGET);
+  });
+
+  it('a push of another tag that names the list still moves a window on a session', async () => {
+    const session = appWindow('/student/session/s1');
+    const scope = notifier({ windows: [session] });
+    await tap(scope, { title: 'Program updated', tag: 'program-approved', data: { url: '/sl_app/#/student' } });
+
+    expect(session.focus).toHaveBeenCalledTimes(1);
+    expect(session.navigate).toHaveBeenCalledWith(`${SCOPE}#/student`);
   });
 
   it('a window on another page is focused and sent to the page', async () => {

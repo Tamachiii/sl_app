@@ -273,6 +273,16 @@ export function isSameRoute(clientUrl, target, base) {
   }
 }
 
+// The session page, "/student/session/<id>": where the athlete trains, and
+// rests between two sets.
+const isSessionRoute = (url, base) => {
+  try {
+    return /^\/student\/session\/[^/?]+/.test(routeOf(new URL(url, base)));
+  } catch {
+    return false;
+  }
+};
+
 /**
  * Where a tap on `notification` leads, as an absolute address of the app — or
  * null when its payload names none (no `data.url`, one that cannot be read, an
@@ -289,9 +299,17 @@ export function targetOf(notification, base) {
   }
 }
 
-async function bringAppToFront(scope, target) {
+async function bringAppToFront(scope, target, tag) {
   const base = scope.registration.scope;
   const isThere = (client) => target !== null && isSameRoute(client.url, target, base);
+  // A "Rest done" never takes the athlete out of a session to a page that is
+  // not one. The app deployed before wave 3 (and every row it scheduled) gives
+  // the push the training list as its address: a window on a session is where
+  // that rest is being taken, and the list is not where it leads. A "Rest
+  // done" that names a session (hooks/useRestTimerPush) is read as it is.
+  const keepsSession = tag === REST_TIMER_TAG && target !== null && !isSessionRoute(target, base);
+  const staysPut = (client) => keepsSession && isSessionRoute(client.url, base);
+  const rank = (client) => (isThere(client) ? 0 : staysPut(client) ? 1 : 2);
 
   let windows = [];
   try {
@@ -302,15 +320,17 @@ async function bringAppToFront(scope, target) {
 
   // A window that already shows the page comes first: it needs the focus and
   // nothing else. Sending it to the address it is at would load the page again
-  // under its user — for a "Rest done", the session in progress.
-  const inOrder = [...windows.filter(isThere), ...windows.filter((client) => !isThere(client))];
+  // under its user — for a "Rest done", the session in progress. Then a window
+  // that a "Rest done" leaves where it is, then the others. The sort is stable:
+  // within a rank, the order of `matchAll`.
+  const inOrder = [...windows].sort((a, b) => rank(a) - rank(b));
   for (const client of inOrder) {
     try {
       await client.focus();
     } catch {
       continue; // This one cannot be focused: the next.
     }
-    if (target !== null && !isThere(client) && typeof client.navigate === 'function') {
+    if (rank(client) === 2 && target !== null && typeof client.navigate === 'function') {
       try {
         await client.navigate(target);
       } catch {
@@ -332,7 +352,9 @@ async function bringAppToFront(scope, target) {
  * `notificationclick`: the app comes to the front, on the page the payload
  * names. A window that is on that page already is focused and left as it is,
  * another one is focused and sent there, and a window is opened when there is
- * none. A payload without an address focuses a window and moves nothing.
+ * none. A payload without an address focuses a window and moves nothing. A
+ * "Rest done" whose address is not a session leaves a window on a session
+ * where it is.
  */
 export function handleNotificationClick(scope, event) {
   const { notification } = event;
@@ -341,7 +363,7 @@ export function handleNotificationClick(scope, event) {
     Promise.all([
       // Started first: a worker may focus or open a window only for a short
       // while after the tap, and nothing that is not needed is awaited before.
-      bringAppToFront(scope, targetOf(notification, scope.registration.scope)),
+      bringAppToFront(scope, targetOf(notification, scope.registration.scope), notification.tag),
       // The app is being opened: a "Rest done" left on the lock screen has
       // nothing more to say, whichever notification was tapped.
       closeNotifications(scope.registration, REST_TIMER_TAG),
