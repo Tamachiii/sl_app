@@ -379,7 +379,11 @@ function SessionReviewPage() {
             const substituteName = deviation?.substitute_exercise_id
               ? (exerciseLibrary || []).find((e) => e.id === deviation.substitute_exercise_id)?.name || 'another exercise'
               : null;
-            const composed = { ...slot, set_logs: slotLogs };
+            // What the coach prescribed: a set the athlete added has no
+            // target, and listed under PLANNED it read "SET 7 (BW)" (live
+            // finding N12). It keeps its "+Set n" pill below, and its actuals.
+            const plannedLogs = slotLogs.filter((l) => !l.is_student_added);
+            const composed = { ...slot, set_logs: plannedLogs };
             const uniform = isSlotUniform(composed);
             const summary = summarizeSlotPrescription(composed);
             const headRest = uniform ? getSlotTargetRest(composed) : null;
@@ -492,7 +496,7 @@ function SessionReviewPage() {
                       already carries its own target inline. */}
                   {!uniform && (
                     <ul className="mt-1 space-y-0.5">
-                      {slotLogs.map((log) => {
+                      {plannedLogs.map((log) => {
                         const rest = formatRestSeconds(log.target_rest_seconds);
                         return (
                           <li key={log.id} className="flex gap-2">
@@ -525,10 +529,18 @@ function SessionReviewPage() {
                       <ul className="space-y-0.5 sl-mono text-[11px] text-ink-700">
                         {deviated.map((log) => (
                           <li key={log.id} className="flex gap-2">
-                            <span className="sl-label shrink-0">Set {log.set_number}</span>
+                            <span className="sl-label shrink-0">
+                              {log.is_student_added ? '+' : ''}Set {log.set_number}
+                            </span>
+                            {/* An added set had no plan to strike through:
+                                "(BW) → 12 @ 60kg" invented one. */}
                             <span>
-                              <span className="text-ink-400 line-through">{formatSetTarget(log)}</span>
-                              <span className="mx-1" aria-hidden="true">→</span>
+                              {!log.is_student_added && (
+                                <>
+                                  <span className="text-ink-400 line-through">{formatSetTarget(log)}</span>
+                                  <span className="mx-1" aria-hidden="true">→</span>
+                                </>
+                              )}
                               {formatActual(log)}
                             </span>
                           </li>

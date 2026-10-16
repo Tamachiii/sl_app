@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 let mockSessionData = { data: null, isLoading: false };
@@ -936,6 +936,56 @@ describe('<SessionReview />', () => {
     // Its skip can still be acted on, under the same name.
     fireEvent.click(screen.getByRole('button', { name: /remove from upcoming/i }));
     expect(screen.getAllByText('Exercise unavailable').length).toBeGreaterThan(1);
+  });
+
+  // Live finding N12: a set the athlete added has no target, and it was
+  // listed under PLANNED as "SET 3 (BW)" and counted against the plan.
+  it('leaves a set the athlete added out of what was planned', () => {
+    mockSessionData = {
+      data: {
+        ...swapSession,
+        exercise_slots: [
+          { id: 'sl-1', sets: 2, exercise: { id: 'ex-orig', name: 'Ring Dip', type: 'push', difficulty: 2 } },
+        ],
+      },
+      isLoading: false,
+    };
+    mockConfirmation = confirmationQuery(CONFIRMED);
+    const planned = (set_number, target_reps, target_weight_kg) => ({
+      id: `log-${set_number}`, exercise_slot_id: 'sl-1', set_number, target_reps, target_weight_kg,
+      target_duration_seconds: null, target_rest_seconds: null, done: true, failed: false, skipped: false,
+      rpe: null, is_student_added: false,
+    });
+    mockSetLogsData = {
+      data: [
+        planned(1, 10, 60),
+        planned(2, 8, 70),
+        {
+          id: 'log-3', exercise_slot_id: 'sl-1', set_number: 3, target_reps: null, target_weight_kg: null,
+          target_duration_seconds: null, target_rest_seconds: null, done: true, failed: false, skipped: false,
+          rpe: null, is_student_added: true, actual_reps: 12, actual_weight_kg: 60,
+        },
+      ],
+      isLoading: false,
+    };
+    renderReview();
+
+    const plannedBlock = screen.getByText(/^PLANNED:/).parentElement;
+    expect(within(plannedBlock).getByText('10 @ 60kg')).toBeInTheDocument();
+    expect(within(plannedBlock).getByText('8 @ 70kg')).toBeInTheDocument();
+    expect(within(plannedBlock).queryByText('Set 3')).toBeNull();
+    expect(plannedBlock).not.toHaveTextContent('(BW)');
+
+    // It is still the athlete's work: its pill, and counted apart.
+    expect(screen.getByTitle(/^\+Set 3: done/)).toBeInTheDocument();
+    expect(screen.getByText(/\/2 done/).closest('span')).toHaveTextContent('2/2 done');
+    expect(screen.getByText('+1 extra')).toBeInTheDocument();
+
+    // What it was is in the off-plan band, with no plan struck through.
+    const offPlan = screen.getByText('Off-plan').parentElement;
+    expect(within(offPlan).getByText('+Set 3')).toBeInTheDocument();
+    expect(offPlan).toHaveTextContent('12 @ 60kg');
+    expect(offPlan).not.toHaveTextContent('(BW)');
   });
 
   it('offers "Adopt into program" for a swap deviation and adopts via the RPC hook', () => {

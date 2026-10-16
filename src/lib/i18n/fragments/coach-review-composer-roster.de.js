@@ -17,6 +17,7 @@ export default {
     },
     review: {
       trainedOn: 'Trainiert am {date}',
+      extraSets: '+{n} zusätzlich',
     },
     copy: {
       sessionRange: 'Einheiten {from}–{to}',

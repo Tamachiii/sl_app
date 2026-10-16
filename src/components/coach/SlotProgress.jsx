@@ -1,17 +1,28 @@
 import { memo } from 'react';
+import { useI18n } from '../../hooks/useI18n';
 
 /**
  * Coach-facing per-slot read-out of the student's logged sets and RPE values.
  * Renders nothing when there are no logs yet (student hasn't started the set).
+ *
+ * "n/planned done" and "n/planned RPE" count the PRESCRIBED sets only: a set
+ * the athlete added (`is_student_added`) is not one of the `plannedSets`, and
+ * counted in, it read "4/3 done", or "3/3" when one of the three planned sets
+ * was never done (live finding N12). Extra sets done are said apart, "+N
+ * extra", and keep their "+Set n" pill. Failed and skipped are counts with no
+ * denominator, extras included.
  */
 const SlotProgress = memo(function SlotProgress({ logs, plannedSets }) {
+  const { t } = useI18n();
   if (!logs || logs.length === 0) return null;
 
   const sorted = [...logs].sort((a, b) => a.set_number - b.set_number);
-  const doneCount = sorted.filter((l) => l.done).length;
+  const prescribed = sorted.filter((l) => !l.is_student_added);
+  const doneCount = prescribed.filter((l) => l.done).length;
+  const extraDoneCount = sorted.filter((l) => l.is_student_added && l.done).length;
   const failedCount = sorted.filter((l) => l.failed).length;
   const skippedCount = sorted.filter((l) => l.skipped).length;
-  const rpeCount = sorted.filter((l) => l.rpe != null).length;
+  const rpeCount = prescribed.filter((l) => l.rpe != null).length;
 
   return (
     <div className="mt-2 border-t border-gray-100 pt-2 space-y-1">
@@ -19,6 +30,11 @@ const SlotProgress = memo(function SlotProgress({ logs, plannedSets }) {
         <span>Student progress</span>
         <span>
           <span className="font-medium text-gray-700">{doneCount}</span>/{plannedSets} done
+          {extraDoneCount > 0 && (
+            <span className="ml-2 text-gray-700">
+              {t('coachReviewComposerRoster.review.extraSets', { n: extraDoneCount })}
+            </span>
+          )}
           {failedCount > 0 && (
             <span className="ml-2" style={{ color: 'var(--color-danger)' }}>
               <span className="font-medium">{failedCount}</span> failed
