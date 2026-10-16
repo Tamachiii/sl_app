@@ -240,6 +240,64 @@ describe('useMessagesRealtime — one event, one thread', () => {
     unmount();
   });
 
+  it('a message the conversation list already holds as its last one is counted once, though its thread lacks it', () => {
+    const { qc, invalidate, channel, unmount } = mount();
+    seed(qc);
+    // The list and the count were read after n2 was sent, the thread of s2 before.
+    const n2 = { id: 'n2', sender_id: 's2', recipient_id: 'me', body: 'later', session_id: null, read_at: null, created_at: '2026-10-15T09:30:00+00:00' };
+    qc.setQueryData(CONVERSATIONS, [
+      { otherProfileId: 's2', lastMessage: n2, unreadCount: 2, otherFullName: 'Two', otherRole: 'student' },
+      { otherProfileId: 's1', lastMessage: m2, unreadCount: 0, otherFullName: 'One', otherRole: 'student' },
+    ]);
+    qc.setQueryData(UNREAD, 2);
+
+    channel().emit('INSERT', { ...n2, created_at: '2026-10-15 09:30:00+00' });
+    expect(qc.getQueryData(THREAD_S2).map((m) => m.id)).toEqual(['n1', 'n2']);
+    expect(qc.getQueryData(UNREAD)).toBe(2);
+    expect(qc.getQueryData(CONVERSATIONS)[0]).toMatchObject({ otherProfileId: 's2', unreadCount: 2 });
+
+    // Reading both takes the badge and the conversation to 0, not to 1.
+    channel().emit('UPDATE', { ...n1, read_at: '2026-10-15 09:59:00+00' });
+    channel().emit('UPDATE', { ...n2, read_at: '2026-10-15 09:59:00+00' });
+    expect(qc.getQueryData(UNREAD)).toBe(0);
+    expect(qc.getQueryData(CONVERSATIONS)[0]).toMatchObject({ otherProfileId: 's2', unreadCount: 0 });
+    expect(exactReads(invalidate)).toEqual([]);
+    unmount();
+  });
+
+  it('a thread that lacks a new message still counts it when the conversation list cannot say', () => {
+    const { qc, channel, unmount } = mount();
+    seed(qc);
+    qc.invalidateQueries({ queryKey: CONVERSATIONS, exact: true, refetchType: 'none' });
+    channel().emit('INSERT', {
+      id: 'n2', sender_id: 's2', recipient_id: 'me', body: 'later', session_id: null, read_at: null,
+      created_at: '2026-10-15 09:30:00+00',
+    });
+    expect(qc.getQueryData(THREAD_S2).map((m) => m.id)).toEqual(['n1', 'n2']);
+    expect(qc.getQueryData(UNREAD)).toBe(2);
+    unmount();
+  });
+
+  it('a message read in the conversation list, still unread in its thread, is not taken off the counts twice', () => {
+    const { qc, invalidate, channel, unmount } = mount();
+    seed(qc);
+    // The list and the count were read after n1 was read on another device;
+    // the thread of s2 before. One message of s1 is still unread.
+    const readN1 = { ...n1, read_at: '2026-10-15T09:50:00+00:00' };
+    qc.setQueryData(CONVERSATIONS, [
+      { otherProfileId: 's1', lastMessage: m2, unreadCount: 1, otherFullName: 'One', otherRole: 'student' },
+      { otherProfileId: 's2', lastMessage: readN1, unreadCount: 0, otherFullName: 'Two', otherRole: 'student' },
+    ]);
+    qc.setQueryData(UNREAD, 1);
+
+    channel().emit('UPDATE', { ...n1, read_at: '2026-10-15 09:50:00+00' });
+    expect(qc.getQueryData(THREAD_S2)).toEqual([readN1]);
+    expect(qc.getQueryData(UNREAD)).toBe(1);
+    expect(qc.getQueryData(CONVERSATIONS).map((c) => c.unreadCount)).toEqual([1, 0]);
+    expect(exactReads(invalidate)).toEqual([]);
+    unmount();
+  });
+
   it('an UPDATE of read_at patches the row and lowers the counts once', () => {
     const { qc, invalidate, channel, unmount } = mount();
     seed(qc);

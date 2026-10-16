@@ -74,6 +74,20 @@ function unreadForMe(message, me) {
   return !!message && message.recipient_id === me && !message.read_at;
 }
 
+// How far a message had gone when an entry was read: not sent yet, sent, read.
+// `read_at` is the one column of a message that changes (the update trigger
+// pins the others), and the app sets it once — the recipient's mark-read,
+// `.is('read_at', null)` — and never clears it: a later read never says less.
+function stateOf(message) {
+  if (!message) return 0;
+  return message.read_at ? 2 : 1;
+}
+
+/** Of what two entries said a message was, the one read later. */
+function laterState(a, b) {
+  return stateOf(b) > stateOf(a) ? b : a;
+}
+
 /**
  * `row` in `thread` (oldest first): merged over the cached row of the same id,
  * or — for a new message — put in its place by time and the oldest dropped
@@ -143,12 +157,21 @@ export function applyMessageUpsert(qc, me, record, { insert, refresh }) {
   // newest messages of the pair, so a new one it lacks is new to it; a whole
   // conversation list holds the latest message of each pair, so a message
   // after it is new to it too.
-  let before;
-  if (Array.isArray(thread) && isWhole(qc, threadKey)) before = inThread ?? (insert ? null : undefined);
-  if (before === undefined && conversation && isWhole(qc, conversationsKey)) {
-    if (asLast) before = asLast;
-    else if (insert && isAfter(incoming, conversation.lastMessage)) before = null;
+  const said = [];
+  if (Array.isArray(thread) && isWhole(qc, threadKey)) {
+    if (inThread) said.push(inThread);
+    else if (insert) said.push(null);
   }
+  if (conversation && isWhole(qc, conversationsKey)) {
+    if (asLast) said.push(asLast);
+    else if (insert && isAfter(incoming, conversation.lastMessage)) said.push(null);
+  }
+  // The thread and the list are read at different times, and a change that
+  // lands between the two reads is in one of them only. What the later read
+  // says wins — the one that saw more of the message — and the counts are
+  // taken as read with it: a count read on its own between a change and its
+  // event is the one case that counts the change twice.
+  const before = said.length > 0 ? said.reduce(laterState) : undefined;
   const base = inThread ?? asLast;
   const message = base ? mergeRow(base, incoming) : incoming;
   const delta = before === undefined
