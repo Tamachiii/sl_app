@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { compareSessions } from '../lib/day';
 import { writeCached } from '../lib/cacheWrite';
+import { LOGGED_SET_COLUMNS } from '../lib/loggedSets';
 
 const ROOT = 'student-program-details';
 
@@ -27,7 +28,11 @@ export function studentPastProgramKey(userId, programId) {
   return [ROOT, userId, 'past', programId];
 }
 
-const PROGRAM_TREE = `
+// What a set of a block is read with: what it prescribes.
+const SET_TARGETS =
+  'set_number, target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds';
+
+const programTree = (setColumns) => `
   id, name, sort_order, is_active,
   weeks(
     id, week_number, label,
@@ -37,11 +42,22 @@ const PROGRAM_TREE = `
         id, sets, reps, duration_seconds, weight_kg, sort_order,
         record_video_set_numbers,
         exercise:exercise_library(id, name, type),
-        set_logs(set_number, target_reps, target_duration_seconds, target_weight_kg, target_rest_seconds)
+        set_logs(${setColumns})
       )
     )
   )
 `;
+
+// The block being trained. The device keeps this read and writes it out
+// again, whole, on every change of the cache: it carries the targets and
+// nothing of what the athlete logged, which the session page reads itself.
+const ACTIVE_TREE = programTree(SET_TARGETS);
+
+// A past block also says which of its sets the athlete logged: a session they
+// trained in and never confirmed keeps a way to the read-only page, where one
+// never trained has nothing to show (L32, `hasLoggedSets` of SessionCard).
+// This read is not kept on the device.
+const PAST_TREE = programTree(`${SET_TARGETS}, ${LOGGED_SET_COLUMNS}`);
 
 // A past block as the list shows it while its drawer is closed: a name and two
 // numbers. `archived_at` is all that is read of its sessions.
@@ -202,7 +218,7 @@ export function useStudentProgramDetails(userId) {
           .is('deleted_at', null);
 
       const [active, past] = await Promise.all([
-        ownPrograms(PROGRAM_TREE).eq('is_active', true),
+        ownPrograms(ACTIVE_TREE).eq('is_active', true),
         ownPrograms(PROGRAM_HEADER).eq('is_active', false),
       ]);
       if (active.error) throw active.error;
@@ -216,7 +232,8 @@ export function useStudentProgramDetails(userId) {
 }
 
 /**
- * The sessions of one past block, as weeks in the shape `weeks` has above.
+ * The sessions of one past block, as weeks in the shape `weeks` has above —
+ * their sets with `LOGGED_SET_COLUMNS` besides the targets, for `isLoggedSet`.
  * Mounted by the drawer of that block while it is open, and by nothing else:
  * a closed drawer costs no request.
  */
@@ -228,7 +245,7 @@ export function useStudentPastProgram(userId, programId) {
       // row-level security answers for the rest.
       const { data, error } = await supabase
         .from('programs')
-        .select(PROGRAM_TREE)
+        .select(PAST_TREE)
         .eq('id', programId)
         .is('deleted_at', null)
         .maybeSingle();

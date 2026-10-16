@@ -559,6 +559,76 @@ describe('StudentTraining', () => {
       expect(screen.getByText('Session 1 of 1')).toBeInTheDocument();
     });
 
+    // L32. "Full Body 2" of a past block: two sets of six ticked, never
+    // confirmed, and the coach moved on. Expanded, its card held nothing but
+    // its toggle. What was logged there is history like a confirmed session's.
+    describe('a session trained in and never confirmed', () => {
+      const trained = (logs) =>
+        session('half', 'Full Body 2', {
+          exercise_slots: [
+            {
+              id: 'sl-1',
+              sets: 2,
+              reps: 5,
+              sort_order: 0,
+              exercise: { id: 'ex-1', name: 'Squat', type: 'push' },
+              set_logs: logs,
+            },
+          ],
+        });
+
+      it('can be reviewed when one of its sets was logged', async () => {
+        const user = userEvent.setup();
+        mockList = listOf([current()], [pastHeader(pastProgram, 1)]);
+        mockPastBlocks['p-0'] = pastBlock([
+          trained([
+            { set_number: 1, done: true, failed: false, skipped: false, rpe: 8 },
+            { set_number: 2, done: false, failed: false, skipped: false, rpe: null },
+          ]),
+        ]);
+        renderTraining();
+
+        await user.click(screen.getByText('Bloc 1'));
+        await user.click(screen.getByText('Full Body 2'));
+        const past = screen.getByText('Bloc 1').closest('section');
+        expect(within(past).queryByRole('button', { name: /start session/i })).toBeNull();
+        await user.click(within(past).getByRole('button', { name: /review session/i }));
+        expect(mockNavigate).toHaveBeenCalledWith('/student/session/half');
+      });
+
+      it('an RPE or an actual left on a set that is not ticked counts as logged', async () => {
+        const user = userEvent.setup();
+        mockList = listOf([current()], [pastHeader(pastProgram, 1)]);
+        mockPastBlocks['p-0'] = pastBlock([
+          trained([{ set_number: 1, done: false, actual_reps: 3, actual_weight_kg: null, rpe: null }]),
+        ]);
+        renderTraining();
+
+        await user.click(screen.getByText('Bloc 1'));
+        await user.click(screen.getByText('Full Body 2'));
+        const past = screen.getByText('Bloc 1').closest('section');
+        expect(within(past).getByRole('button', { name: /review session/i })).toBeInTheDocument();
+      });
+
+      it('offers nothing when none of its sets was logged: the page would be empty', async () => {
+        const user = userEvent.setup();
+        mockList = listOf([current()], [pastHeader(pastProgram, 1)]);
+        mockPastBlocks['p-0'] = pastBlock([
+          trained([
+            { set_number: 1, done: false, failed: false, skipped: false, rpe: null, actual_reps: null, actual_weight_kg: null },
+            { set_number: 2, done: false, failed: false, skipped: false, rpe: null, actual_reps: null, actual_weight_kg: null },
+          ]),
+        ]);
+        renderTraining();
+
+        await user.click(screen.getByText('Bloc 1'));
+        await user.click(screen.getByText('Full Body 2'));
+        const past = screen.getByText('Bloc 1').closest('section');
+        expect(within(past).getByText('Squat')).toBeInTheDocument();
+        expect(within(past).queryByRole('button', { name: /review session|start session/i })).toBeNull();
+      });
+    });
+
     it('shows the past blocks of an athlete who has no block being trained', () => {
       mockList = listOf([], [pastHeader(pastProgram, 4)]);
       renderTraining();

@@ -15,6 +15,7 @@ import { useMyFeedbackSessionIds } from '../../hooks/useMessages';
 import { DAY_FULL_LONG, parseISODate, performedDate } from '../../lib/day';
 import { buildQueue, flattenSessions } from '../../lib/sessionQueue';
 import { readState } from '../../lib/readState';
+import { isLoggedSet } from '../../lib/loggedSets';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
@@ -111,6 +112,13 @@ function readAheadSession(queryClient, sessionId) {
       return queryClient.prefetchQuery(setLogsQueryOptions(sessionId, slots));
     })
     .catch(() => {});
+}
+
+// Whether the athlete logged anything in a session — a set done, failed or
+// skipped, an RPE, an actual. Asked of the sessions of a past block only: its
+// read selects the columns `isLoggedSet` needs, the active block's does not.
+function holdsLoggedSet(session) {
+  return (session.exercise_slots || []).some((slot) => (slot.set_logs || []).some(isLoggedSet));
 }
 
 // Name plus at most ONE short line, and only when it says something. "Trained
@@ -418,6 +426,9 @@ export default function StudentTraining() {
     archived: !!session.archived_at,
     hasFeedback: feedbackIds.has(session.id),
     locked: readOnly,
+    // A past-block session trained in and never confirmed keeps its Review
+    // entry: what was logged there is history too (L32).
+    hasLoggedSets: readOnly && holdsLoggedSet(session),
     onStart: () => navigate(`/student/session/${session.id}`),
     // Compared against the EFFECTIVE open id, not the raw state: while that is
     // still `undefined` the next card is visually open, and toggling it has to

@@ -33,6 +33,19 @@ const filtersOf = (request) =>
   request.filters.map(([op, column, value]) => `${op} ${column} ${value}`);
 const isActiveFilter = (request) =>
   request.filters.find(([op, column]) => op === 'eq' && column === 'is_active')?.[2];
+// The columns a request asks of `set_logs`, in order.
+const setLogColumnsOf = (request) =>
+  request.select.match(/set_logs\(([^)]*)\)/)[1].split(',').map((c) => c.trim());
+
+const TARGETS = [
+  'set_number',
+  'target_reps',
+  'target_duration_seconds',
+  'target_weight_kg',
+  'target_rest_seconds',
+];
+// What `isLoggedSet` of lib/loggedSets.js reads on a set.
+const LOGGED = ['done', 'failed', 'skipped', 'rpe', 'actual_reps', 'actual_weight_kg'];
 
 // The block being trained, as PostgREST nests it — deliberately out of order.
 const ACTIVE_TREE = {
@@ -213,6 +226,9 @@ describe('useStudentProgramDetails', () => {
     }
     expect(tree.select).toMatch(/exercise_slots\(/);
     expect(headers.select.replace(/\s+/g, '')).toBe('id,name,sort_order,weeks(sessions(archived_at))');
+    // The device keeps this read and writes it out whole on every change of
+    // the cache: its sets carry their targets and nothing the athlete logged.
+    expect(setLogColumnsOf(tree)).toEqual(TARGETS);
   });
 
   it('has no block and no past block for an athlete who was given none', async () => {
@@ -331,6 +347,50 @@ describe('useStudentPastProgram', () => {
     expect(db.requests).toHaveLength(1);
     expect(filtersOf(db.requests[0])).toEqual(['eq id p-0', 'is deleted_at null']);
     expect(db.requests[0].select).toMatch(/exercise_slots\(/);
+  });
+
+  // L32. A session of a past block that was trained and never confirmed keeps
+  // a way to the read-only page; the card learns it from these columns.
+  it('reads with each set what the athlete logged on it, besides its targets', async () => {
+    const block = {
+      id: 'p-0',
+      name: 'Bloc 1',
+      sort_order: 0,
+      is_active: false,
+      weeks: [
+        {
+          id: 'w-1',
+          week_number: 1,
+          sessions: [
+            {
+              id: 's-1',
+              sort_order: 0,
+              exercise_slots: [
+                {
+                  id: 'sl-1',
+                  sort_order: 0,
+                  set_logs: [
+                    { set_number: 2, done: false, rpe: null },
+                    { set_number: 1, done: true, rpe: 8 },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const db = wire({ byId: { 'p-0': block } });
+    const { result } = renderHook(() => useStudentPastProgram('u-1', 'p-0'), {
+      wrapper: withClient(makeClient()),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(setLogColumnsOf(db.requests[0])).toEqual([...TARGETS, ...LOGGED]);
+    expect(result.current.data[0].sessions[0].exercise_slots[0].set_logs).toEqual([
+      { set_number: 1, done: true, rpe: 8 },
+      { set_number: 2, done: false, rpe: null },
+    ]);
   });
 
   it('is an empty block when the coach has put it in the trash meanwhile', async () => {

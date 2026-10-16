@@ -69,6 +69,47 @@ describe('SessionCard', () => {
     expect(screen.queryByRole('button', { name: /Start session|Review session/i })).toBeNull();
   });
 
+  // L32. A session of a past block (`locked`) that the athlete trained in and
+  // never confirmed: what they logged is reviewable, read-only, like a
+  // confirmed session's.
+  describe('a past-block session that was not confirmed', () => {
+    it('with a logged set: the expanded card offers Review, which opens it', async () => {
+      const user = userEvent.setup();
+      const onStart = vi.fn();
+      render(<SessionCard session={baseSession} locked hasLoggedSets defaultOpen onStart={onStart} />);
+      await user.click(screen.getByRole('button', { name: /^Review session$/i }));
+      expect(onStart).toHaveBeenCalledTimes(1);
+      // Never "start": the block is over, nothing can be logged there.
+      expect(screen.queryByRole('button', { name: /Start session/i })).toBeNull();
+      expect(screen.queryByText('start')).toBeNull();
+    });
+
+    it('with a logged set, collapsed: no Start pill and no start label in the row', () => {
+      render(<SessionCard session={baseSession} locked hasLoggedSets onStart={vi.fn()} />);
+      expect(screen.queryByRole('button', { name: /Start session|Review session/i })).toBeNull();
+      expect(screen.queryByText('start')).toBeNull();
+    });
+
+    it('with nothing logged: no CTA, the page would have nothing to show', () => {
+      render(<SessionCard session={baseSession} locked defaultOpen onStart={vi.fn()} />);
+      expect(screen.queryByRole('button', { name: /Start session|Review session/i })).toBeNull();
+      expect(screen.queryByText('start')).toBeNull();
+    });
+
+    it('archived by the coach: no CTA, logged sets or not', () => {
+      render(
+        <SessionCard session={baseSession} locked archived hasLoggedSets defaultOpen onStart={vi.fn()} />
+      );
+      expect(screen.getByText('archived')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Start session|Review session/i })).toBeNull();
+    });
+
+    it('a session of the block being trained is started, logged sets or not', () => {
+      render(<SessionCard session={baseSession} hasLoggedSets defaultOpen onStart={vi.fn()} />);
+      expect(screen.getByRole('button', { name: /^Start session$/i })).toBeInTheDocument();
+    });
+  });
+
   it('uncontrolled mode: clicking the header toggles open', async () => {
     const user = userEvent.setup();
     render(<SessionCard session={baseSession} />);

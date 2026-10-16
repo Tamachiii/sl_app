@@ -30,6 +30,7 @@ export default function SessionCard({
   onToggle,
   collapsible = true,
   locked = false,
+  hasLoggedSets = false,
   badge,
 }) {
   const { t } = useI18n();
@@ -53,7 +54,14 @@ export default function SessionCard({
   // Reviewing a finished session survives a lock; starting an unfinished one
   // does not. Gated on `onStart` too — a primary button with no handler is the
   // bug this is fixing.
-  const showBottomCta = !archived && !!onStart && (confirmed || !locked);
+  //
+  // `hasLoggedSets`: a past-block session the athlete trained in and never
+  // confirmed (two sets of six ticked, then the coach moved on to the next
+  // block). What they logged is history like a confirmed session's, and the
+  // card kept no way to it — expanded, it held only its toggle (L32). It gets
+  // the Review CTA too; a past-block session never trained still gets none,
+  // since the page would have nothing to show.
+  const showBottomCta = !archived && !!onStart && (confirmed || !locked || hasLoggedSets);
   let statusPill = null;
   if (confirmed) {
     statusPill = (
@@ -208,7 +216,7 @@ export default function SessionCard({
                 className="sl-btn-primary w-full text-[13px]"
                 style={{ padding: '10px 16px' }}
               >
-                {confirmed ? t('common.reviewSession') : t('common.startSession')}
+                {confirmed || locked ? t('common.reviewSession') : t('common.startSession')}
               </button>
             </div>
           )}
