@@ -1,24 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-
-const LAST_COACH_SESSION_KEY = 'sl_last_coach_session';
-// Where "back" lands when nothing says where the coach came from: a deep link,
-// a notification, a reload in another tab.
-const DEFAULT_ORIGIN = '/coach/sessions';
-
-// Only ever a coach route of this app. The value travels through router state
-// and localStorage, and it is handed to navigate().
-function coachPath(value) {
-  return typeof value === 'string' && value.startsWith('/coach/') ? value : null;
-}
-
-function readSavedReview() {
-  try {
-    return JSON.parse(localStorage.getItem(LAST_COACH_SESSION_KEY));
-  } catch {
-    return null;
-  }
-}
 import { useIsRestoring } from '@tanstack/react-query';
 import Spinner from '../ui/Spinner';
 import VideoLightbox from '../ui/VideoLightbox';
@@ -52,6 +33,11 @@ import { performedDate } from '../../lib/day';
 import { formatDate } from '../../lib/i18n/format';
 import { pushToast } from '../../lib/toast';
 import {
+  getLastCoachSession,
+  rememberLastCoachSession,
+  clearLastCoachSession,
+} from '../../hooks/useRememberCoachStudentsPath';
+import {
   formatRestSeconds,
   groupSlotsBySuperset,
   isSlotUniform,
@@ -61,6 +47,16 @@ import {
   getSlotTargetRest,
   summarizeSlotPrescription,
 } from '../../lib/volume';
+
+// Where "back" lands when nothing says where the coach came from: a deep link,
+// a notification, a reload in another tab.
+const DEFAULT_ORIGIN = '/coach/sessions';
+
+// Only ever a coach route of this app. The value travels through router state
+// and sessionStorage, and it is handed to navigate().
+function coachPath(value) {
+  return typeof value === 'string' && value.startsWith('/coach/') ? value : null;
+}
 
 function SlotVideoStrip({ videos, onPlay }) {
   if (!videos || videos.length === 0) return null;
@@ -103,7 +99,7 @@ function SessionReviewPage() {
   const origin = useMemo(() => {
     const fromState = coachPath(location.state?.from);
     if (fromState) return fromState;
-    const saved = readSavedReview();
+    const saved = getLastCoachSession();
     return saved?.studentId === studentId && saved?.sessionId === sessionId
       ? coachPath(saved.from)
       : null;
@@ -117,32 +113,29 @@ function SessionReviewPage() {
   const hasSession = !!session;
 
   // Persist so tabbing between Sessions and other tabs returns to this
-  // review instead of dropping the coach back on the feed. Cleared on
-  // explicit back-button click below. Written once the session is known to
+  // review instead of dropping the coach back on the feed — for this launch
+  // only (hooks/useRememberCoachStudentsPath). Cleared on explicit
+  // back-button click below, and by a tap on the Sessions tab while it is
+  // open. Written once the session is known to
   // be there: SessionsFeed restores this key on every visit, so a review of
   // a session that is gone, saved here, would be where the Sessions tab
   // opens from then on.
   useEffect(() => {
     if (!studentId || !sessionId || !hasSession) return;
-    try {
-      localStorage.setItem(
-        LAST_COACH_SESSION_KEY,
-        JSON.stringify({ studentId, sessionId, ...(origin ? { from: origin } : {}) }),
-      );
-    } catch { /* ignore */ }
+    rememberLastCoachSession({ studentId, sessionId, from: origin });
   }, [studentId, sessionId, origin, hasSession]);
 
   // …and a review saved on an earlier visit, when the session was still
   // there, goes as soon as the page learns it is not.
   useEffect(() => {
     if (!notFound) return;
-    const saved = readSavedReview();
+    const saved = getLastCoachSession();
     if (saved?.studentId !== studentId || saved?.sessionId !== sessionId) return;
-    try { localStorage.removeItem(LAST_COACH_SESSION_KEY); } catch { /* ignore */ }
+    clearLastCoachSession();
   }, [notFound, studentId, sessionId]);
 
   function forgetReview() {
-    try { localStorage.removeItem(LAST_COACH_SESSION_KEY); } catch { /* ignore */ }
+    clearLastCoachSession();
   }
 
   function handleBack() {

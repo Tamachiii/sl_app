@@ -136,6 +136,7 @@ describe('SessionEditor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    sessionStorage.clear();
     mockConfirmation = { data: null };
     mockLibraryData = {
       data: [
@@ -196,19 +197,19 @@ describe('SessionEditor', () => {
     // The Athletes tab comes back to the last place the coach was: not to a
     // session that is gone.
     it('forgets the remembered place when the session is not found', () => {
-      localStorage.setItem('sl_last_coach_students_path', '/coach/students/stu-1/s/sess-1');
+      sessionStorage.setItem('sl_last_coach_students_path', '/coach/students/stu-1/s/sess-1');
       mockSessionData = noSession({ data: null, isSuccess: true });
       renderEditor();
 
-      expect(localStorage.getItem('sl_last_coach_students_path')).toBeNull();
+      expect(sessionStorage.getItem('sl_last_coach_students_path')).toBeNull();
     });
 
     it('keeps it when the read only failed: the session may well be there', () => {
-      localStorage.setItem('sl_last_coach_students_path', '/coach/students/stu-1/s/sess-1');
+      sessionStorage.setItem('sl_last_coach_students_path', '/coach/students/stu-1/s/sess-1');
       mockSessionData = noSession({ isError: true });
       renderEditor();
 
-      expect(localStorage.getItem('sl_last_coach_students_path')).toBe(
+      expect(sessionStorage.getItem('sl_last_coach_students_path')).toBe(
         '/coach/students/stu-1/s/sess-1',
       );
     });

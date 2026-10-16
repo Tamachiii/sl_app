@@ -130,6 +130,7 @@ beforeEach(() => {
   mockSkip.mutate.mockReset();
   mockDecline.mutate.mockReset();
   window.localStorage.clear();
+  window.sessionStorage.clear();
 });
 
 describe('<SessionReview />', () => {
@@ -179,7 +180,7 @@ describe('<SessionReview />', () => {
       expectNoReview();
       fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
       expect(refetch).toHaveBeenCalledWith({ cancelRefetch: false });
-      expect(localStorage.getItem(KEY)).toBeNull();
+      expect(sessionStorage.getItem(KEY)).toBeNull();
     });
 
     it('says a session that is not there is not found, with the way back', () => {
@@ -189,7 +190,7 @@ describe('<SessionReview />', () => {
       expect(screen.getByText('Session not found')).toBeInTheDocument();
       expect(screen.getByRole('link', { name: 'Go back' })).toHaveAttribute('href', '/coach/sessions');
       expectNoReview();
-      expect(localStorage.getItem(KEY)).toBeNull();
+      expect(sessionStorage.getItem(KEY)).toBeNull();
     });
 
     it('leads back to the page that opened it', () => {
@@ -207,20 +208,20 @@ describe('<SessionReview />', () => {
     // Saved on an earlier visit, while the session was there: the Sessions
     // tab would reopen this "not found" on every visit.
     it('forgets this review when it was saved before the session went', () => {
-      localStorage.setItem(KEY, JSON.stringify({ studentId: 'st-1', sessionId: 'sess-1' }));
+      sessionStorage.setItem(KEY, JSON.stringify({ studentId: 'st-1', sessionId: 'sess-1' }));
       mockSessionData = noSession({ data: null, isSuccess: true });
       renderReview();
 
-      expect(localStorage.getItem(KEY)).toBeNull();
+      expect(sessionStorage.getItem(KEY)).toBeNull();
     });
 
     it('leaves another review saved', () => {
       const other = JSON.stringify({ studentId: 'st-1', sessionId: 'sess-9' });
-      localStorage.setItem(KEY, other);
+      sessionStorage.setItem(KEY, other);
       mockSessionData = noSession({ data: null, isSuccess: true });
       renderReview();
 
-      expect(localStorage.getItem(KEY)).toBe(other);
+      expect(sessionStorage.getItem(KEY)).toBe(other);
     });
   });
 
@@ -298,24 +299,24 @@ describe('<SessionReview />', () => {
     });
   });
 
-  it('persists the studentId/sessionId pair to localStorage on render', () => {
+  it('persists the studentId/sessionId pair for this launch on render', () => {
     mockSessionData = {
       data: { id: 'sess-1', title: 'Push', archived_at: null, exercise_slots: [] },
       isLoading: false,
     };
     renderReview();
-    const stored = JSON.parse(localStorage.getItem('sl_last_coach_session'));
+    const stored = JSON.parse(sessionStorage.getItem('sl_last_coach_session'));
     expect(stored).toEqual({ studentId: 'st-1', sessionId: 'sess-1' });
   });
 
-  it('back button clears localStorage and navigates to /coach/sessions', () => {
+  it('back button forgets the review and navigates to /coach/sessions', () => {
     mockSessionData = {
       data: { id: 'sess-1', title: 'Push', archived_at: null, exercise_slots: [] },
       isLoading: false,
     };
     renderReview();
     fireEvent.click(screen.getByLabelText('Back'));
-    expect(localStorage.getItem('sl_last_coach_session')).toBeNull();
+    expect(sessionStorage.getItem('sl_last_coach_session')).toBeNull();
     expect(mockNavigate).toHaveBeenCalledWith('/coach/sessions');
   });
 
@@ -341,7 +342,7 @@ describe('<SessionReview />', () => {
       renderReview({ pathname: REVIEW, state: { from } });
       fireEvent.click(screen.getByLabelText('Back'));
       expect(mockNavigate).toHaveBeenCalledWith(from);
-      expect(localStorage.getItem(KEY)).toBeNull();
+      expect(sessionStorage.getItem(KEY)).toBeNull();
     });
 
     // Sending feedback or finishing without it ends the review the same way
@@ -358,7 +359,7 @@ describe('<SessionReview />', () => {
     // carries no router state. The origin is saved with the review for it.
     it('saves the origin with the open review, and reads it back without router state', () => {
       const { unmount } = renderReview({ pathname: REVIEW, state: { from: '/coach/students/st-1' } });
-      expect(JSON.parse(localStorage.getItem(KEY))).toEqual({
+      expect(JSON.parse(sessionStorage.getItem(KEY))).toEqual({
         studentId: 'st-1',
         sessionId: 'sess-1',
         from: '/coach/students/st-1',
@@ -370,8 +371,20 @@ describe('<SessionReview />', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/coach/students/st-1');
     });
 
-    it('ignores an origin saved for another session', () => {
+    // Review item L13: the memory lasts one launch, and what the app before
+    // it left in localStorage is not read.
+    it('ignores an origin an earlier version saved in localStorage', () => {
       localStorage.setItem(
+        KEY,
+        JSON.stringify({ studentId: 'st-1', sessionId: 'sess-1', from: '/coach/students/st-1' }),
+      );
+      renderReview(REVIEW);
+      fireEvent.click(screen.getByLabelText('Back'));
+      expect(mockNavigate).toHaveBeenCalledWith('/coach/sessions');
+    });
+
+    it('ignores an origin saved for another session', () => {
+      sessionStorage.setItem(
         KEY,
         JSON.stringify({ studentId: 'st-9', sessionId: 'sess-9', from: '/coach/students/st-9' }),
       );
@@ -411,9 +424,9 @@ describe('<SessionReview />', () => {
     // coach back into this review afterwards.
     it('forgets the open review when it is used', () => {
       renderReview();
-      expect(localStorage.getItem('sl_last_coach_session')).not.toBeNull();
+      expect(sessionStorage.getItem('sl_last_coach_session')).not.toBeNull();
       fireEvent.click(screen.getByRole('link', { name: /open this session in the editor/i }));
-      expect(localStorage.getItem('sl_last_coach_session')).toBeNull();
+      expect(sessionStorage.getItem('sl_last_coach_session')).toBeNull();
     });
   });
 
@@ -639,7 +652,7 @@ describe('<SessionReview />', () => {
 
       fireEvent.click(screen.getByRole('button', { name: /back to sessions/i }));
       expect(mockNavigate).toHaveBeenCalledWith('/coach/students/st-1');
-      expect(localStorage.getItem('sl_last_coach_session')).toBeNull();
+      expect(sessionStorage.getItem('sl_last_coach_session')).toBeNull();
       // Leaving is not a completion gesture here: nothing is marked reviewed.
       expect(mockMarkReviewed.mutate).not.toHaveBeenCalled();
     });

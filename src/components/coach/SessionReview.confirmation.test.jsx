@@ -105,6 +105,7 @@ beforeEach(() => {
   server = { data: null, error: null };
   confirmationReads.mockReset();
   window.localStorage.clear();
+  window.sessionStorage.clear();
 });
 
 afterEach(() => {

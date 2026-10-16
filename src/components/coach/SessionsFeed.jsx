@@ -9,9 +9,11 @@ import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { performedDate } from '../../lib/day';
 import { formatDate } from '../../lib/i18n/format';
-
-const LAST_COACH_SESSION_KEY = 'sl_last_coach_session';
-const LAST_SESSIONS_STUDENT_KEY = 'sl_last_coach_sessions_student';
+import {
+  getLastCoachSession,
+  getLastCoachSessionsStudent,
+  rememberLastCoachSessionsStudent,
+} from '../../hooks/useRememberCoachStudentsPath';
 
 export default function SessionsFeed() {
   const { t, lang } = useI18n();
@@ -33,21 +35,19 @@ export default function SessionsFeed() {
 
   // If the coach left a review open and tabbed to another section, bounce
   // them back into that review on return. Explicit "back" on the review
-  // clears the saved state (see SessionReview).
+  // clears the saved state (see SessionReview), and so does a tap on the
+  // Sessions tab while it is open. The memory lasts one launch
+  // (hooks/useRememberCoachStudentsPath): a cold start opens on the feed.
   //
   // Not when they arrive for one athlete: that link names its destination,
   // and bouncing into whichever review was last left open — possibly another
   // athlete's — would make the chip land anywhere but on what it counts.
   useEffect(() => {
     if (arrivedForStudent) return;
-    let raw = null;
-    try { raw = localStorage.getItem(LAST_COACH_SESSION_KEY); } catch { /* ignore */ }
-    if (!raw) return;
-    let parsed;
-    try { parsed = JSON.parse(raw); } catch { return; }
-    if (!parsed?.studentId || !parsed?.sessionId) return;
+    const saved = getLastCoachSession();
+    if (!saved) return;
     navigate(
-      `/coach/student/${parsed.studentId}/session/${parsed.sessionId}/review`,
+      `/coach/student/${saved.studentId}/session/${saved.sessionId}/review`,
       { replace: true },
     );
     // Only run on mount — re-running on every render would fight the nested
@@ -60,11 +60,8 @@ export default function SessionsFeed() {
   // otherwise setSearchParams clobbers that redirect with /coach/sessions.
   useEffect(() => {
     if (studentFilter) return;
-    let hasSavedReview = false;
-    try { hasSavedReview = !!localStorage.getItem(LAST_COACH_SESSION_KEY); } catch { /* ignore */ }
-    if (hasSavedReview) return;
-    let saved = null;
-    try { saved = localStorage.getItem(LAST_SESSIONS_STUDENT_KEY); } catch { /* ignore */ }
+    if (getLastCoachSession()) return;
+    const saved = getLastCoachSessionsStudent();
     if (!saved) return;
     const next = new URLSearchParams(searchParams);
     next.set('student', saved);
@@ -119,10 +116,7 @@ export default function SessionsFeed() {
     if (value) next.set('student', value);
     else next.delete('student');
     setSearchParams(next, { replace: true });
-    try {
-      if (value) localStorage.setItem(LAST_SESSIONS_STUDENT_KEY, value);
-      else localStorage.removeItem(LAST_SESSIONS_STUDENT_KEY);
-    } catch { /* ignore */ }
+    rememberLastCoachSessionsStudent(value);
   }
 
   if (isLoading) {

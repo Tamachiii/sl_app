@@ -45,6 +45,7 @@ describe('SessionsFeed', () => {
     mockConfirmations = { data: [], isLoading: false };
     mockPositions = { data: undefined };
     localStorage.clear();
+    sessionStorage.clear();
   });
 
   it('renders loading spinner', () => {
@@ -355,7 +356,7 @@ describe('SessionsFeed', () => {
     }
 
     it('bounces into the saved review on mount', () => {
-      localStorage.setItem(KEY, JSON.stringify({ studentId: 's-1', sessionId: 'sess-1' }));
+      sessionStorage.setItem(KEY, JSON.stringify({ studentId: 's-1', sessionId: 'sess-1' }));
       renderWithReviewRoute();
       expect(screen.getByTestId('review')).toHaveTextContent('s-1/sess-1');
     });
@@ -369,7 +370,7 @@ describe('SessionsFeed', () => {
     // review that happened to be left open — another athlete's, possibly —
     // would make "2 to review" land anywhere but on those two sessions.
     it('does not bounce when the coach arrives for one athlete', () => {
-      localStorage.setItem(KEY, JSON.stringify({ studentId: 's-9', sessionId: 'sess-9' }));
+      sessionStorage.setItem(KEY, JSON.stringify({ studentId: 's-9', sessionId: 'sess-9' }));
       mockConfirmations = { data: [makeConfirmation()], isLoading: false };
       renderWithReviewRoute(['/coach/sessions?student=s-1']);
       expect(screen.queryByTestId('review')).not.toBeInTheDocument();
@@ -392,10 +393,88 @@ describe('SessionsFeed', () => {
       ['malformed JSON', '{ not json'],
       ['a missing sessionId', JSON.stringify({ studentId: 's-1' })],
       ['a missing studentId', JSON.stringify({ sessionId: 'sess-1' })],
+      ['ids that are not strings', JSON.stringify({ studentId: 1, sessionId: 2 })],
     ])('stays on the feed on %s', (_label, raw) => {
-      localStorage.setItem(KEY, raw);
+      sessionStorage.setItem(KEY, raw);
       renderWithReviewRoute();
       expect(screen.queryByTestId('review')).not.toBeInTheDocument();
+    });
+
+    // Review item L13: the review left open was where the Sessions tab opened
+    // on every launch, days later. It is kept for the launch only.
+    it('bounces within the launch, and not after a relaunch', () => {
+      sessionStorage.setItem(KEY, JSON.stringify({ studentId: 's-1', sessionId: 'sess-1' }));
+      const first = renderWithReviewRoute();
+      expect(screen.getByTestId('review')).toHaveTextContent('s-1/sess-1');
+      first.unmount();
+      // What a cold start of the app does: the tab's sessionStorage is new.
+      sessionStorage.clear();
+
+      renderWithReviewRoute();
+      expect(screen.queryByTestId('review')).not.toBeInTheDocument();
+    });
+
+    it('ignores a review an earlier version saved in localStorage', () => {
+      localStorage.setItem(KEY, JSON.stringify({ studentId: 's-1', sessionId: 'sess-1' }));
+      renderWithReviewRoute();
+      expect(screen.queryByTestId('review')).not.toBeInTheDocument();
+    });
+  });
+
+  // The athlete the coach filtered the feed on comes back with the feed, for
+  // the launch only.
+  describe('restoring the athlete filter', () => {
+    const FILTER_KEY = 'sl_last_coach_sessions_student';
+
+    beforeEach(() => {
+      mockConfirmations = {
+        data: [
+          makeConfirmation({ id: 'c-1', session_id: 's-a', student_id: 's-1', student_name: 'Alice', session_title: 'Alice Push' }),
+          makeConfirmation({ id: 'c-2', session_id: 's-b', student_id: 's-2', student_name: 'Bob', session_title: 'Bob Pull' }),
+        ],
+        isLoading: false,
+      };
+    });
+
+    it('keeps the athlete picked for the rest of the launch', async () => {
+      const user = userEvent.setup();
+      const first = renderFeed();
+      await user.selectOptions(screen.getByRole('combobox'), 's-2');
+      expect(sessionStorage.getItem(FILTER_KEY)).toBe('s-2');
+      expect(localStorage.getItem(FILTER_KEY)).toBeNull();
+      first.unmount();
+
+      renderFeed();
+      expect(screen.getByRole('combobox')).toHaveValue('s-2');
+      expect(screen.queryByText('Alice Push')).not.toBeInTheDocument();
+      expect(screen.getByText('Bob Pull')).toBeInTheDocument();
+    });
+
+    it('forgets it when the coach picks every athlete again', async () => {
+      const user = userEvent.setup();
+      sessionStorage.setItem(FILTER_KEY, 's-2');
+      renderFeed();
+      await user.selectOptions(screen.getByRole('combobox'), '');
+      expect(sessionStorage.getItem(FILTER_KEY)).toBeNull();
+    });
+
+    it('opens unfiltered after a relaunch', async () => {
+      const user = userEvent.setup();
+      const first = renderFeed();
+      await user.selectOptions(screen.getByRole('combobox'), 's-2');
+      first.unmount();
+      sessionStorage.clear();
+
+      renderFeed();
+      expect(screen.getByRole('combobox')).toHaveValue('');
+      expect(screen.getByText('Alice Push')).toBeInTheDocument();
+      expect(screen.getByText('Bob Pull')).toBeInTheDocument();
+    });
+
+    it('ignores a filter an earlier version saved in localStorage', () => {
+      localStorage.setItem(FILTER_KEY, 's-2');
+      renderFeed();
+      expect(screen.getByRole('combobox')).toHaveValue('');
     });
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter, Routes, Route, Navigate, useOutletContext } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, Navigate, useLocation, useOutletContext } from 'react-router-dom';
 
 let mockStudentsData = { data: null, isLoading: false };
 let mockSummary = { data: {} };
@@ -35,6 +35,12 @@ function SessionStub() {
   return <div data-testid="session-editor">session:{student.id}</div>;
 }
 
+// Where the router is, search included.
+function LocationProbe() {
+  const { pathname, search } = useLocation();
+  return <div data-testid="location">{pathname + search}</div>;
+}
+
 import CoachHome from './CoachHome';
 
 // Mirrors the real route tree: the athlete is ONE page, with every surface that
@@ -42,6 +48,7 @@ import CoachHome from './CoachHome';
 function renderCoachHome(path = '/coach/students') {
   return render(
     <MemoryRouter initialEntries={[path]}>
+      <LocationProbe />
       <Routes>
         <Route path="/coach/students" element={<CoachHome />} />
         <Route path="/coach/students/:studentId" element={<CoachHome />}>
@@ -75,6 +82,7 @@ const CALM_WEEK = [
 describe('CoachHome', () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     mockStudentsData = { data: null, isLoading: false };
     mockSummary = { data: {} };
     mockConfirmations = { data: [] };
@@ -462,11 +470,11 @@ describe('CoachHome', () => {
     });
 
     it('does not make the unknown athlete the place the Athletes tab returns to', () => {
-      localStorage.setItem(KEY, '/coach/students/s-1');
+      sessionStorage.setItem(KEY, '/coach/students/s-1');
       mockStudentsData = { data: [ALICE], isLoading: false };
       renderCoachHome('/coach/students/nobody');
 
-      expect(localStorage.getItem(KEY)).toBeNull();
+      expect(sessionStorage.getItem(KEY)).toBeNull();
     });
 
     it('remembers the next athlete opened after it', () => {
@@ -476,7 +484,7 @@ describe('CoachHome', () => {
       fireEvent.click(screen.getByRole('link', { name: /open alice/i }));
 
       expect(screen.getByTestId('overview')).toHaveTextContent('overview:s-1');
-      expect(localStorage.getItem(KEY)).toBe('/coach/students/s-1');
+      expect(sessionStorage.getItem(KEY)).toBe('/coach/students/s-1');
     });
   });
 
@@ -494,33 +502,75 @@ describe('CoachHome', () => {
 
     it('remembers the athlete', () => {
       renderCoachHome('/coach/students/s-1');
-      expect(localStorage.getItem(KEY)).toBe('/coach/students/s-1');
+      expect(sessionStorage.getItem(KEY)).toBe('/coach/students/s-1');
     });
 
     it('remembers the session editor under the athlete', () => {
       renderCoachHome('/coach/students/s-1/s/sess-1');
-      expect(localStorage.getItem(KEY)).toBe('/coach/students/s-1/s/sess-1');
+      expect(sessionStorage.getItem(KEY)).toBe('/coach/students/s-1/s/sess-1');
     });
 
     it('never remembers the roster itself', () => {
       renderCoachHome('/coach/students');
-      expect(localStorage.getItem(KEY)).toBeNull();
+      expect(sessionStorage.getItem(KEY)).toBeNull();
     });
 
     it('restores the athlete when returning to the roster route', () => {
-      localStorage.setItem(KEY, '/coach/students/s-1');
+      sessionStorage.setItem(KEY, '/coach/students/s-1');
       renderCoachHome('/coach/students');
       expect(screen.getByTestId('overview')).toHaveTextContent('overview:s-1');
     });
 
-    it('restores all the way back into the session editor', () => {
-      localStorage.setItem(KEY, '/coach/students/s-1/s/sess-1');
+    // Review item L13: the tab used to drop the coach back inside an editor
+    // left open hours before — of a session that may be gone since.
+    it('restores the athlete page, not the editor beneath it', () => {
+      sessionStorage.setItem(KEY, '/coach/students/s-1/s/sess-1');
       renderCoachHome('/coach/students');
-      expect(screen.getByTestId('session-editor')).toHaveTextContent('session:s-1');
+      expect(screen.getByTestId('overview')).toHaveTextContent('overview:s-1');
+      expect(screen.queryByTestId('session-editor')).toBeNull();
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/coach\/students\/s-1$/);
+    });
+
+    it('restores the block the athlete page was on', () => {
+      sessionStorage.setItem(KEY, '/coach/students/s-1?program=prog-2');
+      renderCoachHome('/coach/students');
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/coach\/students\/s-1\?program=prog-2$/);
+    });
+
+    // The memory lasts one launch. A detour inside the launch comes back to
+    // the athlete; a cold start opens on the attention-first roster.
+    describe('across a launch', () => {
+      it('comes back to the athlete within the same launch', () => {
+        const first = renderCoachHome('/coach/students/s-1');
+        first.unmount();
+
+        renderCoachHome('/coach/students');
+        expect(screen.getByTestId('overview')).toHaveTextContent('overview:s-1');
+      });
+
+      it('opens on the roster after a relaunch', () => {
+        const first = renderCoachHome('/coach/students/s-1/s/sess-1');
+        first.unmount();
+        // What a cold start of the app does: the tab's sessionStorage is new.
+        sessionStorage.clear();
+
+        renderCoachHome('/coach/students');
+        expect(screen.queryByTestId('overview')).toBeNull();
+        expect(screen.getByRole('link', { name: /open alice/i })).toBeInTheDocument();
+      });
+
+      // What the app before this change left behind must not send the first
+      // launch after the update into the athlete either.
+      it('ignores a place an earlier version saved in localStorage', () => {
+        localStorage.setItem(KEY, '/coach/students/s-1');
+        renderCoachHome('/coach/students');
+        expect(screen.queryByTestId('overview')).toBeNull();
+        expect(screen.getByRole('link', { name: /open alice/i })).toBeInTheDocument();
+      });
     });
 
     it('ignores a remembered athlete who is no longer on the roster', () => {
-      localStorage.setItem(KEY, '/coach/students/gone');
+      sessionStorage.setItem(KEY, '/coach/students/gone');
       renderCoachHome('/coach/students');
       expect(screen.queryByTestId('overview')).not.toBeInTheDocument();
       expect(screen.getByRole('link', { name: /open alice/i })).toBeInTheDocument();
@@ -529,7 +579,7 @@ describe('CoachHome', () => {
     it('"All athletes" clears the memory so the roster stays put', () => {
       renderCoachHome('/coach/students/s-1');
       fireEvent.click(screen.getByRole('link', { name: /all athletes/i }));
-      expect(localStorage.getItem(KEY)).toBeNull();
+      expect(sessionStorage.getItem(KEY)).toBeNull();
       expect(screen.getByRole('link', { name: /open alice/i })).toBeInTheDocument();
     });
   });

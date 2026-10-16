@@ -21,6 +21,7 @@ import {
   getLastCoachStudentsPath,
   clearLastCoachStudentsPath,
   studentIdFromPath,
+  athletePageOf,
 } from '../../hooks/useRememberCoachStudentsPath';
 
 function initialsOf(fullName) {
@@ -322,22 +323,25 @@ export default function CoachHome() {
   // Remember the athlete (and the session editor under them) so leaving for
   // another nav tab and tapping Athletes again comes back here instead of
   // dumping the coach on the roster. One call covers the editor too: it renders
-  // in this component's Outlet, so useLocation() already sees its URL.
+  // in this component's Outlet, so useLocation() already sees its URL. The
+  // memory lasts one launch: a cold start opens on the roster.
   useRememberCoachStudentsPath();
   // …but never an athlete who is not there, or every tap on Athletes would
   // open this "not found" again.
   useForgetCoachStudentsPath(unknownAthlete);
 
-  // …and restore it when we land on the bare roster route. Skipped when the
-  // remembered athlete is no longer on the roster, so we never navigate into a
-  // dead URL.
+  // …and restore it when we land on the bare roster route: the ATHLETE PAGE
+  // of what was remembered, never the session editor beneath it. Skipped when
+  // the remembered athlete is no longer on the roster, so we never navigate
+  // into a dead URL. "‹ All athletes" and a tap on the Athletes tab while it is
+  // open both clear the memory first, which is what keeps the roster on screen.
   useEffect(() => {
     if (studentId || isLoading) return;
-    const saved = getLastCoachStudentsPath();
-    const savedStudentId = studentIdFromPath(saved);
+    const target = athletePageOf(getLastCoachStudentsPath());
+    const savedStudentId = studentIdFromPath(target);
     if (!savedStudentId) return;
     if (!(students || []).some((s) => s.id === savedStudentId)) return;
-    navigate(saved, { replace: true });
+    navigate(target, { replace: true });
   }, [studentId, isLoading, students, navigate]);
 
   // ONE header, not two. On an athlete the page header *is* the athlete: the
