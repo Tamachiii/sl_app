@@ -1,119 +1,206 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { isPushSupported, pushPermission, getActivePushSubscription } from '../lib/pushNotifications';
 import { useAuth } from './useAuth';
 import { useRestTimer } from './useRestTimer';
 
-// Bridges the in-app rest-timer singleton to a server-scheduled Web Push.
+// Bridges the in-app rest-timer singleton to a "Rest done" Web Push, for the
+// phone in a pocket: the beep and the wake lock (useRestTimerEffects) only
+// work while the app is in front.
 //
-// While a rest timer is active AND push notifications are enabled for
-// this device, we:
+// While a rest runs and THIS DEVICE has notifications on, the hook asks the
+// database for one push, in one request:
 //
-//   1. INSERT a `scheduled_pushes` row with `fire_at = endsAt` and a
-//      payload describing the "Rest done" notification.
-//   2. Invoke the `dispatch-rest-push` Edge Function so it sleeps until
-//      fire_at and delivers the push via web-push (VAPID-signed).
-//   3. When the rest timer is cleared/replaced or the user leaves
-//      SessionView, UPDATE the row's canceled_at so the function aborts
-//      delivery on its late-cancellation check.
+//   schedule_rest_push(p_seconds, p_payload, p_endpoint)  → { id, fire_at, mode }
 //
-// Caps:
+//   • p_seconds   the whole seconds the rest has left, counted right before
+//                 the request leaves. The server adds them to its own clock:
+//                 a phone whose clock is wrong rings on time all the same.
+//                 1 to 900 — what the database accepts; a rest outside that
+//                 asks for nothing and keeps its in-app cue.
+//   • p_payload   what the notification shows, under the tag the worker
+//                 knows (rest-timer).
+//   • p_endpoint  this device's subscription. The push rings here, and only
+//                 here: without it every phone and laptop of the account
+//                 would ring for a rest taken on one of them.
 //
-//   • Delays longer than ~5 min are skipped client-side because the Edge
-//     Function's wall-time limit (400s) won't survive them. Most rest
-//     periods are well under this; the in-foreground beep + wake-lock
-//     side-effect path still covers everything regardless.
-//   • If the device doesn't have an active push subscription (user
-//     hasn't enabled the toggle), this hook is a no-op.
+//   mode 'cron'   the database's job sends it; nothing more to do.
+//   anything else ('edge', or no answer about it): nobody sends unless the
+//                 app calls the dispatch-rest-push Edge Function with the id.
+//                 Calling it when the job does run costs one call and never a
+//                 second push — every sender claims the row first.
+//
+// Every change of the rest takes its push back with cancel_rest_push(id) —
+// Undo, Skip, the next set, "+30 s" (which schedules the new end), the shell
+// going away — and so does a rest that ends while its push is being
+// scheduled, as soon as the id is known. The next schedule also closes every
+// row the account still had waiting, so a cancel that never arrives, or a
+// rest taken back after the app was killed, leaves no second push behind.
+// For the same reason the schedule requests leave one after the other: of
+// two that cross, the row kept is the one of the request that arrives last.
+//
+// A database without those functions (migration 16 not applied: PGRST202)
+// gets what the app did before — the row inserted with the phone's end time,
+// the Edge Function invoked, the row stamped canceled_at to take it back.
+// Only that answer falls back. A refusal (device_not_registered,
+// rest_seconds_out_of_range, payload_invalid, not authorized) or no answer at
+// all schedules nothing: the old insert names no device, and would ring every
+// device of the account.
+//
+// Offline, nothing is asked: the request would wait for a network, and the
+// server would count the seconds from whenever it arrived.
 
-const MAX_DELAY_MS = 350_000; // mirrors the Edge Function clamp
+/** The longest rest the database schedules a push for (schedule_rest_push). */
+export const MAX_REST_PUSH_SECONDS = 900;
 
-async function hasActiveSubscription() {
-  if (!isPushSupported() || pushPermission() !== 'granted') return false;
-  const sub = await getActivePushSubscription();
-  return !!sub;
+// PostgREST's answer for a function the database does not have.
+const NO_SUCH_FUNCTION = 'PGRST202';
+
+const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
+
+// The endpoint of this device's push subscription, or null when the device
+// has none the app may use: no push here, permission not granted, nothing
+// subscribed.
+async function deviceEndpoint() {
+  if (!isPushSupported() || pushPermission() !== 'granted') return null;
+  const subscription = await getActivePushSubscription();
+  const endpoint = subscription?.endpoint;
+  return typeof endpoint === 'string' && endpoint !== '' ? endpoint : null;
 }
 
-async function scheduleRestPush({ userId, endsAt }) {
-  const fireAt = new Date(endsAt).toISOString();
-  const payload = {
-    title: 'Rest done',
-    body: 'Time for your next set.',
-    tag: 'rest-timer',
-    data: { url: `${import.meta.env.BASE_URL || '/'}#/student` },
-  };
+const REST_PUSH_PAYLOAD = {
+  title: 'Rest done',
+  body: 'Time for your next set.',
+  tag: 'rest-timer',
+  data: { url: `${import.meta.env.BASE_URL || '/'}#/student` },
+};
+
+// The whole seconds left until `endsAt`, rounded up so the push is never
+// early — or null when that is not a rest the database schedules.
+function secondsUntil(endsAt) {
+  const seconds = Math.ceil((endsAt - Date.now()) / 1000);
+  return seconds >= 1 && seconds <= MAX_REST_PUSH_SECONDS ? seconds : null;
+}
+
+function dispatch(scheduleId) {
+  // Fire and forget: the function answers 202 and does the waiting. A call
+  // that fails is a rest without its push — the in-app cue still rings.
+  Promise.resolve()
+    .then(() => supabase.functions.invoke('dispatch-rest-push', { body: { scheduleId } }))
+    .catch(() => {});
+}
+
+// What the app did before migration 16: the row written with the phone's end
+// time, which only the Edge Function sends.
+async function scheduleTheOldWay({ userId, endsAt, payload }) {
   const { data, error } = await supabase
     .from('scheduled_pushes')
-    .insert({ user_id: userId, fire_at: fireAt, payload })
+    .insert({ user_id: userId, fire_at: new Date(endsAt).toISOString(), payload })
     .select('id')
     .maybeSingle();
-  if (error || !data) throw error || new Error('insert failed');
+  if (error || !data?.id) return null;
+  return { id: data.id, needsDispatch: true };
+}
 
-  // Fire-and-forget invocation. The function sleeps until fire_at and
-  // delivers; we don't await it. Errors here are logged but non-fatal —
-  // if the function can't be reached, the schedule row stays 'pending'.
-  supabase.functions
-    .invoke('dispatch-rest-push', { body: { scheduleId: data.id } })
-    .catch(() => {
-      // No-op: dispatch failures are visible in the function logs;
-      // the user still has the in-app beep as a fallback.
-    });
+// How long a schedule request waits for the one before it to be answered.
+export const PREVIOUS_REQUEST_WAIT_MS = 5_000;
 
-  return data.id;
+// The schedule request sent last, by any mount of the hook — settled once it
+// is answered.
+let lastRequest = Promise.resolve();
+
+function waitAtMost(promise, ms) {
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+// `send`, once the request before it is answered. schedule_rest_push closes
+// every row the account still has waiting before it writes its own: a
+// request of the rest before, overtaken by the next rest's, would close the
+// new row — and then be taken back itself, leaving the new rest with no push.
+// Not for ever: a request that gets no answer must not keep the next rest
+// from its push.
+function inTurn(send) {
+  const mine = waitAtMost(lastRequest, PREVIOUS_REQUEST_WAIT_MS).then(send);
+  lastRequest = mine.then(
+    () => {},
+    () => {},
+  );
+  return mine;
+}
+
+// The push scheduled for this rest — its id, and whether the app has to call
+// the Edge Function for it to be sent — or null when none was.
+async function scheduleRestPush({ userId, endsAt, payload, endpoint }) {
+  const seconds = secondsUntil(endsAt);
+  if (seconds == null || isOffline()) return null;
+  const { data, error } = await supabase.rpc('schedule_rest_push', {
+    p_seconds: seconds,
+    p_payload: payload,
+    p_endpoint: endpoint,
+  });
+  if (error) {
+    return error.code === NO_SUCH_FUNCTION ? scheduleTheOldWay({ userId, endsAt, payload }) : null;
+  }
+  if (!data?.id) return null;
+  return { id: data.id, needsDispatch: data.mode !== 'cron' };
 }
 
 async function cancelRestPush(scheduleId) {
   if (!scheduleId) return;
-  await supabase
-    .from('scheduled_pushes')
-    .update({ canceled_at: new Date().toISOString() })
-    .eq('id', scheduleId)
-    .eq('status', 'pending');
+  try {
+    const { error } = await supabase.rpc('cancel_rest_push', { p_id: scheduleId });
+    if (error?.code !== NO_SUCH_FUNCTION) return;
+    await supabase
+      .from('scheduled_pushes')
+      .update({ canceled_at: new Date().toISOString() })
+      .eq('id', scheduleId)
+      .eq('status', 'pending');
+  } catch {
+    // Not taken back: the next rest's schedule closes it, or it rings.
+  }
 }
 
 export function useRestTimerPush() {
   const { user } = useAuth();
   const userId = user?.id;
   const { endsAt, logId } = useRestTimer();
-  const scheduleIdRef = useRef(null);
-  const lastKeyRef = useRef(null);
 
   useEffect(() => {
     if (!userId || endsAt == null) return undefined;
-
-    const key = `${logId}:${endsAt}`;
-    if (lastKeyRef.current === key) return undefined;
-    lastKeyRef.current = key;
-
-    const delay = endsAt - Date.now();
-    if (delay <= 0 || delay > MAX_DELAY_MS) return undefined;
+    if (secondsUntil(endsAt) == null) return undefined;
 
     let cancelled = false;
-    let myScheduleId = null;
+    let scheduleId = null;
 
     (async () => {
       try {
-        const active = await hasActiveSubscription();
-        if (!active || cancelled) return;
-        const id = await scheduleRestPush({ userId, endsAt });
+        const endpoint = await deviceEndpoint();
+        if (!endpoint || cancelled) return;
+        // A rest that changed while the request before was in flight asks
+        // for nothing.
+        const scheduled = await inTurn(() =>
+          cancelled ? null : scheduleRestPush({ userId, endsAt, payload: REST_PUSH_PAYLOAD, endpoint }),
+        );
+        if (!scheduled) return;
         if (cancelled) {
-          cancelRestPush(id);
+          // The rest ended while its push was being scheduled.
+          cancelRestPush(scheduled.id);
           return;
         }
-        myScheduleId = id;
-        scheduleIdRef.current = id;
+        scheduleId = scheduled.id;
+        if (scheduled.needsDispatch) dispatch(scheduled.id);
       } catch {
-        // Schedule failure is non-fatal — in-app cue still fires.
+        // Not scheduled: the in-app cue still rings.
       }
     })();
 
     return () => {
       cancelled = true;
-      const id = myScheduleId || scheduleIdRef.current;
-      if (id) {
-        cancelRestPush(id);
-        if (scheduleIdRef.current === id) scheduleIdRef.current = null;
-      }
+      if (scheduleId) cancelRestPush(scheduleId);
     };
   }, [userId, endsAt, logId]);
 }
