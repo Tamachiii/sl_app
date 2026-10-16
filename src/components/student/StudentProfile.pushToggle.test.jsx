@@ -16,6 +16,7 @@ vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({
     user: { id: 'u-1', email: 'ada@example.com' },
     profile: { id: 'u-1', role: 'student', full_name: 'Ada Lovelace' },
+    signIn: vi.fn(async () => ({ error: null })),
     signOut: vi.fn(),
     updateProfile: vi.fn(async () => ({ error: null })),
     updatePassword: vi.fn(async () => ({ error: null })),

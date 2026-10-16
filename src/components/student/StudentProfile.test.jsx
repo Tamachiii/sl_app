@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -18,6 +18,7 @@ beforeAll(() => {
 const mockNavigate = vi.fn();
 const mockUpdateProfile = vi.fn(async () => ({ error: null }));
 const mockUpdatePassword = vi.fn(async () => ({ error: null }));
+const mockSignIn = vi.fn(async () => ({ error: null }));
 const mockSignOut = vi.fn();
 
 vi.mock('react-router-dom', async () => {
@@ -29,6 +30,7 @@ vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({
     user: { id: 'u-1', email: 'ada@example.com' },
     profile: { id: 'u-1', role: 'student', full_name: 'Ada Lovelace' },
+    signIn: mockSignIn,
     signOut: mockSignOut,
     updateProfile: mockUpdateProfile,
     updatePassword: mockUpdatePassword,
@@ -69,6 +71,7 @@ vi.mock('../../hooks/useOnlineStatus', () => ({
 // which are wrapped by renderProfile below.
 
 import StudentProfile from './StudentProfile';
+import recheck from '../../lib/i18n/fragments/profile-password-recheck.en';
 
 // `entries`: the tab's history, the profile last. Left out, the profile is the
 // first entry of the tab — a link, a cold start of the installed app.
@@ -90,6 +93,8 @@ function renderProfile({ entries } = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockSignIn.mockImplementation(async () => ({ error: null }));
+  mockUpdatePassword.mockImplementation(async () => ({ error: null }));
   mockCoach = { data: { id: 'c-1', full_name: 'Alan Turing' } };
   mockGoals = { data: [{ id: 'g-1', achieved: false, exercise: { name: 'Front Lever' }, notes: 'Hold 5s clean' }] };
   mockStats = { data: { sessionsCompleted: 12, setsDone: 87, totalVolumeKg: 4250 }, isLoading: false };
@@ -205,41 +210,207 @@ describe('StudentProfile', () => {
     return within(dialog);
   }
 
-  it('change-password dialog: rejects passwords shorter than 8 characters', async () => {
-    const user = userEvent.setup();
-    renderProfile();
-    const dlg = await openPasswordDialog(user);
-    const inputs = dlg.getAllByLabelText(/password/i, { selector: 'input' });
-    await user.type(inputs[0], 'short');
-    await user.type(inputs[1], 'short');
-    await user.click(dlg.getByRole('button', { name: /^save$/i, hidden: true }));
-    expect(await dlg.findByText(/at least 8 characters/i)).toBeInTheDocument();
-    expect(mockUpdatePassword).not.toHaveBeenCalled();
-  });
+  // The three fields by their labels, any of them left out stays empty.
+  async function fillPasswordForm(user, dlg, { current, next, confirm }) {
+    if (current) await user.type(dlg.getByLabelText('Current password', { selector: 'input' }), current);
+    if (next) await user.type(dlg.getByLabelText('New password', { selector: 'input' }), next);
+    if (confirm) await user.type(dlg.getByLabelText('Confirm new password', { selector: 'input' }), confirm);
+  }
 
-  it('change-password dialog: rejects mismatched passwords', async () => {
-    const user = userEvent.setup();
-    renderProfile();
-    const dlg = await openPasswordDialog(user);
-    const inputs = dlg.getAllByLabelText(/password/i, { selector: 'input' });
-    await user.type(inputs[0], 'longenough1');
-    await user.type(inputs[1], 'differentpw1');
-    await user.click(dlg.getByRole('button', { name: /^save$/i, hidden: true }));
-    expect(await dlg.findByText(/don.?t match/i)).toBeInTheDocument();
-    expect(mockUpdatePassword).not.toHaveBeenCalled();
-  });
+  function saveButton(dlg) {
+    return dlg.getByRole('button', { name: /^(save|saving…?)$/i, hidden: true });
+  }
 
-  it('change-password dialog: success path calls updatePassword and shows confirmation', async () => {
-    const user = userEvent.setup();
-    renderProfile();
-    const dlg = await openPasswordDialog(user);
-    const inputs = dlg.getAllByLabelText(/password/i, { selector: 'input' });
-    await user.type(inputs[0], 'longenough1');
-    await user.type(inputs[1], 'longenough1');
-    await user.click(dlg.getByRole('button', { name: /^save$/i, hidden: true }));
-    await waitFor(() => {
-      expect(mockUpdatePassword).toHaveBeenCalledWith('longenough1');
+  // What auth-js hands back for a wrong password (GoTrue's `invalid_credentials`).
+  const wrongPassword = () =>
+    Object.assign(new Error('Invalid login credentials'), {
+      name: 'AuthApiError',
+      status: 400,
+      code: 'invalid_credentials',
     });
+
+  it('change-password dialog: asks for the current password first, as a current-password field', async () => {
+    const user = userEvent.setup();
+    renderProfile();
+    const dlg = await openPasswordDialog(user);
+    const inputs = dlg.getAllByLabelText(/password/i, { selector: 'input' });
+    expect(inputs).toHaveLength(3);
+    expect(inputs[0]).toBe(dlg.getByLabelText('Current password', { selector: 'input' }));
+    expect(inputs[0]).toHaveAttribute('type', 'password');
+    expect(inputs[0]).toHaveAttribute('autocomplete', 'current-password');
+  });
+
+  it('change-password dialog: rejects passwords shorter than 8 characters, without a sign-in', async () => {
+    const user = userEvent.setup();
+    renderProfile();
+    const dlg = await openPasswordDialog(user);
+    await fillPasswordForm(user, dlg, { current: 'oldpassword1', next: 'short', confirm: 'short' });
+    await user.click(saveButton(dlg));
+    expect(await dlg.findByText(/at least 8 characters/i)).toBeInTheDocument();
+    expect(mockSignIn).not.toHaveBeenCalled();
+    expect(mockUpdatePassword).not.toHaveBeenCalled();
+  });
+
+  it('change-password dialog: rejects mismatched passwords, without a sign-in', async () => {
+    const user = userEvent.setup();
+    renderProfile();
+    const dlg = await openPasswordDialog(user);
+    await fillPasswordForm(user, dlg, { current: 'oldpassword1', next: 'longenough1', confirm: 'differentpw1' });
+    await user.click(saveButton(dlg));
+    expect(await dlg.findByText(/don.?t match/i)).toBeInTheDocument();
+    expect(mockSignIn).not.toHaveBeenCalled();
+    expect(mockUpdatePassword).not.toHaveBeenCalled();
+  });
+
+  it('change-password dialog: without the current password nothing is sent', async () => {
+    const user = userEvent.setup();
+    renderProfile();
+    const dlg = await openPasswordDialog(user);
+    await fillPasswordForm(user, dlg, { next: 'longenough1', confirm: 'longenough1' });
+    await user.click(saveButton(dlg));
+    // The field is `required`: a browser stops the submit itself, the dialog
+    // says so when one does not.
+    expect(mockSignIn).not.toHaveBeenCalled();
+    expect(mockUpdatePassword).not.toHaveBeenCalled();
+  });
+
+  it('change-password dialog: a wrong current password is refused and the password is not changed', async () => {
+    mockSignIn.mockImplementation(async () => ({ error: wrongPassword() }));
+    const user = userEvent.setup();
+    renderProfile();
+    const dlg = await openPasswordDialog(user);
+    await fillPasswordForm(user, dlg, { current: 'notmypassword', next: 'longenough1', confirm: 'longenough1' });
+    await user.click(saveButton(dlg));
+    expect(await dlg.findByText(recheck.profilePasswordRecheck.currentWrong)).toBeInTheDocument();
+    expect(mockSignIn).toHaveBeenCalledWith('ada@example.com', 'notmypassword');
+    expect(mockUpdatePassword).not.toHaveBeenCalled();
+    // The form stays, ready for another try.
+    expect(dlg.queryByText(/password updated/i)).not.toBeInTheDocument();
+    expect(saveButton(dlg)).toBeEnabled();
+    expect(dlg.getByLabelText('New password', { selector: 'input' })).toHaveValue('longenough1');
+  });
+
+  it('change-password dialog: the right current password is checked first, then the new one is set', async () => {
+    const user = userEvent.setup();
+    renderProfile();
+    const dlg = await openPasswordDialog(user);
+    await fillPasswordForm(user, dlg, { current: 'oldpassword1', next: 'longenough1', confirm: 'longenough1' });
+    await user.click(saveButton(dlg));
     expect(await dlg.findByText(/password updated/i)).toBeInTheDocument();
+    expect(mockSignIn).toHaveBeenCalledTimes(1);
+    expect(mockSignIn).toHaveBeenCalledWith('ada@example.com', 'oldpassword1');
+    expect(mockUpdatePassword).toHaveBeenCalledTimes(1);
+    expect(mockUpdatePassword).toHaveBeenCalledWith('longenough1');
+    expect(mockSignIn.mock.invocationCallOrder[0]).toBeLessThan(
+      mockUpdatePassword.mock.invocationCallOrder[0],
+    );
+  });
+
+  it.each([
+    ['no network', () => Object.assign(new Error('Failed to fetch'), { name: 'AuthRetryableFetchError', status: 0 })],
+    ['a rate limit', () => Object.assign(new Error('Request rate limit reached'), {
+      name: 'AuthApiError', status: 429, code: 'over_request_rate_limit',
+    })],
+    ['a refusal of another kind', () => Object.assign(new Error('Email not confirmed'), {
+      name: 'AuthApiError', status: 400, code: 'email_not_confirmed',
+    })],
+  ])('change-password dialog: a check that fails on %s is not called a wrong password, and changes nothing', async (_label, makeError) => {
+    mockSignIn.mockImplementation(async () => ({ error: makeError() }));
+    const user = userEvent.setup();
+    renderProfile();
+    const dlg = await openPasswordDialog(user);
+    await fillPasswordForm(user, dlg, { current: 'oldpassword1', next: 'longenough1', confirm: 'longenough1' });
+    await user.click(saveButton(dlg));
+    expect(await dlg.findByText(recheck.profilePasswordRecheck.checkFailed)).toBeInTheDocument();
+    expect(dlg.queryByText(recheck.profilePasswordRecheck.currentWrong)).not.toBeInTheDocument();
+    expect(mockUpdatePassword).not.toHaveBeenCalled();
+    expect(saveButton(dlg)).toBeEnabled();
+  });
+
+  it('change-password dialog: a check that throws leaves the form usable', async () => {
+    mockSignIn.mockImplementation(async () => {
+      throw new Error('boom');
+    });
+    const user = userEvent.setup();
+    renderProfile();
+    const dlg = await openPasswordDialog(user);
+    await fillPasswordForm(user, dlg, { current: 'oldpassword1', next: 'longenough1', confirm: 'longenough1' });
+    await user.click(saveButton(dlg));
+    expect(await dlg.findByText(recheck.profilePasswordRecheck.checkFailed)).toBeInTheDocument();
+    expect(mockUpdatePassword).not.toHaveBeenCalled();
+    expect(saveButton(dlg)).toBeEnabled();
+  });
+
+  it('change-password dialog: a refused update after a good check says so and keeps the dialog open', async () => {
+    mockUpdatePassword.mockImplementation(async () => ({
+      error: Object.assign(new Error('New password should be different from the old password.'), {
+        status: 422, code: 'same_password',
+      }),
+    }));
+    const user = userEvent.setup();
+    renderProfile();
+    const dlg = await openPasswordDialog(user);
+    await fillPasswordForm(user, dlg, { current: 'oldpassword1', next: 'oldpassword1', confirm: 'oldpassword1' });
+    await user.click(saveButton(dlg));
+    expect(await dlg.findByText(/should be different/i)).toBeInTheDocument();
+    expect(mockSignIn).toHaveBeenCalledTimes(1);
+    expect(dlg.queryByText(/password updated/i)).not.toBeInTheDocument();
+    expect(saveButton(dlg)).toBeEnabled();
+  });
+
+  it('change-password dialog: one check at a time, however many taps', async () => {
+    let answer;
+    mockSignIn.mockImplementation(() => new Promise((resolve) => { answer = resolve; }));
+    const user = userEvent.setup();
+    renderProfile();
+    const dlg = await openPasswordDialog(user);
+    await fillPasswordForm(user, dlg, { current: 'oldpassword1', next: 'longenough1', confirm: 'longenough1' });
+    const form = dlg.getByLabelText('Current password', { selector: 'input' }).closest('form');
+    await user.click(saveButton(dlg));
+    // The button is disabled while the check runs; a submit by the keyboard
+    // is held as well.
+    expect(saveButton(dlg)).toBeDisabled();
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    expect(mockSignIn).toHaveBeenCalledTimes(1);
+    answer({ error: null });
+    expect(await dlg.findByText(/password updated/i)).toBeInTheDocument();
+    expect(mockUpdatePassword).toHaveBeenCalledTimes(1);
+  });
+
+  it('change-password dialog: Cancel while the current password is being checked changes nothing', async () => {
+    let answer;
+    mockSignIn.mockImplementation(() => new Promise((resolve) => { answer = resolve; }));
+    const user = userEvent.setup();
+    renderProfile();
+    let dlg = await openPasswordDialog(user);
+    await fillPasswordForm(user, dlg, { current: 'oldpassword1', next: 'longenough1', confirm: 'longenough1' });
+    await user.click(saveButton(dlg));
+    await user.click(dlg.getByRole('button', { name: /^cancel$/i, hidden: true }));
+    await act(async () => {
+      answer({ error: null });
+    });
+    expect(mockUpdatePassword).not.toHaveBeenCalled();
+    // Opened again, the form is the empty one, not a late "Password updated."
+    dlg = await openPasswordDialog(user);
+    expect(dlg.queryByText(/password updated/i)).not.toBeInTheDocument();
+    expect(dlg.getByLabelText('Current password', { selector: 'input' })).toHaveValue('');
+    expect(saveButton(dlg)).toBeEnabled();
+  });
+
+  it('change-password dialog: closed and opened again, every field is empty', async () => {
+    mockSignIn.mockImplementation(async () => ({ error: wrongPassword() }));
+    const user = userEvent.setup();
+    renderProfile();
+    let dlg = await openPasswordDialog(user);
+    await fillPasswordForm(user, dlg, { current: 'notmypassword', next: 'longenough1', confirm: 'longenough1' });
+    await user.click(saveButton(dlg));
+    await dlg.findByText(recheck.profilePasswordRecheck.currentWrong);
+    await user.click(dlg.getByRole('button', { name: /^cancel$/i, hidden: true }));
+    dlg = await openPasswordDialog(user);
+    expect(dlg.getByLabelText('Current password', { selector: 'input' })).toHaveValue('');
+    expect(dlg.getByLabelText('New password', { selector: 'input' })).toHaveValue('');
+    expect(dlg.getByLabelText('Confirm new password', { selector: 'input' })).toHaveValue('');
+    expect(dlg.queryByText(recheck.profilePasswordRecheck.currentWrong)).not.toBeInTheDocument();
   });
 });

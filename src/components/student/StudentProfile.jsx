@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Spinner from '../ui/Spinner';
 import Dialog from '../ui/Dialog';
@@ -32,16 +32,39 @@ function StatTile({ label, value, mono = true }) {
   );
 }
 
+// A wrong password, as GoTrue says it: the code `invalid_credentials`, or a
+// bare 400 from a server that predates error codes. A rate limit (429), no
+// network (`AuthRetryableFetchError`) or any other refusal says nothing about
+// the password, and must not be reported as "wrong".
+function isWrongPassword(error) {
+  if (error?.code) return error.code === 'invalid_credentials';
+  return error?.status === 400;
+}
+
+// Whoever holds an unlocked phone holds the session; the current password is
+// the proof that it is the athlete. It is checked with a sign-in of the same
+// account (`signIn` of `useAuth`): auth-js announces it as a SIGNED_IN of the
+// account that is already signed in, which the provider does not act on, and a
+// failed one leaves the session as it was. Server-side re-authentication
+// ("Secure password change") stays off: it sends a code by e-mail.
 function ChangePasswordDialog({ open, onClose }) {
   const { t } = useI18n();
-  const { updatePassword } = useAuth();
+  const { user, signIn, updatePassword } = useAuth();
+  const [current, setCurrent] = useState('');
   const [pw, setPw] = useState('');
   const [pw2, setPw2] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+  // One number per submit, moved on by a close as well: an answer that comes
+  // back to a dialog closed since is dropped, and a check that was still on
+  // its way when the athlete cancelled goes no further — Cancel means no
+  // change. A change already sent cannot be called back.
+  const attempt = useRef(0);
+  const inFlight = useRef(false);
 
   function reset() {
+    setCurrent('');
     setPw('');
     setPw2('');
     setErr('');
@@ -50,13 +73,22 @@ function ChangePasswordDialog({ open, onClose }) {
   }
 
   function handleClose() {
+    attempt.current += 1;
+    inFlight.current = false;
     reset();
     onClose();
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (inFlight.current) return;
     setErr('');
+    // Everything that needs no network first: a new password that would be
+    // refused must not cost a sign-in attempt.
+    if (!current) {
+      setErr(t('profilePasswordRecheck.currentMissing'));
+      return;
+    }
     if (pw.length < 8) {
       setErr(t('student.profile.account.pwTooShort'));
       return;
@@ -65,14 +97,45 @@ function ChangePasswordDialog({ open, onClose }) {
       setErr(t('student.profile.account.pwMismatch'));
       return;
     }
-    setBusy(true);
-    const { error } = await updatePassword(pw);
-    setBusy(false);
-    if (error) {
-      setErr(error.message || t('student.profile.account.pwError'));
+    const email = user?.email;
+    if (!email) {
+      setErr(t('profilePasswordRecheck.checkFailed'));
       return;
     }
-    setDone(true);
+    const mine = ++attempt.current;
+    const ours = () => attempt.current === mine;
+    inFlight.current = true;
+    setBusy(true);
+    let checked = false;
+    try {
+      const { error: checkError } = await signIn(email, current);
+      if (!ours()) return;
+      if (checkError) {
+        if (isWrongPassword(checkError)) setErr(t('profilePasswordRecheck.currentWrong'));
+        else setErr(t('profilePasswordRecheck.checkFailed'));
+        return;
+      }
+      checked = true;
+      const { error } = await updatePassword(pw);
+      if (!ours()) return;
+      if (error) {
+        setErr(error.message || t('student.profile.account.pwError'));
+        return;
+      }
+      setCurrent('');
+      setPw('');
+      setPw2('');
+      setDone(true);
+    } catch {
+      if (!ours()) return;
+      if (checked) setErr(t('student.profile.account.pwError'));
+      else setErr(t('profilePasswordRecheck.checkFailed'));
+    } finally {
+      if (ours()) {
+        inFlight.current = false;
+        setBusy(false);
+      }
+    }
   }
 
   return (
@@ -91,6 +154,17 @@ function ChangePasswordDialog({ open, onClose }) {
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-3">
+          <label className="block">
+            <span className="sl-label text-ink-400 block mb-1">{t('profilePasswordRecheck.currentPassword')}</span>
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+              required
+              className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+            />
+          </label>
           <label className="block">
             <span className="sl-label text-ink-400 block mb-1">{t('student.profile.account.newPassword')}</span>
             <input
