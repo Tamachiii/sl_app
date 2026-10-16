@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { flattenSessions, buildQueue, buildDayStrip } from './sessionQueue';
-import { parseISODate } from './day';
+import { addDays, isoDate, parseISODate } from './day';
+import { inTimeZone, ZONES } from '../test/inTimeZone';
 
 const prog = { id: 'p-1', name: 'Block', sort_order: 0, is_active: true };
 
@@ -115,12 +116,12 @@ describe('buildQueue', () => {
   });
 
   describe('activity figures', () => {
-    const now = new Date('2026-08-20T12:00:00Z');
-    const at = (daysAgo) => {
-      const d = new Date(now);
-      d.setDate(d.getDate() - daysAgo);
-      return d.toISOString();
-    };
+    // Noon on Thursday 20 August, on the device — built from local parts, so
+    // the day is the 20th in whatever zone the suite runs.
+    const now = new Date(2026, 7, 20, 12);
+    // What `sync_session_performed_at` writes for a session trained `daysAgo`
+    // days before `now`: that day, as midnight UTC.
+    const at = (daysAgo) => `${isoDate(addDays(now, -daysAgo))}T00:00:00+00:00`;
 
     it('measures staleness from the most recent REAL training date', () => {
       const weeks = [
@@ -130,7 +131,8 @@ describe('buildQueue', () => {
         ]),
       ];
       const q = buildQueue(weeks, new Set(['old', 'recent']), { now });
-      expect(q.lastPerformedAt).toBe(at(3));
+      // The day trained, at local midnight.
+      expect(q.lastPerformedAt).toEqual(new Date(2026, 7, 17));
       expect(q.daysSinceLast).toBe(3);
     });
 
@@ -236,5 +238,57 @@ describe('buildDayStrip', () => {
     const slots = strip({ sessions: [], upcoming: [] });
     expect(slots.map((s) => s.dayNumber)).toEqual([1, 2, 3, 4, 5, 6, 7]);
     expect(slots.every((s) => s.state === 'rest')).toBe(true);
+  });
+});
+
+// `sessions.performed_at` is the day trained stored as midnight UTC. Read as
+// an instant it is the evening before west of Greenwich: a Monday session sat
+// on the previous Sunday of the strip, and a session of today read "yesterday".
+// Each case builds its dates inside the zone, from local parts.
+describe('a training date in every time zone', () => {
+  const trainedOn = (iso) => `${iso}T00:00:00+00:00`;
+
+  describe.each(ZONES)('%s', (zone) => {
+    it('puts a session trained on Monday on Monday of the strip', () => {
+      inTimeZone(zone, () => {
+        const monday = parseISODate('2026-07-06');
+        const mon = session('mon', { day_number: 3, performed_at: trainedOn('2026-07-06') });
+        const sun = session('sun', { day_number: 3, performed_at: trainedOn('2026-07-12') });
+        const slots = buildDayStrip({
+          sessions: [mon, sun],
+          upcoming: [],
+          confirmedIds: new Set(['mon', 'sun']),
+          monday,
+        });
+        expect(slots.map((s) => [s.dayNumber, s.session?.id ?? null, s.state])).toEqual([
+          [1, 'mon', 'performed'],
+          [2, null, 'rest'],
+          [3, null, 'rest'],
+          [4, null, 'rest'],
+          [5, null, 'rest'],
+          [6, null, 'rest'],
+          [7, 'sun', 'performed'],
+        ]);
+      });
+    });
+
+    it('counts calendar days from the day trained, late in the evening as at dawn', () => {
+      inTimeZone(zone, () => {
+        const weeks = [
+          week('w-1', 1, [
+            session('a', { performed_at: trainedOn('2026-08-14') }), // 6 days before
+            session('b', { performed_at: trainedOn('2026-08-13') }), // 7 days before
+            session('c', { performed_at: trainedOn('2026-08-20') }), // today
+          ]),
+        ];
+        const confirmed = new Set(['a', 'b', 'c']);
+        for (const now of [new Date(2026, 7, 20, 0, 30), new Date(2026, 7, 20, 23, 30)]) {
+          const q = buildQueue(weeks, confirmed, { now });
+          expect(q.lastPerformedAt).toEqual(new Date(2026, 7, 20));
+          expect(q.daysSinceLast).toBe(0);
+          expect(q.doneLast7).toBe(2);
+        }
+      });
+    });
   });
 });

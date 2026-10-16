@@ -75,15 +75,27 @@ export function performedOnFromLogs(logs, now = new Date()) {
  * when known, else the moment the confirmation landed. Takes either a
  * confirmation row (`performed_on` + `confirmed_at`) or a session row
  * (`performed_at`). Returns a Date, or null when the session was never done.
+ *
+ * `performed_on` and `performed_at` are both read as CALENDAR DATES — the
+ * local midnight of their date part. `sessions.performed_at` is a timestamptz,
+ * but what `sync_session_performed_at` writes in it is `performed_on::timestamptz`:
+ * the day trained, as midnight in UTC ('2026-09-28T00:00:00+00:00'). Read as an
+ * instant, that midnight is Sunday evening in New York, and a Monday session
+ * landed on Sunday of the strip, in last week's bucket, a day further back.
+ * Its date part is the day, in every zone. `confirmed_at` is a real instant —
+ * when the confirmation reached the server — and is read as one.
  */
 export function performedDate(row) {
   if (row?.performed_on) {
     const d = parseISODate(row.performed_on);
     if (d) return d;
   }
-  const stamp = row?.performed_at || row?.confirmed_at;
-  if (!stamp) return null;
-  const d = new Date(stamp);
+  if (row?.performed_at) {
+    const d = parseISODate(row.performed_at);
+    if (d) return d;
+  }
+  if (!row?.confirmed_at) return null;
+  const d = new Date(row.confirmed_at);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 

@@ -5,12 +5,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 vi.mock('../lib/supabase', () => ({ supabase: { from: vi.fn() } }));
 vi.mock('./useAuth', () => ({ useAuth: vi.fn() }));
 
-import { useStudentProgressStats } from './useStudentProgressStats';
+import { useStudentProgressStats, trainedOn } from './useStudentProgressStats';
 import { useStudentHistoricalSessions } from './useStudentHistoricalSessions';
 import { useMyStudentId } from './useStudents';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 import { fakePostgrest } from '../test/fakePostgrest';
+import { inTimeZone, ZONES } from '../test/inTimeZone';
 
 function makeClient() {
   return new QueryClient({
@@ -1202,6 +1203,82 @@ describe('useStudentProgressStats — real-calendar bucketing', () => {
       { session_id: 'moved', title: 'moved', date: '2026-07-09', completed: false },
       { session_id: 'undated', title: 'undated', date: '2026-07-10', completed: false },
     ]);
+  });
+});
+
+// `sessions.performed_at` is the confirmation's `performed_on` stored as
+// midnight UTC. Read as an instant it is the evening before west of
+// Greenwich: a session trained on Monday 6 July went into the week of 29 June,
+// on Sunday 5 July of the calendar. The fixtures above write performed_at at
+// 12:00 or 18:00 UTC, whose date part is the day they mean; these write the
+// value the database writes, and read it in three zones.
+describe('useStudentProgressStats — a training date in every time zone', () => {
+  const MONDAY = '2026-07-06T00:00:00+00:00';
+  const bench = { id: 'e-1', name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 };
+
+  describe.each(ZONES)('%s', (zone) => {
+    it('trainedOn reads performed_at as the day it holds', () => {
+      inTimeZone(zone, () => {
+        expect(trainedOn({ performed_at: MONDAY })).toBe('2026-07-06');
+        expect(trainedOn({ performed_at: '2026-07-12T00:00:00Z' })).toBe('2026-07-12');
+      });
+    });
+
+    // The mirror can differ from the confirmation only where the trigger
+    // clamped a date in the future: the confirmation's day is what the
+    // athlete's device said.
+    it('trainedOn takes the confirmation\'s performed_on before performed_at', () => {
+      inTimeZone(zone, () => {
+        expect(
+          trainedOn(
+            { performed_at: MONDAY },
+            { confirmation: { performed_on: '2026-07-05', confirmed_at: '2026-07-06T09:00:00Z' } },
+          ),
+        ).toBe('2026-07-05');
+      });
+    });
+
+    it('puts a session trained on Monday in Monday\'s week, point and calendar day', () =>
+      inTimeZone(zone, async () => {
+        const setup = setupChains({
+          programsData: [
+            {
+              id: 'p-1', name: 'A', sort_order: 0, is_active: true,
+              weeks: [{
+                id: 'w-1', week_number: 1, label: null,
+                sessions: [{
+                  id: 's-1', title: 'Monday', day_number: 1, sort_order: 0,
+                  scheduled_date: null, archived_at: null, reviewed_at: null, performed_at: MONDAY,
+                  exercise_slots: [{
+                    id: 'sl-1', sets: 1, reps: 5, duration_seconds: null, weight_kg: 100, exercise: bench,
+                    set_logs: [{ set_number: 1, target_reps: 5, target_weight_kg: 100 }],
+                  }],
+                }],
+              }],
+            },
+          ],
+          confirmationsData: [
+            { id: 'c-1', session_id: 's-1', confirmed_at: '2026-07-06T20:00:00Z', performed_on: '2026-07-06', notes: null },
+          ],
+          setLogsData: [
+            {
+              id: 'l-1', exercise_slot_id: 'sl-1', done: true, is_student_added: false,
+              target_reps: 5, target_weight_kg: 100, actual_reps: null, actual_weight_kg: null,
+              logged_at: '2026-07-06T18:00:00Z',
+            },
+          ],
+        });
+        setup.register();
+        const { result } = renderHook(() => useStudentProgressStats(), { wrapper: withClient(makeClient()) });
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+        const data = result.current.data;
+
+        expect(data.weeklyVolume.map((b) => [b.bucket_start, b.bucket_end])).toEqual([['2026-07-06', '2026-07-12']]);
+        expect(data.exerciseProgress.byExercise['e-1'].map((p) => p.date)).toEqual(['2026-07-06']);
+        expect(data.sessionCalendar).toEqual([
+          { session_id: 's-1', title: 'Monday', date: '2026-07-06', completed: true },
+        ]);
+      }));
   });
 });
 

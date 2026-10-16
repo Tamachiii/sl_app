@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { inTimeZone, ZONES } from '../test/inTimeZone';
 import {
   todayDayNumber,
   DAY_LABELS,
@@ -219,15 +220,56 @@ describe('day.js', () => {
       expect(d.getTime()).toBe(new Date('2026-08-21T09:00:00Z').getTime());
     });
 
-    it('reads performed_at off a session row', () => {
-      const d = performedDate({ performed_at: '2026-08-20T18:00:00Z' });
-      expect(d.getTime()).toBe(new Date('2026-08-20T18:00:00Z').getTime());
+    // `sync_session_performed_at` writes `performed_on::timestamptz`: the day,
+    // as midnight UTC. It is a date, and is read as one.
+    it('reads performed_at off a session row as the calendar date it holds', () => {
+      const d = performedDate({ performed_at: '2026-08-20T00:00:00+00:00' });
+      expect(isoDate(d)).toBe('2026-08-20');
+      expect(d.getTime()).toBe(new Date(2026, 7, 20).getTime());
     });
 
     it('returns null when the session was never performed', () => {
       expect(performedDate(null)).toBeNull();
       expect(performedDate({})).toBeNull();
       expect(performedDate({ performed_at: null, confirmed_at: null })).toBeNull();
+    });
+  });
+});
+
+// `sessions.performed_at` holds a DATE as midnight UTC. Read as an instant it
+// is Sunday 17:00 in Los Angeles for a session trained on Monday — the bug
+// that put it on the wrong strip day and in last week's bucket. Europe never
+// saw it, nor did CI, which runs in UTC; these cases run in three zones.
+describe('performedDate in every time zone', () => {
+  describe.each(ZONES)('%s', (zone) => {
+    it('reads a performed_at stored as midnight UTC as that day, at local midnight', () => {
+      inTimeZone(zone, () => {
+        const d = performedDate({ performed_at: '2026-09-28T00:00:00+00:00' });
+        expect(isoDate(d)).toBe('2026-09-28');
+        expect(d.getDay()).toBe(1); // a Monday
+        expect(d.getHours()).toBe(0);
+        // The form PostgREST prints and the form the client writes alike.
+        expect(isoDate(performedDate({ performed_at: '2026-09-28T00:00:00Z' }))).toBe('2026-09-28');
+      });
+    });
+
+    it('takes performed_on before performed_at', () => {
+      inTimeZone(zone, () => {
+        const d = performedDate({
+          performed_on: '2026-09-27',
+          performed_at: '2026-09-28T00:00:00+00:00',
+        });
+        expect(isoDate(d)).toBe('2026-09-27');
+      });
+    });
+
+    // confirmed_at is the moment the confirmation reached the server: a real
+    // instant, which the device's zone is right to read.
+    it('still reads a confirmed_at as the instant it is', () => {
+      inTimeZone(zone, () => {
+        const d = performedDate({ confirmed_at: '2026-09-28T03:00:00Z' });
+        expect(d.getTime()).toBe(new Date('2026-09-28T03:00:00Z').getTime());
+      });
     });
   });
 });

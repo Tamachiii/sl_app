@@ -9,6 +9,7 @@ import { useStudentHistoricalSessions } from './useStudentHistoricalSessions';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 import { fakePostgrest } from '../test/fakePostgrest';
+import { inTimeZone, ZONES } from '../test/inTimeZone';
 
 function makeClient() {
   return new QueryClient({
@@ -170,4 +171,41 @@ describe('useStudentHistoricalSessions', () => {
     expect(db.requestsTo('students')).toHaveLength(0);
     expect(db.requestsTo('programs')[0].filters).toContainEqual(['eq', 'student_id', 'st-cached']);
   });
+});
+
+// `performed_at` is the confirmation's `performed_on` stored as midnight UTC.
+// Read as an instant it is the evening before west of Greenwich, and a past
+// block's Monday session sat on Sunday of the calendar.
+describe('useStudentHistoricalSessions — the day trained, in every time zone', () => {
+  it.each(ZONES)('%s: dates a session by the day performed_at holds, before its plan date', (zone) =>
+    inTimeZone(zone, async () => {
+      wire({
+        programs: [
+          {
+            id: 'p-old',
+            weeks: [
+              {
+                sessions: [
+                  // Planned for Thursday, trained on Monday.
+                  {
+                    id: 's-1', title: 'Moved', scheduled_date: '2026-09-24', archived_at: null,
+                    performed_at: '2026-09-28T00:00:00+00:00',
+                  },
+                  // No plan date at all.
+                  { id: 's-2', title: 'Undated', scheduled_date: null, archived_at: null, performed_at: '2026-09-29T00:00:00+00:00' },
+                  { id: 's-3', title: 'Open', scheduled_date: '2026-09-30', archived_at: null, performed_at: null },
+                ],
+              },
+            ],
+          },
+        ],
+        confirmations: [{ session_id: 's-1' }, { session_id: 's-2' }],
+      });
+
+      expect((await historical()).map((s) => [s.session_id, s.date, s.completed])).toEqual([
+        ['s-1', '2026-09-28', true],
+        ['s-2', '2026-09-29', true],
+        ['s-3', '2026-09-30', false],
+      ]);
+    }));
 });

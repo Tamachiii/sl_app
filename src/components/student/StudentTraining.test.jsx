@@ -66,6 +66,7 @@ import { useSession } from '../../hooks/useSession';
 import { useSetLogs } from '../../hooks/useSetLogs';
 import { supabase } from '../../lib/supabase';
 import { fakePostgrest } from '../../test/fakePostgrest';
+import { isoDate } from '../../lib/day';
 
 const activeProgram = { id: 'p-1', name: 'Bloc Reprise', sort_order: 1, is_active: true };
 
@@ -342,10 +343,16 @@ describe('StudentTraining', () => {
         session('b', 'Upper 2', { day_number: 3 }),
       ])]);
 
+    // `performed_at` as the database writes it: the day trained, as midnight
+    // UTC — a date, which the page reads as one in every zone.
+    const trainedDaysAgo = (n) => {
+      const d = new Date();
+      d.setDate(d.getDate() - n);
+      return `${isoDate(d)}T00:00:00+00:00`;
+    };
+
     it('reports staleness when the athlete has been away', () => {
-      const fourDaysAgo = new Date();
-      fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
-      mockList = withPerformed(fourDaysAgo.toISOString());
+      mockList = withPerformed(trainedDaysAgo(4));
       mockConfirmedIds = read(new Set(['a']));
       renderTraining();
       expect(screen.getByText(/4 days ago/)).toBeInTheDocument();
@@ -353,7 +360,7 @@ describe('StudentTraining', () => {
 
     // "Trained today" told the athlete what they already knew.
     it('never says "trained today" — it shows the week\'s rhythm instead', () => {
-      mockList = withPerformed(new Date().toISOString());
+      mockList = withPerformed(trainedDaysAgo(0));
       mockConfirmedIds = read(new Set(['a']));
       renderTraining();
       expect(screen.queryByText(/trained today/i)).toBeNull();

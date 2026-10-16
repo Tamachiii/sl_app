@@ -6,11 +6,20 @@ import { computeSessionVolume } from '../lib/volume';
 import { addDays, isoDate, parseISODate, performedOnFromLogs, startOfWeekMonday } from '../lib/day';
 import { fetchAllRows } from '../lib/supabasePaging';
 
-// The local calendar day of a timestamp, or null.
+// The local calendar day of an INSTANT (`confirmed_at`, `logged_at`), or null.
 function localDay(stamp) {
   if (!stamp) return null;
   const d = new Date(stamp);
   return Number.isNaN(d.getTime()) ? null : isoDate(d);
+}
+
+// The calendar day a DATE-valued column holds, or null: `performed_on`, and
+// `sessions.performed_at`, which stores that date as midnight UTC. Its date
+// part is the day in every zone; `localDay` would put it on the day before
+// west of Greenwich.
+function calendarDay(value) {
+  const d = parseISODate(value);
+  return d ? isoDate(d) : null;
 }
 
 // The day of the earliest done set that carries a time, or null. Sets ticked
@@ -27,9 +36,13 @@ function dayOfDoneSets(doneSets) {
  * The day a session was trained on, or null when nothing says it was.
  *
  * From the most to the least truthful:
- *   1. `sessions.performed_at` — the mirror of the confirmation's date.
- *   2. the confirmation's `performed_on` — rows written before
- *      `performed_at` existed.
+ *   1. the confirmation's `performed_on` — the day trained, as the athlete's
+ *      device dated it from the sets (`performedOnFromLogs`).
+ *   2. `sessions.performed_at` — the mirror `sync_session_performed_at` keeps
+ *      of it (and the only date when the confirmation is not in the list),
+ *      read as the CALENDAR DATE it stores: `performed_on::timestamptz` is
+ *      midnight UTC, which `new Date()` puts on the evening before west of
+ *      Greenwich — a Monday session in last week's bucket.
  *   3. the earliest done set's `logged_at` (`performedOnFromLogs`, the rule
  *      the confirmation itself is dated by). This is what dates a session
  *      trained and not confirmed: its sets already count in the totals, so
@@ -44,12 +57,14 @@ function dayOfDoneSets(doneSets) {
  *      the coach's clean-up gesture, and its plan date says nothing about
  *      training.
  *
- * `doneSets` are the session's done set_logs (with `logged_at`).
+ * `doneSets` are the session's done set_logs (with `logged_at`). The first
+ * two are dates and are read as dates; `logged_at` and `confirmed_at` are
+ * instants, read in the device's zone, where the athlete trained.
  */
 export function trainedOn(session, { confirmation = null, doneSets = [] } = {}) {
   return (
-    localDay(session.performed_at) ||
-    (confirmation?.performed_on ? confirmation.performed_on.slice(0, 10) : null) ||
+    calendarDay(confirmation?.performed_on) ||
+    calendarDay(session.performed_at) ||
     dayOfDoneSets(doneSets) ||
     localDay(confirmation?.confirmed_at) ||
     (session.archived_at && session.reviewed_at && session.scheduled_date

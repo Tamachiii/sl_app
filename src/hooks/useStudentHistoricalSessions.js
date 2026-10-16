@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 import { myStudentIdQueryOptions } from './useStudents';
-import { isoDate } from '../lib/day';
+import { isoDate, performedDate } from '../lib/day';
 import { fetchAllRows } from '../lib/supabasePaging';
 
 /**
@@ -44,13 +44,17 @@ export function useStudentHistoricalSessions({ enabled = true } = {}) {
 
       // The day it was actually trained wins over the day it was planned for,
       // and a session trained without any coach-set date now shows up at all —
-      // it used to be invisible on the calendar.
+      // it used to be invisible on the calendar. `performed_at` holds the
+      // confirmation's `performed_on` as midnight UTC: `performedDate` reads
+      // its date part, the day trained in every zone (as an instant it is the
+      // evening before west of Greenwich).
       const dated = [];
       for (const prog of programs || []) {
         for (const w of prog.weeks || []) {
           for (const s of w.sessions || []) {
-            const date = s.performed_at
-              ? isoDate(new Date(s.performed_at))
+            const trained = performedDate(s);
+            const date = trained
+              ? isoDate(trained)
               : s.scheduled_date?.slice(0, 10) || null;
             if (!date) continue;
             dated.push({ ...s, date });

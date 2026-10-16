@@ -52,11 +52,15 @@ export function flattenSessions(weeks) {
  * the 1-based place of the next session among the non-archived sessions of the
  * block, so the UI can say "Session 7 of 24" without recounting.
  *
- * Activity is measured from `sessions.performed_at` — the day the student
- * actually trained — not from confirmation timestamps, which record when the
+ * Activity is measured from the day the student actually trained —
+ * `sessions.performed_at`, read by `performedDate` as the CALENDAR DATE it
+ * stores (midnight UTC of the day; read as an instant it is the evening before
+ * west of Greenwich) — not from confirmation timestamps, which record when the
  * write reached the server and can be days late after an offline session.
- * Sessions confirmed before that column existed simply don't contribute; the
- * figures degrade quietly rather than lying.
+ * `lastPerformedAt` is that day, a Date at local midnight, and `daysSinceLast`
+ * counts calendar days from it to `now`. Sessions confirmed before that column
+ * existed simply don't contribute; the figures degrade quietly rather than
+ * lying.
  *
  * `now` is injectable so the whole thing stays pure and testable.
  */
@@ -80,9 +84,8 @@ export function buildQueue(weeks, confirmedIds, { now } = {}) {
       completed += 1;
       const performed = performedDate(s);
       if (performed) {
-        const iso = s.performed_at;
-        if (!lastPerformedAt || iso > lastPerformedAt) lastPerformedAt = iso;
-        const days = daysSince(iso, ref);
+        if (!lastPerformedAt || performed > lastPerformedAt) lastPerformedAt = performed;
+        const days = daysSince(performed, ref);
         if (days != null && days < 7) doneLast7 += 1;
       }
       continue;
