@@ -668,8 +668,8 @@ describe('useStudentProgressStats — real-calendar bucketing', () => {
     },
   ];
 
-  async function run(programsData, confirmationsData = []) {
-    const setup = setupChains({ programsData, confirmationsData });
+  async function run(programsData, confirmationsData = [], setLogsData = []) {
+    const setup = setupChains({ programsData, confirmationsData, setLogsData });
     setup.register();
     const qc = makeClient();
     const { result } = renderHook(() => useStudentProgressStats(), { wrapper: withClient(qc) });
@@ -684,7 +684,11 @@ describe('useStudentProgressStats — real-calendar bucketing', () => {
         // belong to two different real weeks and must not share a bucket.
         sessionFixture('s-1', { performed_at: '2026-07-08T18:00:00Z' }), // Wed, week of Jul 6
         sessionFixture('s-2', { performed_at: '2026-07-17T18:00:00Z' }), // Fri, week of Jul 13
-      ])
+      ]),
+      [
+        { id: 'c-1', session_id: 's-1', confirmed_at: '2026-07-08T19:00:00Z', performed_on: '2026-07-08' },
+        { id: 'c-2', session_id: 's-2', confirmed_at: '2026-07-17T19:00:00Z', performed_on: '2026-07-17' },
+      ],
     );
     expect(data.weeklyVolume.map((b) => b.bucket_start)).toEqual(['2026-07-06', '2026-07-13']);
     expect(data.weeklyVolume[0].bucket_end).toBe('2026-07-12');
@@ -718,6 +722,71 @@ describe('useStudentProgressStats — real-calendar bucketing', () => {
     // confirm reached the server, which can be days after the training.
     expect(data.weeklyVolume[0].bucket_start).toBe('2026-07-06');
     expect(data.backlogSessions).toBe(0);
+  });
+
+  // Its sets were already in the totals, while the session itself was backlog:
+  // in no week, no progression point, and on the calendar on its plan date.
+  it('dates a session trained and not confirmed by its earliest done set, everywhere', async () => {
+    const bench = { id: 'e-1', name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 };
+    const slot = (id) => ({
+      id, sets: 2, reps: 5, duration_seconds: null, weight_kg: 100, exercise: bench,
+      set_logs: [
+        { set_number: 1, target_reps: 5, target_weight_kg: 100 },
+        { set_number: 2, target_reps: 5, target_weight_kg: 100 },
+      ],
+    });
+    const done = (id, slotId, logged_at) => ({
+      id, exercise_slot_id: slotId, done: true, is_student_added: false,
+      target_reps: 5, target_weight_kg: 100, actual_reps: null, actual_weight_kg: null, logged_at,
+    });
+    const data = await run(
+      programFixture([
+        sessionFixture('confirmed', { performed_at: '2026-07-08T12:00:00Z', exercise_slots: [slot('sl-c')] }),
+        // Trained on Wednesday 15 July, never confirmed; planned for the 13th.
+        sessionFixture('trained', { scheduled_date: '2026-07-13', exercise_slots: [slot('sl-t')] }),
+        // Ticked before logged_at existed: nothing dates it, and it is NOT
+        // put on today.
+        sessionFixture('untimed', { exercise_slots: [slot('sl-u')] }),
+      ]),
+      [{ id: 'c-1', session_id: 'confirmed', confirmed_at: '2026-07-08T13:00:00Z', performed_on: '2026-07-08' }],
+      [
+        done('l-1', 'sl-c', '2026-07-08T12:00:00Z'),
+        // The later set comes first: the earliest one decides.
+        done('l-2', 'sl-t', '2026-07-16T12:00:00Z'),
+        done('l-3', 'sl-t', '2026-07-15T12:00:00Z'),
+        done('l-4', 'sl-u', null),
+      ],
+    );
+
+    expect(data.weeklyVolume.map((b) => b.bucket_start)).toEqual(['2026-07-06', '2026-07-13']);
+    const week = data.weeklyVolume[1];
+    expect(week.sets_done).toBe(2);
+    expect(week.sets_prescribed).toBe(2);
+    expect(week.push).toBe(10);
+    expect(week.push_planned).toBe(10);
+    // Trained, not confirmed: in the week, not counted as done.
+    expect(week.sessions_confirmed).toBe(0);
+    expect(data.totalSessionsConfirmed).toBe(1);
+    expect(data.backlogSessions).toBe(1);
+    expect(data.exerciseProgress.byExercise['e-1'].map((p) => [p.session_id, p.date, p.tonnage])).toEqual([
+      ['confirmed', '2026-07-08', 500],
+      ['trained', '2026-07-15', 1000],
+    ]);
+    expect(data.sessionCalendar).toEqual([
+      { session_id: 'confirmed', title: 'confirmed', date: '2026-07-08', completed: true },
+      { session_id: 'trained', title: 'trained', date: '2026-07-15', completed: false },
+    ]);
+  });
+
+  // confirmed_at is when an offline confirm reached the server.
+  it('prefers the done sets to confirmed_at for a confirmation that has no performed_on', async () => {
+    const data = await run(
+      programFixture([sessionFixture('replayed', { exercise_slots: [{ id: 'sl-r', sets: 1, reps: 5, duration_seconds: null, weight_kg: 100, exercise: null, set_logs: [] }] })]),
+      [{ id: 'c-1', session_id: 'replayed', confirmed_at: '2026-07-20T09:00:00Z', performed_on: null }],
+      [{ id: 'l-1', exercise_slot_id: 'sl-r', done: true, logged_at: '2026-07-15T12:00:00Z' }],
+    );
+    expect(data.weeklyVolume.map((b) => b.bucket_start)).toEqual(['2026-07-13']);
+    expect(data.sessionCalendar[0].date).toBe('2026-07-15');
   });
 
   it('puts a trained session on the calendar on its REAL date, not its planned one', async () => {

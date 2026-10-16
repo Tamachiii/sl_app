@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 import { myStudentIdQueryOptions } from './useStudents';
 import { computeSessionVolume } from '../lib/volume';
-import { addDays, isoDate, parseISODate, startOfWeekMonday } from '../lib/day';
+import { addDays, isoDate, parseISODate, performedOnFromLogs, startOfWeekMonday } from '../lib/day';
 import { fetchAllRows } from '../lib/supabasePaging';
 
 // The local calendar day of a timestamp, or null.
@@ -13,24 +13,44 @@ function localDay(stamp) {
   return Number.isNaN(d.getTime()) ? null : isoDate(d);
 }
 
+// The day of the earliest done set that carries a time, or null. Sets ticked
+// before `logged_at` existed have none, and `performedOnFromLogs` answers
+// "today" for a list without one — a date nobody trained on.
+function dayOfDoneSets(doneSets) {
+  const stamped = (doneSets || []).filter(
+    (l) => l?.logged_at && !Number.isNaN(new Date(l.logged_at).getTime()),
+  );
+  return stamped.length > 0 ? performedOnFromLogs(stamped) : null;
+}
+
 /**
  * The day a session was trained on, or null when nothing says it was.
  *
  * From the most to the least truthful:
  *   1. `sessions.performed_at` — the mirror of the confirmation's date.
- *   2. the confirmation's `performed_on` / `confirmed_at` — rows written
- *      before `performed_at` existed. `confirmed_at` is the REPLAY moment of
- *      an offline confirm: a fallback, never the primary.
- *   3. `scheduled_date`, for a LEGACY row only: archived AND reviewed. That is
+ *   2. the confirmation's `performed_on` — rows written before
+ *      `performed_at` existed.
+ *   3. the earliest done set's `logged_at` (`performedOnFromLogs`, the rule
+ *      the confirmation itself is dated by). This is what dates a session
+ *      trained and not confirmed: its sets already count in the totals, so
+ *      it goes in the week, the progression and the calendar where they
+ *      were lifted, instead of being backlog.
+ *   4. the confirmation's `confirmed_at` — the REPLAY moment of an offline
+ *      confirm: a fallback, never the primary, and after the sets as in the
+ *      backfill of 2026_08_21.
+ *   5. `scheduled_date`, for a LEGACY row only: archived AND reviewed. That is
  *      the shape of a session the coach reviewed before confirmations existed,
  *      and the plan date is all it has. A session archived without a review is
  *      the coach's clean-up gesture, and its plan date says nothing about
  *      training.
+ *
+ * `doneSets` are the session's done set_logs (with `logged_at`).
  */
-export function trainedOn(session, { confirmation = null } = {}) {
+export function trainedOn(session, { confirmation = null, doneSets = [] } = {}) {
   return (
     localDay(session.performed_at) ||
     (confirmation?.performed_on ? confirmation.performed_on.slice(0, 10) : null) ||
+    dayOfDoneSets(doneSets) ||
     localDay(confirmation?.confirmed_at) ||
     (session.archived_at && session.reviewed_at && session.scheduled_date
       ? session.scheduled_date.slice(0, 10)
@@ -70,11 +90,13 @@ export function isPerformed(session, { confirmed = false, day = null, doneSets =
  *   - <programId> → a single specific program (active or past)
  *
  * Everything time-based is bucketed by the REAL CALENDAR WEEK the student
- * trained in (Mon–Sun of `sessions.performed_at`), not by the ordinal training
- * week the session was authored under. A block stretched over ten days used to
- * land in a bucket that corresponded to no actual seven-day span; now the
- * chart shows the weeks the student lived. Work that hasn't been done yet has
- * no date, so it never enters a time bucket — it is counted as backlog.
+ * trained in (Mon–Sun of the day `trainedOn` gives), not by the ordinal
+ * training week the session was authored under. A block stretched over ten
+ * days used to land in a bucket that corresponded to no actual seven-day span;
+ * now the chart shows the weeks the student lived. A session trained and not
+ * confirmed is dated by its done sets, so it is in the same weeks as the sets
+ * it adds to the totals. Work that hasn't been done yet has no date, so it
+ * never enters a time bucket — it is counted as backlog.
  *
  * Every figure goes by ONE definition of a performed session (`isPerformed`
  * above): confirmed, or archived with a training date or a done set. An
@@ -87,7 +109,7 @@ export function isPerformed(session, { confirmed = false, day = null, doneSets =
  *   - backlogSessions   (open sessions with no training date yet)
  *   - avgRpe            (across sets with rpe logged)
  *   - recentConfirmations[] (last 5, newest first)
- *   - weeklyVolume[]    [{ bucket_start, bucket_end, pull, push, *_planned, sets_done, sets_prescribed, sessions_confirmed }]
+ *   - weeklyVolume[]    [{ bucket_start, bucket_end, pull, push, *_planned, sets_done, sets_prescribed, sessions_confirmed (performed) }]
  *   - sessionCalendar[] [{ session_id, title, date, completed }] — trained sessions on their REAL date, open ones on their recommended date; `completed` is `isPerformed`
  *
  * Pass a `studentId` (students.id row id) to stat any student — used by the
@@ -338,24 +360,27 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
       const confBySession = new Map();
       for (const c of confirmations) confBySession.set(c.session_id, c);
 
-      // Done sets per session, student-added ones included: one of them is
-      // enough to say an archived session was trained.
+      // Done sets per session, student-added ones included: they date a
+      // session that was trained and not confirmed, and one of them is enough
+      // to say an archived session was trained.
       const doneSetsBySession = new Map();
       for (const l of setLogs) {
         if (!l.done) continue;
         const sessionId = sessionBySlot.get(l.exercise_slot_id);
         if (!sessionId) continue;
-        doneSetsBySession.set(sessionId, (doneSetsBySession.get(sessionId) || 0) + 1);
+        if (!doneSetsBySession.has(sessionId)) doneSetsBySession.set(sessionId, []);
+        doneSetsBySession.get(sessionId).push(l);
       }
 
       const performedOnBySession = new Map();
       const performedIds = new Set();
       for (const s of allSessions) {
-        const day = trainedOn(s, { confirmation: confBySession.get(s.id) });
+        const doneSets = doneSetsBySession.get(s.id) || [];
+        const day = trainedOn(s, { confirmation: confBySession.get(s.id), doneSets });
         const performed = isPerformed(s, {
           confirmed: confirmedIds.has(s.id),
           day,
-          doneSets: doneSetsBySession.get(s.id) || 0,
+          doneSets: doneSets.length,
         });
         if (performed) performedIds.add(s.id);
         // An archived session that was not performed has no day by
@@ -427,7 +452,9 @@ export function useStudentProgressStats(studentId, scope = 'all', { enabled = tr
           continue;
         }
         const acc = bucketFor(key);
-        acc.sessions_confirmed += 1;
+        // A session trained and not confirmed brings its sets and its volume
+        // to the week it was lifted in, and is not counted as done.
+        if (performedIds.has(s.id)) acc.sessions_confirmed += 1;
 
         const v = computeSessionVolume(s.exercise_slots || []);
         acc.pull_planned += v.pull;
