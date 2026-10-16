@@ -6,5 +6,6 @@ export default {
   statsPanels: {
     noTraining: 'No training logged yet.',
     adherenceNote: 'Sets: done of planned, for the sessions trained that week.',
+    legendUnconfirmed: 'UNCONFIRMED',
   },
 };

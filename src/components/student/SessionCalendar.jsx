@@ -17,6 +17,16 @@ function ymd(date) {
 
 const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
+// A session not confirmed, on a day that is over: an open session whose
+// recommended date has passed, or one trained and not confirmed (the hook
+// puts it on the day it was trained). It is not "upcoming" — that orange dot
+// on the past days of September was the finding — and not "missed" either:
+// the queue has no such state, the session is still simply next. A ring of
+// the muted ink, beside the filled dots of the other three states.
+const UNCONFIRMED_DOT = {
+  boxShadow: 'inset 0 0 0 1px var(--color-ink-400)',
+};
+
 export default function SessionCalendar({ sessions }) {
   const { t } = useI18n();
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
@@ -95,7 +105,10 @@ export default function SessionCalendar({ sessions }) {
           const activeEntries = entries.filter((e) => !e.historical);
           const historicalEntries = entries.filter((e) => e.historical);
           const hasCompleted = activeEntries.some((e) => e.completed);
-          const hasUpcoming = activeEntries.some((e) => !e.completed);
+          // Today still counts as to come: the session can be done today.
+          const isPast = cell.key < todayKey;
+          const hasUpcoming = !isPast && activeEntries.some((e) => !e.completed);
+          const hasUnconfirmed = isPast && activeEntries.some((e) => !e.completed);
           // Show the history dot only when the day has no active session —
           // the active plan takes visual priority when both exist.
           const showHistorical = activeEntries.length === 0 && historicalEntries.length > 0;
@@ -116,18 +129,24 @@ export default function SessionCalendar({ sessions }) {
               <div className="flex gap-0.5 mt-0.5 h-1">
                 {hasCompleted && (
                   <span
+                    data-dot="done"
                     className="w-1 h-1 rounded-full"
                     style={{ background: 'var(--color-success)' }}
                   />
                 )}
                 {hasUpcoming && (
                   <span
+                    data-dot="upcoming"
                     className="w-1 h-1 rounded-full"
                     style={{ background: isToday ? 'var(--color-ink-900)' : 'var(--color-accent)' }}
                   />
                 )}
+                {hasUnconfirmed && (
+                  <span data-dot="unconfirmed" className="w-1 h-1 rounded-full" style={UNCONFIRMED_DOT} />
+                )}
                 {showHistorical && (
                   <span
+                    data-dot="history"
                     className="w-1 h-1 rounded-full"
                     style={{ background: 'var(--color-ink-400)' }}
                   />
@@ -150,7 +169,7 @@ export default function SessionCalendar({ sessions }) {
         })}
       </div>
 
-      <div className="flex gap-3 justify-end sl-mono text-[10px] text-ink-400 mt-3">
+      <div className="flex flex-wrap gap-x-3 gap-y-1 justify-end sl-mono text-[10px] text-ink-400 mt-3">
         <span className="flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--color-success)' }} />
           {t('student.stats.legendDone')}
@@ -158,6 +177,10 @@ export default function SessionCalendar({ sessions }) {
         <span className="flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--color-accent)' }} />
           {t('student.stats.legendUpcoming')}
+        </span>
+        <span className="flex items-center gap-1" data-legend="unconfirmed">
+          <span className="w-1.5 h-1.5 rounded-full" style={UNCONFIRMED_DOT} />
+          {t('statsPanels.legendUnconfirmed')}
         </span>
         <span className="flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--color-ink-400)' }} />

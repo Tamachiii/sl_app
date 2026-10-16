@@ -6,5 +6,6 @@ export default {
   statsPanels: {
     noTraining: 'Aucun entraînement enregistré pour l’instant.',
     adherenceNote: 'Séries : faites sur prévues, pour les séances entraînées cette semaine-là.',
+    legendUnconfirmed: 'NON CONFIRMÉ',
   },
 };

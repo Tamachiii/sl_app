@@ -78,4 +78,45 @@ describe('<SessionCalendar />', () => {
     // contribute a history dot because an active entry exists too.
     expect(dots.length).toBeGreaterThan(0);
   });
+
+  // N7 of the live review: every session not confirmed was drawn and
+  // labelled "Upcoming", the days of September already gone included.
+  describe('a day that is over', () => {
+    const dotsOf = (label) =>
+      [...screen.getByLabelText(label).querySelectorAll('[data-dot]')].map((d) => d.dataset.dot);
+
+    it('does not draw a session not confirmed as upcoming once its day is over', () => {
+      renderCal([
+        { session_id: 's-past', date: '2026-03-10', completed: false, title: 'Pull' },
+        { session_id: 's-today', date: '2026-03-15', completed: false, title: 'Push' },
+        { session_id: 's-next', date: '2026-03-20', completed: false, title: 'Legs' },
+      ]);
+      expect(dotsOf(/Pull on 2026-03-10/)).toEqual(['unconfirmed']);
+      // Today can still be trained; a later day is to come.
+      expect(dotsOf(/Push on 2026-03-15/)).toEqual(['upcoming']);
+      expect(dotsOf(/Legs on 2026-03-20/)).toEqual(['upcoming']);
+    });
+
+    it('keeps a confirmed session done, before today as on it', () => {
+      renderCal([
+        { session_id: 's-a', date: '2026-03-09', completed: true, title: 'Upper' },
+        { session_id: 's-b', date: '2026-03-09', completed: false, title: 'Lower' },
+      ]);
+      expect(dotsOf(/Upper on 2026-03-09/)).toEqual(['done', 'unconfirmed']);
+    });
+
+    it('treats a past month the same', () => {
+      renderCal([{ session_id: 's-feb', date: '2026-02-20', completed: false, title: 'Pull' }]);
+      fireEvent.click(screen.getByLabelText('Previous month'));
+      expect(dotsOf(/Pull on 2026-02-20/)).toEqual(['unconfirmed']);
+    });
+
+    it('names the state in the legend', () => {
+      const { container } = renderCal();
+      const legend = container.querySelector('[data-legend="unconfirmed"]');
+      expect(legend).toHaveTextContent('UNCONFIRMED');
+      expect(screen.getByText('UPCOMING')).toBeInTheDocument();
+    });
+  });
 });
+

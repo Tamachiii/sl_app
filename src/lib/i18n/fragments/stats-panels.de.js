@@ -6,5 +6,6 @@ export default {
   statsPanels: {
     noTraining: 'Noch kein Training erfasst.',
     adherenceNote: 'Sätze: erledigt von geplant, für die in dieser Woche trainierten Einheiten.',
+    legendUnconfirmed: 'UNBESTÄTIGT',
   },
 };
