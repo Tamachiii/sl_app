@@ -7,6 +7,7 @@ import {
   exerciseStorageKey,
   readStatsPrefs,
   resolveStatsScope,
+  scopeReachesToday,
   statsPrefsKey,
   writeStatsPref,
 } from '../../lib/statsPrefs';
@@ -14,7 +15,7 @@ import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
 import ExerciseProgressChart from '../student/ExerciseProgressChart';
 import ProgramScopeSelector from '../student/ProgramScopeSelector';
-import WeeklyVolumePanel, { computeMaxWeeklyTotal } from '../student/WeeklyVolumePanel';
+import WeeklyVolumePanel from '../student/WeeklyVolumePanel';
 
 function StatCard({ label, value, sub }) {
   return (
@@ -92,16 +93,6 @@ export default function StudentStatsSection() {
   // choice, and its figures are marked as outgoing.
   const isSwitchingScope = !!statsQuery.isPlaceholderData;
 
-  const recentWeeklyVolume = useMemo(
-    () => (data?.weeklyVolume || []).slice(-4),
-    [data]
-  );
-
-  const maxWeeklyTotal = useMemo(
-    () => computeMaxWeeklyTotal(recentWeeklyVolume),
-    [recentWeeklyVolume]
-  );
-
   if (isLoading) {
     return <div className="flex justify-center py-6"><Spinner /></div>;
   }
@@ -146,8 +137,7 @@ export default function StudentStatsSection() {
         {hasData && <CoachStatsBody
           stats={stats}
           completionPct={completionPct}
-          recentWeeklyVolume={recentWeeklyVolume}
-          maxWeeklyTotal={maxWeeklyTotal}
+          weeksReachToday={scopeReachesToday(scope, programs)}
           exerciseStorageKey={exerciseKey}
           t={t}
         />}
@@ -156,7 +146,7 @@ export default function StudentStatsSection() {
   );
 }
 
-function CoachStatsBody({ stats, completionPct, recentWeeklyVolume, maxWeeklyTotal, exerciseStorageKey, t }) {
+function CoachStatsBody({ stats, completionPct, weeksReachToday, exerciseStorageKey, t }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-2">
@@ -183,7 +173,7 @@ function CoachStatsBody({ stats, completionPct, recentWeeklyVolume, maxWeeklyTot
 
       <div>
         <div className="sl-label text-ink-400 mb-2.5">{t('student.stats.weeklyVolume')}</div>
-        <WeeklyVolumePanel weeks={recentWeeklyVolume} maxTotal={maxWeeklyTotal} t={t} />
+        <WeeklyVolumePanel weeks={stats.weeklyVolume} current={weeksReachToday} />
       </div>
 
       <div>

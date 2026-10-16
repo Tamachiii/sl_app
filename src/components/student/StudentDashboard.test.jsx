@@ -176,11 +176,38 @@ describe('StudentDashboard', () => {
   // Volume rows are labelled by the real days they cover, so a block spread
   // over more time reads as more weeks instead of collapsing into "W1".
   it('labels each volume row with its calendar date range', () => {
-    mockStats = { data: sampleData, isLoading: false };
-    renderDashboard();
-    expect(screen.getByText('Jul 6 – 12')).toBeInTheDocument();
-    expect(screen.getByText('Jul 13 – 19')).toBeInTheDocument();
-    expect(screen.queryByText(/^W1$/)).not.toBeInTheDocument();
+    // The panel's weeks run to today: today is in the second week trained.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 6, 15, 12, 0, 0));
+    try {
+      mockStats = { data: sampleData, isLoading: false };
+      renderDashboard();
+      expect(screen.getByText('Jul 6 – 12')).toBeInTheDocument();
+      expect(screen.getByText('Jul 13 – 19')).toBeInTheDocument();
+      expect(screen.queryByText(/^W1$/)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // B39: the panel showed the last four weeks TRAINED, whatever the scope.
+  it('runs the weekly panel to this week for "all", and ends a past block at its own weeks', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 6, 29, 12, 0, 0));
+    try {
+      mockStats = { data: sampleData, isLoading: false };
+      const { container, unmount } = renderDashboard();
+      const weeks = () => [...container.querySelectorAll('[data-week]')].map((r) => r.dataset.week);
+      expect(weeks()).toEqual(['2026-07-06', '2026-07-13', '2026-07-20', '2026-07-27']);
+      unmount();
+
+      // Block B is not the active block: its weeks are the ones it was trained in.
+      const past = renderDashboard('/student/stats?scope=p-2');
+      expect([...past.container.querySelectorAll('[data-week]')].map((r) => r.dataset.week))
+        .toEqual(['2026-07-06', '2026-07-13']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not render full-weeks stat or recent-activity section', () => {

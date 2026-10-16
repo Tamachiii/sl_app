@@ -121,6 +121,28 @@ describe('StudentStatsSection', () => {
     expect(screen.getByLabelText(/stats scope/i)).toBeInTheDocument();
   });
 
+  // B39: the same panel as the athlete's page, on the same weeks.
+  it('runs the weekly panel to this week for the active block, and ends a past block at its own weeks', () => {
+    const week = (bucket_start) => ({
+      bucket_start, pull: 10, push: 10, pull_planned: 10, push_planned: 10,
+      sets_done: 3, sets_prescribed: 3, extra_sets_done: 0, sessions_confirmed: 1,
+    });
+    mockStats = { data: { ...sampleData, weeklyVolume: [week('2026-07-06')] }, isLoading: false };
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 6, 22, 12, 0, 0));
+    try {
+      const weeks = (container) => [...container.querySelectorAll('[data-week]')].map((r) => r.dataset.week);
+      const active = renderSection({ search: '?statsScope=p-1' });
+      expect(weeks(active.container)).toEqual(['2026-07-06', '2026-07-13', '2026-07-20']);
+      active.unmount();
+
+      const past = renderSection({ search: '?statsScope=p-2' });
+      expect(weeks(past.container)).toEqual(['2026-07-06']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('reads the scope from ?statsScope=, not from the editor\'s ?program=', () => {
     renderSection({ search: '?statsScope=p-2&program=p-1' });
     expect(enabledScopes()).toEqual(['p-2']);

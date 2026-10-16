@@ -38,6 +38,16 @@ export function exerciseStorageKey(prefsKey) {
 }
 
 /**
+ * Whether a scope holds the block being trained, so that its weeks run to
+ * today: 'all' and 'active' do, a block does while it is the active one. A
+ * past block's weeks end where its training ended (WeeklyVolumePanel).
+ */
+export function scopeReachesToday(scope, programs) {
+  if (scope === 'all' || scope === 'active') return true;
+  return Array.isArray(programs) && programs.some((p) => p.id === scope && p.is_active);
+}
+
+/**
  * Which scope a Stats page computes, and whether that is known yet.
  *
  *   const { scope, resolved } = resolveStatsScope({

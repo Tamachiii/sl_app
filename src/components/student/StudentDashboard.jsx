@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Spinner from '../ui/Spinner';
 import EmptyState from '../ui/EmptyState';
@@ -13,13 +13,14 @@ import {
   exerciseStorageKey,
   readStatsPrefs,
   resolveStatsScope,
+  scopeReachesToday,
   statsPrefsKey,
   writeStatsPref,
 } from '../../lib/statsPrefs';
 import SessionCalendar from './SessionCalendar';
 import ExerciseProgressChart from './ExerciseProgressChart';
 import ProgramScopeSelector from './ProgramScopeSelector';
-import WeeklyVolumePanel, { computeMaxWeeklyTotal } from './WeeklyVolumePanel';
+import WeeklyVolumePanel from './WeeklyVolumePanel';
 
 const STATS_PREFS_KEY = statsPrefsKey({ surface: 'self' });
 const EXERCISE_STORAGE_KEY = exerciseStorageKey(STATS_PREFS_KEY);
@@ -105,16 +106,6 @@ export default function StudentDashboard() {
   const { data: historicalSessions } = useStudentHistoricalSessions({
     enabled: showHistoricalOverlay,
   });
-
-  const recentWeeklyVolume = useMemo(
-    () => (data?.weeklyVolume || []).slice(-4),
-    [data]
-  );
-
-  const maxWeeklyTotal = useMemo(
-    () => computeMaxWeeklyTotal(recentWeeklyVolume),
-    [recentWeeklyVolume]
-  );
 
   if (isLoading) {
     return (
@@ -210,7 +201,10 @@ export default function StudentDashboard() {
 
             <section aria-labelledby="volume-heading">
               <SectionHeading id="volume-heading">{t('student.stats.weeklyVolume')}</SectionHeading>
-              <WeeklyVolumePanel weeks={recentWeeklyVolume} maxTotal={maxWeeklyTotal} t={t} />
+              <WeeklyVolumePanel
+                weeks={stats.weeklyVolume}
+                current={scopeReachesToday(scope, programs)}
+              />
             </section>
 
             <section aria-labelledby="progress-heading">

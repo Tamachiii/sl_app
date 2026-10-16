@@ -3,6 +3,7 @@ import {
   exerciseStorageKey,
   readStatsPrefs,
   resolveStatsScope,
+  scopeReachesToday,
   statsPrefsKey,
   writeStatsPref,
 } from './statsPrefs';
@@ -76,6 +77,17 @@ describe('resolveStatsScope', () => {
         .toEqual({ scope: 'all', resolved: true });
     },
   );
+});
+
+describe('scopeReachesToday', () => {
+  it('is true for "all", "active" and the active block, false for a past block', () => {
+    expect(scopeReachesToday('all', programs)).toBe(true);
+    expect(scopeReachesToday('all', undefined)).toBe(true);
+    expect(scopeReachesToday('active', programs)).toBe(true);
+    expect(scopeReachesToday('p-1', programs)).toBe(true);
+    expect(scopeReachesToday('p-2', programs)).toBe(false);
+    expect(scopeReachesToday('p-1', undefined)).toBe(false);
+  });
 });
 
 describe('stats prefs storage', () => {
