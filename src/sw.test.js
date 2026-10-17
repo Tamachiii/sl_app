@@ -15,12 +15,6 @@ vi.mock('workbox-routing', () => ({
   registerRoute: vi.fn(),
   NavigationRoute: class {},
 }));
-vi.mock('workbox-strategies', () => ({
-  CacheFirst: class {},
-  StaleWhileRevalidate: class {},
-}));
-vi.mock('workbox-expiration', () => ({ ExpirationPlugin: class {} }));
-vi.mock('workbox-cacheable-response', () => ({ CacheableResponsePlugin: class {} }));
 
 const handlers = {};
 const marks = new Map();

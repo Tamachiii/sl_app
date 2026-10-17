@@ -1,0 +1,52 @@
+/* SL Coach Parc tokens as CSS variables, written from tokens.json. bundle.css reads them.
+   The font comes from @fontsource-variable/archivo (wdth.css), whose family is "Archivo Variable". */
+
+:root {
+  --ground: #E3E6E4;
+  --surface: #FFFFFF;
+  --fill: var(--ground);
+  --ink: #000000;
+  --ink-2: #4B5157;
+  --ink-3: #6B7177;
+  --line: var(--ground);
+  --line-strong: #D2D6D3;
+  --line-control: #7A8086;
+  --blue: #1E4FBF;
+  --blue-pressed: #163C93;
+  --blue-soft: #DCE4F7;
+  --on-blue: #FFFFFF;
+  --amber: #8A5300;
+  --amber-soft: #F6EBD9;
+  --red: #B42318;
+  --red-soft: #F9E3E1;
+  --chart-pull: var(--blue);
+  --chart-push: #C8730F;
+  --overlay: rgba(0, 0, 0, 0.32);
+
+  --shadow-sheet: 0 -8px 32px rgba(0, 0, 0, 0.12);
+  --shadow-toast: 0 8px 24px rgba(0, 0, 0, 0.16);
+
+  --space-1: 4px;
+  --space-1\.5: 6px;
+  --space-2: 8px;
+  --space-2\.5: 10px;
+  --space-3: 12px;
+  --space-3\.5: 14px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --safe-bottom: 28px;
+  --target-min: 44px;
+  --button-lg-height: 56px;
+  --row-min: 60px;
+  --content-max: 1120px;
+
+  --radius-control: 14px;
+  --radius-button: 16px;
+  --radius-group: 20px;
+  --radius-panel: 28px;
+  --radius-full: 999px;
+
+  --font-sans: "Archivo Variable", "Archivo", system-ui, sans-serif;
+}

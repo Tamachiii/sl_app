@@ -1,12 +1,69 @@
 @import "tailwindcss";
+/* The Parc design system (design/parc/): its tokens as CSS variables, then its
+   pk-* component classes. Both files are copies of design/parc/, and every
+   value comes from design/parc/tokens.json (src/test/parcTokens.test.js holds
+   them to it). The classes sit in the components layer, so a utility written
+   beside one (`w-full`, `mt-4`) still wins over it. */
+@import "./styles/parc-tokens.css";
+@import "./styles/bundle.css" layer(components);
+/* The mocks of design/parc/screens are references, not sources: no utility is
+   generated from their markup. */
+@source not "../design";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* The Parc tokens as Tailwind utilities: bg-ground, bg-surface, text-ink-2,
+   border-line-control, rounded-group, shadow-sheet, min-h-target, max-w-content…
+   `inline` makes a utility read the variable of src/styles/parc-tokens.css
+   itself, so each value lives in one place. Spacing needs nothing: Parc's
+   space-N is Tailwind's N (p-4 = 16px, gap-2.5 = 10px, py-3.5 = 14px). None of
+   these names is taken by the old ink-0…950 scale below, which goes at the
+   clean-up. */
+@theme inline {
+  --font-sans: var(--font-sans);
+
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-fill: var(--fill);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-line-control: var(--line-control);
+  --color-blue: var(--blue);
+  --color-blue-pressed: var(--blue-pressed);
+  --color-blue-soft: var(--blue-soft);
+  --color-on-blue: var(--on-blue);
+  --color-amber: var(--amber);
+  --color-amber-soft: var(--amber-soft);
+  --color-red: var(--red);
+  --color-red-soft: var(--red-soft);
+  --color-chart-pull: var(--chart-pull);
+  --color-chart-push: var(--chart-push);
+  --color-overlay: var(--overlay);
+
+  --radius-control: var(--radius-control);
+  --radius-button: var(--radius-button);
+  --radius-group: var(--radius-group);
+  --radius-panel: var(--radius-panel);
+
+  --shadow-sheet: var(--shadow-sheet);
+  --shadow-toast: var(--shadow-toast);
+
+  --spacing-target: var(--target-min);
+  --spacing-button-lg: var(--button-lg-height);
+  --spacing-row: var(--row-min);
+  --spacing-safe-bottom: var(--safe-bottom);
+  --container-content: var(--content-max);
+}
+
 @theme {
-  /* Typography */
-  --font-display: "Archivo", "Inter", system-ui, sans-serif;
-  --font-body: "Inter", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  /* Typography of the screens not yet moved to Parc: Archivo too, since
+     Inter and JetBrains Mono are no longer loaded. */
+  --font-display: "Archivo Variable", "Archivo", system-ui, sans-serif;
+  --font-body: "Archivo Variable", "Archivo", system-ui, sans-serif;
+  --font-mono: ui-monospace, Menlo, monospace;
 
   /* Warm ink scale (replaces gray-*) */
   --color-ink-950: #0a0a0a;
@@ -51,11 +108,10 @@ html, body, #root {
 /* Paint the canvas itself, not only <body>. With `viewport-fit=cover` the
    safe-area strips sit outside the AppShell's painted box, so a transparent
    root shows through as the UA's default black behind the Dynamic Island.
-   Matches the AppShell's own `bg-gray-50`; `.dark` overrides it below. Set on
-   the root ONLY — putting it on the shared selector above would leave #root
-   light while dark mode repaints body. */
+   Parc's `ground`, the page colour; bundle.css says the same, but from a
+   layer, which this unlayered rule would otherwise outrank. */
 html {
-  background-color: #f9fafb;
+  background-color: var(--ground);
 }
 
 /* Soft-keyboard inset, populated by `useKeyboardInset` (mounted in AppShell)
@@ -67,7 +123,7 @@ html {
 }
 
 body {
-  font-family: var(--font-body);
+  font-family: var(--font-sans);
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
 }
