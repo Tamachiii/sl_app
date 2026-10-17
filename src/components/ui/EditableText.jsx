@@ -4,6 +4,10 @@ import { useEffect, useRef, useState } from 'react';
  * Click-to-edit text component.
  * Renders as a button (showing `value` or `placeholder`), becomes an input when clicked.
  * Commits on Enter or blur. Cancels on Escape.
+ *
+ * `ariaLabel` names the button and the field. `ariaLabel={false}` leaves the
+ * button named by its text — a heading that is also the way to rename it —
+ * and `describedBy` then says what a tap does.
  */
 export default function EditableText({
   value,
@@ -12,6 +16,7 @@ export default function EditableText({
   className = '',
   inputClassName = '',
   ariaLabel,
+  describedBy,
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value ?? '');
@@ -61,7 +66,8 @@ export default function EditableText({
         onBlur={commit}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
-        aria-label={ariaLabel || 'Edit title'}
+        aria-label={ariaLabel === false ? undefined : ariaLabel || 'Edit title'}
+        aria-labelledby={ariaLabel === false ? describedBy : undefined}
         // The box has to occupy the SAME footprint as the button it replaces,
         // or clicking a title makes the page twitch. An <input> defaults to
         // roughly 20 characters wide and ignores its container, which overflowed
@@ -74,7 +80,7 @@ export default function EditableText({
         // when a focused input is under 16px, and the app is a PWA people use
         // one-handed mid-set. `leading-tight` keeps that 16px from growing the
         // row it sits in.
-        className={`w-[calc(100%+0.5rem)] -mx-1 min-w-0 rounded border border-primary bg-ink-850 px-1 py-0.5 text-[16px] leading-tight text-ink-0 focus:outline-none ${inputClassName}`}
+        className={`w-[calc(100%+0.5rem)] -mx-1 min-h-11 min-w-0 rounded-control border-2 border-blue bg-surface px-1 text-[16px] leading-tight text-ink focus:outline-none ${inputClassName}`}
       />
     );
   }
@@ -86,16 +92,17 @@ export default function EditableText({
         e.stopPropagation();
         setEditing(true);
       }}
-      aria-label={ariaLabel || `Edit ${value || placeholder}`}
+      aria-label={ariaLabel === false ? undefined : ariaLabel || `Edit ${value || placeholder}`}
+      aria-describedby={ariaLabel === false ? describedBy : undefined}
       // `hover:bg-ink-100`, NOT `hover:bg-gray-100`: index.css remaps the bare
       // `.bg-gray-100` for dark mode but has no rule for the hover VARIANT, so
       // that class kept Tailwind's raw #f3f4f6 and painted a near-white plate
       // under the pointer — the title's contrast fell to 2.32:1 (from 7.01:1)
       // and a bright heading vanished outright. The ink hover variants are
       // remapped, so this one darkens the way every other hover in the app does.
-      className={`text-left hover:bg-ink-100 rounded px-1 -mx-1 transition-colors ${className}`}
+      className={`text-left hover:bg-fill rounded-control px-1 -mx-1 transition-colors ${className}`}
     >
-      {value || <span className="text-gray-400 italic">{placeholder}</span>}
+      {value || <span className="text-ink-2">{placeholder}</span>}
     </button>
   );
 }

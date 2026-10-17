@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import Dialog from './Dialog';
 import { useStudents } from '../../hooks/useStudents';
 import { useProgramsForStudent, useProgram } from '../../hooks/useProgram';
 import { useI18n } from '../../hooks/useI18n';
 import { flattenSessions } from '../../lib/sessionQueue';
+import { formatNumber } from '../../lib/i18n/format';
+import { Button, SelectField, Sheet } from '../parc';
 
 // The places the sessions of each phase hold in the block, `{ from, to }` by
 // phase id, numbered across phases as the Programming sheet numbers them; an
@@ -45,30 +46,29 @@ function placesByPhase(weeks) {
  *
  * The destination is kept for as long as the dialog is open, and forgotten
  * when it closes — whoever closes it: Cancel, the cross, Escape, or the parent
- * once the copy is made. `Dialog` mounts its children only while it is open,
+ * once the copy is made. `Sheet` mounts its children only while it is open,
  * so the three selects live in `CopyForm` and go with it. Copy does NOT clear
  * them: the parent closes the dialog when the copy succeeds, and a copy that
  * is refused leaves it open with the destination still chosen, to be sent
  * again.
  */
-export default function CopyDialog({ open, onClose, title, ...form }) {
+export default function CopyDialog({ open, onClose, title, description, ...form }) {
   return (
-    <Dialog open={open} onClose={onClose} title={title}>
+    <Sheet open={open} onClose={onClose} title={title} description={description}>
       <CopyForm onClose={onClose} {...form} />
-    </Dialog>
+    </Sheet>
   );
 }
 
 function CopyForm({
   onClose,
-  description,
   currentStudentId,
   currentProgramId,
   showWeekSelect = false,
   onCopy,
   isPending = false,
 }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { data: students } = useStudents();
   const [copyStudentId, setCopyStudentId] = useState('');
   const [copyProgramId, setCopyProgramId] = useState('');
@@ -89,15 +89,18 @@ function CopyForm({
   // A phase as the sheet names it — never "Week 3": a phase is a free-text
   // name, and an unnamed one is drawn as such (review item B28). The sessions
   // it holds tell two phases of the same name apart.
+  // A phase is named by its name — or « Phase sans nom » — and the places its
+  // sessions hold in the block, never « Week n ».
   function phaseOption(week) {
-    const name = week.label || t('coach.sheet.unnamedPhase');
+    const name = week.label || t('parcProgram.phaseUnnamed');
     const place = places.get(week.id);
+    const fmt = (n) => formatNumber(lang, n);
     const holds = !place
-      ? t('coach.week.noSessions')
+      ? t('parcProgram.phaseEmpty')
       : place.from === place.to
-        ? t('coach.week.sessionN', { n: place.from })
-        : t('coachReviewComposerRoster.copy.sessionRange', { from: place.from, to: place.to });
-    return `${name} · ${holds}`;
+        ? t('parcProgram.phaseOne', { n: fmt(place.from) })
+        : t('parcProgram.phaseRange', { from: fmt(place.from), to: fmt(place.to) });
+    return t('parcProgram.copyPhaseOption', { name, holds });
   }
 
   function handleCopy() {
@@ -118,104 +121,82 @@ function CopyForm({
   // so the select adapts to either theme. `disabled:bg-gray-50` — which we used
   // before — has no dark-mode variant generated, so the disabled dropdown
   // rendered white on dark. Use `disabled:bg-ink-100` instead (full dark remap).
-  const selectCls =
-    'w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] disabled:bg-ink-100 disabled:text-ink-400 disabled:cursor-not-allowed';
-
   return (
-    <div className="space-y-3">
-      {description && (
-        <p className="sl-mono text-[11px] text-ink-400">{description}</p>
-      )}
-      <label className="block">
-        <span className="sl-label text-ink-400 block mb-1.5">{t('coach.copy.student')}</span>
-        <select
-          value={copyStudentId}
-          onChange={(e) => {
-            setCopyStudentId(e.target.value);
-            setCopyProgramId('');
-            setCopyWeekId('');
-          }}
-          className={selectCls}
-        >
-          <option value="">{t('coach.copy.selectStudent')}</option>
-          {(students || [])
-            .filter((s) => currentProgramId || s.id !== currentStudentId)
-            .map((s) => (
+    <div className="flex flex-col gap-4">
+      <SelectField
+        label={t('parcProgram.copyAthlete')}
+        value={copyStudentId}
+        onChange={(e) => {
+          setCopyStudentId(e.target.value);
+          setCopyProgramId('');
+          setCopyWeekId('');
+        }}
+      >
+        <option value="">{t('parcProgram.copyChooseAthlete')}</option>
+        {(students || [])
+          .filter((s) => currentProgramId || s.id !== currentStudentId)
+          .map((s) => {
+            const name = (s.profile?.full_name || '').trim() || t('parcProgram.copyUnnamed');
+            return (
               <option key={s.id} value={s.id}>
-                {s.profile?.full_name || t('coach.copy.unnamedStudent')}
-                {s.id === currentStudentId ? t('coach.copy.thisAthleteSuffix') : ''}
+                {s.id === currentStudentId ? t('parcProgram.copyThisAthlete', { name }) : name}
               </option>
-            ))}
-        </select>
-      </label>
+            );
+          })}
+      </SelectField>
 
-      <label className="block">
-        <span className="sl-label text-ink-400 block mb-1.5">{t('coach.copy.destinationBlock')}</span>
-        <select
-          value={programId}
-          onChange={(e) => {
-            setCopyProgramId(e.target.value);
-            setCopyWeekId('');
-          }}
-          disabled={!copyStudentId || (destPrograms || []).length === 0}
-          className={selectCls}
-        >
-          <option value="">
-            {!copyStudentId
-              ? t('coach.copy.selectStudentFirst')
-              : (destPrograms || []).length === 0
-                ? t('coach.copy.noBlocks')
-                : t('coach.copy.selectBlock')}
+      <SelectField
+        label={t('parcProgram.copyBlock')}
+        value={programId}
+        onChange={(e) => {
+          setCopyProgramId(e.target.value);
+          setCopyWeekId('');
+        }}
+        disabled={!copyStudentId || (destPrograms || []).length === 0}
+      >
+        <option value="">
+          {!copyStudentId
+            ? t('parcProgram.copyChooseAthleteFirst')
+            : (destPrograms || []).length === 0
+              ? t('parcProgram.copyNoBlock')
+              : t('parcProgram.copyChooseBlock')}
+        </option>
+        {(destPrograms || []).map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.is_active ? t('parcProgram.copyBlockInProgress', { name: p.name }) : p.name}
           </option>
-          {(destPrograms || []).map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-              {p.is_active ? t('coach.copy.activeSuffix') : ''}
-            </option>
-          ))}
-        </select>
-      </label>
+        ))}
+      </SelectField>
 
       {showWeekSelect && (
-        <label className="block">
-          <span className="sl-label text-ink-400 block mb-1.5">{t('coach.copy.destinationWeek')}</span>
-          <select
-            value={weekId}
-            onChange={(e) => setCopyWeekId(e.target.value)}
-            disabled={!programId || destWeeks.length === 0}
-            className={selectCls}
-          >
-            <option value="">
-              {!programId
-                ? t('coach.copy.selectBlockFirst')
-                : destWeeks.length === 0
-                  ? t('coach.copy.noWeeks')
-                  : t('coach.copy.selectWeek')}
+        <SelectField
+          label={t('parcProgram.copyPhase')}
+          value={weekId}
+          onChange={(e) => setCopyWeekId(e.target.value)}
+          disabled={!programId || destWeeks.length === 0}
+        >
+          <option value="">
+            {!programId
+              ? t('parcProgram.copyChooseBlockFirst')
+              : destWeeks.length === 0
+                ? t('parcProgram.copyNoPhase')
+                : t('parcProgram.copyChoosePhase')}
+          </option>
+          {destWeeks.map((w) => (
+            <option key={w.id} value={w.id}>
+              {phaseOption(w)}
             </option>
-            {destWeeks.map((w) => (
-              <option key={w.id} value={w.id}>
-                {phaseOption(w)}
-              </option>
-            ))}
-          </select>
-        </label>
+          ))}
+        </SelectField>
       )}
 
-      <div className="flex gap-2 pt-1">
-        <button
-          onClick={handleCopy}
-          disabled={copyDisabled}
-          className="flex-1 sl-btn-primary text-[13px] disabled:opacity-50"
-          style={{ padding: '10px 16px' }}
-        >
-          {isPending ? t('coach.copy.copying') : t('coach.copy.copy')}
-        </button>
-        <button
-          onClick={onClose}
-          className="flex-1 bg-ink-100 text-ink-700 rounded-lg py-2 sl-display text-[13px] hover:bg-ink-200"
-        >
+      <div className="mt-1 flex flex-col gap-1">
+        <Button variant="primary" size="lg" onClick={handleCopy} disabled={copyDisabled}>
+          {isPending ? t('parcProgram.copying') : t('parcProgram.copy')}
+        </Button>
+        <Button variant="text" onClick={onClose}>
           {t('common.cancel')}
-        </button>
+        </Button>
       </div>
     </div>
   );

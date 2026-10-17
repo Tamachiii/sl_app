@@ -22,6 +22,8 @@ import {
   useTrashedPrograms,
 } from '../../hooks/useProgram';
 import { useI18n } from '../../hooks/useI18n';
+import { formatNumber } from '../../lib/i18n/format';
+import { Button, Icon, IconButton } from '../parc';
 import { ActiveBadge, ActiveDot, DraftBadge } from './ProgramBadges';
 import ManageProgramDialog from './ProgramManageDialog';
 import TrashDialog from './ProgramTrashDialog';
@@ -42,56 +44,38 @@ function SortableProgramRow({ program, isSelected, t, onSelect }) {
     opacity: isDragging ? 0.5 : 1,
   };
 
-  const weekCount = (program.weeks || []).length;
-
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`flex items-stretch ${isSelected ? 'bg-ink-100' : ''} hover:bg-ink-100 transition-colors`}
+      className={`flex items-stretch rounded-control ${isSelected ? 'bg-blue-soft' : 'hover:bg-fill'}`}
     >
-      <button
-        type="button"
-        {...attributes}
-        {...listeners}
-        aria-label={t('coach.home.reorderProgram', { name: program.name })}
-        className="px-2 text-ink-400 hover:text-gray-700 cursor-grab active:cursor-grabbing touch-none flex items-center"
-      >
-        <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true">
-          <circle cx="2.5" cy="3" r="1.25" />
-          <circle cx="7.5" cy="3" r="1.25" />
-          <circle cx="2.5" cy="8" r="1.25" />
-          <circle cx="7.5" cy="8" r="1.25" />
-          <circle cx="2.5" cy="13" r="1.25" />
-          <circle cx="7.5" cy="13" r="1.25" />
-        </svg>
-      </button>
       <button
         type="button"
         role="option"
         aria-selected={isSelected}
         onClick={onSelect}
-        className="flex-1 min-w-0 pr-3 py-2 text-left"
+        className="flex min-h-11 min-w-0 flex-1 items-center gap-2 bg-transparent px-3 text-left"
       >
-        <div className="flex items-center gap-2">
-          <span className="sl-display text-[13px] text-gray-900 truncate">
-            {program.name}
-          </span>
-          {program.is_active && <ActiveBadge t={t} />}
-          {program.status === 'draft' && <DraftBadge submitted={!!program.submitted_at} t={t} />}
-        </div>
-        {weekCount > 0 && (
-          <span className="sl-mono text-[10px] text-ink-400 block mt-0.5">
-            {t(weekCount === 1 ? 'coach.home.weeksOne' : 'coach.home.weeksMany', { n: weekCount }).toUpperCase()}
-          </span>
-        )}
+        <span className="pk-headline truncate">{program.name}</span>
+        {program.is_active && <ActiveBadge t={t} />}
+        {program.status === 'draft' && <DraftBadge submitted={!!program.submitted_at} t={t} />}
+      </button>
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        aria-label={t('parcProgram.moveBlock', { name: program.name })}
+        className="pk-icon-btn shrink-0 cursor-grab touch-none bg-transparent active:cursor-grabbing"
+      >
+        <Icon name="drag" size={22} />
       </button>
     </div>
   );
 }
 
 export default function ProgramSwitcher({ studentId, programs, selectedId, onSelect, onProgramDeleted }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   // Mirrors the `programs` prop so a drag reorders the list on the frame the
   // pointer moves. useReorderPrograms does write the same order optimistically,
   // but only after an awaited cancelQueries, which is a tick too late — without
@@ -182,60 +166,44 @@ export default function ProgramSwitcher({ studentId, programs, selectedId, onSel
   return (
     <>
       <div ref={wrapperRef} className="relative">
-        {/* The program name is the headline of everything below it, so it gets
-            the row. What used to crowd it out: a filled pill that read as a
-            form control, a "4 WEEKS" line the W1..Wn list below already says,
-            a full ACTIVE badge (now a dot), and a permanent "+" for an action
-            a coach takes once a block — that one lives in the dropdown now,
-            next to Trash, where the other program-list actions already are. */}
+        {/* The block's name is the headline of everything below it, so it
+            gets the row; being in progress is a dot, and the actions on the
+            list of blocks — a new one, the trash — live in the list. */}
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setIsOpen((v) => !v)}
             aria-haspopup="listbox"
             aria-expanded={isOpen}
-            aria-label={t('coach.home.selectProgram')}
-            className="min-w-0 flex-1 flex items-center gap-2 py-2 text-left group"
+            aria-label={t('parcProgram.blockPicker')}
+            className="flex min-h-11 min-w-0 flex-1 items-center gap-2 bg-transparent text-left"
           >
-            <span className="sl-display text-[15px] md:text-[17px] text-gray-900 truncate">
-              {selected?.name ?? '—'}
-            </span>
+            <span className="pk-title truncate">{selected?.name ?? '–'}</span>
             {selected?.is_active && <ActiveDot t={t} />}
             {selected?.status === 'draft' && <DraftBadge submitted={!!selected.submitted_at} t={t} />}
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 12 12"
-              fill="none"
-              aria-hidden="true"
-              className={`shrink-0 text-ink-400 group-hover:text-ink-700 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-            >
-              <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <Icon
+              name="chevron-down"
+              size={18}
+              className={`shrink-0 text-ink-2 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+            />
           </button>
 
-          <button
-            type="button"
+          <IconButton
+            icon="more"
+            label={t('parcProgram.blockOptions')}
             onClick={() => setManageOpen(true)}
             disabled={!selected}
-            aria-label={t('coach.home.programMenu')}
-            className="shrink-0 -mr-1 rounded-lg text-ink-400 hover:text-ink-700 hover:bg-ink-100 px-2 py-2.5 transition-colors disabled:opacity-40"
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
-              <circle cx="3" cy="7" r="1.4" />
-              <circle cx="7" cy="7" r="1.4" />
-              <circle cx="11" cy="7" r="1.4" />
-            </svg>
-          </button>
+          />
         </div>
 
         {isOpen && (
           <div
             role="listbox"
-            className="absolute left-0 right-0 top-full mt-1 z-20 rounded-lg bg-white border border-ink-200 shadow-lg overflow-hidden"
+            aria-label={t('parcProgram.blockPicker')}
+            className="absolute top-full right-0 left-0 z-20 mt-1 overflow-hidden rounded-group border border-line bg-surface p-1 shadow-lg"
           >
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              <div className="py-1 max-h-[60vh] overflow-y-auto">
+              <div className="flex max-h-[60vh] flex-col gap-0.5 overflow-y-auto">
                 <SortableContext
                   items={localPrograms.map((p) => p.id)}
                   strategy={verticalListSortingStrategy}
@@ -252,29 +220,30 @@ export default function ProgramSwitcher({ studentId, programs, selectedId, onSel
                 </SortableContext>
               </div>
             </DndContext>
-            <button
-              type="button"
-              onClick={() => {
-                setIsOpen(false);
-                handleAdd();
-              }}
-              disabled={createProgram.isPending}
-              className="w-full text-left px-3 py-2 sl-mono text-[11px] text-ink-400 border-t border-ink-200 hover:bg-ink-100 hover:text-ink-700 transition-colors disabled:opacity-50"
-            >
-              {t('coach.home.addProgram')}
-            </button>
-            {trashedPrograms.length > 0 && (
-              <button
-                type="button"
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 border-t border-line pt-1">
+              <Button
+                variant="text"
                 onClick={() => {
                   setIsOpen(false);
-                  setTrashOpen(true);
+                  handleAdd();
                 }}
-                className="w-full text-left px-3 py-2 sl-mono text-[11px] text-ink-400 border-t border-ink-200 hover:bg-ink-100 transition-colors"
+                disabled={createProgram.isPending}
               >
-                {t('coach.home.trashCount', { n: trashedPrograms.length })}
-              </button>
-            )}
+                <Icon name="plus" size={18} />
+                {t('parcProgram.newBlock')}
+              </Button>
+              {trashedPrograms.length > 0 && (
+                <Button
+                  variant="text"
+                  onClick={() => {
+                    setIsOpen(false);
+                    setTrashOpen(true);
+                  }}
+                >
+                  {t('parcProgram.trashCount', { n: formatNumber(lang, trashedPrograms.length) })}
+                </Button>
+              )}
+            </div>
           </div>
         )}
       </div>

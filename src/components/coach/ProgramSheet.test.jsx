@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, within, act } from '@testing-library/react';
+import { render, screen, waitFor, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -68,15 +68,17 @@ vi.mock('../../hooks/useSession', () => ({
   useProgramLoggedSessionIds: () => mockLogged,
 }));
 
-// CopyDialog pulls the student list + program hooks; stub them out so this
-// test stays focused on the sheet itself.
+// The copy sheet's reads: the coach has one athlete, the one of the page,
+// whose one block is the block on screen — enough to pick a destination.
 vi.mock('../../hooks/useStudents', () => ({
   useStudents: () => ({ data: [{ id: 's-1', profile: { full_name: 'Alice' } }] }),
 }));
 vi.mock('../../hooks/useProgram', () => ({
   useActiveProgram: () => ({ data: null }),
-  useProgramsForStudent: () => ({ data: [] }),
-  useProgram: () => ({ data: null }),
+  useProgramsForStudent: (studentId) => ({
+    data: studentId === 's-1' ? [{ id: 'prog-1', name: 'Base block', is_active: true }] : undefined,
+  }),
+  useProgram: (programId) => ({ data: programId === 'prog-1' ? program : undefined }),
 }));
 
 // dnd-kit measures the page to follow a pointer, and jsdom lays nothing out:
@@ -133,10 +135,30 @@ function renderSheet(p = program, at = '/coach/students/s-1') {
   );
 }
 
-// The open ⋯ menu of a phase. It is drawn on <body>, not in the sheet.
-function phaseMenu() {
-  return screen.getByRole('group', { name: /phase options/i });
+// A session's row: the button that opens it, named by the session, then what
+// the athlete did with it, its recommended day and how many exercises it holds
+// (« Pull, Monday, 2 exercises »). In select mode, the button that picks it.
+function rowButton(name) {
+  return screen.getByRole('button', { name: new RegExp(`^${name},`) });
 }
+function queryRowButton(name) {
+  return screen.queryByRole('button', { name: new RegExp(`^${name},`) });
+}
+
+// The ⋯ of a session row, and the menu it opens — drawn on <body>.
+const rowMenuButton = (name) => screen.getByRole('button', { name: `Options for ${name}` });
+const rowMenu = (name) => screen.getByRole('group', { name: `Options for ${name}` });
+
+// The ⋯ of each phase, and the open one. It is drawn on <body>, not in the sheet.
+const phaseMenuButtons = () => screen.getAllByRole('button', { name: 'Phase options' });
+const phaseMenu = () => screen.getByRole('group', { name: 'Phase options' });
+
+// A phase: a section named by its heading.
+const phase = (name) => screen.getByRole('region', { name });
+
+// The sessions of the block in the trash, under their own heading.
+const archivedToggle = (n) =>
+  screen.getByRole('button', { name: n === 1 ? '1 archived session' : `${n} archived sessions` });
 
 // jsdom lays nothing out: every box is 0 × 0 at the top of a 1024 × 768
 // window. A test that needs a trigger somewhere gives it a box.
@@ -162,15 +184,23 @@ describe('ProgramSheet', () => {
     expect(screen.getByText('Pull')).toBeInTheDocument();
     expect(screen.getByText('Push')).toBeInTheDocument();
     expect(screen.getByText('Legs')).toBeInTheDocument();
-    // Day pills render the weekday, not a bare number.
-    expect(screen.getByRole('button', { name: /day: mon/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /day: wed/i })).toBeInTheDocument();
+    // A row says its recommended weekday — the day's name, not a bare number —
+    // and how many exercises the session holds.
+    expect(rowButton('Pull')).toHaveAccessibleName('Pull, Monday, 2 exercises');
+    expect(rowButton('Push')).toHaveAccessibleName('Push, Wednesday, 1 exercise');
+    expect(rowButton('Legs')).toHaveAccessibleName('Legs, Tuesday, 0 exercises');
   });
 
   it('has no collapse control — nothing to expand', () => {
     renderSheet();
     expect(screen.queryByRole('button', { name: /week 1/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /week 2/i })).toBeNull();
+    // A phase's name renames it; it never folds the phase.
+    for (const heading of screen.getAllByRole('heading', { level: 2 })) {
+      for (const button of within(heading).queryAllByRole('button')) {
+        expect(button).not.toHaveAttribute('aria-expanded');
+      }
+    }
   });
 
   // A phase carries a free name and no number: the number was what made a week
@@ -184,73 +214,111 @@ describe('ProgramSheet', () => {
       expect(screen.queryByText(/week \d/i)).toBeNull();
     });
 
+    // Parc: a phase is a section of the page, named by its h2, and its
+    // sessions are in it.
+    it('makes each phase a section named by its heading, holding its sessions', () => {
+      renderSheet();
+      expect(within(phase('Intro')).getByRole('heading', { level: 2 })).toHaveTextContent('Intro');
+      expect(within(phase('Intro')).getByText('Pull')).toBeInTheDocument();
+      expect(within(phase('Intro')).getByText('Push')).toBeInTheDocument();
+      expect(within(phase('Unnamed phase')).getByText('Legs')).toBeInTheDocument();
+      expect(within(phase('Unnamed phase')).queryByText('Pull')).toBeNull();
+    });
+
     // Half the phases in production are unnamed; hiding their divider would
     // silently merge them into the phase above.
     it('still draws an unnamed phase, offering the name', () => {
       renderSheet();
-      const namers = screen.getAllByRole('button', { name: /edit week label/i });
-      expect(namers).toHaveLength(2);
-      expect(screen.getByText('Name this phase')).toBeInTheDocument();
+      // The heading is the way to rename the phase: named by the phase, it
+      // says what a tap does as its description.
+      const namers = screen.getAllByRole('button', { description: 'Rename the phase' });
+      expect(namers.map((b) => b.textContent)).toEqual(['Intro', 'Unnamed phase']);
     });
 
     it('renames in place', async () => {
       const user = userEvent.setup();
       renderSheet();
-      await user.click(screen.getByText('Intro'));
-      const input = screen.getByRole('textbox');
+      await user.click(screen.getByRole('button', { name: 'Intro' }));
+      const input = screen.getByRole('textbox', { name: 'Rename the phase' });
       await user.clear(input);
       await user.type(input, 'Accumulation{Enter}');
       expect(mockUpdateWeek.mutate).toHaveBeenCalledWith({ id: 'w-1', label: 'Accumulation' });
     });
 
-    it('reports each phase size once there is more than one', () => {
-      renderSheet();
-      expect(screen.getByText('2 sessions · 3 ex')).toBeInTheDocument();
-      expect(screen.getByText('1 sessions · 0 ex')).toBeInTheDocument();
+    // The places a phase's sessions hold in the block (« Sessions 9 to 16 »)
+    // replace the size line, « 2 sessions · 3 ex », the old divider wrote.
+    it('says where the sessions of each phase stand in the block', () => {
+      renderSheet({
+        ...program,
+        weeks: [...program.weeks, { id: 'w-3', program_id: 'prog-1', week_number: 3, label: 'Test', sessions: [] }],
+      });
+      expect(within(phase('Intro')).getByText('Sessions 1 to 2')).toBeInTheDocument();
+      expect(within(phase('Unnamed phase')).getByText('Session 3')).toBeInTheDocument();
+      expect(within(phase('Test')).getByText('No session yet')).toBeInTheDocument();
+      expect(screen.queryByText(/\d ex\b/)).toBeNull();
     });
 
     it('adds a session to the phase whose menu was used', async () => {
       const user = userEvent.setup();
       renderSheet();
-      await user.click(screen.getAllByRole('button', { name: /phase options/i })[0]);
+      await user.click(phaseMenuButtons()[0]);
       // The footer offers the same label: the menu's own is in the menu.
-      await user.click(within(phaseMenu()).getByRole('button', { name: /add session/i }));
+      await user.click(within(phaseMenu()).getByRole('button', { name: 'Add a session' }));
       expect(mockCreateSession.mutate).toHaveBeenCalledWith(
         expect.objectContaining({ weekId: 'w-1' }),
       );
+      // The menu closes on its item.
+      expect(screen.queryByRole('group', { name: 'Phase options' })).toBeNull();
     });
 
     it('duplicates a phase without pinning a number (the hook resolves max+1)', async () => {
       const user = userEvent.setup();
       renderSheet();
-      await user.click(screen.getAllByRole('button', { name: /phase options/i })[0]);
-      // Exact name: every session row also offers "Duplicate session".
-      await user.click(screen.getByRole('button', { name: 'duplicate' }));
+      await user.click(phaseMenuButtons()[0]);
+      await user.click(within(phaseMenu()).getByRole('button', { name: 'Duplicate the phase' }));
       expect(mockDuplicateWeek.mutate).toHaveBeenCalledWith({ weekId: 'w-1' });
     });
 
     it('adds a phase at max(week_number) + 1', async () => {
       const user = userEvent.setup();
       renderSheet();
-      await user.click(screen.getByRole('button', { name: /\+ phase/i }));
+      await user.click(screen.getByRole('button', { name: 'Add a phase' }));
       expect(mockCreateWeek.mutate).toHaveBeenCalledWith({ programId: 'prog-1', weekNumber: 3 });
     });
 
     it('names the phase in the delete confirmation instead of numbering it', async () => {
       const user = userEvent.setup();
       renderSheet();
-      await user.click(screen.getAllByRole('button', { name: /phase options/i })[0]);
-      await user.click(screen.getByRole('button', { name: /delete phase/i }));
-      expect(screen.getByText(/Delete “Intro”/)).toBeInTheDocument();
+      await user.click(phaseMenuButtons()[0]);
+      await user.click(within(phaseMenu()).getByRole('button', { name: 'Delete the phase' }));
+
+      const sheet = screen.getByRole('dialog', { name: 'Delete “Intro”?' });
+      expect(sheet).toHaveTextContent('Its sessions are removed with it.');
+      expect(mockDeleteWeek.mutate).not.toHaveBeenCalled();
+      await user.click(within(sheet).getByRole('button', { name: 'Delete the phase' }));
+      expect(mockDeleteWeek.mutate).toHaveBeenCalledWith('w-1');
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('asks about an unnamed phase without a name, and deletes nothing on Cancel', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(phaseMenuButtons()[1]);
+      await user.click(within(phaseMenu()).getByRole('button', { name: 'Delete the phase' }));
+
+      const sheet = screen.getByRole('dialog', { name: 'Delete this phase?' });
+      await user.click(within(sheet).getByRole('button', { name: 'Cancel' }));
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(mockDeleteWeek.mutate).not.toHaveBeenCalled();
     });
   });
 
-  // Review findings P32 and L10. The sheet is one `sl-card overflow-hidden`,
+  // Review findings P32 and L10. The sheet was one `sl-card overflow-hidden`,
   // and its menus were absolutely positioned inside it: the card cut them. On
   // the last phase — the empty one "+ Phase" has just made — "Reorder phases"
   // and "Delete phase" were below the card, and that menu is the only way to
-  // delete a phase.
-  describe('menus are drawn outside the card', () => {
+  // delete a phase. The menus are drawn on <body>.
+  describe('menus are drawn outside the sheet', () => {
     const lastEmptyPhase = {
       ...program,
       weeks: [...program.weeks, { id: 'w-3', program_id: 'prog-1', week_number: 3, label: null, sessions: [] }],
@@ -264,20 +332,18 @@ describe('ProgramSheet', () => {
       window.innerHeight = innerHeight;
     });
 
-    it('a phase menu hangs on <body>, not in the clipping card', async () => {
+    it('a phase menu hangs on <body>, not in the sheet', async () => {
       const user = userEvent.setup();
       const { container } = renderSheet();
-      await user.click(screen.getAllByRole('button', { name: /phase options/i })[0]);
-      const card = container.querySelector('.sl-card.overflow-hidden');
-      expect(card).not.toBeNull();
-      expect(card).not.toContainElement(phaseMenu());
+      await user.click(phaseMenuButtons()[0]);
+      expect(container).not.toContainElement(phaseMenu());
       expect(phaseMenu().parentElement).toBe(document.body);
     });
 
     it('opens upward on the last, empty phase, and every item of it can be pressed', async () => {
       const user = userEvent.setup();
       renderSheet(lastEmptyPhase);
-      const triggers = screen.getAllByRole('button', { name: /phase options/i });
+      const triggers = phaseMenuButtons();
       expect(triggers).toHaveLength(3);
       // The last divider, 60px from the bottom of an 844px screen: 5 items of
       // 44px do not fit below it.
@@ -288,122 +354,127 @@ describe('ProgramSheet', () => {
       expect(menu).toHaveAttribute('data-placement', 'above');
       expect(menu.style.bottom).toBe(`${844 - 740 + 4}px`);
       expect(within(menu).getAllByRole('button').map((b) => b.textContent)).toEqual([
-        '+ ADD SESSION', 'duplicate', 'copy to…', 'Reorder phases', 'delete phase',
+        'Add a session', 'Duplicate the phase', 'Copy to…', 'Reorder the phases', 'Delete the phase',
       ]);
       for (const item of within(menu).getAllByRole('button')) expect(item).toHaveClass('min-h-11');
 
-      await user.click(within(menu).getByRole('button', { name: /delete phase/i }));
-      expect(screen.getByRole('dialog')).toHaveTextContent(/delete this phase/i);
+      await user.click(within(menu).getByRole('button', { name: 'Delete the phase' }));
+      expect(screen.getByRole('dialog', { name: 'Delete this phase?' })).toBeInTheDocument();
     });
 
     it('opens downward where there is room', async () => {
       const user = userEvent.setup();
       renderSheet();
-      const trigger = screen.getAllByRole('button', { name: /phase options/i })[0];
+      const trigger = phaseMenuButtons()[0];
       placeAt(trigger, { top: 120 });
       await user.click(trigger);
       expect(phaseMenu()).toHaveAttribute('data-placement', 'below');
       expect(phaseMenu().style.top).toBe(`${164 + 4}px`);
     });
 
-    // The weekday picker of the last row was cut by the same card.
-    it('the weekday picker hangs on <body> too, in two rows of 44px cells', async () => {
+    // The weekday picker of the last row was cut by the same card. It is in
+    // the row's ⋯ now, under the session's duplicate.
+    it('the menu of a session hangs on <body> too, its days in two rows of 44px cells', async () => {
       const user = userEvent.setup();
       const { container } = renderSheet();
-      const pill = screen.getByRole('button', { name: /day: tue/i });
-      placeAt(pill, { top: 780, left: 12 });
-      await user.click(pill);
+      const trigger = rowMenuButton('Legs');
+      placeAt(trigger, { top: 780, left: 12 });
+      await user.click(trigger);
+      expect(trigger).toHaveAttribute('aria-expanded', 'true');
 
-      const picker = screen.getByRole('group', { name: /day: tue/i });
-      expect(container.querySelector('.sl-card.overflow-hidden')).not.toContainElement(picker);
-      expect(picker).toHaveAttribute('data-placement', 'above');
-      expect(picker).toHaveClass('grid-cols-4');
-      const cells = within(picker).getAllByRole('button');
-      expect(cells).toHaveLength(8);
+      const menu = rowMenu('Legs');
+      expect(container).not.toContainElement(menu);
+      expect(menu.parentElement).toBe(document.body);
+      expect(menu).toHaveAttribute('data-placement', 'above');
+      expect(within(menu).getByRole('button', { name: 'Duplicate Legs' })).toHaveClass('min-h-11');
+      const grid = within(menu).getByRole('button', { name: 'Monday' }).parentElement;
+      expect(grid).toHaveClass('grid-cols-4');
+      const cells = within(grid).getAllByRole('button');
+      expect(cells.map((c) => c.getAttribute('aria-label'))).toEqual([
+        'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday', 'No recommended day',
+      ]);
       for (const cell of cells) expect(cell).toHaveClass('w-11', 'h-11');
 
-      await user.click(within(picker).getByRole('button', { name: 'Sat' }));
+      await user.click(within(menu).getByRole('button', { name: 'Saturday' }));
       expect(mockUpdateSession.mutate).toHaveBeenCalledWith({ id: 'sess-3', day_number: 6 });
-      expect(screen.queryByRole('group', { name: /day: tue/i })).toBeNull();
+      expect(screen.queryByRole('group', { name: 'Options for Legs' })).toBeNull();
     });
 
     it('the two triggers are 44px', () => {
       renderSheet();
-      expect(screen.getAllByRole('button', { name: /phase options/i })[0]).toHaveClass('w-11', 'h-11');
-      expect(screen.getByRole('button', { name: /day: mon/i })).toHaveClass('h-11', 'min-w-11');
+      expect(phaseMenuButtons()[0]).toHaveClass('pk-icon-btn');
+      expect(rowMenuButton('Pull')).toHaveClass('pk-icon-btn');
     });
   });
 
   // Review item L15 and live finding N15: the button that opens a session was
   // the height of its text, 15px, between two writes on a tap (the day pill
   // and the duplicate button, 28px). jsdom lays nothing out, so these check
-  // the classes (src/test/hitTargets.test.js holds `sl-pill-btn` to 44px).
+  // the classes (src/test/hitTargets.test.js holds `.pk-btn`, `.pk-icon-btn`
+  // and `.pk-row` to 44px and more).
   describe('44px targets', () => {
-    it('in a session row: the whole row height opens it, and its neighbours are 44px boxes', () => {
+    it('in a session row: the whole row height opens it, and its neighbour is a 44px box', () => {
       renderSheet();
-      const open = screen.getAllByRole('button', { name: /open session/i })[0];
+      const open = rowButton('Pull');
       expect(open).toHaveClass('self-stretch', 'min-h-11', 'flex-1');
-      const duplicate = screen.getAllByRole('button', { name: /duplicate session/i })[0];
-      expect(duplicate).toHaveClass('w-11', 'h-11');
-      expect(duplicate).not.toHaveClass('w-7');
-      // Three boxes side by side, none of them an enlarged area that would
-      // lie over the next one.
-      for (const button of [open, duplicate, screen.getByRole('button', { name: /day: mon/i })]) {
-        expect(button).not.toHaveClass('sl-hit');
-      }
+      expect(open.closest('li')).toHaveClass('pk-row');
+      const menu = rowMenuButton('Pull');
+      expect(menu).toHaveClass('pk-icon-btn');
+      // Two boxes side by side, neither of them an enlarged area that would
+      // lie over the other.
+      for (const button of [open, menu]) expect(button).not.toHaveClass('sl-hit');
     });
 
-    it('in the footer and under it', () => {
+    it('under the list', () => {
       renderSheet();
-      expect(screen.getByRole('button', { name: /add session/i })).toHaveClass('min-h-11');
-      expect(screen.getByRole('button', { name: /^select$/i })).toHaveClass('min-h-11');
-      expect(screen.getByRole('button', { name: /^reorder$/i })).toHaveClass('min-h-11');
-      expect(screen.getByRole('button', { name: /\+ phase/i })).toHaveClass('min-h-11');
+      for (const name of ['Add a session', 'Add a phase', 'Choose', 'Reorder']) {
+        expect(screen.getByRole('button', { name })).toHaveClass('pk-btn');
+      }
     });
 
     it('in the selection bar', async () => {
       const user = userEvent.setup();
       renderSheet();
-      await user.click(screen.getByRole('button', { name: /^select$/i }));
-      expect(screen.getByRole('button', { name: /Pull/ })).toHaveClass('min-h-11');
-      expect(screen.getByRole('button', { name: /^archive$/i })).toHaveClass('min-h-11');
-      expect(screen.getByRole('button', { name: /copy to/i })).toHaveClass('min-h-11');
-      expect(screen.getByRole('button', { name: /cancel/i })).toHaveClass('w-11', 'h-11');
+      await user.click(screen.getByRole('button', { name: 'Choose' }));
+      expect(rowButton('Pull')).toHaveClass('pk-row');
+      expect(screen.getByRole('button', { name: 'Archive' })).toHaveClass('pk-btn', 'pk-btn-lg');
+      expect(screen.getByRole('button', { name: 'Copy' })).toHaveClass('pk-btn', 'pk-btn-lg');
+      expect(screen.getByRole('button', { name: 'Done' })).toHaveClass('pk-btn');
     });
 
     it('in the archived drawer', async () => {
       const user = userEvent.setup();
       renderSheet();
-      const toggle = screen.getByRole('button', { name: /show 1 archived/i });
-      expect(toggle).toHaveClass('min-h-11');
+      const toggle = archivedToggle(1);
+      expect(toggle).toHaveClass('pk-row');
       await user.click(toggle);
-      expect(screen.getByRole('button', { name: /open archived session/i })).toHaveClass('min-h-11');
-      expect(screen.getByRole('button', { name: /restore this session/i })).toHaveClass('min-h-11');
+      expect(screen.getByRole('button', { name: 'Old' })).toHaveClass('min-h-11');
+      expect(screen.getByRole('button', { name: 'Restore Old' })).toHaveClass('pk-btn');
     });
 
-    it('in both reorder modes: the handles and the Done pill', async () => {
+    it('in both reorder modes: the handles and Done', async () => {
       const user = userEvent.setup();
       renderSheet();
-      await user.click(screen.getByRole('button', { name: /^reorder$/i }));
-      expect(screen.getByRole('button', { name: /reorder pull/i })).toHaveClass('w-11', 'h-11');
-      expect(screen.getByRole('button', { name: /^done$/i })).toHaveClass('sl-pill', 'sl-pill-btn');
-      await user.click(screen.getByRole('button', { name: /^done$/i }));
+      await user.click(screen.getByRole('button', { name: 'Reorder' }));
+      expect(screen.getByRole('button', { name: 'Move Pull' })).toHaveClass('pk-icon-btn');
+      expect(screen.getByRole('button', { name: 'Done' })).toHaveClass('pk-btn');
+      await user.click(screen.getByRole('button', { name: 'Done' }));
 
-      await user.click(screen.getAllByRole('button', { name: /phase options/i })[0]);
-      await user.click(screen.getByRole('button', { name: /reorder phases/i }));
-      expect(screen.getByRole('button', { name: /reorder intro/i })).toHaveClass('w-11', 'h-11');
+      await user.click(phaseMenuButtons()[0]);
+      await user.click(within(phaseMenu()).getByRole('button', { name: 'Reorder the phases' }));
+      expect(screen.getByRole('button', { name: 'Move Intro' })).toHaveClass('pk-icon-btn');
     });
 
     it('on a phase name', () => {
       renderSheet();
-      for (const namer of screen.getAllByRole('button', { name: /edit week label/i })) {
+      for (const namer of screen.getAllByRole('button', { description: 'Rename the phase' })) {
         expect(namer).toHaveClass('min-h-11');
       }
     });
 
     it('for the first session of an empty block', () => {
       renderSheet({ id: 'prog-1', weeks: [] });
-      expect(screen.getByRole('button', { name: /add session/i })).toHaveClass('min-h-11');
+      expect(screen.getByRole('button', { name: 'Add a session' })).toHaveClass('pk-btn');
     });
   });
 
@@ -439,13 +510,18 @@ describe('ProgramSheet', () => {
         ] },
       ],
     });
-    expect(screen.getByText('Session 3')).toBeInTheDocument();
+    expect(rowButton('Session 3')).toHaveAccessibleName('Session 3, 0 exercises');
+    // Its place, in condensed digits, is drawn for the eye only: the name
+    // already carries it.
+    const place = rowButton('Session 3').closest('li').querySelector('.pk-condensed');
+    expect(place).toHaveTextContent('3');
+    expect(place).toHaveAttribute('aria-hidden', 'true');
   });
 
   describe('session reorder mode', () => {
     it('offers Reorder once the block holds more than one session', () => {
       renderSheet();
-      expect(screen.getByRole('button', { name: /^reorder$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Reorder' })).toBeInTheDocument();
     });
 
     it('offers no Reorder for a single session — nothing to order', () => {
@@ -458,21 +534,30 @@ describe('ProgramSheet', () => {
           ],
         }],
       });
-      expect(screen.queryByRole('button', { name: /^reorder$/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Reorder' })).toBeNull();
     });
 
     it('swaps the rows for drag handles that KEEP their titles', async () => {
       const user = userEvent.setup();
       renderSheet();
-      await user.click(screen.getByRole('button', { name: /^reorder$/i }));
+      await user.click(screen.getByRole('button', { name: 'Reorder' }));
 
       expect(screen.getByText('Pull')).toBeInTheDocument();
       expect(screen.getByText('Legs')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /reorder pull/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Move Pull' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Move Legs' })).toBeInTheDocument();
       // Every other control steps out of the way so a drag can't mis-tap.
-      expect(screen.queryByRole('button', { name: /day: mon/i })).toBeNull();
-      expect(screen.queryByRole('button', { name: /duplicate session/i })).toBeNull();
-      expect(screen.queryByRole('button', { name: /add session/i })).toBeNull();
+      expect(queryRowButton('Pull')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Options for Pull' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Add a session' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Choose' })).toBeNull();
+    });
+
+    it('says how to move a session within its phase', async () => {
+      const user = userEvent.setup();
+      renderSheet(oneWeek);
+      await user.click(screen.getByRole('button', { name: 'Reorder' }));
+      expect(screen.getByText('Drag the handles to change the order.')).toBeInTheDocument();
     });
 
     // Dragging across a divider is the gesture that used to be impossible —
@@ -480,23 +565,25 @@ describe('ProgramSheet', () => {
     it('says so when there is a divider to drag across', async () => {
       const user = userEvent.setup();
       renderSheet();
-      await user.click(screen.getByRole('button', { name: /^reorder$/i }));
-      expect(screen.getByText(/drag a session onto a phase name/i)).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Reorder' }));
+      expect(screen.getByText('Drag a session onto the name of a phase to move it there.')).toBeInTheDocument();
     });
 
     it('keeps that hint out of a single-phase block', async () => {
       const user = userEvent.setup();
       renderSheet(oneWeek);
-      await user.click(screen.getByRole('button', { name: /^reorder$/i }));
-      expect(screen.queryByText(/drag a session onto a phase name/i)).toBeNull();
+      await user.click(screen.getByRole('button', { name: 'Reorder' }));
+      expect(screen.queryByText(/onto the name of a phase/i)).toBeNull();
     });
 
     it('leaves the mode on Done', async () => {
       const user = userEvent.setup();
       renderSheet();
-      await user.click(screen.getByRole('button', { name: /^reorder$/i }));
-      await user.click(screen.getByRole('button', { name: /^done$/i }));
-      expect(screen.getByRole('button', { name: /day: mon/i })).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Reorder' }));
+      await user.click(screen.getByRole('button', { name: 'Done' }));
+      expect(rowMenuButton('Pull')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Move Pull' })).toBeNull();
+      expect(screen.queryByText(/onto the name of a phase/)).toBeNull();
     });
   });
 
@@ -504,29 +591,36 @@ describe('ProgramSheet', () => {
     it('is offered only from a divider menu, and only with several phases', async () => {
       const user = userEvent.setup();
       renderSheet();
-      expect(screen.queryByRole('button', { name: /reorder phases/i })).toBeNull();
-      await user.click(screen.getAllByRole('button', { name: /phase options/i })[0]);
-      expect(screen.getByRole('button', { name: /reorder phases/i })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Reorder the phases' })).toBeNull();
+      await user.click(phaseMenuButtons()[0]);
+      expect(within(phaseMenu()).getByRole('button', { name: 'Reorder the phases' })).toBeInTheDocument();
     });
 
     it('is absent for a lone phase', async () => {
       const user = userEvent.setup();
       renderSheet(oneWeek);
-      await user.click(screen.getByRole('button', { name: /phase options/i }));
-      expect(screen.queryByRole('button', { name: /reorder phases/i })).toBeNull();
+      await user.click(screen.getByRole('button', { name: 'Phase options' }));
+      expect(screen.queryByRole('button', { name: 'Reorder the phases' })).toBeNull();
     });
 
     it('hides the sessions so a phase is dragged as a whole', async () => {
       const user = userEvent.setup();
       renderSheet();
-      await user.click(screen.getAllByRole('button', { name: /phase options/i })[0]);
-      await user.click(screen.getByRole('button', { name: /reorder phases/i }));
+      await user.click(phaseMenuButtons()[0]);
+      await user.click(within(phaseMenu()).getByRole('button', { name: 'Reorder the phases' }));
 
       expect(screen.queryByText('Pull')).toBeNull();
-      expect(screen.getByRole('button', { name: /reorder intro/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /reorder unnamed phase/i })).toBeInTheDocument();
+      expect(screen.getByText('Drag the handles to change the order.')).toBeInTheDocument();
+      // A phase is a row: its name, how many sessions it holds, its handle.
+      const intro = screen.getByRole('button', { name: 'Move Intro' }).closest('li');
+      expect(intro).toHaveTextContent('Intro');
+      expect(intro).toHaveTextContent('2 sessions');
+      const unnamed = screen.getByRole('button', { name: 'Move Unnamed phase' }).closest('li');
+      expect(unnamed).toHaveTextContent('1 session');
+      // Nothing else to press than the handles and Done.
+      expect(screen.queryByRole('button', { name: 'Add a phase' })).toBeNull();
 
-      await user.click(screen.getByRole('button', { name: /^done$/i }));
+      await user.click(screen.getByRole('button', { name: 'Done' }));
       expect(screen.getByText('Pull')).toBeInTheDocument();
     });
   });
@@ -578,8 +672,8 @@ describe('ProgramSheet', () => {
     it('in phase mode sends every phase of the block in its new order', async () => {
       const user = userEvent.setup();
       renderSheet();
-      await user.click(screen.getAllByRole('button', { name: /phase options/i })[0]);
-      await user.click(screen.getByRole('button', { name: /reorder phases/i }));
+      await user.click(phaseMenuButtons()[0]);
+      await user.click(within(phaseMenu()).getByRole('button', { name: 'Reorder the phases' }));
 
       drop('w-2', 'w-1');
       expect(mockReorderWeeks.mutate).toHaveBeenCalledTimes(1);
@@ -606,22 +700,39 @@ describe('ProgramSheet', () => {
   // never-performed session can't reach — so the only tool for one was delete.
   describe('selection mode', () => {
     async function enterSelect(user) {
-      await user.click(screen.getByRole('button', { name: /^select$/i }));
+      await user.click(screen.getByRole('button', { name: 'Choose' }));
     }
+    // The count of the selection bar (dnd-kit keeps a status of its own on
+    // the page, for the drags it announces).
+    const count = () => within(document.querySelector('.pk-actionbar')).getByRole('status');
+    const inSelectMode = () => document.querySelector('.pk-actionbar') !== null;
 
     it('turns rows into pressable targets and reports the count', async () => {
       const user = userEvent.setup();
       renderSheet();
       await enterSelect(user);
 
-      expect(screen.getByText('0 selected')).toBeInTheDocument();
-      await user.click(screen.getByRole('button', { name: /Pull/ }));
-      expect(screen.getByText('1 selected')).toBeInTheDocument();
-      await user.click(screen.getByRole('button', { name: /Push/ }));
-      expect(screen.getByText('2 selected')).toBeInTheDocument();
+      expect(screen.getByText('Tap a session to choose it.')).toBeInTheDocument();
+      expect(rowButton('Pull')).toHaveAttribute('aria-pressed', 'false');
+      expect(count()).toHaveTextContent('None chosen');
+      await user.click(rowButton('Pull'));
+      expect(rowButton('Pull')).toHaveAttribute('aria-pressed', 'true');
+      expect(count()).toHaveTextContent('1 chosen');
+      await user.click(rowButton('Push'));
+      expect(count()).toHaveTextContent('2 chosen');
       // Tapping again deselects.
-      await user.click(screen.getByRole('button', { name: /Push/ }));
-      expect(screen.getByText('1 selected')).toBeInTheDocument();
+      await user.click(rowButton('Push'));
+      expect(rowButton('Push')).toHaveAttribute('aria-pressed', 'false');
+      expect(count()).toHaveTextContent('1 chosen');
+    });
+
+    it('picks a session instead of opening it', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await enterSelect(user);
+      expect(screen.queryByRole('button', { name: 'Options for Pull' })).toBeNull();
+      await user.click(rowButton('Pull'));
+      expect(mockNavigate).not.toHaveBeenCalled();
     });
 
     // One selection for the whole block: archiving a finished mesocycle used to
@@ -630,9 +741,9 @@ describe('ProgramSheet', () => {
       const user = userEvent.setup();
       renderSheet();
       await enterSelect(user);
-      await user.click(screen.getByRole('button', { name: /Pull/ }));
-      await user.click(screen.getByRole('button', { name: /Legs/ }));
-      await user.click(screen.getByRole('button', { name: /^archive$/i }));
+      await user.click(rowButton('Pull'));
+      await user.click(rowButton('Legs'));
+      await user.click(screen.getByRole('button', { name: 'Archive' }));
 
       expect(mockArchiveSessions.mutate).toHaveBeenCalledWith(
         { sessionIds: ['sess-1', 'sess-3'], archived: true },
@@ -640,104 +751,365 @@ describe('ProgramSheet', () => {
       );
     });
 
+    it('leaves the mode once the archive is made', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await enterSelect(user);
+      await user.click(rowButton('Pull'));
+      await user.click(screen.getByRole('button', { name: 'Archive' }));
+
+      const { onSuccess } = mockArchiveSessions.mutate.mock.calls[0][1];
+      act(() => onSuccess());
+      expect(inSelectMode()).toBe(false);
+      expect(rowMenuButton('Pull')).toBeInTheDocument();
+    });
+
     it('keeps both actions inert until something is picked', async () => {
       const user = userEvent.setup();
       renderSheet();
       await enterSelect(user);
-      expect(screen.getByRole('button', { name: /^archive$/i })).toBeDisabled();
-      expect(screen.getByRole('button', { name: /copy to/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Archive' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Copy' })).toBeDisabled();
     });
 
-    it('leaves the mode and clears the selection on dismiss', async () => {
+    it('leaves the mode and clears the selection on Done', async () => {
       const user = userEvent.setup();
       renderSheet();
       await enterSelect(user);
-      await user.click(screen.getByRole('button', { name: /Pull/ }));
-      await user.click(screen.getByRole('button', { name: /cancel/i }));
+      await user.click(rowButton('Pull'));
+      await user.click(screen.getByRole('button', { name: 'Done' }));
 
-      expect(screen.queryByText(/selected/)).toBeNull();
-      // Back to the normal row, day pill and all.
-      expect(screen.getByRole('button', { name: /day: mon/i })).toBeInTheDocument();
+      expect(inSelectMode()).toBe(false);
+      expect(screen.queryByText(/chosen/)).toBeNull();
+      // Back to the normal row, its menu and all.
+      expect(rowMenuButton('Pull')).toBeInTheDocument();
+
+      // And the next selection starts empty.
+      await enterSelect(user);
+      expect(count()).toHaveTextContent('None chosen');
+      expect(rowButton('Pull')).toHaveAttribute('aria-pressed', 'false');
     });
 
-    it('copies the selection into the week chosen in the dialog', async () => {
+    it('copies the selection into the phase chosen in the sheet', async () => {
       const user = userEvent.setup();
       renderSheet();
       await enterSelect(user);
-      await user.click(screen.getByRole('button', { name: /Pull/ }));
-      await user.click(screen.getByRole('button', { name: /copy to/i }));
-      // Scoped to the OPEN dialog: `Dialog` mounts its children whatever its
-      // state, and the sheet renders a second CopyDialog for phase copying.
-      const dialog = screen.getByRole('dialog');
-      // It asks for the destination BLOCK before the week — the step that
+      await user.click(rowButton('Pull'));
+      await user.click(screen.getByRole('button', { name: 'Copy' }));
+
+      // Scoped to the OPEN sheet: the sheet renders a second copy sheet, for
+      // phases, and the confirmation of a phase's delete, both closed.
+      const dialog = within(screen.getByRole('dialog', { name: 'Copy the sessions' }));
+      expect(screen.getByRole('dialog', { name: 'Copy the sessions' })).toHaveAccessibleDescription(
+        'Copies 1 session to the end of the phase you choose. The targets go with it, the athlete’s logged sets do not.',
+      );
+      // It asks for the destination BLOCK before the phase — the step that
       // lifts the old active-program-only restriction.
-      // Exact strings, not regexes: a substring regex also matches the <label>
-      // wrapping each <span>, which reads as two hits for one field.
-      expect(within(dialog).getByText('Destination block')).toBeInTheDocument();
-      expect(within(dialog).getByText('Destination week')).toBeInTheDocument();
+      await user.selectOptions(dialog.getByLabelText('Athlete'), 's-1');
+      await user.selectOptions(dialog.getByLabelText('Block'), 'prog-1');
+      await user.selectOptions(dialog.getByLabelText('Phase'), 'w-2');
+      await user.click(dialog.getByRole('button', { name: 'Copy' }));
+
+      expect(mockCopySessions.mutate).toHaveBeenCalledWith(
+        { sessionIds: ['sess-1'], weekId: 'w-2' },
+        expect.any(Object),
+      );
+      // Once the copy is made, the sheet closes and the mode is left.
+      const { onSuccess } = mockCopySessions.mutate.mock.calls[0][1];
+      act(() => onSuccess());
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(inSelectMode()).toBe(false);
     });
   });
 
-  // Restoring meant opening the session's review page, a full-page route whose
-  // back button lands on an unrelated feed — a one-way trip out of Programming.
-  it('restores an archived session in place, without leaving the sheet', async () => {
-    const user = userEvent.setup();
-    renderSheet();
-    await user.click(screen.getByText(/show 1 archived/i));
-    await user.click(screen.getByRole('button', { name: /restore this session/i }));
+  // design/parc/screens/Programme.dc.html: while sessions are being chosen,
+  // what can be done with them sits in the ActionBar at the bottom of the
+  // screen, after the count — within reach of the thumb, whatever the scroll.
+  describe('the selection bar', () => {
+    const bar = (container) => container.querySelector('.pk-actionbar');
 
-    expect(mockArchiveSession.mutate).toHaveBeenCalledWith({
-      sessionId: 'sess-old',
-      archived: false,
+    it('is the ActionBar, and only while sessions are being chosen', async () => {
+      const user = userEvent.setup();
+      const { container } = renderSheet();
+      expect(bar(container)).toBeNull();
+
+      await user.click(screen.getByRole('button', { name: 'Choose' }));
+      const actions = within(bar(container));
+      expect(actions.getByRole('status')).toHaveTextContent('None chosen');
+      expect(actions.getByRole('button', { name: 'Copy' })).toBeInTheDocument();
+      // Archive is the bar's main action.
+      expect(actions.getByRole('button', { name: 'Archive' })).toHaveClass('pk-btn-primary');
+      // The footer under the list steps aside.
+      expect(screen.queryByRole('button', { name: 'Add a session' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Reorder' })).toBeNull();
+
+      await user.click(screen.getByRole('button', { name: 'Done' }));
+      expect(bar(container)).toBeNull();
     });
-    expect(mockNavigate).not.toHaveBeenCalled();
+
+    it('counts what is chosen as a status, read when it changes', async () => {
+      const user = userEvent.setup();
+      const { container } = renderSheet();
+      await user.click(screen.getByRole('button', { name: 'Choose' }));
+      await user.click(rowButton('Pull'));
+      await user.click(rowButton('Push'));
+      await user.click(rowButton('Legs'));
+      expect(within(bar(container)).getByRole('status')).toHaveTextContent('3 chosen');
+      expect(screen.getByRole('button', { name: 'Archive' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Copy' })).toBeEnabled();
+    });
+
+    it('takes no second archive while one is on its way', async () => {
+      const user = userEvent.setup();
+      mockArchiveSessions.isPending = true;
+      try {
+        renderSheet();
+        await user.click(screen.getByRole('button', { name: 'Choose' }));
+        await user.click(rowButton('Pull'));
+        expect(screen.getByRole('button', { name: 'Archive' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Copy' })).toBeEnabled();
+      } finally {
+        mockArchiveSessions.isPending = false;
+      }
+    });
   });
 
-  // Review item P11, the coach's half: an archived session is the coach's
-  // cleanup, not a session done. Its row in the drawer says "archived" and
-  // nothing else, trained or not — no ✓, no "started" ring.
-  it('marks an archived session as archived, and as nothing else', async () => {
-    const user = userEvent.setup();
-    mockConfirmed = { data: new Set(['sess-old']) };
-    mockLogged = { data: new Set(['sess-old']) };
-    renderSheet();
-    await user.click(screen.getByRole('button', { name: /show 1 archived/i }));
-    const row = screen.getByRole('button', { name: /open archived session/i }).parentElement;
-    expect(within(row).getByText('archived')).toBeInTheDocument();
-    expect(within(row).queryByLabelText(/confirmed by student/i)).toBeNull();
-    expect(within(row).queryByRole('img')).toBeNull();
-    expect(within(row).queryByText(/done/i)).toBeNull();
-  });
+  // design/parc/screens/Programme.dc.html, « Séances 1 à 6, toutes faites »:
+  // the sessions a phase opens with that the athlete has done are one row,
+  // so what is left to train comes first to the eye.
+  describe('the done sessions a phase opens with', () => {
+    const s = (id, title, sortOrder, extra = {}) => ({
+      id, title, day_number: null, sort_order: sortOrder, archived_at: null, exercise_slots: [], ...extra,
+    });
+    const doneFirst = {
+      id: 'prog-1',
+      weeks: [
+        {
+          id: 'w-1', program_id: 'prog-1', week_number: 1, label: 'Base',
+          sessions: [
+            s('d-1', 'Pull A', 0),
+            s('d-2', 'Push A', 1),
+            // Done by its `performed_at`, before the confirmations are read.
+            s('d-3', 'Legs A', 2, { performed_at: '2026-10-01T00:00:00Z' }),
+            s('d-4', 'Pull B', 3),
+          ],
+        },
+        {
+          id: 'w-2', program_id: 'prog-1', week_number: 2, label: 'Peak',
+          sessions: [s('d-5', 'Push B', 0), s('d-6', 'Legs B', 1)],
+        },
+      ],
+    };
+    const fold = () => screen.getByRole('button', { name: 'Sessions 1 to 3, All done' });
 
-  it('excludes archived sessions from the active list', () => {
-    renderSheet();
-    expect(screen.queryByText('Old')).not.toBeInTheDocument();
-    expect(screen.getByText(/show 1 archived/i)).toBeInTheDocument();
+    beforeEach(() => {
+      mockConfirmed = { data: new Set(['d-1', 'd-2', 'd-5']) };
+    });
+
+    it('are one row, closed, that says which they are', () => {
+      renderSheet(doneFirst);
+      expect(fold()).toHaveAttribute('aria-expanded', 'false');
+      expect(within(phase('Base')).getByRole('list')).toContainElement(fold());
+      for (const name of ['Pull A', 'Push A', 'Legs A']) expect(queryRowButton(name)).toBeNull();
+      // What is left of the phase follows, at its place in the block.
+      expect(rowButton('Pull B')).toHaveAccessibleName('Pull B, 0 exercises');
+      expect(rowButton('Pull B').closest('li')).toHaveTextContent(/^4/);
+      // The phase still says where all its sessions stand.
+      expect(within(phase('Base')).getByText('Sessions 1 to 4')).toBeInTheDocument();
+    });
+
+    it('open on the tap', async () => {
+      const user = userEvent.setup();
+      renderSheet(doneFirst);
+      await user.click(fold());
+
+      expect(screen.queryByRole('button', { name: /All done/ })).toBeNull();
+      // The pressed row is gone: the focus is on the first session it held.
+      await waitFor(() => expect(rowButton('Pull A')).toHaveFocus());
+      expect(rowButton('Pull A')).toHaveAccessibleName('Pull A, Done, 0 exercises');
+      expect(rowButton('Push A')).toBeInTheDocument();
+      expect(rowButton('Legs A')).toHaveAccessibleName('Legs A, Done, 0 exercises');
+      // A done session opens its review.
+      await user.click(rowButton('Pull A'));
+      expect(mockNavigate).toHaveBeenCalledWith('/coach/student/s-1/session/d-1/review', {
+        state: { from: '/coach/students/s-1' },
+      });
+    });
+
+    it('open one phase, and leave the others as they are', async () => {
+      const user = userEvent.setup();
+      const twoRuns = structuredClone(doneFirst);
+      twoRuns.weeks[1].sessions.push(s('d-7', 'Pull C', 2));
+      mockConfirmed = { data: new Set(['d-1', 'd-2', 'd-5', 'd-6']) };
+      renderSheet(twoRuns);
+      const peak = screen.getByRole('button', { name: 'Sessions 5 to 6, All done' });
+
+      await user.click(fold());
+      expect(peak).toHaveAttribute('aria-expanded', 'false');
+      expect(queryRowButton('Push B')).toBeNull();
+    });
+
+    it('leave a single done session as a row', () => {
+      renderSheet(doneFirst);
+      expect(within(phase('Peak')).queryByRole('button', { name: /All done/ })).toBeNull();
+      expect(rowButton('Push B')).toHaveAccessibleName('Push B, Done, 0 exercises');
+    });
+
+    it('are a run that opens the phase: done sessions after one to do are rows', () => {
+      mockConfirmed = { data: new Set(['d-2', 'd-5']) };
+      renderSheet(doneFirst);
+      expect(screen.queryByRole('button', { name: /All done/ })).toBeNull();
+      expect(rowButton('Pull A')).toHaveAccessibleName('Pull A, 0 exercises');
+      expect(rowButton('Push A')).toHaveAccessibleName('Push A, Done, 0 exercises');
+      expect(rowButton('Legs A')).toHaveAccessibleName('Legs A, Done, 0 exercises');
+    });
+
+    // Started is not done: the athlete may still be in the middle of it.
+    it('leave out a session that is only started', () => {
+      mockConfirmed = { data: new Set() };
+      mockLogged = { data: new Set(['d-1', 'd-2', 'd-3']) };
+      const p = structuredClone(doneFirst);
+      delete p.weeks[0].sessions[2].performed_at;
+      renderSheet(p);
+      expect(screen.queryByRole('button', { name: /All done/ })).toBeNull();
+      expect(rowButton('Pull A')).toHaveAccessibleName('Pull A, In progress, 0 exercises');
+    });
+
+    // Choosing and moving act on sessions, and a folded one cannot be
+    // reached: every row is shown while either is under way.
+    it('are shown one by one while sessions are chosen', async () => {
+      const user = userEvent.setup();
+      renderSheet(doneFirst);
+      await user.click(screen.getByRole('button', { name: 'Choose' }));
+      expect(screen.queryByRole('button', { name: /All done/ })).toBeNull();
+      await user.click(rowButton('Pull A'));
+      expect(rowButton('Pull A')).toHaveAttribute('aria-pressed', 'true');
+
+      // And folded again once it is over.
+      await user.click(screen.getByRole('button', { name: 'Done' }));
+      expect(fold()).toBeInTheDocument();
+    });
+
+    it('are shown one by one while sessions are reordered', async () => {
+      const user = userEvent.setup();
+      renderSheet(doneFirst);
+      await user.click(screen.getByRole('button', { name: 'Reorder' }));
+      expect(screen.queryByRole('button', { name: /All done/ })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Move Pull A' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Move Legs A' })).toBeInTheDocument();
+    });
   });
 
   // One drawer for the block, not one per phase: which phase an archived
   // session used to sit in is not what the coach is looking for.
-  it('gathers archived sessions from every phase into one drawer', async () => {
-    const user = userEvent.setup();
-    renderSheet({
-      ...program,
-      weeks: [
-        program.weeks[0],
-        { ...program.weeks[1], sessions: [
-          ...program.weeks[1].sessions,
-          { id: 'sess-old-2', title: 'Older', day_number: null, sort_order: 9, archived_at: '2026-01-02', exercise_slots: [] },
-        ] },
-      ],
+  describe('the archived sessions', () => {
+    // Restoring meant opening the session's review page, a full-page route
+    // whose back button lands on an unrelated feed — a one-way trip out of
+    // Programming.
+    it('restores an archived session in place, without leaving the sheet', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(archivedToggle(1));
+      await user.click(screen.getByRole('button', { name: 'Restore Old' }));
+
+      expect(mockArchiveSession.mutate).toHaveBeenCalledWith({
+        sessionId: 'sess-old',
+        archived: false,
+      });
+      expect(mockNavigate).not.toHaveBeenCalled();
     });
-    await user.click(screen.getByText(/show 2 archived/i));
-    expect(screen.getByText('Old')).toBeInTheDocument();
-    expect(screen.getByText('Older')).toBeInTheDocument();
+
+    // Review item P11, the coach's half: an archived session is the coach's
+    // cleanup, not a session done. Its row sits under « Archived » and says
+    // nothing else, trained or not — no ✓, no "in progress".
+    it('marks an archived session as archived, and as nothing else', async () => {
+      const user = userEvent.setup();
+      mockConfirmed = { data: new Set(['sess-old']) };
+      mockLogged = { data: new Set(['sess-old']) };
+      renderSheet();
+      await user.click(archivedToggle(1));
+      const drawer = phase('Archived');
+      const open = within(drawer).getByRole('button', { name: 'Old' });
+      const row = open.closest('li');
+      expect(row).not.toHaveTextContent(/done|in progress/i);
+      expect(row.querySelector('.pk-set-dot')).toBeNull();
+    });
+
+    it('are left out of the active list', () => {
+      renderSheet();
+      expect(screen.queryByText('Old')).not.toBeInTheDocument();
+      expect(within(phase('Archived')).getByRole('button', { name: '1 archived session' })).toBeInTheDocument();
+    });
+
+    it('open and close under their count', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      expect(archivedToggle(1)).toHaveAttribute('aria-expanded', 'false');
+      await user.click(archivedToggle(1));
+      expect(archivedToggle(1)).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByText('Old')).toBeInTheDocument();
+      await user.click(archivedToggle(1));
+      expect(screen.queryByText('Old')).toBeNull();
+    });
+
+    it('are gathered from every phase into one drawer', async () => {
+      const user = userEvent.setup();
+      renderSheet({
+        ...program,
+        weeks: [
+          program.weeks[0],
+          { ...program.weeks[1], sessions: [
+            ...program.weeks[1].sessions,
+            { id: 'sess-old-2', title: 'Older', day_number: null, sort_order: 9, archived_at: '2026-01-02', exercise_slots: [] },
+          ] },
+        ],
+      });
+      await user.click(archivedToggle(2));
+      expect(screen.getByText('Old')).toBeInTheDocument();
+      expect(screen.getByText('Older')).toBeInTheDocument();
+    });
+
+    // The drawer used to name an untitled archived session by its index in the
+    // drawer, a number that is no place in the block.
+    it('names an untitled archived session with no number', async () => {
+      const user = userEvent.setup();
+      const p = structuredClone(program);
+      p.weeks[0].sessions[2].title = null;
+      renderSheet(p);
+      await user.click(archivedToggle(1));
+      const archived = within(phase('Archived')).getByRole('button', { name: 'Session' });
+      expect(archived).not.toHaveTextContent(/Session \d/);
+      expect(screen.getByRole('button', { name: 'Restore Session' })).toBeInTheDocument();
+    });
+
+    it('stay linked to the review page', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(archivedToggle(1));
+      const archived = screen.getByRole('button', { name: 'Old' });
+      await user.click(archived);
+      // …and the review is told where to come back to: it used to hardcode the
+      // sessions feed, a one-way trip out of Programming.
+      expect(mockNavigate).toHaveBeenCalledWith('/coach/student/s-1/session/sess-old/review', {
+        state: { from: '/coach/students/s-1' },
+      });
+    });
+
+    it('are put away while sessions are chosen or reordered', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(screen.getByRole('button', { name: 'Choose' }));
+      expect(screen.queryByRole('region', { name: 'Archived' })).toBeNull();
+      await user.click(screen.getByRole('button', { name: 'Done' }));
+      await user.click(screen.getByRole('button', { name: 'Reorder' }));
+      expect(screen.queryByRole('region', { name: 'Archived' })).toBeNull();
+    });
   });
 
   it('opens a session inside the athlete shell (no /coach/student/ prefix)', async () => {
     const user = userEvent.setup();
     renderSheet();
-    await user.click(screen.getAllByRole('button', { name: /open session/i })[0]);
+    await user.click(rowButton('Pull'));
     expect(mockNavigate).toHaveBeenCalledWith('/coach/students/s-1/s/sess-1');
   });
 
@@ -749,15 +1121,11 @@ describe('ProgramSheet', () => {
     const reviewOf = (id) => `/coach/student/s-1/session/${id}/review`;
     const fromSheet = { state: { from: '/coach/students/s-1' } };
 
-    function rowButton(title) {
-      return screen.getByText(title).closest('button');
-    }
-
-    it('when it is confirmed', async () => {
+    it('when it is confirmed, and the row says it is done', async () => {
       const user = userEvent.setup();
       mockConfirmed = { data: new Set(['sess-1']) };
       renderSheet();
-      expect(rowButton('Pull')).toHaveAccessibleName('Open the review');
+      expect(rowButton('Pull')).toHaveAccessibleName('Pull, Done, Monday, 2 exercises');
       await user.click(rowButton('Pull'));
       expect(mockNavigate).toHaveBeenCalledTimes(1);
       expect(mockNavigate).toHaveBeenCalledWith(reviewOf('sess-1'), fromSheet);
@@ -767,8 +1135,9 @@ describe('ProgramSheet', () => {
       const user = userEvent.setup();
       mockLogged = { data: new Set(['sess-2']) };
       renderSheet();
-      expect(screen.getAllByRole('img', { name: /started by the athlete/i })).toHaveLength(1);
-      expect(screen.queryByLabelText(/confirmed by student/i)).toBeNull();
+      expect(screen.getAllByRole('button', { name: /, In progress,/ })).toHaveLength(1);
+      expect(rowButton('Push')).toHaveAccessibleName('Push, In progress, Wednesday, 1 exercise');
+      expect(screen.queryByRole('button', { name: /, Done,/ })).toBeNull();
       await user.click(rowButton('Push'));
       expect(mockNavigate).toHaveBeenCalledWith(reviewOf('sess-2'), fromSheet);
     });
@@ -783,7 +1152,8 @@ describe('ProgramSheet', () => {
       const p = structuredClone(program);
       p.weeks[1].sessions[0].performed_at = '2026-10-01T00:00:00Z';
       renderSheet(p);
-      expect(screen.getAllByLabelText(/confirmed by student/i)).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: /, Done,/ })).toHaveLength(1);
+      expect(rowButton('Legs')).toHaveAccessibleName('Legs, Done, Tuesday, 0 exercises');
       await user.click(rowButton('Legs'));
       expect(mockNavigate).toHaveBeenCalledWith(reviewOf('sess-3'), fromSheet);
     });
@@ -793,8 +1163,7 @@ describe('ProgramSheet', () => {
       mockConfirmed = { data: new Set(['sess-1']) };
       mockLogged = { data: new Set(['sess-2']) };
       renderSheet();
-      expect(screen.getAllByRole('button', { name: 'Open the review' })).toHaveLength(2);
-      expect(rowButton('Legs')).toHaveAccessibleName('Open session');
+      expect(rowButton('Legs')).toHaveAccessibleName('Legs, Tuesday, 0 exercises');
       await user.click(rowButton('Legs'));
       expect(mockNavigate).toHaveBeenCalledWith('/coach/students/s-1/s/sess-3');
     });
@@ -812,12 +1181,54 @@ describe('ProgramSheet', () => {
     });
   });
 
-  it('writes day_number when a weekday is picked', async () => {
-    const user = userEvent.setup();
-    renderSheet();
-    await user.click(screen.getByRole('button', { name: /day: mon/i }));
-    await user.click(screen.getByRole('button', { name: 'Thu' }));
-    expect(mockUpdateSession.mutate).toHaveBeenCalledWith({ id: 'sess-1', day_number: 4 });
+  // The recommended day is in the row's ⋯, under the session's duplicate.
+  describe('the recommended day', () => {
+    it('writes day_number when a weekday is picked', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(rowMenuButton('Pull'));
+      await user.click(within(rowMenu('Pull')).getByRole('button', { name: 'Thursday' }));
+      expect(mockUpdateSession.mutate).toHaveBeenCalledWith({ id: 'sess-1', day_number: 4 });
+    });
+
+    it('marks the day the session has, and clears it', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(rowMenuButton('Pull'));
+      const menu = within(rowMenu('Pull'));
+      expect(menu.getByRole('button', { name: 'Monday' })).toHaveAttribute('aria-current', 'true');
+      expect(menu.getByRole('button', { name: 'Thursday' })).toHaveAttribute('aria-current', 'false');
+      expect(menu.getByRole('button', { name: 'No recommended day' })).toHaveAttribute('aria-current', 'false');
+
+      // Clearing the day is a real choice: plenty of sessions should not
+      // suggest one.
+      await user.click(menu.getByRole('button', { name: 'No recommended day' }));
+      expect(mockUpdateSession.mutate).toHaveBeenCalledWith({ id: 'sess-1', day_number: null });
+    });
+
+    it('marks « no day » on a session without one, and says no day in the row', async () => {
+      const user = userEvent.setup();
+      const p = structuredClone(program);
+      p.weeks[1].sessions[0].day_number = null;
+      renderSheet(p);
+      expect(rowButton('Legs')).toHaveAccessibleName('Legs, 0 exercises');
+      await user.click(rowMenuButton('Legs'));
+      expect(within(rowMenu('Legs')).getByRole('button', { name: 'No recommended day' }))
+        .toHaveAttribute('aria-current', 'true');
+    });
+
+    it('closes the menu on Escape and gives the focus back to its ⋯', async () => {
+      const user = userEvent.setup();
+      renderSheet();
+      await user.click(rowMenuButton('Pull'));
+      // The menu takes the focus: drawn on <body>, it is no longer next to its
+      // trigger in the tab order.
+      expect(within(rowMenu('Pull')).getByRole('button', { name: 'Duplicate Pull' })).toHaveFocus();
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('group', { name: 'Options for Pull' })).toBeNull();
+      expect(rowMenuButton('Pull')).toHaveFocus();
+      expect(mockUpdateSession.mutate).not.toHaveBeenCalled();
+    });
   });
 
   // A weekday is a recommendation the coach makes deliberately, so a new
@@ -827,7 +1238,7 @@ describe('ProgramSheet', () => {
   it('adds a session with no recommended weekday, at the end of the block', async () => {
     const user = userEvent.setup();
     renderSheet();
-    await user.click(screen.getByRole('button', { name: /add session/i }));
+    await user.click(screen.getByRole('button', { name: 'Add a session' }));
     expect(mockCreateSession.mutate).toHaveBeenCalledWith(
       expect.objectContaining({ weekId: 'w-2', dayNumber: null }),
     );
@@ -841,7 +1252,7 @@ describe('ProgramSheet', () => {
     it('from the footer', async () => {
       const user = userEvent.setup();
       renderSheet();
-      await user.click(screen.getByRole('button', { name: /add session/i }));
+      await user.click(screen.getByRole('button', { name: 'Add a session' }));
       expect(mockCreateSession.mutate.mock.calls).toEqual([
         [{ weekId: 'w-2', dayNumber: null, sortOrder: 1 }],
       ]);
@@ -850,8 +1261,8 @@ describe('ProgramSheet', () => {
     it('from a phase menu', async () => {
       const user = userEvent.setup();
       renderSheet();
-      await user.click(screen.getAllByRole('button', { name: /phase options/i })[0]);
-      await user.click(within(phaseMenu()).getByRole('button', { name: /add session/i }));
+      await user.click(phaseMenuButtons()[0]);
+      await user.click(within(phaseMenu()).getByRole('button', { name: 'Add a session' }));
       // After the archived session's sort_order too: it still holds 2.
       expect(mockCreateSession.mutate.mock.calls).toEqual([
         [{ weekId: 'w-1', dayNumber: null, sortOrder: 3 }],
@@ -861,7 +1272,7 @@ describe('ProgramSheet', () => {
     it('as the first session of an empty block', async () => {
       const user = userEvent.setup();
       renderSheet({ id: 'prog-1', weeks: [] });
-      await user.click(screen.getByRole('button', { name: /add session/i }));
+      await user.click(screen.getByRole('button', { name: 'Add a session' }));
       const [, { onSuccess }] = mockCreateWeek.mutate.mock.calls[0];
       onSuccess({ id: 'w-new' });
       expect(mockCreateSession.mutate.mock.calls).toEqual([
@@ -875,7 +1286,8 @@ describe('ProgramSheet', () => {
         ...program,
         weeks: [program.weeks[0], { ...program.weeks[1], sessions: [...program.weeks[1].sessions, untitled] }],
       });
-      expect(screen.getByText('Session 4')).toBeInTheDocument();
+      expect(rowButton('Session 4')).toBeInTheDocument();
+      expect(rowMenuButton('Session 4')).toBeInTheDocument();
       unmount();
       // Moved to the top of the block.
       renderSheet({
@@ -885,38 +1297,28 @@ describe('ProgramSheet', () => {
           program.weeks[1],
         ],
       });
-      expect(screen.getByText('Session 1')).toBeInTheDocument();
-      expect(screen.queryByText('Session 4')).toBeNull();
+      expect(rowButton('Session 1')).toBeInTheDocument();
+      expect(queryRowButton('Session 4')).toBeNull();
     });
-  });
-
-  // The drawer used to name an untitled archived session by its index in the
-  // drawer, a number that is no place in the block.
-  it('names an untitled archived session as the editor does, with no number', async () => {
-    const user = userEvent.setup();
-    const p = structuredClone(program);
-    p.weeks[0].sessions[2].title = null;
-    renderSheet(p);
-    await user.click(screen.getByRole('button', { name: /show 1 archived/i }));
-    const archived = screen.getByRole('button', { name: /open archived session/i });
-    expect(archived).toHaveTextContent(/^Session/);
-    expect(archived).not.toHaveTextContent(/Session \d/);
   });
 
   it('marks confirmed sessions', () => {
     mockConfirmed = { data: new Set(['sess-1']) };
     renderSheet();
-    expect(screen.getAllByLabelText(/confirmed by student/i)).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /, Done,/ })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: /, Done,/ })).toBe(rowButton('Pull'));
   });
 
   // Building a block is a run of near-identical sessions; doing that from the
-  // editor costs two navigations per copy.
+  // editor costs two navigations per copy. It is in the row's ⋯.
   it('duplicates a session straight from its row', async () => {
     const user = userEvent.setup();
     renderSheet();
-    await user.click(screen.getAllByRole('button', { name: /duplicate session/i })[0]);
+    await user.click(rowMenuButton('Pull'));
+    await user.click(within(rowMenu('Pull')).getByRole('button', { name: 'Duplicate Pull' }));
     expect(mockDuplicateSession.mutate).toHaveBeenCalledTimes(1);
     expect(mockDuplicateSession.mutate.mock.calls[0][0].sessionId).toBe('sess-1');
+    expect(screen.queryByRole('group', { name: 'Options for Pull' })).toBeNull();
   });
 
   // Review item B26: the copy was titled by the function, " (copy)" in
@@ -926,7 +1328,8 @@ describe('ProgramSheet', () => {
     it('takes the suffix in the coach’s language', async () => {
       const user = userEvent.setup();
       renderSheet();
-      await user.click(screen.getAllByRole('button', { name: /duplicate session/i })[0]);
+      await user.click(rowMenuButton('Pull'));
+      await user.click(within(rowMenu('Pull')).getByRole('button', { name: 'Duplicate Pull' }));
       expect(mockDuplicateSession.mutate).toHaveBeenCalledWith({ sessionId: 'sess-1', titleSuffix: ' (copy)' });
     });
 
@@ -939,9 +1342,11 @@ describe('ProgramSheet', () => {
           { id: 'spaces', title: '  ', day_number: null, sort_order: 1, archived_at: null, exercise_slots: [] },
         ] }],
       });
-      const buttons = screen.getAllByRole('button', { name: /duplicate session/i });
-      await user.click(buttons[0]);
-      await user.click(buttons[1]);
+      for (const trigger of screen.getAllByRole('button', { name: /^Options for/ })) {
+        await user.click(trigger);
+        const menu = screen.getByRole('group', { name: /^Options for/ });
+        await user.click(within(menu).getByRole('button', { name: /^Duplicate/ }));
+      }
       expect(mockDuplicateSession.mutate.mock.calls).toEqual([
         [{ sessionId: 'blank', titleSuffix: '' }],
         [{ sessionId: 'spaces', titleSuffix: '' }],
@@ -950,25 +1355,37 @@ describe('ProgramSheet', () => {
   });
 
   // One copy on its way used to disable the duplicate button of every row.
-  it('waits on the row being copied, and on no other', () => {
+  it('waits on the row being copied, and on no other', async () => {
+    const user = userEvent.setup();
     mockDuplicateSession.isPending = true;
     mockDuplicateSession.variables = { sessionId: 'sess-2', titleSuffix: ' (copy)' };
     try {
       renderSheet();
-      const [pull, push, legs] = screen.getAllByRole('button', { name: /duplicate session/i });
-      expect(pull).toBeEnabled();
-      expect(push).toBeDisabled();
-      expect(legs).toBeEnabled();
+      const duplicateOf = async (name) => {
+        await user.click(rowMenuButton(name));
+        const button = within(rowMenu(name)).getByRole('button', { name: `Duplicate ${name}` });
+        const disabled = button.disabled;
+        await user.keyboard('{Escape}');
+        return disabled;
+      };
+      expect(await duplicateOf('Pull')).toBe(false);
+      expect(await duplicateOf('Push')).toBe(true);
+      expect(await duplicateOf('Legs')).toBe(false);
     } finally {
       mockDuplicateSession.isPending = false;
       delete mockDuplicateSession.variables;
     }
   });
 
-  it('keeps destructive session delete off the sheet rows', () => {
+  // Deleting a session lives in the session editor, where the coach has
+  // already committed to that one session.
+  it('keeps destructive session delete off the sheet rows', async () => {
+    const user = userEvent.setup();
     renderSheet();
     expect(screen.getByText('Pull')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /delete session/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument();
+    await user.click(rowMenuButton('Pull'));
+    expect(within(rowMenu('Pull')).queryByRole('button', { name: /delete/i })).toBeNull();
   });
 
   // An empty block asks for a SESSION: the phase is a grouping the coach may
@@ -976,28 +1393,14 @@ describe('ProgramSheet', () => {
   it('offers to add a session, not a phase, when the block is empty', async () => {
     const user = userEvent.setup();
     renderSheet({ id: 'prog-1', weeks: [] });
-    expect(screen.getByText(/empty block/i)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /\+ phase/i })).toBeNull();
+    expect(screen.getByText('This block is empty. Add its first session.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add a phase' })).toBeNull();
 
-    await user.click(screen.getByRole('button', { name: /add session/i }));
+    await user.click(screen.getByRole('button', { name: 'Add a session' }));
     expect(mockCreateWeek.mutate).toHaveBeenCalledWith(
       { programId: 'prog-1', weekNumber: 1 },
       expect.any(Object),
     );
-  });
-
-  it('keeps the archived drawer linked to the review page', async () => {
-    const user = userEvent.setup();
-    renderSheet();
-    await user.click(screen.getByText(/show 1 archived/i));
-    const archived = screen.getByRole('button', { name: /open archived session/i });
-    expect(within(archived).getByText('Old')).toBeInTheDocument();
-    await user.click(archived);
-    // …and the review is told where to come back to: it used to hardcode the
-    // sessions feed, a one-way trip out of Programming.
-    expect(mockNavigate).toHaveBeenCalledWith('/coach/student/s-1/session/sess-old/review', {
-      state: { from: '/coach/students/s-1' },
-    });
   });
 
   // A one-phase block and a six-phase one are now the SAME layout. The old
@@ -1006,13 +1409,13 @@ describe('ProgramSheet', () => {
   describe('a single-phase block is the same shape', () => {
     it('still draws its divider, so the phase can be named', () => {
       renderSheet(oneWeek);
-      expect(screen.getByText('Intro')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /edit week label/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 2, name: 'Intro' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Intro' })).toHaveAccessibleDescription('Rename the phase');
     });
 
-    it('drops the size meta — the list below is the size', () => {
+    it('says where its sessions stand, as a phase among others does', () => {
       renderSheet(oneWeek);
-      expect(screen.queryByText(/sessions ·/)).toBeNull();
+      expect(within(phase('Intro')).getByText('Sessions 1 to 2')).toBeInTheDocument();
     });
 
     it('shows the sessions without needing to expand anything', () => {
@@ -1024,14 +1427,30 @@ describe('ProgramSheet', () => {
     it('keeps copy-to-athlete reachable — block templating still matters', async () => {
       const user = userEvent.setup();
       renderSheet(oneWeek);
-      await user.click(screen.getByRole('button', { name: /phase options/i }));
-      await user.click(screen.getByRole('button', { name: /copy to/i }));
-      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Phase options' }));
+      await user.click(within(phaseMenu()).getByRole('button', { name: 'Copy to…' }));
+
+      const sheet = screen.getByRole('dialog', { name: 'Copy the phase' });
+      expect(sheet).toHaveAccessibleDescription('The phase and its sessions are added at the end of the block you choose.');
+      // A phase goes to a block, as its last phase: no phase is asked for.
+      const dialog = within(sheet);
+      expect(dialog.queryByLabelText('Phase')).toBeNull();
+      await user.selectOptions(dialog.getByLabelText('Athlete'), 's-1');
+      await user.selectOptions(dialog.getByLabelText('Block'), 'prog-1');
+      await user.click(dialog.getByRole('button', { name: 'Copy' }));
+
+      expect(mockDuplicateWeek.mutate).toHaveBeenCalledWith(
+        { weekId: 'w-1', programId: 'prog-1' },
+        expect.any(Object),
+      );
+      const { onSuccess } = mockDuplicateWeek.mutate.mock.calls[0][1];
+      act(() => onSuccess());
+      expect(screen.queryByRole('dialog')).toBeNull();
     });
 
     it('still offers a way into phases', () => {
       renderSheet(oneWeek);
-      expect(screen.getByRole('button', { name: /\+ phase/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Add a phase' })).toBeInTheDocument();
     });
   });
 
@@ -1053,35 +1472,37 @@ describe('ProgramSheet', () => {
       expect(screen.getByText('Intro')).toBeInTheDocument();
 
       for (const name of [
-        /day:/i,                // the weekday picker
-        /duplicate session/i,
-        /add session/i,         // footer
-        /^select$/i,
-        /^reorder$/i,
-        /\+ phase/i,
-        /phase options/i,       // the menu: add, duplicate, copy, reorder, delete
-        /edit week label/i,     // rename
+        /^Options for/,         // the row's menu: the weekday, the duplicate
+        /^Duplicate/,
+        'Add a session',        // footer
+        'Choose',
+        'Reorder',
+        'Add a phase',
+        'Phase options',        // the menu: add, duplicate, copy, reorder, delete
+        'Intro',                // rename
+        'Unnamed phase',
       ]) {
         expect(screen.queryByRole('button', { name })).toBeNull();
       }
-      // The day is still shown, as text.
-      expect(screen.getByText('MON')).toBeInTheDocument();
-      expect(screen.getByText('Unnamed phase')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { description: 'Rename the phase' })).toBeNull();
+      // The day is still shown, in the row.
+      expect(rowButton('Pull')).toHaveAccessibleName('Pull, Monday, 2 exercises');
+      expect(within(phase('Unnamed phase')).getByText('Unnamed phase')).toBeInTheDocument();
     });
 
     it('still opens a session, in the editor that is read-only too', async () => {
       const user = userEvent.setup();
       renderSheet(draft);
-      await user.click(screen.getAllByRole('button', { name: /open session/i })[0]);
+      await user.click(rowButton('Pull'));
       expect(mockNavigate).toHaveBeenCalledWith('/coach/students/s-1/s/sess-1');
     });
 
     it('shows its archived sessions without a restore', async () => {
       const user = userEvent.setup();
       renderSheet(draft);
-      await user.click(screen.getByRole('button', { name: /show 1 archived/i }));
-      expect(screen.getByRole('button', { name: /open archived session/i })).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /restore this session/i })).toBeNull();
+      await user.click(archivedToggle(1));
+      expect(screen.getByRole('button', { name: 'Old' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Restore Old' })).toBeNull();
     });
 
     it('when empty, says so without offering the first session', () => {
@@ -1092,9 +1513,10 @@ describe('ProgramSheet', () => {
 
     it('becomes writable again once it is approved', () => {
       renderSheet({ ...draft, status: 'approved' });
-      expect(screen.getAllByRole('button', { name: /phase options/i })).toHaveLength(2);
-      expect(screen.getAllByRole('button', { name: /duplicate session/i })).toHaveLength(3);
-      expect(screen.getByRole('button', { name: /\+ phase/i })).toBeInTheDocument();
+      expect(phaseMenuButtons()).toHaveLength(2);
+      expect(screen.getAllByRole('button', { name: /^Options for/ })).toHaveLength(3);
+      expect(screen.getByRole('button', { name: 'Add a phase' })).toBeInTheDocument();
+      expect(screen.getAllByRole('button', { description: 'Rename the phase' })).toHaveLength(2);
     });
   });
 });

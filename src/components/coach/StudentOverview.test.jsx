@@ -76,6 +76,24 @@ describe('StudentOverview', () => {
     expect(stats).toHaveAttribute('aria-expanded', 'true');
   });
 
+  // Parc (design/parc/screens/Programme.dc.html): a section is a region named
+  // by its h2 title, and the button in that title says which panel it opens.
+  it('titles each section with an h2 that names it and points at its panel', async () => {
+    const user = userEvent.setup();
+    render(<StudentOverview />);
+    for (const name of [/programming/i, /goals/i, /stats/i]) {
+      const heading = screen.getByRole('heading', { level: 2, name });
+      expect(heading).toHaveClass('pk-title');
+      expect(screen.getByRole('region', { name })).toContainElement(heading);
+    }
+
+    const goals = screen.getByRole('button', { name: /goals/i });
+    await user.click(goals);
+    const panel = document.getElementById(goals.getAttribute('aria-controls'));
+    expect(panel).toContainElement(screen.getByTestId('goals'));
+    expect(screen.getByRole('region', { name: /goals/i })).toContainElement(panel);
+  });
+
   // Review finding P12. The athlete page listed sessions and nothing else led
   // anywhere: the Message and View-sessions actions of the old Profile tab
   // went away with the tabs. They are back, as the header's action row.
@@ -115,12 +133,13 @@ describe('StudentOverview', () => {
       expect(nav.compareDocumentPosition(programming) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
-    // Review item L15: the two were 36px tall (`min-h-9`).
-    it('are pill buttons, 44px', () => {
+    // Review item L15: the two were 36px tall (`min-h-9`). They are Parc
+    // buttons now, 44px at least (`.pk-btn`, held by test/hitTargets).
+    it('are buttons, 44px', () => {
       renderWithStudent(alice);
       for (const name of ['Message', 'Sessions']) {
         const link = screen.getByRole('link', { name });
-        expect(link).toHaveClass('sl-pill', 'sl-pill-btn');
+        expect(link).toHaveClass('pk-btn');
         expect(link).not.toHaveClass('min-h-9');
       }
     });

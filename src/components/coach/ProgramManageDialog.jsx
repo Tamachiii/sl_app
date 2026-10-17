@@ -7,7 +7,7 @@ import {
   useSendBackProgram,
 } from '../../hooks/useProgram';
 import { useDuplicateProgram } from '../../hooks/useDuplicate';
-import Dialog from '../ui/Dialog';
+import { Button, Sheet } from '../parc';
 
 export default function ManageProgramDialog({ program, studentId, t, onClose, onDeleted, onDuplicated }) {
   const [name, setName] = useState(program?.name ?? '');
@@ -90,148 +90,83 @@ export default function ManageProgramDialog({ program, studentId, t, onClose, on
   const approvalBusy = approve.isPending || sendBack.isPending;
 
   return (
-    <Dialog open={true} onClose={onClose} title={t('coach.home.manageProgram')}>
-      <div className="space-y-4">
-        <label className="block">
-          <span className="sl-label text-ink-400 block mb-1.5">
-            {t('coach.home.programNameLabel')}
-          </span>
+    <Sheet open onClose={onClose} title={t('parcProgram.manageTitle')}>
+      <div className="flex flex-col gap-4">
+        <label className="flex flex-col gap-1.5">
+          <span className="pk-caption">{t('parcProgram.nameLabel')}</span>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             spellCheck="true"
             autoCapitalize="words"
-            className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+            className="pk-field"
           />
         </label>
 
         {isDraft && (
-          <div
-            className="rounded-lg p-3 space-y-2"
-            style={{
-              background: 'color-mix(in srgb, var(--color-accent) 10%, transparent)',
-              border: '1px solid color-mix(in srgb, var(--color-accent) 35%, transparent)',
-            }}
-          >
-            <p className="sl-label text-ink-700">
-              {isSubmitted ? t('coach.home.submittedForApproval') : t('coach.home.draftInProgress')}
-            </p>
-            <p className="sl-mono text-[11px] text-ink-500">
+          <section className="flex flex-col gap-2 rounded-group bg-blue-soft p-4">
+            <h3 className="pk-headline">
+              {isSubmitted ? t('parcProgram.submittedForApproval') : t('parcProgram.draftInProgress')}
+            </h3>
+            <p className="pk-body">
               {isSubmitted ? t('coach.home.submittedHint') : t('coach.home.draftInProgressHint')}
             </p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={handleApprove}
-                disabled={approvalBusy}
-                className="sl-btn-primary flex-1 text-[13px] disabled:opacity-50"
-                style={{ padding: '10px 16px' }}
-              >
+            <div className="flex flex-wrap gap-2">
+              <Button variant="primary" onClick={handleApprove} disabled={approvalBusy}>
                 {approve.isPending ? t('common.saving') : t('coach.home.approve')}
-              </button>
+              </Button>
               {isSubmitted && (
-                <button
-                  type="button"
-                  onClick={handleSendBack}
-                  disabled={approvalBusy}
-                  className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 flex-1 justify-center disabled:opacity-50"
-                >
+                <Button onClick={handleSendBack} disabled={approvalBusy}>
                   {sendBack.isPending ? t('common.saving') : t('coach.home.sendBack')}
-                </button>
+                </Button>
               )}
             </div>
-          </div>
+          </section>
         )}
 
         <div className="flex flex-col gap-2">
-          <button
-            type="button"
-            onClick={handleRename}
-            disabled={!dirty || rename.isPending}
-            className="sl-btn-primary w-full text-[13px] disabled:opacity-50"
-            style={{ padding: '10px 16px' }}
-          >
-            {rename.isPending ? t('common.saving') : t('coach.home.rename')}
-          </button>
+          <Button variant="primary" size="lg" onClick={handleRename} disabled={!dirty || rename.isPending}>
+            {rename.isPending ? t('common.saving') : t('parcProgram.rename')}
+          </Button>
 
           {!program.is_active && !isDraft && (
-            <button
-              type="button"
-              onClick={handleSetActive}
-              disabled={setActive.isPending}
-              className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 w-full justify-center disabled:opacity-50"
-            >
-              {setActive.isPending ? t('common.saving') : t('coach.home.setActive')}
-            </button>
+            <Button size="lg" onClick={handleSetActive} disabled={setActive.isPending}>
+              {setActive.isPending ? t('common.saving') : t('parcProgram.setActive')}
+            </Button>
           )}
 
-          <div>
-            <button
-              type="button"
-              onClick={handleDuplicate}
-              disabled={duplicate.isPending}
-              className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 w-full justify-center disabled:opacity-50"
-            >
-              {duplicate.isPending ? t('common.saving') : t('coach.home.duplicate')}
-            </button>
-            <p className="sl-mono text-[11px] text-ink-400 mt-1.5">
-              {t('coach.home.duplicateHint')}
-            </p>
-          </div>
+          <Button size="lg" onClick={handleDuplicate} disabled={duplicate.isPending}>
+            {duplicate.isPending ? t('common.saving') : t('parcProgram.duplicate')}
+          </Button>
+          <p className="pk-caption">{t('parcProgram.duplicateHint')}</p>
 
           {confirmingDelete ? (
-            <div
-              className="rounded-lg p-3 space-y-2"
-              style={{
-                background: 'color-mix(in srgb, var(--color-danger) 10%, transparent)',
-                border: '1px solid color-mix(in srgb, var(--color-danger) 35%, transparent)',
-              }}
-            >
-              <p className="text-[13px] text-gray-900">
-                {t('coach.home.confirmTrashProgram', { name: program.name })}
-              </p>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={handleDelete}
-                  disabled={del.isPending}
-                  className="flex-1 rounded-lg py-2 sl-mono text-[12px] text-white disabled:opacity-50"
-                  style={{ background: 'var(--color-danger)' }}
-                >
-                  {del.isPending ? t('common.saving') : t('coach.home.moveToTrash').toUpperCase()}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmingDelete(false)}
-                  className="flex-1 sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 justify-center"
-                >
+            <section className="flex flex-col gap-2 rounded-group bg-red-soft p-4">
+              <h3 className="pk-headline">{t('parcProgram.confirmTrashTitle', { name: program.name })}</h3>
+              <p className="pk-body">{t('parcProgram.confirmTrashMessage')}</p>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="danger" onClick={handleDelete} disabled={del.isPending}>
+                  {del.isPending ? t('common.saving') : t('parcProgram.moveToTrash')}
+                </Button>
+                <Button variant="text" onClick={() => setConfirmingDelete(false)}>
                   {t('common.cancel')}
-                </button>
+                </Button>
               </div>
-            </div>
+            </section>
           ) : (
-            <button
-              type="button"
+            <Button
+              variant="text"
+              className="text-red"
               onClick={() => setConfirmingDelete(true)}
               disabled={!canDelete}
-              title={!canDelete ? t('coach.home.cannotDeleteActive') : undefined}
-              className="sl-pill w-full justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{
-                background: 'color-mix(in srgb, var(--color-danger) 10%, transparent)',
-                color: 'var(--color-danger)',
-              }}
             >
-              {t('coach.home.moveToTrash')}
-            </button>
+              {t('parcProgram.moveToTrash')}
+            </Button>
           )}
 
-          {!canDelete && (
-            <p className="sl-mono text-[11px] text-ink-400">
-              {t('coach.home.cannotDeleteActive')}
-            </p>
-          )}
+          {!canDelete && <p className="pk-caption">{t('parcProgram.cannotTrashActive')}</p>}
         </div>
       </div>
-    </Dialog>
+    </Sheet>
   );
 }

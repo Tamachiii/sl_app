@@ -136,7 +136,7 @@ export default function PortalMenu({
         role="group"
         aria-label={label}
         data-placement={upward ? 'above' : 'below'}
-        className={`fixed z-40 sl-card p-1 shadow-lg ${className}`}
+        className={`fixed z-40 rounded-control border border-line bg-surface p-1 shadow-lg ${className}`}
         style={style}
       >
         {children}
