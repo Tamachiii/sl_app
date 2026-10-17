@@ -5,6 +5,12 @@ import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 
 const MAX_LEN = 4000;
 
+// Read at the moment of the key, not held in state: a tablet that gains a
+// mouse changes its answer, and a test can stub `window.matchMedia`.
+function touchScreen() {
+  return typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+}
+
 export default function MessageComposer({ recipientProfileId, autoFocus = false }) {
   const { t } = useI18n();
   const [body, setBody] = useState('');
@@ -54,11 +60,15 @@ export default function MessageComposer({ recipientProfileId, autoFocus = false 
   }
 
   function handleKeyDown(e) {
-    // Enter sends, Shift+Enter / Ctrl+Enter inserts a newline.
-    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
-      e.preventDefault();
-      handleSubmit(e);
-    }
+    // Enter sends, Shift+Enter / Ctrl+Enter inserts a newline — with a mouse
+    // and a keyboard. A soft keyboard has no Shift: on a touch screen Enter is
+    // a newline and only the button sends. An Enter that confirms an IME
+    // conversion (keyCode 229 in Safari, which has already ended the
+    // composition) belongs to the IME and sends nothing.
+    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.metaKey) return;
+    if (e.nativeEvent.isComposing || e.keyCode === 229 || touchScreen()) return;
+    e.preventDefault();
+    handleSubmit(e);
   }
 
   return (

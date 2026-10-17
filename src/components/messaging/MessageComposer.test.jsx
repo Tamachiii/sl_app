@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -49,6 +49,62 @@ describe('MessageComposer', () => {
     expect(mockSend.mutate).not.toHaveBeenCalled();
     fireEvent.keyDown(ta, { key: 'Enter' });
     expect(mockSend.mutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('an Enter that confirms an IME conversion sends nothing', async () => {
+    const user = userEvent.setup();
+    render(<MessageComposer recipientProfileId="r1" />);
+    const ta = screen.getByLabelText(/type a message/i);
+    await user.type(ta, 'にほん');
+    fireEvent.keyDown(ta, { key: 'Enter', isComposing: true });
+    // Safari: the composition is over by the time its Enter arrives, keyCode 229.
+    fireEvent.keyDown(ta, { key: 'Enter', keyCode: 229 });
+    expect(mockSend.mutate).not.toHaveBeenCalled();
+    fireEvent.keyDown(ta, { key: 'Enter' });
+    expect(mockSend.mutate).toHaveBeenCalledTimes(1);
+  });
+
+  describe('on a touch screen (pointer: coarse)', () => {
+    const fineMatchMedia = window.matchMedia;
+    beforeEach(() => {
+      window.matchMedia = (query) => ({
+        matches: query === '(pointer: coarse)',
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+      });
+    });
+    afterEach(() => {
+      window.matchMedia = fineMatchMedia;
+    });
+
+    it('Enter inserts a newline and only the button sends', async () => {
+      const user = userEvent.setup();
+      render(<MessageComposer recipientProfileId="r1" />);
+      const ta = screen.getByLabelText(/type a message/i);
+      await user.type(ta, 'a{Enter}b');
+      expect(ta).toHaveValue('a\nb');
+      expect(mockSend.mutate).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole('button', { name: /send/i }));
+      expect(mockSend.mutate).toHaveBeenCalledTimes(1);
+      expect(mockSend.mutate.mock.calls[0][0]).toEqual({ recipientProfileId: 'r1', body: 'a\nb' });
+    });
+
+    it('offline, the button still sends nothing', async () => {
+      mockOnline = false;
+      const user = userEvent.setup();
+      render(<MessageComposer recipientProfileId="r1" />);
+      const ta = screen.getByLabelText(/type a message/i);
+      await user.type(ta, 'a{Enter}b');
+      expect(screen.getByRole('button', { name: /send/i })).toBeDisabled();
+      expect(mockSend.mutate).not.toHaveBeenCalled();
+      expect(ta).toHaveValue('a\nb');
+    });
   });
 
   it('disables the textarea when no recipient is set', () => {
