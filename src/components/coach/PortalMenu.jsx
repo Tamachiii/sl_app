@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
  * the weekday picker of a session row — drawn in a portal on <body>.
  *
  * In the sheet it used to be an absolutely positioned child of its row, and
- * the sheet is one `sl-card overflow-hidden`: the card cut every menu at its
+ * the sheet is one rounded group with `overflow-hidden`: it cut every menu at its
  * edge. On the last phase of a block — right after "+ Phase", the one that is
  * empty — "Reorder phases" and "Delete phase" were below the card and could
  * not be reached, and that menu is the only way to delete a phase. The card

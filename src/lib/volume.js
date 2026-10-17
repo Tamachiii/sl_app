@@ -23,8 +23,7 @@ function logHasTarget(l) {
 /**
  * Returns true when every set in the slot prescribes the same reps (or
  * duration), weight, and rest. Slots without per-set logs (legacy / freshly
- * loaded) read as uniform — `formatSlotPrescription` falls back to the
- * deprecated slot scalars in that case.
+ * loaded) read as uniform.
  */
 export function isSlotUniform(slot) {
   const logs = logsForSlot(slot).filter(logHasTarget);
@@ -43,41 +42,6 @@ export function isSlotUniform(slot) {
 }
 
 /**
- * Format the prescribed work for an exercise slot when its sets are uniform.
- *   { sets: 3, reps: 10 }              → "3 × 10"
- *   { sets: 3, duration_seconds: 30 }  → "3 × 30s"
- * If per-set logs are heterogeneous, returns null — render a per-set list
- * instead (see SlotGroupCard).
- */
-export function formatSlotPrescription(slot) {
-  if (!isSlotUniform(slot)) return null;
-  const logs = logsForSlot(slot).filter(logHasTarget);
-  const head = logs[0];
-  const isSeconds = head
-    ? head.target_duration_seconds != null
-    : slot.duration_seconds != null;
-  const value = head
-    ? (isSeconds ? head.target_duration_seconds : head.target_reps)
-    : (isSeconds ? slot.duration_seconds : slot.reps);
-  return isSeconds
-    ? `${slot.sets} × ${value}s`
-    : `${slot.sets} × ${value}`;
-}
-
-/**
- * Resolve the slot's "uniform" weight target — the head log's
- * target_weight_kg when present, otherwise the deprecated slot column.
- * Returns a number or null. Use for the compact-mode "@ NNkg" / "(BW)"
- * suffix in headers.
- */
-export function getSlotTargetWeight(slot) {
-  const logs = logsForSlot(slot).filter(logHasTarget);
-  const head = logs[0];
-  const v = head ? head.target_weight_kg : slot?.weight_kg;
-  return v == null ? null : Number(v);
-}
-
-/**
  * Resolve the slot's "uniform" rest target — the head log's
  * target_rest_seconds when present, otherwise the deprecated slot column.
  * Returns a number or null.
@@ -90,64 +54,6 @@ export function getSlotTargetRest(slot) {
 }
 
 /**
- * Single-line slot summary covering both uniform and heterogeneous sets.
- *   uniform 3×10 @ 80kg          → "3 × 10 @ 80kg"
- *   drop set 3×3@120, 3×6@100    → "3 × 3 @ 120kg · 3 × 6 @ 100kg"
- *   ramp 1×5@100, 1×3@110, 1×1@120 → "1 × 5 @ 100kg · 1 × 3 @ 110kg · 1 × 1 @ 120kg"
- *   genuinely varied (>3 groups) → "6 sets · varied"   (fallback)
- *
- * Rest is intentionally NOT a grouping key — varying rest within a slot
- * shouldn't fragment the headline; the expanded view shows it per row.
- */
-export function summarizeSlotPrescription(slot) {
-  if (isSlotUniform(slot)) {
-    const compact = formatSlotPrescription(slot);
-    if (!compact) return null;
-    const w = getSlotTargetWeight(slot);
-    return compact + (w ? ` @ ${w}kg` : '');
-  }
-  const logs = logsForSlot(slot).filter(logHasTarget);
-  if (logs.length === 0) return null;
-  const groups = [];
-  for (const l of logs) {
-    const key = `${l.target_reps}|${l.target_duration_seconds}|${l.target_weight_kg ?? ''}`;
-    const last = groups[groups.length - 1];
-    if (last && last.key === key) {
-      last.count += 1;
-    } else {
-      groups.push({ key, count: 1, log: l });
-    }
-  }
-  if (groups.length > 3) return `${slot.sets} sets · varied`;
-  return groups.map((g) => {
-    const isSeconds = g.log.target_duration_seconds != null;
-    const value = isSeconds ? `${g.log.target_duration_seconds}s` : g.log.target_reps;
-    const w = g.log.target_weight_kg == null ? null : Number(g.log.target_weight_kg);
-    const weightStr = w == null ? ' (BW)' : ` @ ${w}kg`;
-    return `${g.count} × ${value}${weightStr}`;
-  }).join(' · ');
-}
-
-/**
- * Format a single set's per-set prescription for the heterogeneous list view.
- *   { target_reps: 10, target_weight_kg: 80 }       → "10 @ 80kg"
- *   { target_duration_seconds: 30 }                  → "30s"
- *   { target_reps: 5, target_weight_kg: null }       → "5 (BW)"
- */
-export function formatSetTarget(log) {
-  if (!log) return '';
-  const w = log.target_weight_kg;
-  const weightSuffix = w == null ? ' (BW)' : ` @ ${Number(w)}kg`;
-  if (log.target_duration_seconds != null) {
-    return `${log.target_duration_seconds}s${weightSuffix}`;
-  }
-  if (log.target_reps != null) {
-    return `${log.target_reps}${weightSuffix}`;
-  }
-  return weightSuffix.trim();
-}
-
-/**
  * True when the student logged an off-plan actual on this set — i.e. they
  * recorded reps or load that differed from the prescription. A NULL on both
  * actual_* columns means "followed the plan", so this also doubles as the
@@ -155,38 +61,6 @@ export function formatSetTarget(log) {
  */
 export function hasLoggedActual(log) {
   return !!log && (log.actual_reps != null || log.actual_weight_kg != null);
-}
-
-/**
- * Format the student's actual performed work for an off-plan set. Falls back
- * to the prescribed target for whichever dimension wasn't overridden, so the
- * string always reads as a complete "what they did":
- *   actual_reps 8, actual_weight_kg 100 (target 10 @ 80) → "8 @ 100kg"
- *   actual_reps 8 only (target 10 @ 80)                  → "8 @ 80kg"
- *   actual_weight_kg 100 only (target 10 @ 80)           → "10 @ 100kg"
- * Returns '' when nothing was logged.
- */
-export function formatActual(log) {
-  if (!hasLoggedActual(log)) return '';
-  const reps = log.actual_reps != null ? log.actual_reps : log.target_reps;
-  const w = log.actual_weight_kg != null ? log.actual_weight_kg : log.target_weight_kg;
-  const weightSuffix = w == null ? ' (BW)' : ` @ ${Number(w)}kg`;
-  if (reps != null) return `${reps}${weightSuffix}`;
-  if (log.target_duration_seconds != null) {
-    return `${log.target_duration_seconds}s${weightSuffix}`;
-  }
-  return weightSuffix.trim();
-}
-
-/**
- * Format a rest period as "1:30" (mm:ss) when >= 60s, otherwise "45s".
- */
-export function formatRestSeconds(seconds) {
-  if (seconds == null) return null;
-  if (seconds < 60) return `${seconds}s`;
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
 }
 
 /**

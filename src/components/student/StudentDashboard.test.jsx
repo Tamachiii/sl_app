@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
-import { ThemeProvider } from '../../hooks/useTheme';
 
 // The address the page leaves, printed for the test to read.
 function LocationProbe() {
@@ -72,12 +71,10 @@ const savedScope = () => JSON.parse(localStorage.getItem(PREFS_KEY) || '{}').sco
 
 function dashboard(initialPath) {
   return (
-    <ThemeProvider>
-      <MemoryRouter initialEntries={[initialPath]}>
-        <StudentDashboard />
-        <LocationProbe />
-      </MemoryRouter>
-    </ThemeProvider>
+    <MemoryRouter initialEntries={[initialPath]}>
+      <StudentDashboard />
+      <LocationProbe />
+    </MemoryRouter>
   );
 }
 

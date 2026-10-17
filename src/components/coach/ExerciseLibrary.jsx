@@ -41,13 +41,11 @@ function exerciseFacts(ex, { t, lang }) {
 
 // The colour of a type's columns in the charts; a type the app does not know
 // is grey, never the colour of another one (lib/exerciseTypes).
-const MARK = { pull: 'bg-chart-pull', push: 'bg-chart-push' };
-
 function TypeMark({ type }) {
   return (
     <span
       aria-hidden="true"
-      className={`mr-1.5 inline-block h-2.5 w-2.5 rounded-full align-[1px] ${MARK[exerciseType(type).id] ?? 'bg-ink-3'}`}
+      className={`mr-1.5 inline-block h-2.5 w-2.5 rounded-full align-[1px] ${exerciseType(type).mark}`}
     />
   );
 }

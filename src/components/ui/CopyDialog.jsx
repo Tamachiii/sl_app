@@ -117,10 +117,6 @@ function CopyForm({
     ? !weekId || isPending
     : !programId || isPending;
 
-  // Inputs use bg-white + border-ink-200 (both have dark-mode remaps in index.css)
-  // so the select adapts to either theme. `disabled:bg-gray-50` — which we used
-  // before — has no dark-mode variant generated, so the disabled dropdown
-  // rendered white on dark. Use `disabled:bg-ink-100` instead (full dark remap).
   return (
     <div className="flex flex-col gap-4">
       <SelectField

@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ThemeProvider } from '../../hooks/useTheme';
 
 // The athlete's notification toggle, on the profile page: what it prints when
 // the hook says something stopped it. The page around it is the one of
@@ -62,11 +61,9 @@ function notifications() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={qc}>
-      <ThemeProvider>
-        <MemoryRouter>
-          <StudentProfile />
-        </MemoryRouter>
-      </ThemeProvider>
+      <MemoryRouter>
+        <StudentProfile />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
   return within(screen.getByRole('region', { name: 'Notifications' }));

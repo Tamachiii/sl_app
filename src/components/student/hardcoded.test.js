@@ -9,9 +9,8 @@ import { scanHardcoded, formatFinding } from '../../test/hardcodedScan';
 describe('the screens of the athlete hard-code no text', () => {
   const scan = scanHardcoded({
     root: dirname(fileURLToPath(import.meta.url)),
-      // RpeInput.jsx is no longer rendered and goes at the clean-up; « kg » is the
-      // same in English, French and German.
-    allow: { files: ['RpeInput.jsx'], text: ['kg'] },
+      // « kg » is the same in English, French and German.
+    allow: { files: [], text: ['kg'] },
   });
   it('read the folder', () => expect(scan.files).toBeGreaterThan(0));
   it('finds none', () => expect(scan.findings.map(formatFinding)).toEqual([]));

@@ -1,11 +1,5 @@
 // Training-day helpers. Convention: 1 = Monday … 7 = Sunday.
 
-export const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-export const DAY_FULL = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-// Long-form names — used for aria-labels where single-letter or three-letter
-// abbreviations would be ambiguous to screen readers.
-export const DAY_FULL_LONG = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-
 // Map JS getDay() (0=Sun … 6=Sat) → training day_number (1=Mon … 7=Sun).
 export function todayDayNumber() {
   const d = new Date().getDay();

@@ -8,7 +8,7 @@ import {
   resetRestTimer,
 } from './useRestTimer';
 
-// The consumers (RestTimerBanner, useRestTimerEffects) each derive remaining
+// The consumers (RestTimerHost, useRestTimerEffects) each derive remaining
 // time inline because they need the SIGNED remainder for their flash/expiry
 // windows. This clamped, logId-guarded read is what the store's contract
 // promises, so the tests keep their own copy rather than the source exporting

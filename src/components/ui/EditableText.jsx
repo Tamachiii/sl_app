@@ -94,12 +94,6 @@ export default function EditableText({
       }}
       aria-label={ariaLabel === false ? undefined : ariaLabel}
       aria-describedby={ariaLabel === false ? describedBy : undefined}
-      // `hover:bg-ink-100`, NOT `hover:bg-gray-100`: index.css remaps the bare
-      // `.bg-gray-100` for dark mode but has no rule for the hover VARIANT, so
-      // that class kept Tailwind's raw #f3f4f6 and painted a near-white plate
-      // under the pointer — the title's contrast fell to 2.32:1 (from 7.01:1)
-      // and a bright heading vanished outright. The ink hover variants are
-      // remapped, so this one darkens the way every other hover in the app does.
       className={`text-left hover:bg-fill rounded-control px-1 -mx-1 transition-colors ${className}`}
     >
       {value || <span className="text-ink-2">{placeholder}</span>}

@@ -390,7 +390,7 @@ describe('CI gate: lint warnings have a ceiling', () => {
   // wave 2, 14 after wave 3, 13 with the Parc session screen. When a warning
   // is fixed, both numbers go down together; neither goes up — fix the new
   // warning, or disable it inline with the reason, instead.
-  const CEILING = 12;
+  const CEILING = 11;
 
   it('fails on one warning more than the count on record', () => {
     const { scripts } = JSON.parse(read('package.json'));

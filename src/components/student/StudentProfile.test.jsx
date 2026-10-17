@@ -3,7 +3,6 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ThemeProvider } from '../../hooks/useTheme';
 
 // jsdom doesn't implement HTMLDialogElement.showModal/close natively;
 // without these stubs, RTL treats the dialog body as hidden so its labels
@@ -79,14 +78,12 @@ function renderProfile({ entries } = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <ThemeProvider>
-        <MemoryRouter
-          initialEntries={entries}
-          initialIndex={entries ? entries.length - 1 : undefined}
-        >
-          <StudentProfile />
-        </MemoryRouter>
-      </ThemeProvider>
+      <MemoryRouter
+        initialEntries={entries}
+        initialIndex={entries ? entries.length - 1 : undefined}
+      >
+        <StudentProfile />
+      </MemoryRouter>
     </QueryClientProvider>
   );
 }

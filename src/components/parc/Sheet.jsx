@@ -150,8 +150,7 @@ export default function Sheet({ open, onClose, title, description, closeLabel, c
  * default, `primary` with `isDestructive={false}` — and a text button that
  * leaves everything as it is (`cancelText`, « Annuler » by default).
  *
- * The same props as the `ui/ConfirmDialog` it replaces: `onConfirm` runs, then
- * the sheet closes.
+ * `onConfirm` runs, then the sheet closes.
  */
 export function ConfirmSheet({
   open,

@@ -1,9 +1,6 @@
 import { useI18n } from '../../hooks/useI18n';
 import { exerciseType, exerciseTypeLabel } from '../../lib/exerciseTypes';
 
-// The mark of each type: the colour of its columns in the charts.
-const MARK = { pull: 'bg-chart-pull', push: 'bg-chart-push' };
-
 /**
  * What type an exercise is: `<TypeBadge type={ex.type} />`, in the Parc
  * design — a mark of the type's chart colour before its name, in `ink-2`
@@ -17,7 +14,7 @@ const MARK = { pull: 'bg-chart-pull', push: 'bg-chart-push' };
 export default function TypeBadge({ type, className = '' }) {
   const { t } = useI18n();
   if (type == null || type === '') return null;
-  const mark = MARK[exerciseType(type).id] ?? 'bg-ink-3';
+  const { mark } = exerciseType(type);
   return (
     <span className={`inline-flex items-center gap-1.5 text-[14px] leading-[1.4] text-ink-2 ${className}`}>
       <span aria-hidden="true" className={`inline-block h-2.5 w-2.5 rounded-full ${mark}`} />

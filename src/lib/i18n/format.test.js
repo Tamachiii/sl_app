@@ -210,8 +210,7 @@ describe('day names', () => {
     expect(dayNames('de', 'long')).toEqual(['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']);
   });
 
-  it('gives the English tables of lib/day.js for English', () => {
-    // DAY_LABELS, DAY_FULL and DAY_FULL_LONG, which these replace.
+  it('gives the English day names for English', () => {
     expect(dayNames('en', 'narrow')).toEqual(['M', 'T', 'W', 'T', 'F', 'S', 'S']);
     expect(dayNames('en', 'short')).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
   });

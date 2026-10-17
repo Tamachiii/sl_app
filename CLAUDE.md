@@ -265,7 +265,7 @@ Behavioral rules and schema gotchas live in [`docs/INVARIANTS.md`](docs/INVARIAN
 npm run dev       # vite dev (5173)
 npm run build     # dist/
 npm run preview   # serve dist/ (4173)
-npm run lint      # eslint with a warning ceiling (--max-warnings 12): one NEW warning fails the gate
+npm run lint      # eslint with a warning ceiling (--max-warnings 11): one NEW warning fails the gate
 npm test          # vitest watch
 npm test -- --run # single run (CI)
 npm run test:db   # DB suite on an embedded Postgres 17: RLS as anon/student/coach, baseline + migrations = schema.sql, every migration up/down/up, the RLS matrix, who may execute and reach what (about 2 minutes: 34 files, 1320 tests at the head of wave 3)

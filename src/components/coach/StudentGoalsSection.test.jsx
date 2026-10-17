@@ -13,7 +13,6 @@ vi.mock('../../hooks/useGoals', () => ({
   useStudentProfileId: () => ({ data: 'profile-s1', isLoading: false }),
   useCreateGoal: () => mockCreateGoal,
   useDeleteGoal: () => mockDeleteGoal,
-  formatGoalTarget: () => '',
 }));
 
 let mockLibrary = [{ id: 'ex-1', name: 'Pull Up', type: 'pull' }];

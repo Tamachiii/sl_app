@@ -230,7 +230,7 @@ export function useSetActions(log, { swapped = false, seedReps = null, seedWeigh
     let nextWeight;
     if (swapped || isExtra) {
       // A swapped exercise left without a load is done without one — null
-      // would read as the original exercise's load (formatActual, Stats).
+      // would read as the original exercise's load (the review, Stats).
       nextReps = reps;
       nextWeight = weightKg ?? 0;
     } else {

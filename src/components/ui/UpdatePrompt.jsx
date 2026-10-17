@@ -8,7 +8,7 @@ import { fieldWatch } from '../../lib/fieldWatch';
 import { writesAreSafe } from '../../lib/pendingWrites';
 import { Button } from '../parc';
 
-// ui/Dialog keeps its <dialog> mounted and closed; only an open one counts.
+// A Parc Sheet keeps its <dialog> mounted and closed; only an open one counts.
 const dialogIsOpen = () =>
   document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]') !== null;
 

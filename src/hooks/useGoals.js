@@ -152,12 +152,3 @@ export function useToggleGoalAchieved() {
     onSuccess: () => invalidateGoals(qc),
   });
 }
-
-/** Format a goal target into a short human-readable label. */
-export function formatGoalTarget(goal) {
-  if (!goal) return '';
-  if (goal.kind === 'one_rm') {
-    return `1RM @ ${goal.target_weight_kg}kg`;
-  }
-  return `${goal.target_sets} × ${goal.target_reps} @ ${goal.target_weight_kg}kg`;
-}

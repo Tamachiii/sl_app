@@ -3,7 +3,10 @@ import { useRestTimer } from '../../hooks/useRestTimer';
 import { useRestTimerEffects } from '../../hooks/useRestTimerEffects';
 import { useRestTimerPush } from '../../hooks/useRestTimerPush';
 import { useI18n } from '../../hooks/useI18n';
-import { HIDE_AFTER_EXPIRY_MS, formatMMSS } from './RestTimerBanner';
+import { formatRestClock } from '../parc';
+
+// How long « Rest done » is said after a rest ends.
+const HIDE_AFTER_EXPIRY_MS = 5_000;
 
 // The whole seconds a rest has left, read once when it begins.
 function secondsLeft(endsAt) {
@@ -25,10 +28,10 @@ function useRestAnnouncement() {
   if (rest.key !== key) setRest({ key, seconds });
 
   if (key == null) return '';
-  // Read again on every tick of the store, like the banner's countdown.
+  // Read again on every tick of the store, like the ActionBar's countdown.
   // eslint-disable-next-line react-hooks/purity -- the clock is what this says
   const remainingMs = endsAt - Date.now();
-  if (remainingMs > 0) return t('sessionRestControls.restStarted', { time: formatMMSS(seconds) });
+  if (remainingMs > 0) return t('sessionRestControls.restStarted', { time: formatRestClock(seconds) });
   if (remainingMs > -HIDE_AFTER_EXPIRY_MS) return t('student.session.restDone');
   return '';
 }
