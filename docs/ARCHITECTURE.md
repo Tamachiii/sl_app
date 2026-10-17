@@ -433,7 +433,7 @@ The integrator folds the fragments into the dictionaries at the end of waves 4 a
 
 ## Testing
 
-Unit tests live next to components as `*.test.jsx`. The shared wrapper [src/test/utils.jsx](../src/test/utils.jsx) stacks `ThemeProvider` + `QueryClientProvider` + a lightweight `AuthContext` + `MemoryRouter`. Hooks are stubbed per-file with `vi.mock(...)`. The `useI18n` + `useTheme` hooks both tolerate a missing provider and return no-op English/light defaults — so a component can render in isolation without pulling the whole tree in.
+Unit tests live next to components as `*.test.jsx`. [src/test/utils.jsx](../src/test/utils.jsx) gives `createTestQueryClient` and no wrapper: `useAuth`'s context is module-private, so hooks are stubbed per-file with `vi.mock(...)` and the component is rendered directly. `useI18n` tolerates a missing provider and answers in English — so a component can render in isolation without pulling the whole tree in.
 
 There are three suites, each with its own command and config. `npm test` (`vite.config.js`, jsdom) is the unit suite and excludes `supabase/tests/**` and `docs/**`. `npm run test:db` (`vitest.db.config.js`) is the database suite. `npm run test:docs` (`vitest.docs.config.js`, node) runs the tests under `docs/`; it has no test yet and passes empty. `src/test/docsSuite.test.js` keeps the three apart and checks the format of the snippets in `docs/_pending/`. `src/test/dbSuiteExitCode.test.js` holds, from the unit suite, the one thing CI reads from the database suite: a run with a failed test ends with a status other than 0 (the server library it loads would end the process with 0; `supabase/tests/postgres.js` keeps vitest's code).
 

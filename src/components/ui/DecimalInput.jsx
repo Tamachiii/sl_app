@@ -73,7 +73,7 @@ export default function DecimalInput({
       aria-invalid={flagged ? 'true' : undefined}
       title={title ?? (flagged ? explanation : undefined)}
       // 16px is not a style choice: iOS Safari zooms the page on a focused
-      // field under it (DESIGN_SYSTEM, "iOS 16px input rule").
+      // field under it (docs/INVARIANTS.md, "Shell, routing, viewport").
       className={`text-[16px] ${className}`}
     />
   );

@@ -135,7 +135,7 @@ describe('<EditableText />', () => {
     });
 
     // iOS Safari zooms the whole page on a focused input under 16px, and this
-    // is a PWA people use one-handed mid-set. See docs/DESIGN_SYSTEM.md.
+    // is a PWA people use one-handed mid-set. See docs/INVARIANTS.md.
     it('holds the 16px iOS floor by default', async () => {
       const user = userEvent.setup();
       render(<EditableText value="Hello" onSave={() => {}} />);

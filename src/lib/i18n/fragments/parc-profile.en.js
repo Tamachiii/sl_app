@@ -3,7 +3,6 @@ export default {
   parcProfile: {
     title: 'Profile',
     nameHint: 'Your name, as your coach sees it',
-    rename: 'Change your name',
     coach: 'Your coach',
     write: 'Write',
     writeTo: 'Write to {name}',

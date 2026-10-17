@@ -224,12 +224,12 @@ describe('useRestTimerEffects', () => {
       startRestTimer('log-A', 60);
       await Promise.resolve();
     });
-    expect(document.title).toMatch(/^Rest \d+:\d{2} · SL Coach$/);
+    expect(document.title).toMatch(/^Rest \d+:\d{2} – SL Coach$/);
     await act(async () => {
       vi.advanceTimersByTime(60_000);
       await Promise.resolve();
     });
-    expect(document.title).toBe('Rest done · SL Coach');
+    expect(document.title).toBe('Rest done – SL Coach');
   });
 
   it('restores the original title on cleanup', async () => {

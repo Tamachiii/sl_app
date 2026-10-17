@@ -58,7 +58,7 @@ Delete the paragraph that starts "<first words>": <what it described> no longer 
   |---|---|
   | `docs/INVARIANTS.md` | A behaviour the code must keep, or a schema trap: something a future change could break without a test noticing |
   | `docs/ARCHITECTURE.md` | How a mechanism works: tables, RLS model, query keys, offline, push, the i18n and test plumbing |
-  | `docs/DESIGN_SYSTEM.md` | UI primitives, tokens, layout and accessibility patterns |
+  | `docs/DESIGN_SYSTEM.md` | where the Parc design system (`design/parc/`) lives in the code, and the app's UI rules |
   | `docs/ENVIRONMENT.md` | Environment variables, secrets, dashboard settings |
   | `CLAUDE.md` | Repo map, a row of the feature → files map, commands, "When you add a feature" |
   | `README.md` | Setup, deployment, overview, test counts |

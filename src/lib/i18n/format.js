@@ -168,13 +168,13 @@ export function pluralCategory(lang, n) {
  * The dictionary key for `n` things. The dictionaries carry two forms per
  * counted string, `…One` and `…Many`:
  *
- *   t(pluralKey(lang, n, 'student.training.sessions'), { n })
- *   // → student.training.sessionsOne | student.training.sessionsMany
+ *   t(pluralKey(lang, n, 'parcProgram.sessionsCount'), { n })
+ *   // → parcProgram.sessionsCountOne | parcProgram.sessionsCountMany
  *
  * A pair that is not named that way is given in full:
  *
- *   t(pluralKey(lang, n, { one: 'offline.bannerOfflineWithPending',
- *                          other: 'offline.bannerOfflineWithPendingMany' }), { n })
+ *   t(pluralKey(lang, n, { one: 'ns.oneChangeWaiting',
+ *                          other: 'ns.changesWaiting' }), { n })
  *
  * Every category but 'one' takes the plural form.
  */

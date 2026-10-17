@@ -15,13 +15,6 @@ export default {
       offlineTitle: 'Le statut des athlètes n’est pas encore sur cet appareil',
       offlineBody: 'Tu es hors ligne. Les programmes et les séances à revoir peuvent manquer sur les cartes ci-dessous jusqu’au retour de la connexion.',
     },
-    review: {
-      trainedOn: 'Entraînement du {date}',
-      extraSets: '+{n} en plus',
-    },
-    copy: {
-      sessionRange: 'Séances {from} à {to}',
-    },
     archive: {
       done: 'Séance archivée',
     },

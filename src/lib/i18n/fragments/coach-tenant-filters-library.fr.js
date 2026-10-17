@@ -13,6 +13,5 @@ export default {
     failed: 'Impossible de vérifier où cet exercice est utilisé : il n’est donc pas supprimé. Vérifie ta connexion et réessaie.',
     retry: 'Vérifier à nouveau',
     retrying: 'Vérification…',
-    ok: 'OK',
   },
 };

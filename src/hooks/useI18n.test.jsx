@@ -42,10 +42,10 @@ describe('I18nProvider', () => {
   });
 
   it('t() interpolates {param} placeholders', () => {
-    // Use a known key from the dictionaries — student.stats.scopeActiveOption.
+    // Use a known key from the dictionaries — messaging.unreadAria.
     const { result } = renderHook(() => useI18n(), { wrapper });
-    const out = result.current.t('student.stats.scopeActiveOption', { name: 'Block A' });
-    expect(out).toMatch(/Block A/);
+    const out = result.current.t('messaging.unreadAria', { n: 3 });
+    expect(out).toBe('3 unread');
   });
 
   it('hydrates from localStorage on mount', () => {

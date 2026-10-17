@@ -13,21 +13,8 @@ export default {
       setLogged: 'Set {n} is logged',
       removeBlocked: 'This exercise has logged sets and cannot be removed',
     },
-    sheet: {
-      openReview: 'Open the review',
-      inProgress: 'Started by the athlete, not confirmed yet',
-    },
-    review: {
-      openEditor: 'editor',
-      openEditorAria: 'Open this session in the editor',
-    },
-    roster: {
-      reviewChipAria: '{n} to review — {name}’s sessions',
-    },
     athlete: {
       actionsLabel: 'Go to {name}’s messages or sessions',
-      message: 'Message',
-      sessions: 'Sessions',
     },
   },
 };

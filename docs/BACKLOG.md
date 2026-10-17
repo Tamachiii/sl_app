@@ -82,13 +82,12 @@ What the app and the database keep for the older apps until then — harmless, a
 - `useEnsureSetLogs` (`src/hooks/useSetLogs.js`) inserts the missing sets itself where `ensure_set_logs` is missing (`PGRST202`): after migration 43 that insert would be an extra set.
 - `useRestTimerPush` falls back on its own insert of `scheduled_pushes` and its `canceled_at` update where `schedule_rest_push` is missing; the 350-second clamp lives on in the app of wave 2 only. Migration 44 closes both.
 - The service worker treats a "Rest done" whose address is the training list — what the apps before wave 3 wrote — as the push of the session the athlete is in (`src/lib/swHandlers.js`, `LEGACY_REST_DONE` in its tests).
-- `save_draft_tree` writes a weekday outside 1 to 7 as none, for a phone that cached its draft before migration 21; `RpeInput` draws a rating of 1 to 5, logged before half steps, in a cell of its own.
+- `save_draft_tree` writes a weekday outside 1 to 7 as none, for a phone that cached its draft before migration 21; `student/RpeChoices` shows a rating of 1 to 5, logged before half steps, first and pressed (`rpeChoices` of `lib/rpe`).
 - A write queued by an older build is replayed as it was made: `patchForSkipped(false)` stays `{ skipped: false }`, an RPE or an Actual without `done: true` marks nothing done, a cached session without `program_status` is read as approved.
 - `useReviewCounts` and `useConversations` read their list page by page where the optional migration 26 is missing. That one is not a contract: the fallback goes once every project the app runs against has migration 26.
 
 ## 5. Small things found at the end of wave 3
 
-- The Send button of the message composer is about 38 px high (`sl-btn-primary` with an inline padding of 10px 14px), and on a phone it is now the only way to send: `min-h-11` in the 44 px pass of the new design.
 - An iPad with a hardware keyboard reports `(pointer: coarse)`, so Enter writes a new line there too. No rule covers a device with both.
 
 ## 6. The checkpoints that are not held

@@ -59,10 +59,11 @@ function PushToggleRow() {
  *
  * Two avatar modes:
  *   - `profileHref` set → avatar is a <Link> to that page (no popover).
- *     Used by the student app to open the dedicated Profile page; theme,
- *     language, and sign-out live there too.
- *   - `profileHref` unset → avatar opens a popover with theme / language /
- *     sign-out inline. Used on the coach side, which has no Profile page yet.
+ *     Used by the student app to open the dedicated Profile page; the
+ *     language and sign-out live there too.
+ *   - `profileHref` unset → avatar opens a popover with the language, the
+ *     notifications and sign-out inline. Used on the coach side, which has no
+ *     Profile page yet.
  */
 export default function UserMenu({ fullName, onSignOut, profileHref }) {
   const { t } = useI18n();
