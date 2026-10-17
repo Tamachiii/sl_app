@@ -1,6 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
+import { capitalize } from './sessionModel';
+import { dayNames, formatDate } from '../../lib/i18n/format';
+import { IconButton } from '../parc';
 
 function startOfMonth(d) {
   return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -15,20 +18,31 @@ function ymd(date) {
   return `${y}-${m}-${day}`;
 }
 
-const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-
-// A session not confirmed, on a day that is over: an open session whose
-// recommended date has passed, or one trained and not confirmed (the hook
-// puts it on the day it was trained). It is not "upcoming" — that orange dot
-// on the past days of September was the finding — and not "missed" either:
-// the queue has no such state, the session is still simply next. A ring of
-// the muted ink, beside the filled dots of the other three states.
-const UNCONFIRMED_DOT = {
-  boxShadow: 'inset 0 0 0 1px var(--color-ink-400)',
+// The marks of a day, by shape as much as by colour (design/parc/components/
+// WeekDots): done a full blue disc, to come an ink ring, trained and not
+// confirmed an `ink-3` ring, a session of an earlier block a full grey disc.
+const MARK = {
+  done: 'bg-blue',
+  upcoming: 'border-2 border-ink',
+  unconfirmed: 'border-2 border-ink-3',
+  history: 'bg-ink-3',
 };
 
+function Mark({ kind }) {
+  return <span data-dot={kind} className={`inline-block h-2 w-2 rounded-full ${MARK[kind]}`} />;
+}
+
+/**
+ * The month of the athlete's sessions: one cell per day, a link to the
+ * session of a day that has one, its marks under the date, and a legend that
+ * says each mark in words. A past day with a session not confirmed is
+ * UNCONFIRMED, not to come. `sessions` are `{ session_id, title, date,
+ * completed, historical? }` (the stats hook's `sessionCalendar`, and the
+ * sessions of earlier blocks on top of it).
+ */
 export default function SessionCalendar({ sessions }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
+  const titleId = useId();
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
 
   const byDate = useMemo(() => {
@@ -41,14 +55,14 @@ export default function SessionCalendar({ sessions }) {
     return map;
   }, [sessions]);
 
-  const { cells, monthLabel } = useMemo(() => {
+  const cells = useMemo(() => {
     const year = cursor.getFullYear();
     const month = cursor.getMonth();
     const first = new Date(year, month, 1);
     const daysInMonth = new Date(year, month + 1, 0).getDate();
+    // Monday-first grid: getDay() 0=Sun..6=Sat → shift so Mon=0.
     const leading = (first.getDay() + 6) % 7;
     const totalCells = Math.ceil((leading + daysInMonth) / 7) * 7;
-
     const arr = [];
     for (let i = 0; i < totalCells; i++) {
       const dayNum = i - leading + 1;
@@ -59,42 +73,40 @@ export default function SessionCalendar({ sessions }) {
         arr.push({ date, key: ymd(date), dayNum });
       }
     }
-    const monthLabel = cursor.toLocaleDateString(undefined, {
-      month: 'long',
-      year: 'numeric',
-    });
-    return { cells: arr, monthLabel };
+    return arr;
   }, [cursor]);
 
+  const monthLabel = capitalize(formatDate(lang, cursor, { month: 'long', year: 'numeric' }));
+  const weekdays = dayNames(lang, 'narrow');
   const todayKey = ymd(new Date());
 
   return (
-    <div className="sl-card p-4">
-      <div className="flex items-center justify-between mb-3">
-        <button
+    <section aria-labelledby={titleId} className="rounded-group bg-surface p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <IconButton
+          icon="chevron-left"
+          tone="fill"
+          size={18}
+          label={t('parcStats.calendarPrevious')}
           onClick={() => setCursor((c) => addMonths(c, -1))}
-          aria-label="Previous month"
-          className="w-8 h-8 rounded-lg bg-ink-100 text-ink-500 flex items-center justify-center hover:bg-ink-200 transition-colors"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-        <span className="sl-display text-[15px] text-gray-900 uppercase tracking-wide">{monthLabel}</span>
-        <button
+        />
+        <h2 id={titleId} className="pk-headline" aria-live="polite">
+          {monthLabel}
+        </h2>
+        <IconButton
+          icon="chevron-right"
+          tone="fill"
+          size={18}
+          label={t('parcStats.calendarNext')}
           onClick={() => setCursor((c) => addMonths(c, 1))}
-          aria-label="Next month"
-          className="w-8 h-8 rounded-lg bg-ink-100 text-ink-500 flex items-center justify-center hover:bg-ink-200 transition-colors"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
+        />
       </div>
 
-      <div className="grid grid-cols-7 gap-1 text-center sl-mono text-[10px] text-ink-400 mb-1.5">
-        {WEEKDAYS.map((d, i) => (
-          <div key={i}>{d}</div>
+      <div className="mb-1 grid grid-cols-7 gap-1 text-center" aria-hidden="true">
+        {weekdays.map((d, i) => (
+          <div key={i} className="pk-small">
+            {d}
+          </div>
         ))}
       </div>
 
@@ -102,64 +114,39 @@ export default function SessionCalendar({ sessions }) {
         {cells.map((cell, i) => {
           if (!cell) return <div key={i} className="aspect-square" />;
           const entries = byDate.get(cell.key) || [];
-          const activeEntries = entries.filter((e) => !e.historical);
-          const historicalEntries = entries.filter((e) => e.historical);
-          const hasCompleted = activeEntries.some((e) => e.completed);
-          // Today still counts as to come: the session can be done today.
+          const active = entries.filter((e) => !e.historical);
+          const historical = entries.filter((e) => e.historical);
           const isPast = cell.key < todayKey;
-          const hasUpcoming = !isPast && activeEntries.some((e) => !e.completed);
-          const hasUnconfirmed = isPast && activeEntries.some((e) => !e.completed);
-          // Show the history dot only when the day has no active session —
-          // the active plan takes visual priority when both exist.
-          const showHistorical = activeEntries.length === 0 && historicalEntries.length > 0;
+          const marks = [];
+          if (active.some((e) => e.completed)) marks.push('done');
+          if (!isPast && active.some((e) => !e.completed)) marks.push('upcoming');
+          if (isPast && active.some((e) => !e.completed)) marks.push('unconfirmed');
+          if (active.length === 0 && historical.length > 0) marks.push('history');
           const isToday = cell.key === todayKey;
-          const first = activeEntries[0] || historicalEntries[0];
+          const first = active[0] || historical[0];
           const content = (
             <div
-              className={`aspect-square flex flex-col items-center justify-center rounded-lg sl-mono text-[12px] ${
-                isToday
-                  ? 'text-ink-900'
-                  : showHistorical
-                    ? 'text-ink-400'
-                    : 'text-gray-700'
-              } ${entries.length && !isToday ? 'hover:bg-ink-50' : ''}`}
-              style={isToday ? { background: 'var(--color-accent)' } : undefined}
+              className={`flex aspect-square min-h-11 flex-col items-center justify-center gap-0.5 rounded-control text-[15px] pk-tnum ${
+                isToday ? 'bg-blue-soft font-bold text-blue' : 'text-ink'
+              }`}
             >
-              <span className="tabular-nums font-semibold">{cell.dayNum}</span>
-              <div className="flex gap-0.5 mt-0.5 h-1">
-                {hasCompleted && (
-                  <span
-                    data-dot="done"
-                    className="w-1 h-1 rounded-full"
-                    style={{ background: 'var(--color-success)' }}
-                  />
-                )}
-                {hasUpcoming && (
-                  <span
-                    data-dot="upcoming"
-                    className="w-1 h-1 rounded-full"
-                    style={{ background: isToday ? 'var(--color-ink-900)' : 'var(--color-accent)' }}
-                  />
-                )}
-                {hasUnconfirmed && (
-                  <span data-dot="unconfirmed" className="w-1 h-1 rounded-full" style={UNCONFIRMED_DOT} />
-                )}
-                {showHistorical && (
-                  <span
-                    data-dot="history"
-                    className="w-1 h-1 rounded-full"
-                    style={{ background: 'var(--color-ink-400)' }}
-                  />
-                )}
-              </div>
+              <span>{cell.dayNum}</span>
+              <span className="flex h-2 gap-0.5">
+                {marks.map((kind) => (
+                  <Mark key={kind} kind={kind} />
+                ))}
+              </span>
             </div>
           );
           return first ? (
             <Link
               key={i}
               to={`/student/session/${first.session_id}`}
-              aria-label={`${first.title || 'Session'} on ${cell.key}`}
-              className="block"
+              aria-label={t('parcStats.calendarDay', {
+                title: first.title || t('parcStats.calendarSession'),
+                date: formatDate(lang, cell.date, { weekday: 'long', day: 'numeric', month: 'long' }),
+              })}
+              className="block rounded-control focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue"
             >
               {content}
             </Link>
@@ -169,24 +156,19 @@ export default function SessionCalendar({ sessions }) {
         })}
       </div>
 
-      <div className="flex flex-wrap gap-x-3 gap-y-1 justify-end sl-mono text-[10px] text-ink-400 mt-3">
-        <span className="flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--color-success)' }} />
-          {t('student.stats.legendDone')}
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--color-accent)' }} />
-          {t('student.stats.legendUpcoming')}
-        </span>
-        <span className="flex items-center gap-1" data-legend="unconfirmed">
-          <span className="w-1.5 h-1.5 rounded-full" style={UNCONFIRMED_DOT} />
-          {t('statsPanels.legendUnconfirmed')}
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--color-ink-400)' }} />
-          {t('student.stats.legendHistory')}
-        </span>
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+        {[
+          ['done', 'parcStats.legendDone'],
+          ['upcoming', 'parcStats.legendUpcoming'],
+          ['unconfirmed', 'parcStats.legendUnconfirmed'],
+          ['history', 'parcStats.legendHistory'],
+        ].map(([kind, key]) => (
+          <span key={kind} className="pk-small flex items-center gap-1.5" data-legend={kind}>
+            <Mark kind={kind} />
+            {t(key)}
+          </span>
+        ))}
       </div>
-    </div>
+    </section>
   );
 }

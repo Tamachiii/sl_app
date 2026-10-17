@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom';
 
 let mockStats = { data: null, isLoading: true };
@@ -69,6 +69,16 @@ const heldBack = { data: undefined, isLoading: false };
 
 const enabledScopes = () => [...new Set(statsCalls.filter((c) => c.enabled).map((c) => c.scope))];
 
+// The scope is a group of chips named "Block" (ProgramScopeSelector): the
+// chip that is pressed, and a tap on one.
+const scopeGroup = () => screen.getByRole('group', { name: 'Block' });
+const pressedScope = () =>
+  within(scopeGroup())
+    .getAllByRole('button')
+    .filter((chip) => chip.getAttribute('aria-pressed') === 'true')
+    .map((chip) => chip.textContent);
+const pickScope = (name) => fireEvent.click(within(scopeGroup()).getByRole('button', { name }));
+
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
@@ -89,7 +99,7 @@ describe('StudentStatsSection', () => {
     expect(programsCalls[0]).toBe('st-1');
     expect(screen.getByText('5/12')).toBeInTheDocument();
     expect(screen.getByText(/42% complete/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/stats scope/i)).toHaveValue('all');
+    expect(pressedScope()).toEqual(['All']);
   });
 
   // The same card as the athlete's page: prescribed sets done of prescribed,
@@ -110,7 +120,7 @@ describe('StudentStatsSection', () => {
     mockStats = { data: undefined, isLoading: true };
     renderSection();
     expect(screen.queryByText('5/12')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/stats scope/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Block' })).not.toBeInTheDocument();
     expect(screen.queryByText(/no training logged yet/i)).not.toBeInTheDocument();
   });
 
@@ -118,7 +128,7 @@ describe('StudentStatsSection', () => {
     mockStats = { data: { ...sampleData, totalSessions: 0, totalSessionsConfirmed: 0 }, isLoading: false };
     renderSection();
     expect(screen.getByText(/no training logged yet for this scope/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/stats scope/i)).toBeInTheDocument();
+    expect(scopeGroup()).toBeInTheDocument();
   });
 
   // B39: the same panel as the athlete's page, on the same weeks.
@@ -143,6 +153,43 @@ describe('StudentStatsSection', () => {
     }
   });
 
+  // The section is not in Parc yet: its chart keeps its own choice of
+  // exercise (a select), remembered for each athlete — where the athlete's
+  // page opens the chart under a row of its Progression list instead.
+  it('lets the coach pick the exercise of the chart, and remembers it for this athlete', () => {
+    const point = (session_id, date, tonnage) => ({ session_id, key: session_id, date, tonnage });
+    mockStats = {
+      data: {
+        ...sampleData,
+        exerciseProgress: {
+          exercises: [{ id: 'e-1', name: 'Bench' }, { id: 'e-2', name: 'Row' }],
+          byExercise: {
+            'e-1': [point('s-1', '2026-07-01', 1000), point('s-2', '2026-07-08', 1240)],
+            'e-2': [point('s-1', '2026-07-01', 800)],
+          },
+        },
+      },
+      isLoading: false,
+    };
+    const first = renderSection();
+    const select = screen.getByRole('combobox', { name: 'Exercise' });
+    expect(select).toHaveValue('e-1');
+    expect(screen.getByText(/Highest, 1,240 kg\./)).toBeInTheDocument();
+
+    fireEvent.change(select, { target: { value: 'e-2' } });
+    expect(screen.getByText(/Highest, 800 kg\./)).toBeInTheDocument();
+    expect(localStorage.getItem('sl_stats_prefs:coach:st-1:exerciseId')).toBe('e-2');
+    first.unmount();
+
+    const again = renderSection();
+    expect(screen.getByRole('combobox', { name: 'Exercise' })).toHaveValue('e-2');
+    again.unmount();
+
+    // Another athlete: their own choice, none yet.
+    renderSection({ studentId: 'st-2' });
+    expect(screen.getByRole('combobox', { name: 'Exercise' })).toHaveValue('e-1');
+  });
+
   it('reads the scope from ?statsScope=, not from the editor\'s ?program=', () => {
     renderSection({ search: '?statsScope=p-2&program=p-1' });
     expect(enabledScopes()).toEqual(['p-2']);
@@ -155,15 +202,15 @@ describe('StudentStatsSection', () => {
 
   it('saves the picked scope for this athlete, and forgets it when "all" is picked', () => {
     renderSection();
-    fireEvent.change(screen.getByLabelText(/stats scope/i), { target: { value: 'p-2' } });
+    pickScope('Block B');
     expect(statsCalls.at(-1)).toEqual({ studentId: 'st-1', scope: 'p-2', enabled: true });
     expect(savedScope('st-1')).toBe('p-2');
     expect(savedScope('st-2')).toBeUndefined();
 
-    fireEvent.change(screen.getByLabelText(/stats scope/i), { target: { value: 'all' } });
+    pickScope('All');
     expect(statsCalls.at(-1)).toEqual({ studentId: 'st-1', scope: 'all', enabled: true });
     expect(savedScope('st-1')).toBeUndefined();
-    expect(screen.getByLabelText(/stats scope/i)).toHaveValue('all');
+    expect(pressedScope()).toEqual(['All']);
   });
 });
 
@@ -177,7 +224,7 @@ describe('StudentStatsSection — the scope is known before anything is computed
     expect(statsCalls[0]).toEqual({ studentId: 'st-1', scope: 'p-2', enabled: true });
     expect(enabledScopes()).toEqual(['p-2']);
     expect(statsCalls.some((c) => c.scope === 'all')).toBe(false);
-    expect(screen.getByLabelText(/stats scope/i)).toHaveValue('p-2');
+    expect(pressedScope()).toEqual(['Block B']);
   });
 
   it('does not apply the scope saved for another athlete', () => {
@@ -272,7 +319,7 @@ describe('StudentStatsSection — changing the scope keeps the section', () => {
     mockStats = standIn;
     renderSection({ search: '?statsScope=p-2' });
     // The selector already shows the choice that was just made.
-    expect(screen.getByLabelText(/stats scope/i)).toHaveValue('p-2');
+    expect(pressedScope()).toEqual(['Block B']);
     expect(screen.getByText('5/12')).toBeInTheDocument();
   });
 
@@ -284,7 +331,7 @@ describe('StudentStatsSection — changing the scope keeps the section', () => {
     expect(busy).toHaveLength(1);
     expect(busy[0]).toContainElement(screen.getByText('5/12'));
     expect(busy[0]).toHaveClass('opacity-50');
-    expect(busy[0]).not.toContainElement(screen.getByLabelText(/stats scope/i));
+    expect(busy[0]).not.toContainElement(scopeGroup());
   });
 
   it('marks nothing as busy once the figures are the scope\'s own', () => {
@@ -297,7 +344,7 @@ describe('StudentStatsSection — changing the scope keeps the section', () => {
   it('still opens on a spinner when there is nothing to keep', () => {
     mockStats = { data: undefined, isLoading: true, isPlaceholderData: false };
     const { container } = renderSection();
-    expect(screen.queryByLabelText(/stats scope/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Block' })).not.toBeInTheDocument();
     expect(container.querySelector('[aria-busy]')).toBeNull();
   });
 });
@@ -346,7 +393,7 @@ describe('StudentStatsSection — a saved block, and a new block made active sin
 
   it('saves the athlete\'s active block with the block the coach picks', () => {
     renderSection();
-    fireEvent.change(screen.getByLabelText(/stats scope/i), { target: { value: 'p-2' } });
+    pickScope('Block B');
     expect(saved('st-1')).toEqual({ scope: 'p-2', activeBlock: 'p-1' });
   });
 

@@ -173,10 +173,8 @@ function CoachStatsBody({ stats, completionPct, weeksReachToday, exerciseStorage
         />
       </div>
 
-      <div>
-        <div className="sl-label text-ink-400 mb-2.5">{t('student.stats.weeklyVolume')}</div>
-        <WeeklyVolumePanel weeks={stats.weeklyVolume} current={weeksReachToday} />
-      </div>
+      {/* The panel carries its own heading. */}
+      <WeeklyVolumePanel weeks={stats.weeklyVolume} current={weeksReachToday} />
 
       <div>
         <div className="sl-label text-ink-400 mb-2.5">

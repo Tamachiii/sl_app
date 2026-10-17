@@ -84,6 +84,11 @@
   outline-color: var(--toast-action);
 }
 
+/* ---------- Chips that choose ----------
+   A chip that is a single choice of a group (the stats' scope) is pressed
+   rather than current: it draws like the exercise shown in the switcher. */
+.pk-chip[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+
 /* ---------- Segmented control ----------
    A single choice among two to four, on `fill` (screens/Librairie.dc.html).
    The inner radius is the control's less the 4px between them. */

@@ -13,13 +13,13 @@
 // so a three-week layoff simply did not show — the four rows could be months
 // apart.
 
-import { useMemo } from 'react';
+import { useId, useMemo } from 'react';
 import { useI18n } from '../../hooks/useI18n';
 import { addDays, isoDate, parseISODate, startOfWeekMonday } from '../../lib/day';
-import { formatDateRange } from '../../lib/i18n/format';
+import { formatDate, formatDateRange, formatNumber } from '../../lib/i18n/format';
 
-/** How many weeks the panel shows. */
-export const WEEKS_SHOWN = 4;
+/** How many weeks the panel shows (design/parc/screens/Stats.dc.html: six). */
+export const WEEKS_SHOWN = 6;
 
 /** Scale bars to the larger of performed / planned so the ghost track fits. */
 export function computeMaxWeeklyTotal(weeks) {
@@ -94,112 +94,188 @@ export function formatBucketRange(bucketStart, lang) {
   return formatDateRange(lang, monday, addDays(monday, 6));
 }
 
-function VolumeWeekRow({ week, maxTotal, t, lang }) {
-  const { bucket_start, pull, push, sets_done, sets_prescribed } = week;
-  // `pull`/`push` are PERFORMED; `*_planned` is the prescribed reference.
-  const total = pull + push;
-  const planned = (week.pull_planned || 0) + (week.push_planned || 0);
-  const rowPct = maxTotal === 0 ? 0 : (total / maxTotal) * 100;
-  const plannedPct = maxTotal === 0 ? 0 : (planned / maxTotal) * 100;
-  const pullPct = total === 0 ? 0 : (pull / total) * 100;
-  const pushPct = total === 0 ? 0 : (push / total) * 100;
-  // Shown whenever the week had prescribed sets, volume or not: a week of
-  // planks and holds has no volume and is still 3/3.
-  const adherence =
-    sets_prescribed > 0 ? Math.round((sets_done / sets_prescribed) * 100) : null;
+// The geometry of the chart, in the units of its viewBox: the plot sits
+// right of the value axis and above the week labels.
+const W = 326;
+const H = 168;
+const PLOT_LEFT = 28;
+const PLOT_TOP = 12;
+const BASELINE = 140;
+const BAR_W = 14;
+const BAR_GAP = 4;
+const RADIUS = 4;
 
-  return (
-    <div className="space-y-1.5" data-week={bucket_start}>
-      <div className="flex items-baseline justify-between">
-        <span className="sl-mono text-[11px] text-gray-800">
-          {formatBucketRange(bucket_start, lang)}
-        </span>
-        <span className="sl-mono text-[11px] text-ink-400 tabular-nums">
-          {adherence != null && (
-            <span className="mr-2">
-              {t('student.stats.setsAdherence', {
-                done: sets_done,
-                total: sets_prescribed,
-                pct: adherence,
-              })}
-            </span>
-          )}
-          {Math.round(total)}
-        </span>
-      </div>
-      {/* Faint full-width track sized to the PLANNED volume; the performed
-          pull/push bar sits on top, so a short bar in a long track reads as
-          "did less than planned" at a glance. */}
-      <div className="relative h-2.5 rounded-full bg-ink-100 overflow-hidden">
-        {planned > 0 && (
-          <div
-            className="absolute inset-y-0 left-0 bg-ink-200"
-            style={{ width: `${plannedPct}%` }}
-            aria-hidden="true"
-          />
-        )}
-        {total > 0 && (
-          <div className="relative flex h-full" style={{ width: `${rowPct}%` }} aria-hidden="true">
-            {pull > 0 && <div className="bg-pull" style={{ width: `${pullPct}%` }} />}
-            {push > 0 && <div className="bg-push" style={{ width: `${pushPct}%` }} />}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+// A round number at or above `max`, for the top of the axis: 2, 5 or 10 times
+// a power of ten, so the three ticks read cleanly.
+function niceCeiling(max) {
+  if (max <= 0) return 1;
+  const power = 10 ** Math.floor(Math.log10(max));
+  const step = [1, 2, 5, 10].find((m) => m * power >= max) ?? 10;
+  return step * power;
+}
+
+// A bar that grows from the baseline, its data end rounded and its foot
+// square (the dataviz marks: 4px data-end, square at the baseline).
+function barPath(x, top, width) {
+  const height = BASELINE - top;
+  if (height <= 0) return '';
+  const r = Math.min(RADIUS, height, width / 2);
+  return `M${x},${BASELINE} V${top + r} Q${x},${top} ${x + r},${top} H${x + width - r} Q${x + width},${top} ${x + width},${top + r} V${BASELINE} Z`;
 }
 
 /**
+ * The volume of the last weeks as columns, pull and push side by side
+ * (design/parc/screens/Stats.dc.html): `chart-pull` and `chart-push` on
+ * `surface`, a written legend, the value axis in three ticks, each week named
+ * by its Monday — the current one in bold — and one sentence for the last week.
+ * A screen reader gets the same as a table; each week says its figures on
+ * hover (`<title>`).
+ *
  * `weeks` is the hook's `weeklyVolume`, whole; the panel picks its window.
  * `current` says whether the scope holds the block being trained
  * (`scopeReachesToday` of lib/statsPrefs). `now` is for tests.
  */
 export default function WeeklyVolumePanel({ weeks, current = true, now }) {
   const { t, lang } = useI18n();
+  const titleId = useId();
   const shown = useMemo(() => weeklyWindow(weeks, { now, current }), [weeks, now, current]);
-  const maxTotal = computeMaxWeeklyTotal(shown);
-  const hasAdherence = shown.some((w) => w.sets_prescribed > 0);
+  const peak = Math.max(0, ...shown.map((w) => Math.max(w.pull, w.push)));
+  const top = niceCeiling(peak);
+  const thisWeek = isoDate(startOfWeekMonday(now ?? new Date()));
+
+  const header = (
+    <>
+      <h2 id={titleId} className="pk-headline">
+        {t('parcStats.volumeTitle')}
+      </h2>
+      <p className="pk-caption mt-0.5">{t('parcStats.volumeCaption')}</p>
+    </>
+  );
 
   if (shown.length === 0) {
     return (
-      <div className="sl-card p-4">
-        <p className="sl-mono text-[11px] text-ink-400">{t('statsPanels.noTraining')}</p>
-      </div>
+      <section aria-labelledby={titleId} className="rounded-group bg-surface p-4">
+        {header}
+        <p className="pk-caption mt-3">{t('parcStats.noTraining')}</p>
+      </section>
     );
   }
 
+  const band = (W - PLOT_LEFT) / shown.length;
+  const yFor = (value) => BASELINE - (value / top) * (BASELINE - PLOT_TOP);
+  const weekLabel = (w) => formatDate(lang, parseISODate(w.bucket_start), { day: 'numeric', month: 'short' });
+  const fmt = (value) => formatNumber(lang, Math.round(value));
+  const last = shown[shown.length - 1];
+  const lastIsThisWeek = last.bucket_start === thisWeek;
+  const setsLine =
+    last.sets_prescribed > 0
+      ? t(lastIsThisWeek ? 'parcStats.setsThisWeek' : 'parcStats.setsThatWeek', {
+          week: weekLabel(last),
+          done: fmt(last.sets_done),
+          total: fmt(last.sets_prescribed),
+        })
+      : t(lastIsThisWeek ? 'parcStats.nothingThisWeek' : 'parcStats.nothingThatWeek', { week: weekLabel(last) });
+  const extra =
+    last.extra_sets_done > 0 ? ` ${t('parcStats.extraSets', { n: fmt(last.extra_sets_done) })}` : '';
+
   return (
-    <div className="sl-card p-4 space-y-3">
-      {shown.map((w) => (
-        <VolumeWeekRow key={w.bucket_start} week={w} maxTotal={maxTotal} t={t} lang={lang} />
-      ))}
-      {(maxTotal > 0 || hasAdherence) && (
-        <div className="space-y-1.5 pt-2 border-t border-ink-100">
-          {maxTotal > 0 && (
-            <div className="flex justify-between sl-mono text-[11px] text-ink-400">
-              <span className="flex items-center gap-1.5">
-                <span className="inline-block w-2 h-2 rounded-full bg-pull" />
-                PULL
-              </span>
-              <span className="flex items-center gap-1.5">
-                PUSH
-                <span className="inline-block w-2 h-2 rounded-full bg-push" />
-              </span>
-            </div>
-          )}
-          {maxTotal > 0 && (
-            <p className="sl-mono text-[10px] text-ink-400">
-              {t('student.stats.volumePerformedNote')}
-            </p>
-          )}
-          {/* Planned work travels with a session into the week it was
-              trained, so a week's sets are those of the sessions trained in
-              it — never of a session still to do. */}
-          {hasAdherence && (
-            <p className="sl-mono text-[10px] text-ink-400">{t('statsPanels.adherenceNote')}</p>
-          )}
+    <section aria-labelledby={titleId} className="rounded-group bg-surface p-4">
+      {header}
+      {/* The legend names the columns: weeks of sets without volume draw none. */}
+      {peak > 0 && (
+        <div className="mt-3 flex gap-4" aria-hidden="true">
+          <span className="pk-caption flex items-center gap-1.5">
+            <span className="inline-block h-3 w-3 rounded-[3px] bg-chart-pull" />
+            {t('parcStats.pull')}
+          </span>
+          <span className="pk-caption flex items-center gap-1.5">
+            <span className="inline-block h-3 w-3 rounded-[3px] bg-chart-push" />
+            {t('parcStats.push')}
+          </span>
         </div>
       )}
-    </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="mt-2 block h-auto w-full" aria-hidden="true" focusable="false">
+        {[1, 0.5, 0].map((frac) => {
+          const y = yFor(top * frac);
+          return (
+            <g key={frac}>
+              <line
+                x1={PLOT_LEFT}
+                x2={W}
+                y1={y}
+                y2={y}
+                stroke={frac === 0 ? 'var(--line-strong)' : 'var(--line)'}
+                strokeWidth="1"
+              />
+              <text x="0" y={y + 4} fontSize="12" fill="var(--ink-2)">
+                {fmt(top * frac)}
+              </text>
+            </g>
+          );
+        })}
+        {shown.map((w, i) => {
+          const centre = PLOT_LEFT + band * i + band / 2;
+          const pullX = centre - BAR_W - BAR_GAP / 2;
+          const pushX = centre + BAR_GAP / 2;
+          const isCurrent = w.bucket_start === thisWeek;
+          return (
+            <g key={w.bucket_start} data-week={w.bucket_start}>
+              <title>
+                {t('parcStats.weekTooltip', {
+                  week: formatBucketRange(w.bucket_start, lang),
+                  pull: fmt(w.pull),
+                  push: fmt(w.push),
+                  done: fmt(w.sets_done),
+                  total: fmt(w.sets_prescribed),
+                })}
+              </title>
+              {/* The whole band answers the pointer, wider than the bars. */}
+              <rect x={PLOT_LEFT + band * i} y={PLOT_TOP} width={band} height={BASELINE - PLOT_TOP} fill="transparent" />
+              {w.pull > 0 && <path d={barPath(pullX, yFor(w.pull), BAR_W)} fill="var(--chart-pull)" />}
+              {w.push > 0 && <path d={barPath(pushX, yFor(w.push), BAR_W)} fill="var(--chart-push)" />}
+              <text
+                x={centre}
+                y={H - 6}
+                fontSize="12"
+                textAnchor="middle"
+                fill={isCurrent ? 'var(--ink)' : 'var(--ink-2)'}
+                fontWeight={isCurrent ? 700 : 400}
+              >
+                {weekLabel(w)}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <table className="sr-only">
+        <caption>{t('parcStats.volumeTitle')}</caption>
+        <thead>
+          <tr>
+            <th scope="col">{t('parcStats.week')}</th>
+            <th scope="col">{t('parcStats.pull')}</th>
+            <th scope="col">{t('parcStats.push')}</th>
+            <th scope="col">{t('parcStats.setsColumn')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {shown.map((w) => (
+            <tr key={w.bucket_start}>
+              <th scope="row">{formatBucketRange(w.bucket_start, lang)}</th>
+              <td>{fmt(w.pull)}</td>
+              <td>{fmt(w.push)}</td>
+              <td>
+                {w.sets_prescribed > 0
+                  ? t('parcStats.setsOf', { done: fmt(w.sets_done), total: fmt(w.sets_prescribed) })
+                  : ''}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="pk-caption mt-2">
+        {setsLine}
+        {extra}
+      </p>
+    </section>
   );
 }

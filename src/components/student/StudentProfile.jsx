@@ -11,8 +11,6 @@ import { useMyCoach } from '../../hooks/useStudents';
 import { useMyGoals } from '../../hooks/useGoals';
 import { useStudentLifetimeStats } from '../../hooks/useStudentLifetimeStats';
 import { usePushSubscription } from '../../hooks/usePushSubscription';
-import BodyweightCard from './BodyweightCard';
-import PersonalRecords from './PersonalRecords';
 
 function initialsOf(name) {
   return (name || '')
@@ -383,9 +381,8 @@ export default function StudentProfile() {
         )}
       </section>
 
-      {/* Bodyweight check-in + personal records (strength surface). */}
-      <BodyweightCard />
-      <PersonalRecords />
+      {/* The bodyweight and the records live on the Stats page
+          (design/parc/screens/Stats.dc.html). */}
 
       {/* Phase 3.4: draft a program for the coach to approve. English-only,
           like the other student off-script surfaces. */}
