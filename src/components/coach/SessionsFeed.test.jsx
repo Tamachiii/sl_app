@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { inTimeZone } from '../../test/inTimeZone';
 
 // The feed's reads, stubbed over one list: `mockDb` is every confirmation of
 // the coach as the feed renders it, and each hook answers what its query
@@ -116,6 +117,19 @@ const makeConfirmation = (overrides = {}) => ({
 
 const student = (id, name) => ({ id, profile_id: `p-${id}`, created_at: null, profile: { full_name: name } });
 
+// The parts of the page, by the names they are read by.
+const viewChips = () => screen.getByRole('group', { name: 'Filter the sessions' });
+const chip = (name) => within(viewChips()).getByRole('button', { name });
+const athleteSelect = () => screen.getByRole('combobox', { name: 'Athlete' });
+// The row of a session is one link, read as one name: the athlete, then where
+// the session sits, then what became of it, then the athlete's note. `row`
+// finds it by its title.
+const row = (title) => screen.queryByRole('link', { name: new RegExp(`, ${title}(,|$)`) });
+// The one row of the "Archived" group, found by the count it starts with;
+// its whole name is held by a test of its own (below).
+const archivedGroup = () => screen.getByRole('region', { name: 'Archived' });
+const archivedRow = (count) => within(archivedGroup()).getByRole('button', { name: new RegExp(`^${count}\\b`) });
+
 describe('SessionsFeed', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -130,85 +144,127 @@ describe('SessionsFeed', () => {
     sessionStorage.clear();
   });
 
-  it('renders loading spinner', () => {
+  // The title stands while the inbox is read: the page is named before it
+  // has anything to say.
+  it('renders loading spinner under the title', () => {
     mockInbox = loadingRead();
     renderFeed();
+    expect(screen.getByRole('heading', { level: 1, name: 'Sessions' })).toBeInTheDocument();
     expect(screen.getByRole('status')).toBeInTheDocument();
   });
 
-  it('renders empty state when no confirmations', () => {
+  it('renders empty state when no confirmations, and no chips to filter nothing', () => {
     renderFeed();
-    expect(screen.getByText(/no confirmed sessions yet/i)).toBeInTheDocument();
+    expect(screen.getByText('No confirmed session yet.')).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Filter the sessions' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Archived' })).toBeNull();
   });
 
-  it('renders a confirmation card with student name and session title', () => {
+  it('says so when the athlete it is filtered on has no confirmed session', () => {
+    mockDb = [makeConfirmation({ student_id: 's-1' })];
+    renderFeed(['/coach/sessions?student=s-2']);
+    expect(screen.getByText('No confirmed session for this athlete.')).toBeInTheDocument();
+    expect(screen.queryByText('No confirmed session yet.')).toBeNull();
+  });
+
+  it('renders a confirmation row with student name and session title, leading to its review', () => {
     mockDb = [makeConfirmation()];
     renderFeed();
-    expect(screen.getAllByText('Alice').length).toBeGreaterThan(0);
-    expect(screen.getByText('Push Day')).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: 'Alice, Push Day' });
+    expect(link).toHaveAttribute('href', '/coach/student/s-1/session/sess-1/review');
   });
 
-  it('shows archived toggle button when archived sessions exist', async () => {
+  it('names an athlete without a name "Athlete"', () => {
+    mockDb = [makeConfirmation({ student_name: '  ' })];
+    renderFeed();
+    expect(screen.getByRole('link', { name: 'Athlete, Push Day' })).toBeInTheDocument();
+  });
+
+  // The archived sessions are put away behind one row, which says how many
+  // there are and whether it is open.
+  it('puts the archived sessions behind one row that opens and closes them', async () => {
     const user = userEvent.setup();
     mockDb = [
         makeConfirmation({ id: 'c-1', archived_at: '2026-04-16T12:00:00Z', session_title: 'Archived Session' }),
       ];
     renderFeed();
-    expect(screen.getByRole('button', { name: /show.*archived/i })).toBeInTheDocument();
-    expect(screen.queryByText('Archived Session')).not.toBeInTheDocument();
+    // Nothing but archived sessions: nothing waits for a review.
+    expect(screen.getByText('Nothing to review: every confirmed session is archived.')).toBeInTheDocument();
+    const drawer = archivedRow('1 archived session');
+    expect(drawer).toHaveAttribute('aria-expanded', 'false');
+    expect(row('Archived Session')).toBeNull();
 
-    await user.click(screen.getByRole('button', { name: /show.*archived/i }));
-    expect(screen.getByText('Archived Session')).toBeInTheDocument();
+    await user.click(drawer);
+    expect(drawer).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('link', { name: 'Alice, Archived Session, Archived' })).toBeInTheDocument();
+    expect(screen.queryByText('Nothing to review: every confirmed session is archived.')).toBeNull();
+
+    await user.click(drawer);
+    expect(drawer).toHaveAttribute('aria-expanded', 'false');
+    expect(row('Archived Session')).toBeNull();
   });
 
-  it('filters cards by selected student', async () => {
+  // The row is a button that says how many sessions it holds, and nothing
+  // else: its chevron is drawn for the eye only.
+  it('names the archived row by the number of sessions it holds', () => {
+    mockDb = [makeConfirmation({ session_title: 'Pushed' })];
+    mockTotals = { ...readOf({ active: 1, archived: 12 }), isPlaceholderData: false };
+    renderFeed();
+    expect(archivedRow('12 archived sessions')).toHaveAccessibleName('12 archived sessions');
+  });
+
+  it('filters rows by selected student', async () => {
     const user = userEvent.setup();
     mockDb = [
         makeConfirmation({ id: 'c-1', session_id: 's-a', student_id: 's-1', student_name: 'Alice', session_title: 'Alice Push' }),
         makeConfirmation({ id: 'c-2', session_id: 's-b', student_id: 's-2', student_name: 'Bob', session_title: 'Bob Pull' }),
       ];
     renderFeed();
-    expect(screen.getByText('Alice Push')).toBeInTheDocument();
-    expect(screen.getByText('Bob Pull')).toBeInTheDocument();
+    expect(row('Alice Push')).toBeInTheDocument();
+    expect(row('Bob Pull')).toBeInTheDocument();
 
-    await user.selectOptions(screen.getByRole('combobox'), 's-1');
-    expect(screen.getByText('Alice Push')).toBeInTheDocument();
-    expect(screen.queryByText('Bob Pull')).not.toBeInTheDocument();
+    await user.selectOptions(athleteSelect(), 's-1');
+    expect(row('Alice Push')).toBeInTheDocument();
+    expect(row('Bob Pull')).toBeNull();
   });
 
   // Review item L14: the line under the title was "W{week} · {label} ·
   // D{day}" — a phase is not a calendar week and a session needs no weekday
   // any more, so live cards ended in a bare "· D" or read "W1 · W1 · D2".
+  // The row now says it as the Programming sheet does, in one sentence.
   describe('where the session sits', () => {
-    const card = () => screen.getByText('Push Day').closest('a');
+    const link = () => screen.getByRole('link', { name: /^Alice, / });
 
-    it('names the phase and the place in the block, never a week or a weekday', () => {
+    it('names the session, its phase and its place in the block, never a week or a weekday', () => {
       mockDb = [makeConfirmation({ week_number: 3, day_number: 2, week_label: 'Volume' })];
       mockPositions = { data: { 'sess-1': { n: 2, total: 9 } } };
       renderFeed();
-      expect(within(card()).getByText('Volume · Session 2/9')).toBeInTheDocument();
-      expect(card().textContent).not.toMatch(/W3|D2/);
+      expect(link()).toHaveAccessibleName('Alice, Push Day, Volume, session 2 of 9');
+      expect(link().textContent).not.toMatch(/W3|D2/);
     });
 
     it('says nothing about a phase without a name and a session without a day', () => {
       mockDb = [makeConfirmation({ week_number: 3, day_number: null, week_label: null })];
       mockPositions = { data: { 'sess-1': { n: 4, total: 12 } } };
       renderFeed();
-      expect(within(card()).getByText('Session 4/12')).toBeInTheDocument();
-      expect(card().textContent).not.toMatch(/W3|· D|null/);
+      expect(link()).toHaveAccessibleName('Alice, Push Day, session 4 of 12');
+      expect(link().textContent).not.toMatch(/W3|· D|null|, ,/);
     });
 
     it('names the phase alone while the places are not known', () => {
       mockDb = [makeConfirmation({ week_number: 1, day_number: 2, week_label: 'Volume' })];
       renderFeed();
-      expect(within(card()).getByText('Volume')).toBeInTheDocument();
-      expect(card().textContent).not.toMatch(/Session \d|W1|D2/);
+      expect(link()).toHaveAccessibleName('Alice, Push Day, Volume');
+      expect(link().textContent).not.toMatch(/session \d|W1|D2/i);
     });
 
+    // A session neither reviewed nor archived, without a note: the row is
+    // the athlete and the session, and no line is drawn empty.
     it('draws no empty line when there is nothing to say', () => {
       mockDb = [makeConfirmation({ week_number: 1, day_number: null, week_label: null })];
       renderFeed();
-      expect(card().querySelectorAll('p')).toHaveLength(0);
+      expect(link()).toHaveAccessibleName('Alice, Push Day');
+      expect(link().querySelectorAll('.pk-caption')).toHaveLength(1);
     });
 
     // Review item B28: sessions are born untitled now, and the fallback was
@@ -217,40 +273,34 @@ describe('SessionsFeed', () => {
       mockDb = [makeConfirmation({ session_title: null, day_number: null, week_label: 'Volume' })];
       mockPositions = { data: { 'sess-1': { n: 2, total: 9 } } };
       renderFeed();
-      expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent(/^Session 2$/);
+      expect(link()).toHaveAccessibleName('Alice, Session 2 of 9, Volume');
       expect(screen.queryByText(/null/)).toBeNull();
     });
 
     it('names an untitled session "Session" while its place is not known', () => {
       mockDb = [makeConfirmation({ session_title: null, day_number: null })];
       renderFeed();
-      expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent(/^Session$/);
+      expect(link()).toHaveAccessibleName('Alice, Session');
       expect(screen.queryByText(/null/)).toBeNull();
     });
 
-    // The confirmation of a workout logged offline reaches the server when
-    // the queue is replayed, days later sometimes.
-    it('dates the card with the day the athlete trained, in the app’s language', () => {
+    // The day is the heading the row sits under (below), not a part of the
+    // row.
+    it('dates no row: the day is said once, above its sessions', () => {
       mockDb = [makeConfirmation({ performed_on: '2026-04-12', confirmed_at: '2026-04-16T10:00:00Z' })];
       renderFeed();
-      expect(within(card()).getByText('Apr 12, 2026')).toBeInTheDocument();
-      expect(card().textContent).not.toMatch(/Apr 16|4\/16\/2026/);
-    });
-
-    it('falls back to the day of the confirmation for a row without a training date', () => {
-      mockDb = [makeConfirmation({ performed_on: null })];
-      renderFeed();
-      expect(within(card()).getByText('Apr 16, 2026')).toBeInTheDocument();
+      expect(link().textContent).not.toMatch(/Apr|April|2026|\/16\//);
     });
   });
 
-  it('displays student notes on the card', () => {
+  it('displays student notes on the row, on two lines at most', () => {
     mockDb = [makeConfirmation({ notes: 'Felt really strong today' })];
     renderFeed();
-    expect(screen.getByText('Felt really strong today')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Alice, Push Day, Felt really strong today' })).toBeInTheDocument();
+    expect(screen.getByText('Felt really strong today')).toHaveClass('line-clamp-2');
   });
 
-  it('defaults to the needs-review inbox: reviewed cards are hidden until "All"', async () => {
+  it('defaults to the needs-review inbox: reviewed rows are hidden until "Done"', async () => {
     const user = userEvent.setup();
     mockDb = [
         makeConfirmation({ id: 'c-r', session_id: 's-r', session_title: 'Pulled', reviewed_at: '2026-04-30T09:00:00Z' }),
@@ -258,14 +308,38 @@ describe('SessionsFeed', () => {
       ];
     renderFeed();
     // Default view is the inbox: only the unreviewed confirmation shows,
-    // and the Needs-review pill carries the pending count.
-    expect(screen.getByText('Pushed')).toBeInTheDocument();
-    expect(screen.queryByText('Pulled')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /needs review · 1/i })).toBeInTheDocument();
+    // and the To-review chip carries the pending count.
+    expect(row('Pushed')).toBeInTheDocument();
+    expect(row('Pulled')).toBeNull();
+    expect(chip('To review, 1')).toHaveAttribute('aria-pressed', 'true');
+    expect(chip('Done')).toHaveAttribute('aria-pressed', 'false');
 
-    await user.click(screen.getByRole('button', { name: /^all$/i }));
-    expect(screen.getByText('Pulled')).toBeInTheDocument();
-    expect(screen.getByText('Pushed')).toBeInTheDocument();
+    await user.click(chip('Done'));
+    expect(chip('Done')).toHaveAttribute('aria-pressed', 'true');
+    expect(chip('To review, 1')).toHaveAttribute('aria-pressed', 'false');
+    expect(row('Pulled')).toBeInTheDocument();
+    expect(row('Pushed')).toBeInTheDocument();
+  });
+
+  // The count is a Parc `Count` on the chip, read with it: "To review, 3".
+  it('counts the inbox on the To-review chip, and nothing when it is empty', async () => {
+    const user = userEvent.setup();
+    mockDb = [
+        makeConfirmation({ id: 'c-1', session_id: 's-1a', session_title: 'One' }),
+        makeConfirmation({ id: 'c-2', session_id: 's-1b', session_title: 'Two' }),
+        makeConfirmation({ id: 'c-3', session_id: 's-2a', student_id: 's-2', student_name: 'Bob', session_title: 'Three' }),
+        makeConfirmation({ id: 'c-r', session_id: 's-r', student_id: 's-2', student_name: 'Bob', session_title: 'Old', reviewed_at: '2026-04-30T09:00:00Z' }),
+      ];
+    renderFeed();
+    expect(chip('To review, 3')).toBeInTheDocument();
+
+    // The count follows the athlete filter, as the inbox does.
+    await user.selectOptions(athleteSelect(), 's-2');
+    expect(chip('To review, 1')).toBeInTheDocument();
+
+    mockDb = mockDb.filter((c) => c.reviewed_at);
+    await user.selectOptions(athleteSelect(), '');
+    expect(chip('To review')).toBeInTheDocument();
   });
 
   // `?student=` is how the roster's "N to review" chip and the athlete page's
@@ -276,8 +350,8 @@ describe('SessionsFeed', () => {
           makeConfirmation({ id: 'c-r', session_id: 's-r', session_title: 'Pulled', reviewed_at: '2026-04-30T09:00:00Z' }),
         ];
       renderFeed(['/coach/sessions?student=s-1']);
-      expect(screen.getByText('Pulled')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /^all$/i })).toHaveAttribute('aria-pressed', 'true');
+      expect(row('Pulled')).toBeInTheDocument();
+      expect(chip('Done')).toHaveAttribute('aria-pressed', 'true');
     });
 
     // Every such arrival used to open on "All": the chip said "2 to review"
@@ -289,10 +363,10 @@ describe('SessionsFeed', () => {
           makeConfirmation({ id: 'c-b', session_id: 's-b', student_id: 's-2', student_name: 'Bob', session_title: 'Bob Pull' }),
         ];
       renderFeed(['/coach/sessions?student=s-1']);
-      expect(screen.getByText('Pushed')).toBeInTheDocument();
-      expect(screen.queryByText('Pulled')).not.toBeInTheDocument();
-      expect(screen.queryByText('Bob Pull')).not.toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /needs review · 1/i })).toHaveAttribute('aria-pressed', 'true');
+      expect(row('Pushed')).toBeInTheDocument();
+      expect(row('Pulled')).toBeNull();
+      expect(row('Bob Pull')).toBeNull();
+      expect(chip('To review, 1')).toHaveAttribute('aria-pressed', 'true');
     });
 
     it('still lets the coach switch to the full history', async () => {
@@ -302,10 +376,10 @@ describe('SessionsFeed', () => {
           makeConfirmation({ id: 'c-u', session_id: 's-u', session_title: 'Pushed' }),
         ];
       renderFeed(['/coach/sessions?student=s-1']);
-      await user.click(screen.getByRole('button', { name: /^all$/i }));
-      expect(screen.getByText('Pulled')).toBeInTheDocument();
-      await user.click(screen.getByRole('button', { name: /needs review/i }));
-      expect(screen.queryByText('Pulled')).not.toBeInTheDocument();
+      await user.click(chip('Done'));
+      expect(row('Pulled')).toBeInTheDocument();
+      await user.click(chip(/^To review/));
+      expect(row('Pulled')).toBeNull();
     });
 
     // The default follows the data: the confirmations can arrive after the
@@ -323,8 +397,8 @@ describe('SessionsFeed', () => {
           <SessionsFeed />
         </MemoryRouter>,
       );
-      expect(screen.getByText('Pushed')).toBeInTheDocument();
-      expect(screen.queryByText('Pulled')).not.toBeInTheDocument();
+      expect(row('Pushed')).toBeInTheDocument();
+      expect(row('Pulled')).toBeNull();
     });
   });
 
@@ -333,27 +407,192 @@ describe('SessionsFeed', () => {
         makeConfirmation({ id: 'c-r', session_id: 's-r', session_title: 'Pulled', reviewed_at: '2026-04-30T09:00:00Z' }),
       ];
     renderFeed();
-    expect(screen.getByText(/all caught up/i)).toBeInTheDocument();
-    expect(screen.queryByText('Pulled')).not.toBeInTheDocument();
+    expect(screen.getByText('All caught up, nothing to review.')).toBeInTheDocument();
+    expect(row('Pulled')).toBeNull();
   });
 
-  it('shows a "Reviewed" pill on cards whose session has been reviewed', async () => {
+  it('says "Reviewed" on the row of a reviewed session, and on it only', async () => {
     const user = userEvent.setup();
     mockDb = [
         makeConfirmation({ id: 'c-r', session_id: 's-r', student_name: 'Reviewed Rita', session_title: 'Pulled', reviewed_at: '2026-04-30T09:00:00Z' }),
         makeConfirmation({ id: 'c-u', session_id: 's-u', student_name: 'Unreviewed Una', session_title: 'Pushed' }),
       ];
     renderFeed();
-    // Reviewed cards live behind the "All" filter.
-    await user.click(screen.getByRole('button', { name: /^all$/i }));
-    // One pill, on the reviewed card only.
-    const pills = screen.getAllByText(/^Reviewed$/i);
-    expect(pills).toHaveLength(1);
-    // The pill is inside the same card link as the reviewed session.
-    const reviewedCard = screen.getByText('Pulled').closest('a');
-    expect(reviewedCard).toContainElement(pills[0]);
-    const unreviewedCard = screen.getByText('Pushed').closest('a');
-    expect(unreviewedCard).not.toContainElement(pills[0]);
+    // Reviewed rows live behind the "Done" chip.
+    await user.click(chip('Done'));
+    // One status, on the reviewed row only.
+    const statuses = screen.getAllByText(/^Reviewed$/);
+    expect(statuses).toHaveLength(1);
+    // The status is inside the same link as the reviewed session.
+    expect(row('Pulled')).toContainElement(statuses[0]);
+    expect(row('Pulled')).toHaveAccessibleName('Reviewed Rita, Pulled, Reviewed');
+    expect(row('Pushed')).not.toContainElement(statuses[0]);
+    expect(row('Pushed')).toHaveAccessibleName('Unreviewed Una, Pushed');
+  });
+
+  // The line under the title counts what waits for the coach: the inbox of
+  // the athlete the feed is filtered on.
+  describe('the line under the title', () => {
+    it('counts the sessions to review', () => {
+      mockDb = [
+          makeConfirmation({ id: 'c-1', session_id: 's-1a', session_title: 'One' }),
+          makeConfirmation({ id: 'c-2', session_id: 's-1b', session_title: 'Two' }),
+          makeConfirmation({ id: 'c-3', session_id: 's-2a', student_id: 's-2', student_name: 'Bob', session_title: 'Three' }),
+          makeConfirmation({ id: 'c-r', session_id: 's-r', session_title: 'Old', reviewed_at: '2026-04-30T09:00:00Z' }),
+        ];
+      renderFeed();
+      expect(screen.getByText('3 sessions to review')).toBeInTheDocument();
+    });
+
+    it('counts those of the athlete it is filtered on', () => {
+      mockDb = [
+          makeConfirmation({ id: 'c-1', session_id: 's-1a', session_title: 'One' }),
+          makeConfirmation({ id: 'c-2', session_id: 's-1b', session_title: 'Two' }),
+          makeConfirmation({ id: 'c-3', session_id: 's-2a', student_id: 's-2', student_name: 'Bob', session_title: 'Three' }),
+        ];
+      renderFeed(['/coach/sessions?student=s-2']);
+      expect(screen.getByText('1 session to review')).toBeInTheDocument();
+      expect(screen.queryByText('3 sessions to review')).toBeNull();
+    });
+
+    it('says when nothing is left to review', () => {
+      mockDb = [
+          makeConfirmation({ id: 'c-r', session_id: 's-r', session_title: 'Pulled', reviewed_at: '2026-04-30T09:00:00Z' }),
+        ];
+      renderFeed();
+      expect(screen.getByText('Nothing to review')).toBeInTheDocument();
+    });
+
+    it('claims nothing while the inbox is not known', () => {
+      mockInbox = loadingRead();
+      const { unmount } = renderFeed();
+      expect(screen.queryByText('Nothing to review')).toBeNull();
+      expect(screen.queryByText(/sessions? to review$/)).toBeNull();
+      unmount();
+
+      mockInbox = failedRead();
+      renderFeed();
+      expect(screen.getByRole('heading', { level: 1, name: 'Sessions' })).toBeInTheDocument();
+      expect(screen.queryByText('Nothing to review')).toBeNull();
+      expect(screen.queryByText(/sessions? to review$/)).toBeNull();
+    });
+  });
+
+  // The feed reads as the days the athletes trained, the newest first
+  // (design/parc/screens/Seances.dc.html). The day is `performedDate`'s: a
+  // confirmation sent from a queue reaches the server when the queue is
+  // replayed, days later sometimes, and the session belongs to the day the
+  // athlete trained.
+  describe('the days the sessions were trained', () => {
+    // Friday 17 April 2026 at noon. Only `Date` is replaced — the clicks keep
+    // their real timers.
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date(2026, 3, 17, 12));
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const headings = (level = 2) => screen.getAllByRole('heading', { level }).map((h) => h.textContent);
+    const day = (name) => screen.getByRole('region', { name });
+    const on = (performed_on, title, overrides = {}) =>
+      makeConfirmation({ id: `c-${title}`, session_id: `s-${title}`, session_title: title, performed_on, ...overrides });
+
+    it('names a day "Today", "Yesterday", by its weekday within the week, by its date beyond it', () => {
+      mockDb = [
+        on('2026-04-17', 'Fri17'),
+        on('2026-04-16', 'Thu16'),
+        on('2026-04-15', 'Wed15'),
+        on('2026-04-11', 'Sat11'),
+        on('2026-04-10', 'Fri10'),
+        on('2025-12-31', 'Wed31'),
+        on(null, 'Undated', { confirmed_at: null }),
+      ];
+      renderFeed();
+      expect(headings()).toEqual([
+        'Today',
+        'Yesterday',
+        'Wednesday',
+        'Saturday',
+        // Seven days back is last week's Friday: its date, not "Friday".
+        'Friday, April 10',
+        // Another year is written out.
+        'Wednesday, December 31, 2025',
+        'No date',
+      ]);
+      expect(within(day('Today')).getByRole('link')).toHaveAccessibleName('Alice, Fri17');
+      expect(within(day('Friday, April 10')).getByRole('link')).toHaveAccessibleName('Alice, Fri10');
+      expect(within(day('No date')).getByRole('link')).toHaveAccessibleName('Alice, Undated');
+    });
+
+    it('puts the newest day first, and keeps the order of the read inside a day', () => {
+      mockDb = [
+        on('2026-04-15', 'First'),
+        on(null, 'Undated', { confirmed_at: null }),
+        on('2026-04-17', 'Newest'),
+        on('2026-04-15', 'Second', { student_id: 's-2', student_name: 'Bob' }),
+        on('2026-04-16', 'Middle'),
+        on('2026-04-15', 'Third'),
+      ];
+      renderFeed();
+      expect(headings()).toEqual(['Today', 'Yesterday', 'Wednesday', 'No date']);
+      const wednesday = within(day('Wednesday')).getAllByRole('link');
+      expect(wednesday).toHaveLength(3);
+      expect(wednesday[0]).toHaveAccessibleName('Alice, First');
+      expect(wednesday[1]).toHaveAccessibleName('Bob, Second');
+      expect(wednesday[2]).toHaveAccessibleName('Alice, Third');
+    });
+
+    // performed_on, else performed_at read as a date, else the instant of the
+    // confirmation read in the device's zone. West of Greenwich, a date read
+    // as midnight UTC would fall on the evening before.
+    it('puts a session confirmed late under the day it was trained, west of UTC', () => {
+      inTimeZone('America/Los_Angeles', () => {
+        vi.setSystemTime(new Date(2026, 3, 17, 12));
+        mockDb = [
+          // Trained on Sunday, confirmed when the queue was replayed on Thursday.
+          on('2026-04-12', 'Offline', { confirmed_at: '2026-04-16T10:00:00Z' }),
+          // A row that carries the session's performed_at: midnight UTC of
+          // Tuesday, which is Monday evening here.
+          on(null, 'Synced', { performed_at: '2026-04-14T00:00:00+00:00', confirmed_at: '2026-04-16T18:00:00Z' }),
+          // No training date: the confirmation, Wednesday 22:00 here.
+          on(null, 'Late night', { confirmed_at: '2026-04-16T05:00:00Z' }),
+        ];
+        renderFeed();
+        expect(headings()).toEqual(['Wednesday', 'Tuesday', 'Sunday']);
+        expect(within(day('Sunday')).getByRole('link')).toHaveAccessibleName('Alice, Offline');
+        expect(within(day('Tuesday')).getByRole('link')).toHaveAccessibleName('Alice, Synced');
+        expect(within(day('Wednesday')).getByRole('link')).toHaveAccessibleName('Alice, Late night');
+      });
+    });
+
+    it('groups the history of "Done" by day too', async () => {
+      const user = userEvent.setup();
+      mockDb = [
+        on('2026-04-16', 'Pulled', { reviewed_at: '2026-04-16T18:00:00Z' }),
+        on('2026-04-17', 'Pushed'),
+      ];
+      renderFeed();
+      expect(headings()).toEqual(['Today']);
+      await user.click(chip('Done'));
+      expect(headings()).toEqual(['Today', 'Yesterday']);
+      expect(within(day('Yesterday')).getByRole('link')).toHaveAccessibleName('Alice, Pulled, Reviewed');
+    });
+
+    // The archived days are under the "Archived" group: one level down.
+    it('heads the days of the archived drawer one level down', async () => {
+      const user = userEvent.setup();
+      mockDb = [
+        on('2026-04-17', 'Pushed'),
+        on('2026-04-16', 'Put away', { archived_at: '2026-04-17T08:00:00Z' }),
+      ];
+      renderFeed();
+      await user.click(archivedRow('1 archived session'));
+      expect(headings(2)).toEqual(['Today', 'Archived']);
+      expect(headings(3)).toEqual(['Yesterday']);
+      expect(within(day('Yesterday')).getByRole('link')).toHaveAccessibleName('Alice, Put away, Archived');
+    });
   });
 
   // Review item L18: the feed read every confirmation of every athlete in one
@@ -363,15 +602,15 @@ describe('SessionsFeed', () => {
     const reviewed = (n, overrides = {}) =>
       makeConfirmation({ id: `c-r${n}`, session_id: `s-r${n}`, session_title: `Reviewed ${n}`, reviewed_at: '2026-04-30T09:00:00Z', ...overrides });
 
-    it('opens on the inbox, and reads the history only once "All" is open', async () => {
+    it('opens on the inbox, and reads the history only once "Done" is open', async () => {
       const user = userEvent.setup();
       mockDb = [makeConfirmation({ session_title: 'Pushed' }), reviewed(1)];
       renderFeed();
       expect(historyCalls.every((c) => !c.enabled)).toBe(true);
 
-      await user.click(screen.getByRole('button', { name: /^all$/i }));
+      await user.click(chip('Done'));
       expect(historyCalls.at(-2)).toEqual({ studentId: null, archived: false, enabled: true });
-      expect(screen.getByText('Reviewed 1')).toBeInTheDocument();
+      expect(row('Reviewed 1')).toBeInTheDocument();
     });
 
     it('reads the archived sessions only when the drawer is opened, and counts them without reading them', async () => {
@@ -387,12 +626,14 @@ describe('SessionsFeed', () => {
       };
       renderFeed();
       expect(historyCalls.filter((c) => c.archived).every((c) => !c.enabled)).toBe(true);
-      expect(screen.queryByText('Old one')).toBeNull();
+      expect(row('Old one')).toBeNull();
+      const drawer = archivedRow('12 archived sessions');
+      expect(drawer).toHaveAttribute('aria-expanded', 'false');
 
-      await user.click(screen.getByRole('button', { name: 'Show 12 archived' }));
+      await user.click(drawer);
       expect(historyCalls.filter((c) => c.archived).at(-1)).toEqual({ studentId: null, archived: true, enabled: true });
-      expect(screen.getByText('Old one')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Hide 12 archived' })).toBeInTheDocument();
+      expect(row('Old one')).toBeInTheDocument();
+      expect(archivedRow('12 archived sessions')).toHaveAttribute('aria-expanded', 'true');
     });
 
     it('reads the next page when the coach asks for more', async () => {
@@ -407,7 +648,8 @@ describe('SessionsFeed', () => {
       };
       renderFeed(['/coach/sessions?student=s-1']);
       const more = screen.getByRole('button', { name: 'Show more' });
-      expect(more.className).toContain('sl-pill-btn');
+      // A Parc button: 44px, held by test/hitTargets.test.js.
+      expect(more).toHaveClass('pk-btn');
       await user.click(more);
       expect(fetchNextPage).toHaveBeenCalledTimes(1);
     });
@@ -430,13 +672,13 @@ describe('SessionsFeed', () => {
       expect(screen.getByText('The next sessions couldn’t be loaded.')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Show more' })).toBeEnabled();
       // What was read stays.
-      expect(screen.getByText('Reviewed 1')).toBeInTheDocument();
+      expect(row('Reviewed 1')).toBeInTheDocument();
     });
 
     it('draws no button once the last page is read', () => {
       mockDb = [reviewed(1)];
       renderFeed(['/coach/sessions?student=s-1']);
-      expect(screen.getByText('Reviewed 1')).toBeInTheDocument();
+      expect(row('Reviewed 1')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Show more' })).toBeNull();
     });
 
@@ -444,8 +686,8 @@ describe('SessionsFeed', () => {
       mockDb = [reviewed(1), reviewed(2, { student_id: 's-2', student_name: 'Bob' })];
       renderFeed(['/coach/sessions?student=s-2']);
       expect(historyCalls.at(-2)).toEqual({ studentId: 's-2', archived: false, enabled: true });
-      expect(screen.getByText('Reviewed 2')).toBeInTheDocument();
-      expect(screen.queryByText('Reviewed 1')).toBeNull();
+      expect(row('Reviewed 2')).toBeInTheDocument();
+      expect(row('Reviewed 1')).toBeNull();
     });
 
     // The athletes of the filter used to be the ones whose confirmations had
@@ -455,13 +697,32 @@ describe('SessionsFeed', () => {
       mockDb = [makeConfirmation({ student_id: 's-1', student_name: 'Alice' })];
       mockStudents = { data: [student('s-1', 'Alice'), student('s-2', 'Bob'), student('s-3', 'Cy')] };
       renderFeed();
-      const options = within(screen.getByRole('combobox')).getAllByRole('option');
+      const options = within(athleteSelect()).getAllByRole('option');
       expect(options.map((o) => [o.value, o.textContent])).toEqual([
-        ['', 'All students'],
+        ['', 'All athletes'],
         ['s-1', 'Alice'],
         ['s-2', 'Bob'],
         ['s-3', 'Cy'],
       ]);
+    });
+
+    it('orders the athletes A to Z, and names one without a name "Athlete"', () => {
+      mockStudents = { data: [student('s-3', 'Cy'), student('s-4', null), student('s-2', 'Bob'), student('s-1', 'Alice')] };
+      renderFeed();
+      const options = within(athleteSelect()).getAllByRole('option');
+      expect(options.map((o) => [o.value, o.textContent])).toEqual([
+        ['', 'All athletes'],
+        ['s-1', 'Alice'],
+        ['s-4', 'Athlete'],
+        ['s-2', 'Bob'],
+        ['s-3', 'Cy'],
+      ]);
+    });
+
+    it('draws no athlete filter for a coach without athletes', () => {
+      mockStudents = { data: [] };
+      renderFeed();
+      expect(screen.queryByRole('combobox')).toBeNull();
     });
 
     it('says the sessions could not be loaded, and claims nothing about them', async () => {
@@ -469,8 +730,8 @@ describe('SessionsFeed', () => {
       mockInbox = failedRead();
       renderFeed();
       expect(screen.getByText('This couldn’t be loaded')).toBeInTheDocument();
-      expect(screen.queryByText(/all caught up/i)).toBeNull();
-      expect(screen.queryByText(/no confirmed sessions yet/i)).toBeNull();
+      expect(screen.queryByText('All caught up, nothing to review.')).toBeNull();
+      expect(screen.queryByText('No confirmed session yet.')).toBeNull();
       await user.click(screen.getByRole('button', { name: 'Try again' }));
       expect(mockInbox.refetch).toHaveBeenCalledWith({ cancelRefetch: false });
     });
@@ -478,17 +739,18 @@ describe('SessionsFeed', () => {
     it('claims no empty feed while the numbers are not known', () => {
       mockTotals = { ...failedRead(), isPlaceholderData: false };
       renderFeed();
-      expect(screen.queryByText(/no confirmed sessions yet/i)).toBeNull();
+      expect(screen.queryByText('No confirmed session yet.')).toBeNull();
       // The inbox is known: nothing waits for a review.
-      expect(screen.getByText(/all caught up/i)).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /^all$/i })).toBeInTheDocument();
+      expect(screen.getByText('All caught up, nothing to review.')).toBeInTheDocument();
+      expect(chip('Done')).toBeInTheDocument();
     });
 
     it('treats the numbers of the athlete it was filtered on before as unknown', () => {
       mockTotals = { ...readOf({ active: 0, archived: 4 }), isPlaceholderData: true };
       renderFeed(['/coach/sessions?student=s-2']);
-      expect(screen.queryByRole('button', { name: /show 4 archived/i })).toBeNull();
-      expect(screen.queryByText(/all confirmed sessions are archived/i)).toBeNull();
+      expect(screen.queryByRole('button', { name: /4 archived sessions/ })).toBeNull();
+      expect(screen.queryByText('Nothing to review: every confirmed session is archived.')).toBeNull();
+      expect(screen.queryByText('No confirmed session for this athlete.')).toBeNull();
     });
   });
 
@@ -542,7 +804,7 @@ describe('SessionsFeed', () => {
       mockDb = [makeConfirmation()];
       renderWithReviewRoute(['/coach/sessions?student=s-1']);
       expect(screen.queryByTestId('review')).not.toBeInTheDocument();
-      expect(screen.getByText('Push Day')).toBeInTheDocument();
+      expect(row('Push Day')).toBeInTheDocument();
     });
 
     // The review's back button returns to the page that opened it. For the
@@ -552,7 +814,7 @@ describe('SessionsFeed', () => {
       const user = userEvent.setup();
       mockDb = [makeConfirmation()];
       renderWithReviewRoute(['/coach/sessions?student=s-1']);
-      await user.click(screen.getByText('Push Day'));
+      await user.click(row('Push Day'));
       expect(screen.getByTestId('review')).toHaveTextContent('s-1/sess-1');
       expect(screen.getByTestId('review')).toHaveAttribute('data-from', '/coach/sessions?student=s-1');
     });
@@ -604,42 +866,42 @@ describe('SessionsFeed', () => {
     it('keeps the athlete picked for the rest of the launch', async () => {
       const user = userEvent.setup();
       const first = renderFeed();
-      await user.selectOptions(screen.getByRole('combobox'), 's-2');
+      await user.selectOptions(athleteSelect(), 's-2');
       expect(sessionStorage.getItem(FILTER_KEY)).toBe('s-2');
       expect(localStorage.getItem(FILTER_KEY)).toBeNull();
       first.unmount();
 
       renderFeed();
-      expect(screen.getByRole('combobox')).toHaveValue('s-2');
-      expect(screen.queryByText('Alice Push')).not.toBeInTheDocument();
-      expect(screen.getByText('Bob Pull')).toBeInTheDocument();
+      expect(athleteSelect()).toHaveValue('s-2');
+      expect(row('Alice Push')).toBeNull();
+      expect(row('Bob Pull')).toBeInTheDocument();
     });
 
     it('forgets it when the coach picks every athlete again', async () => {
       const user = userEvent.setup();
       sessionStorage.setItem(FILTER_KEY, 's-2');
       renderFeed();
-      await user.selectOptions(screen.getByRole('combobox'), '');
+      await user.selectOptions(athleteSelect(), '');
       expect(sessionStorage.getItem(FILTER_KEY)).toBeNull();
     });
 
     it('opens unfiltered after a relaunch', async () => {
       const user = userEvent.setup();
       const first = renderFeed();
-      await user.selectOptions(screen.getByRole('combobox'), 's-2');
+      await user.selectOptions(athleteSelect(), 's-2');
       first.unmount();
       sessionStorage.clear();
 
       renderFeed();
-      expect(screen.getByRole('combobox')).toHaveValue('');
-      expect(screen.getByText('Alice Push')).toBeInTheDocument();
-      expect(screen.getByText('Bob Pull')).toBeInTheDocument();
+      expect(athleteSelect()).toHaveValue('');
+      expect(row('Alice Push')).toBeInTheDocument();
+      expect(row('Bob Pull')).toBeInTheDocument();
     });
 
     it('ignores a filter an earlier version saved in localStorage', () => {
       localStorage.setItem(FILTER_KEY, 's-2');
       renderFeed();
-      expect(screen.getByRole('combobox')).toHaveValue('');
+      expect(athleteSelect()).toHaveValue('');
     });
   });
 });

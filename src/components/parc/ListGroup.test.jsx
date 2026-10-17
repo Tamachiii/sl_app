@@ -66,6 +66,19 @@ describe('Row', () => {
     expect(button.querySelector('svg')).toBeNull();
   });
 
+  // A row that opens a list below it: the chevron points down, and is no
+  // part of the row's name (`trailing` would be read after a comma).
+  it('draws the chevron it is given, outside the row\'s name', () => {
+    render(
+      <ul>
+        <Row onClick={() => {}} chevron="chevron-down" title="12 séances archivées" aria-expanded={false} />
+      </ul>,
+    );
+    const button = screen.getByRole('button', { name: '12 séances archivées' });
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    expect(button.querySelector('svg')).not.toBeNull();
+  });
+
   it('a plain row is neither a link nor a button', () => {
     render(
       <ul>

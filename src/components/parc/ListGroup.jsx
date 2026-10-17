@@ -38,7 +38,9 @@ export default function ListGroup({ title, aside, label, ordered = false, classN
  * StatusText, a value) and a chevron when the row leads somewhere.
  *
  * The row is a router link with `to`, a link with `href`, a button with
- * `onClick`, and a plain row otherwise. `chevron` defaults to on for a link.
+ * `onClick`, and a plain row otherwise. `chevron` defaults to on for a link;
+ * it can name another icon (`'chevron-down'` on a row that opens a list).
+ * `trailing` is content and is read after a comma; an icon goes in `chevron`.
  * `children` replace the title and caption when a row needs more.
  */
 export function Row({
@@ -84,7 +86,13 @@ export function Row({
           <span className="sr-only">,</span> {trailing}
         </>
       )}
-      {showChevron && <Icon name="chevron-right" size={18} className="shrink-0 text-ink-2" />}
+      {showChevron && (
+        <Icon
+          name={typeof chevron === 'string' ? chevron : 'chevron-right'}
+          size={18}
+          className="shrink-0 text-ink-2"
+        />
+      )}
     </>
   );
 

@@ -1,0 +1,28 @@
+// The coach's sessions feed in the Parc design (design/parc/screens/Seances.dc.html).
+export default {
+  parcSessions: {
+    title: 'Sessions',
+    toReviewOne: '{n} session to review',
+    toReviewMany: '{n} sessions to review',
+    nothingToReview: 'Nothing to review',
+    filterLabel: 'Filter the sessions',
+    filterToReview: 'To review',
+    filterDone: 'Done',
+    athlete: 'Athlete',
+    allAthletes: 'All athletes',
+    sessionOf: 'Session {n} of {total}',
+    placeOf: 'session {n} of {total}',
+    untitled: 'Session',
+    unnamed: 'Athlete',
+    reviewed: 'Reviewed',
+    archived: 'Archived',
+    undated: 'No date',
+    archivedTitle: 'Archived',
+    archivedCountOne: '{n} archived session',
+    archivedCountMany: '{n} archived sessions',
+    noneYet: 'No confirmed session yet.',
+    noneForAthlete: 'No confirmed session for this athlete.',
+    allArchived: 'Nothing to review: every confirmed session is archived.',
+    allReviewed: 'All caught up, nothing to review.',
+  },
+};

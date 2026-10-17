@@ -104,7 +104,8 @@ describe('a coach tab tapped while it is open', () => {
 
     fireEvent.click(tab(/sessions/i));
     expect(screen.queryByTestId('review')).toBeNull();
-    expect(screen.getByText(/no confirmed sessions yet/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Sessions' })).toBeInTheDocument();
+    expect(screen.getByText('No confirmed session yet.')).toBeInTheDocument();
   });
 });
 

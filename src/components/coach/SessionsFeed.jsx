@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useEffect, useId, useMemo, useState } from 'react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useIsRestoring } from '@tanstack/react-query';
 import Spinner from '../ui/Spinner';
-import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
 import {
   useReviewInbox,
@@ -16,17 +15,75 @@ import { useI18n } from '../../hooks/useI18n';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { readState } from '../../lib/readState';
 import { CoachReadProblem } from './CoachPageState';
-import { performedDate } from '../../lib/day';
-import { formatDate } from '../../lib/i18n/format';
+import { isoDate, performedDate } from '../../lib/day';
+import { dayName, formatDate, formatNumber, formatRelativeDays, pluralKey } from '../../lib/i18n/format';
+import { capitalize } from '../student/sessionModel';
+import { Avatar, Button, Count, Icon, LargeTitle, ListGroup, Row } from '../parc';
 import {
   getLastCoachSession,
   getLastCoachSessionsStudent,
   rememberLastCoachSessionsStudent,
 } from '../../hooks/useRememberCoachStudentsPath';
 
+// The day a session was trained, as the heading of its group: « Aujourd'hui »,
+// « Hier », the weekday within the week, the date beyond it — with the year
+// when it is not this one.
+function dayHeading(date, { t, lang }, now = new Date()) {
+  if (!date) return t('parcSessions.undated');
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const ago = Math.round((today - new Date(date.getFullYear(), date.getMonth(), date.getDate())) / 86400000);
+  if (ago === 0 || ago === 1) return capitalize(formatRelativeDays(lang, -ago));
+  if (ago > 1 && ago < 7) return capitalize(dayName(lang, ((date.getDay() + 6) % 7) + 1, 'long'));
+  return capitalize(
+    formatDate(lang, date, {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      ...(date.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}),
+    }),
+  );
+}
+
+// The sessions of a list, grouped by the day they were trained, newest day
+// first; inside a day, the order the read gave. A session without a date
+// closes the list.
+function groupByDay(rows) {
+  const groups = new Map();
+  for (const row of rows) {
+    const date = performedDate(row);
+    const key = date ? isoDate(date) : '';
+    if (!groups.has(key)) groups.set(key, { key, date, rows: [] });
+    groups.get(key).rows.push(row);
+  }
+  return [...groups.values()].sort((a, b) => (a.key === b.key ? 0 : !a.key ? 1 : !b.key ? -1 : a.key < b.key ? 1 : -1));
+}
+
+// One section per day: its heading, then the sessions of that day.
+function DayGroups({ rows, renderRow, level = 2 }) {
+  const ctx = useI18n();
+  const Heading = `h${level}`;
+  return groupByDay(rows).map((group) => (
+    <DaySection key={group.key || 'undated'} heading={dayHeading(group.date, ctx)} Heading={Heading}>
+      {group.rows.map(renderRow)}
+    </DaySection>
+  ));
+}
+
+function DaySection({ heading, Heading, children }) {
+  const id = useId();
+  return (
+    <section aria-labelledby={id} className="flex flex-col gap-2.5">
+      <Heading id={id} className="pk-headline">
+        {heading}
+      </Heading>
+      <ul className="pk-group">{children}</ul>
+    </section>
+  );
+}
+
 // The pages of the history read so far, the button that reads the next one,
 // and what a read that failed says. `read` is a `useConfirmationHistory`.
-function HistoryList({ read, renderCard, t }) {
+function HistoryList({ read, renderRow, level, t }) {
   const online = useOnlineStatus();
   const state = readState([read], { online, restoring: false });
   if (state === 'loading') return <div className="flex justify-center py-6"><Spinner /></div>;
@@ -42,22 +99,17 @@ function HistoryList({ read, renderCard, t }) {
   }
   return (
     <>
-      <div className="space-y-3 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">{read.data.map(renderCard)}</div>
+      <DayGroups rows={read.data} renderRow={renderRow} level={level} />
       {read.isFetchNextPageError && (
-        <p role="status" className="text-center text-[13px] text-ink-400">
+        <p role="status" className="pk-caption text-center">
           {t('coachListsScale.loadMoreFailed')}
         </p>
       )}
       {read.hasNextPage && (
         <div className="flex justify-center">
-          <button
-            type="button"
-            onClick={() => read.fetchNextPage()}
-            disabled={read.isFetchingNextPage}
-            className="sl-pill sl-pill-btn bg-ink-100 text-ink-700 hover:bg-ink-200 disabled:opacity-50"
-          >
+          <Button variant="on-ground" onClick={() => read.fetchNextPage()} disabled={read.isFetchingNextPage}>
             {read.isFetchingNextPage ? t('coachListsScale.loadingMore') : t('coachListsScale.loadMore')}
-          </button>
+          </Button>
         </div>
       )}
     </>
@@ -131,9 +183,9 @@ export default function SessionsFeed() {
   const studentOptions = useMemo(
     () =>
       (students || [])
-        .map((s) => ({ id: s.id, name: s.profile?.full_name || 'Student' }))
+        .map((s) => ({ id: s.id, name: (s.profile?.full_name || '').trim() || t('parcSessions.unnamed') }))
         .sort((a, b) => a.name.localeCompare(b.name)),
-    [students],
+    [students, t],
   );
 
   const needsReview = useMemo(
@@ -184,109 +236,133 @@ export default function SessionsFeed() {
   }
 
   const inboxState = readState([inboxRead], { online, restoring });
+  const menu = <UserMenu fullName={profile?.full_name} onSignOut={signOut} />;
   if (inboxState === 'loading' || (inboxState === 'ready' && totalsRead.isLoading)) {
-    return <div className="flex justify-center py-12"><Spinner /></div>;
-  }
-
-  function renderCard(c) {
-    const isArchived = !!c.archived_at;
-    const isReviewed = !!c.reviewed_at;
-    const position = positions?.[c.session_id];
-    // Where the session sits: the name of its phase and its place in the
-    // block, as the Programming sheet says them. Not "W3 · D2": a phase is not
-    // a calendar week, and a session no longer needs a weekday — the card
-    // ended in a bare "· D", or read "W1 · W1 · D2" (review item L14).
-    const where = [
-      c.week_label,
-      position ? t('coach.roster.sessionOf', { n: position.n, total: position.total }) : null,
-    ].filter(Boolean).join(' · ');
     return (
-      <Link
-        key={c.id}
-        to={`/coach/student/${c.student_id}/session/${c.session_id}/review`}
-        state={{ from: here }}
-        className={`block sl-card p-4 space-y-1 hover:bg-ink-50 transition-colors ${
-          isArchived ? 'opacity-75' : ''
-        }`}
-      >
-        <div className="flex items-center justify-between gap-2">
-          <span
-            className="sl-mono text-[11px] truncate"
-            style={{ color: 'var(--color-accent)' }}
-          >
-            {c.student_name}
-          </span>
-          <div className="flex items-center gap-1.5 shrink-0">
-            {isReviewed && (
-              <span
-                className="sl-pill text-ink-900"
-                style={{
-                  background: 'color-mix(in srgb, var(--color-success) 18%, transparent)',
-                }}
-              >
-                {t('coach.sessions.reviewed')}
-              </span>
-            )}
-            {isArchived && (
-              <span
-                className="sl-pill text-ink-900"
-                style={{
-                  background: 'color-mix(in srgb, var(--color-warn) 18%, transparent)',
-                }}
-              >
-                {t('common.archived')}
-              </span>
-            )}
-            {/* The day the athlete trained, not the day the confirmation
-                reached the server — which, for one sent offline, is the day
-                the queue was replayed. */}
-            <span className="sl-mono text-[11px] text-ink-400">
-              {formatDate(lang, performedDate(c))}
-            </span>
-          </div>
-        </div>
-        <h3 className={`sl-display text-[16px] ${isArchived ? 'text-ink-600' : 'text-gray-900'}`}>
-          {/* An untitled session is named by its place in the block, as the
-              sheet names it — "Session null" was the day number of a session
-              that has none (review item B28). */}
-          {c.session_title
-            || (position ? t('coach.week.sessionN', { n: position.n }) : t('coach.editor.titlePlaceholder'))}
-        </h3>
-        {where && <p className="sl-mono text-[11px] text-ink-400">{where}</p>}
-        {c.notes && (
-          <p className="mt-2 text-[13px] text-ink-700 whitespace-pre-wrap">{c.notes}</p>
-        )}
-      </Link>
+      <div className="flex flex-col gap-6 px-4 pt-3 pb-6 md:px-8">
+        <LargeTitle title={t('parcSessions.title')} trailing={menu} />
+        <div className="flex justify-center py-12"><Spinner /></div>
+      </div>
     );
   }
 
-  return (
-    <div className="p-4 pb-6 md:p-8 space-y-5">
-      <div className="pt-3 pb-1 flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="sl-label text-ink-400">{t('coach.sessions.kicker')}</div>
-          <h1 className="sl-display text-[28px] md:text-[40px] text-gray-900 leading-none mt-1">
-            {t('coach.sessions.title')}
-          </h1>
-        </div>
-        <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
-      </div>
+  function renderRow(c) {
+    const isArchived = !!c.archived_at;
+    const isReviewed = !!c.reviewed_at;
+    const position = positions?.[c.session_id];
+    const name = (c.student_name || '').trim() || t('parcSessions.unnamed');
+    // Where the session sits: its name, its phase and its place in the block,
+    // as the Programming sheet says them. Not "W3 · D2": a phase is not a
+    // calendar week, and a session no longer needs a weekday (review item
+    // L14). An untitled session is named by its place — "Session null" was
+    // the day number of a session that has none (review item B28).
+    const place = position ? { n: formatNumber(lang, position.n), total: formatNumber(lang, position.total) } : null;
+    const where = [
+      c.session_title || (place ? t('parcSessions.sessionOf', place) : t('parcSessions.untitled')),
+      c.week_label,
+      c.session_title && place ? t('parcSessions.placeOf', place) : null,
+    ].filter(Boolean).join(', ');
+    const status = [
+      isReviewed ? t('parcSessions.reviewed') : null,
+      isArchived ? t('parcSessions.archived') : null,
+    ].filter(Boolean).join(', ');
+    return (
+      <Row
+        key={c.id}
+        to={`/coach/student/${c.student_id}/session/${c.session_id}/review`}
+        state={{ from: here }}
+        leading={<Avatar name={name} />}
+      >
+        <span className="pk-headline">{name}</span>
+        {/* The commas are for a screen reader, which reads the row as one name. */}
+        <span className="pk-caption">
+          <span className="sr-only">,</span> {where}
+        </span>
+        {status && (
+          <span className="pk-caption">
+            <span className="sr-only">,</span> {status}
+          </span>
+        )}
+        {c.notes && (
+          <span className="mt-1 flex items-start gap-1.5 text-[14px] leading-[1.4] text-ink-2">
+            <Icon name="note" size={16} className="mt-0.5 shrink-0" />
+            <span className="sr-only">,</span>{' '}
+            <span className="line-clamp-2 whitespace-pre-wrap">{c.notes}</span>
+          </span>
+        )}
+      </Row>
+    );
+  }
 
-      {studentOptions.length > 0 && (
-        <label className="flex items-center gap-2">
-          <span className="sl-label text-ink-400">{t('coach.sessions.student')}</span>
-          <select
-            value={studentFilter}
-            onChange={handleFilterChange}
-            className="flex-1 rounded-lg border border-ink-200 bg-white px-3 py-1.5 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-          >
-            <option value="">{t('coach.sessions.allStudents')}</option>
-            {studentOptions.map((o) => (
-              <option key={o.id} value={o.id}>{o.name}</option>
-            ))}
-          </select>
-        </label>
-      )}
+  const subtitle =
+    inbox == null
+      ? null
+      : needsReview.length > 0
+        ? t(pluralKey(lang, needsReview.length, 'parcSessions.toReview'), { n: formatNumber(lang, needsReview.length) })
+        : t('parcSessions.nothingToReview');
+
+  return (
+    <div className="flex flex-col gap-6 px-4 pt-3 pb-6 md:px-8">
+      <header className="flex flex-col gap-4">
+        <LargeTitle
+          title={t('parcSessions.title')}
+          subtitle={subtitle}
+          trailing={menu}
+        />
+
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          {/* Unknown numbers keep the controls: the history can still be asked for. */}
+          {(needsReview.length > 0 || activeCount !== 0 || archivedCount !== 0) && (
+            <div className="flex gap-2" role="group" aria-label={t('parcSessions.filterLabel')}>
+              <button
+                type="button"
+                aria-pressed={!showAll}
+                onClick={() => setViewChoice(false)}
+                className="pk-chip inline-flex items-center gap-2"
+              >
+                {t('parcSessions.filterToReview')}
+                {needsReview.length > 0 && (
+                  <>
+                    <span className="sr-only">,</span>{' '}
+                    <Count count={needsReview.length} countLabel={formatNumber(lang, needsReview.length)} />
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                aria-pressed={showAll}
+                onClick={() => setViewChoice(true)}
+                className="pk-chip"
+              >
+                {t('parcSessions.filterDone')}
+              </button>
+            </div>
+          )}
+
+          {studentOptions.length > 0 && (
+            <label className="flex flex-col gap-1.5 md:w-72">
+              <span className="pk-caption">{t('parcSessions.athlete')}</span>
+              <span className="relative">
+                <select
+                  value={studentFilter}
+                  onChange={handleFilterChange}
+                  className="pk-field appearance-none pr-10"
+                >
+                  <option value="">{t('parcSessions.allAthletes')}</option>
+                  {studentOptions.map((o) => (
+                    <option key={o.id} value={o.id}>{o.name}</option>
+                  ))}
+                </select>
+                <Icon
+                  name="chevron-down"
+                  size={18}
+                  className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-ink-2"
+                />
+              </span>
+            </label>
+          )}
+        </div>
+      </header>
 
       {(inboxState === 'offline' || inboxState === 'failed') && (
         <CoachReadProblem
@@ -296,66 +372,42 @@ export default function SessionsFeed() {
         />
       )}
 
-      {/* Unknown numbers keep the controls: the history can still be asked for. */}
-      {(needsReview.length > 0 || activeCount !== 0 || archivedCount !== 0) && (
-        <div
-          className="flex items-center gap-1.5"
-          role="group"
-          aria-label={t('coach.sessions.reviewFilterLabel')}
-        >
-          <button
-            type="button"
-            aria-pressed={!showAll}
-            onClick={() => setViewChoice(false)}
-            className={`sl-pill ${
-              !showAll ? 'bg-accent text-ink-900' : 'bg-ink-100 text-ink-700 hover:bg-ink-200'
-            }`}
-          >
-            {t('coach.sessions.filterNeedsReview')}
-            {needsReview.length > 0 ? ` · ${needsReview.length}` : ''}
-          </button>
-          <button
-            type="button"
-            aria-pressed={showAll}
-            onClick={() => setViewChoice(true)}
-            className={`sl-pill ${
-              showAll ? 'bg-accent text-ink-900' : 'bg-ink-100 text-ink-700 hover:bg-ink-200'
-            }`}
-          >
-            {t('coach.sessions.filterAll')}
-          </button>
-        </div>
-      )}
-
       {inbox != null && activeCount === 0 && archivedCount === 0 && (
-        <EmptyState message={studentFilter ? t('coach.sessions.noneForStudent') : t('coach.sessions.noneYet')} />
+        <EmptyNote>{studentFilter ? t('parcSessions.noneForAthlete') : t('parcSessions.noneYet')}</EmptyNote>
       )}
       {inbox != null && activeCount === 0 && archivedCount > 0 && !showArchived && (
-        <EmptyState message={t('coach.sessions.allArchived')} />
+        <EmptyNote>{t('parcSessions.allArchived')}</EmptyNote>
       )}
       {inbox != null && !showAll && needsReview.length === 0 && activeCount !== 0 && (
-        <EmptyState message={t('coach.sessions.allReviewed')} />
+        <EmptyNote>{t('parcSessions.allReviewed')}</EmptyNote>
       )}
 
       {showAll ? (
-        activeCount !== 0 && <HistoryList read={historyRead} renderCard={renderCard} t={t} />
+        activeCount !== 0 && <HistoryList read={historyRead} renderRow={renderRow} t={t} />
       ) : (
-        <div className="space-y-3 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">{needsReview.map(renderCard)}</div>
+        <DayGroups rows={needsReview} renderRow={renderRow} />
       )}
 
       {archivedCount > 0 && (
-        <button
-          type="button"
-          onClick={() => setShowArchived((v) => !v)}
-          className="w-full sl-mono text-[11px] text-ink-400 hover:text-ink-700 py-2 underline"
-        >
-          {showArchived
-            ? t('coach.sessions.hideArchived', { n: archivedCount })
-            : t('coach.sessions.showArchived', { n: archivedCount })}
-        </button>
+        <ListGroup title={t('parcSessions.archivedTitle')}>
+          <Row
+            onClick={() => setShowArchived((v) => !v)}
+            aria-expanded={showArchived}
+            title={t(pluralKey(lang, archivedCount, 'parcSessions.archivedCount'), {
+              n: formatNumber(lang, archivedCount),
+            })}
+            chevron={showArchived ? 'chevron-up' : 'chevron-down'}
+          />
+        </ListGroup>
       )}
 
-      {showArchived && archivedCount !== 0 && <HistoryList read={archivedRead} renderCard={renderCard} t={t} />}
+      {showArchived && archivedCount !== 0 && (
+        <HistoryList read={archivedRead} renderRow={renderRow} level={3} t={t} />
+      )}
     </div>
   );
+}
+
+function EmptyNote({ children }) {
+  return <p className="rounded-group bg-surface p-4 pk-body">{children}</p>;
 }
