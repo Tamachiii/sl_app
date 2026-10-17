@@ -19,10 +19,11 @@ Tested, on every run of `npm run test:db` (`supabase/tests/backup-roundtrip.test
 
 **Run against the real project, by hand:** the dump, its check and the drill, for the first time at Checkpoint A0 on 2026-10-11 — 24 tables, 12,729 rows, every checksum matching, and the 20 tables of `public` identical after the restore (`docs/RUNBOOK.md`, Checkpoint A0). That run is where the script met the session pooler, its TLS, the real `auth.users` (about twice the columns of the test stand-in) and the real size of the tables. A backup is taken again as the first step of every checkpoint. If a dump fails, the message says where; nothing is written unless the whole dump succeeded.
 
+**Run on GitHub, every night since the first push:** the workflow of [the nightly run](#the-nightly-run-on-github) was run by hand on 2026-10-13, the day of the first push — run 38354397417, green, artifact `db-backup-92` (834,458 bytes), downloaded and checked with `verify.mjs` (25 tables, 12,843 rows) and `drill.mjs` (`DRILL OK`) — and green on its schedule on 2026-10-14 and 2026-10-15, runs 38531178558 and 38699961225 (`docs/RUNBOOK.md`, first-push checklist item 6, and Checkpoint B, step 10).
+
 **Never run:**
 
 - **Restoring the accounts into a real Supabase project.** There, `auth.users` belongs to `supabase_auth_admin` and GoTrue has tables this backup does not hold. The restore is tested into plain PostgreSQL with stand-ins for Supabase (`supabase/tests/shim.sql`). [Rebuilding production](#rebuilding-production--an-outline-never-done) is an outline for that reason.
-- **The workflow on GitHub.** Nothing of the review is pushed yet. Its dump and verify steps are the commands tested here; the runner, its network and the artifact upload are not.
 
 ## What a backup holds
 
