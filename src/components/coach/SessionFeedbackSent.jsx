@@ -1,66 +1,59 @@
 import { useNavigate } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
 import { formatMessageStamp } from '../../hooks/useMessages';
+import { ActionBar, Button, Icon } from '../parc';
 
 /**
- * Read-only card shown at the bottom of SessionReview when a feedback message
- * already exists for this session. Replaces SessionFeedbackComposer so the
- * coach can't submit twice. The DB also enforces this via a UNIQUE partial
- * index on messages.session_id.
+ * The end of a review that is over: what it says — a check and its title,
+ * then the text — and the ActionBar with « Fermer la revue » and, when the
+ * athlete is known, the conversation. Shared by the feedback just sent, the
+ * feedback sent before, and a review finished without one. `tone` `done`
+ * draws the blue check; `quiet` none.
  */
-export default function SessionFeedbackSent({
-  feedback,
-  studentProfileId,
-  onFinish,
-}) {
+export function ReviewEnd({ title, body, stamp, tone = 'done', onClose, onOpenThread, children }) {
+  const { t } = useI18n();
+  return (
+    <>
+      <div className="px-4 pb-6 md:px-8">
+        <section className="rounded-group bg-surface p-4">
+          <h2 className="pk-headline flex items-center gap-2">
+            {tone === 'done' && <Icon name="check" size={18} className="shrink-0 text-blue" />}
+            {title}
+          </h2>
+          {body && <p className="pk-body mt-1.5 whitespace-pre-wrap">{body}</p>}
+          {stamp && <p className="pk-caption mt-1.5">{stamp}</p>}
+          {children}
+        </section>
+      </div>
+      <ActionBar className="sticky bottom-0 z-10 mt-auto flex-col items-stretch gap-1">
+        <Button variant="primary" size="lg" onClick={onClose}>
+          {t('parcReview.close')}
+        </Button>
+        {onOpenThread && (
+          <Button variant="text" onClick={onOpenThread}>
+            {t('parcReview.openThread')}
+          </Button>
+        )}
+      </ActionBar>
+    </>
+  );
+}
+
+/**
+ * Shown at the end of SessionReview when a feedback message already exists
+ * for this session. Replaces SessionFeedbackComposer so the coach can't
+ * submit twice. The DB also enforces this via a UNIQUE partial index on
+ * messages.session_id.
+ */
+export default function SessionFeedbackSent({ feedback, studentProfileId, onFinish }) {
   const { t, lang } = useI18n();
   const navigate = useNavigate();
-
   return (
-    <div
-      className="rounded-xl p-4 space-y-3"
-      style={{
-        background: 'color-mix(in srgb, var(--color-success) 10%, transparent)',
-        border: '1px solid color-mix(in srgb, var(--color-success) 35%, transparent)',
-      }}
-    >
-      <div
-        className="flex items-center gap-2 sl-label"
-        style={{ color: 'var(--color-success)' }}
-      >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-        </svg>
-        {t('feedback.alreadySentTitle')}
-      </div>
-
-      <p className="text-[13px] text-ink-700 whitespace-pre-wrap">{feedback.body}</p>
-
-      <p className="sl-mono text-[11px] text-ink-400">
-        {t('feedback.alreadySentAt', {
-          when: formatMessageStamp(feedback.created_at, lang),
-        })}
-      </p>
-
-      <div className="flex flex-wrap gap-2 pt-1">
-        {studentProfileId && (
-          <button
-            type="button"
-            onClick={() => navigate(`/coach/messages/${studentProfileId}`)}
-            className="sl-btn-primary text-[12px]"
-            style={{ padding: '8px 12px' }}
-          >
-            {t('feedback.openThread')}
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={onFinish}
-          className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200"
-        >
-          {t('feedback.backToSessions')}
-        </button>
-      </div>
-    </div>
+    <ReviewEnd
+      title={t('parcReview.sentAt', { when: formatMessageStamp(feedback.created_at, lang) })}
+      body={feedback.body}
+      onClose={onFinish}
+      onOpenThread={studentProfileId ? () => navigate(`/coach/messages/${studentProfileId}`) : null}
+    />
   );
 }

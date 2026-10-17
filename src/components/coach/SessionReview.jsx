@@ -4,7 +4,6 @@ import { useIsRestoring } from '@tanstack/react-query';
 import Spinner from '../ui/Spinner';
 import VideoLightbox from '../ui/VideoLightbox';
 import VideoPlayer from '../ui/VideoPlayer';
-import VideoThumbCard from '../ui/VideoThumbCard';
 import { useSession } from '../../hooks/useSession';
 import { useSetLogs } from '../../hooks/useSetLogs';
 import { useSlotComments } from '../../hooks/useSlotComments';
@@ -18,35 +17,28 @@ import { useSessionFeedback } from '../../hooks/useMessages';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useDeclinePromote } from '../../hooks/useAdoptSwap';
 import { useI18n } from '../../hooks/useI18n';
-import SlotProgress from './SlotProgress';
-import TypeBadge from '../ui/TypeBadge';
 import AdoptSwapDialog from './AdoptSwapDialog';
 import RemoveExerciseDialog from './RemoveExerciseDialog';
+import ReviewExercise from './ReviewExercise';
 import SessionFeedbackComposer from './SessionFeedbackComposer';
 import SessionFeedbackSent from './SessionFeedbackSent';
 import SessionReviewedNoFeedback from './SessionReviewedNoFeedback';
 import SessionReviewNotConfirmed from './SessionReviewNotConfirmed';
 import { CoachNotFound, CoachReadProblem } from './CoachPageState';
+import { reviewTotals } from './reviewModel';
 import { readState } from '../../lib/readState';
 import { clearFeedbackDraft } from '../../lib/feedbackDraft';
 import { performedDate } from '../../lib/day';
-import { formatDate } from '../../lib/i18n/format';
+import { dayName, formatDate, formatNumber, formatRelativeDays, pluralKey } from '../../lib/i18n/format';
+import { formatRpe } from '../../lib/rpe';
 import { pushToast } from '../../lib/toast';
+import { Button, IconButton, LargeTitle, Sheet } from '../parc';
 import {
   getLastCoachSession,
   rememberLastCoachSession,
   clearLastCoachSession,
 } from '../../hooks/useRememberCoachStudentsPath';
-import {
-  formatRestSeconds,
-  groupSlotsBySuperset,
-  isSlotUniform,
-  formatSetTarget,
-  formatActual,
-  hasLoggedActual,
-  getSlotTargetRest,
-  summarizeSlotPrescription,
-} from '../../lib/volume';
+import { groupSlotsBySuperset } from '../../lib/volume';
 
 // Where "back" lands when nothing says where the coach came from: a deep link,
 // a notification, a reload in another tab.
@@ -56,22 +48,6 @@ const DEFAULT_ORIGIN = '/coach/sessions';
 // and sessionStorage, and it is handed to navigate().
 function coachPath(value) {
   return typeof value === 'string' && value.startsWith('/coach/') ? value : null;
-}
-
-function SlotVideoStrip({ videos, onPlay }) {
-  if (!videos || videos.length === 0) return null;
-  const sorted = [...videos].sort((a, b) => a.set_number - b.set_number);
-  return (
-    <div className="flex flex-wrap gap-2 pt-2">
-      {sorted.map((v) => (
-        <VideoThumbCard
-          key={v.id}
-          setNumber={v.set_number}
-          onClick={() => onPlay(v)}
-        />
-      ))}
-    </div>
-  );
 }
 
 // One mount per session. The page takes the moment it opened as the line
@@ -211,6 +187,7 @@ function SessionReviewPage() {
   const slotGroups = useMemo(() => groupSlotsBySuperset(slots), [slots]);
   const isArchived = !!session?.archived_at;
   const [playing, setPlaying] = useState(null);
+  const [optionsOpen, setOptionsOpen] = useState(false);
 
   // One tap archives, and the session leaves the feed's lists: what was a
   // 69×23 pill next to "editor" is a 44px button now, and the archive says
@@ -246,27 +223,21 @@ function SessionReviewPage() {
       ? 'notFound'
       : readState([sessionRead], { online, restoring });
 
-  if (pageState === 'loading') {
-    return <div className="flex justify-center py-12"><Spinner /></div>;
-  }
+  const back = { label: t('parcReview.back'), onClick: handleBack };
 
-  // 44px, the smallest thing a thumb hits (review item L15).
-  const backButton = (
-    <button
-      onClick={handleBack}
-      aria-label={t('common.back')}
-      className="w-11 h-11 rounded-lg bg-ink-100 flex items-center justify-center text-ink-700 hover:bg-ink-200 shrink-0"
-    >
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-      </svg>
-    </button>
-  );
+  if (pageState === 'loading') {
+    return (
+      <div className="flex flex-col gap-6 px-4 pt-3 pb-6 md:px-8">
+        <LargeTitle back={back} title={t('parcReview.untitled')} />
+        <div className="flex justify-center py-12"><Spinner /></div>
+      </div>
+    );
+  }
 
   if (pageState !== 'ready') {
     return (
-      <div className="p-4 pb-6 md:p-8 space-y-5">
-        <div className="flex items-start gap-3">{backButton}</div>
+      <div className="flex flex-col gap-6 px-4 pt-3 pb-6 md:px-8">
+        <LargeTitle back={back} title={t('parcReview.untitled')} />
         {pageState === 'notFound' ? (
           <CoachNotFound
             title={t('coachEditorNavErrors.session.notFoundTitle')}
@@ -286,349 +257,132 @@ function SessionReviewPage() {
     );
   }
 
+  const athleteName = (student?.profile?.full_name || '').trim() || null;
+  // Who trained, and when: the day the athlete trained, from the sets they
+  // logged — not the moment the confirmation reached the server, which for
+  // one sent offline is when the queue was replayed (review item L14).
+  const trainedOn = confirmation ? performedDate(confirmation) : null;
+  const subtitle = trainedOn
+    ? t('parcReview.trained', { name: athleteName || t('parcReview.athlete'), when: whenText(trainedOn, { t, lang }) })
+    : athleteName;
+  const totals = reviewTotals({ slots, logs: setLogs || [], deviations: slotDeviations || [] });
+  const fmt = (n) => formatNumber(lang, n);
+
+  function renderSlot(slot) {
+    const deviation = (slotDeviations || []).find((d) => d.exercise_slot_id === slot.id);
+    const substituteName = deviation?.substitute_exercise_id
+      ? (exerciseLibrary || []).find((e) => e.id === deviation.substitute_exercise_id)?.name ||
+        t('coachEditorNavErrors.exercise.unavailableTitle')
+      : null;
+    const exerciseName = slot.exercise?.name ?? t('coachEditorNavErrors.exercise.unavailableTitle');
+    return (
+      <ReviewExercise
+        key={slot.id}
+        slot={slot}
+        logs={(setLogs || []).filter((l) => l.exercise_slot_id === slot.id)}
+        deviation={deviation}
+        substituteName={substituteName}
+        comment={(slotComments || []).find((x) => x.exercise_slot_id === slot.id)}
+        videos={videosBySlot.get(slot.id)}
+        athleteName={athleteName}
+        adopted={adoptedSlots.has(slot.id)}
+        online={online}
+        declining={declinePromote.isPending}
+        onDecline={() => declinePromote.mutate({ slotId: slot.id, sessionId })}
+        onAdopt={() =>
+          setAdoptTarget({
+            slotId: slot.id,
+            substituteId: deviation.substitute_exercise_id,
+            originalName: exerciseName,
+            substituteName,
+          })
+        }
+        onRemove={() => setRemoveTarget({ slotId: slot.id, exerciseName })}
+        onPlay={setPlaying}
+      />
+    );
+  }
+
   return (
-    <div className="p-4 pb-6 md:p-8 space-y-5">
-      <div className="flex items-start gap-3">
-        {backButton}
-        <div className="flex-1 min-w-0">
-          <div className="sl-label text-ink-400">Review</div>
-          <h1 className="sl-display text-[22px] text-gray-900 leading-tight mt-0.5 truncate">
-            {session?.title || 'Session'}
-          </h1>
-        </div>
-        {/* The way into the editor, now that a trained session's row on the
-            sheet opens this page. It is called "editor", not "edit": on a
-            confirmed session the editor is read-only and says why. Leaving
-            through it is deliberate, so the Sessions tab must not bounce back
-            here afterwards. */}
-        <Link
-          to={`/coach/students/${studentId}/s/${sessionId}`}
-          onClick={forgetReview}
-          aria-label={t('coachLoggedHistory.review.openEditorAria')}
-          title={t('coachLoggedHistory.review.openEditorAria')}
-          className="sl-pill sl-pill-btn shrink-0 bg-ink-100 text-ink-700 hover:bg-ink-200"
-        >
-          {t('coachLoggedHistory.review.openEditor')}
-        </Link>
-        <button
-          type="button"
-          onClick={toggleArchived}
-          disabled={archiveSession.isPending}
-          className={`sl-pill sl-pill-btn shrink-0 disabled:opacity-50 ${
-            isArchived ? 'text-ink-900' : 'bg-ink-100 text-ink-700 hover:bg-ink-200'
-          }`}
-          style={
-            isArchived
-              ? { background: 'color-mix(in srgb, var(--color-warn) 22%, transparent)' }
-              : undefined
-          }
-        >
-          {isArchived ? 'unarchive' : 'archive'}
-        </button>
-      </div>
-
-      {isArchived && (
-        <div
-          className="rounded-xl p-3 sl-mono text-[12px] text-ink-900"
-          style={{
-            background: 'color-mix(in srgb, var(--color-warn) 12%, transparent)',
-            border: '1px solid color-mix(in srgb, var(--color-warn) 35%, transparent)',
-          }}
-        >
-          Archived on {new Date(session.archived_at).toLocaleString()}
-        </div>
-      )}
-
-      {confirmation ? (
-        <div
-          className="rounded-xl p-3 space-y-1"
-          style={{
-            background: 'color-mix(in srgb, var(--color-success) 10%, transparent)',
-            border: '1px solid color-mix(in srgb, var(--color-success) 35%, transparent)',
-          }}
-        >
-          <div
-            className="flex items-center gap-2 sl-label"
-            style={{ color: 'var(--color-success)' }}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-            </svg>
-            Confirmed by student
-          </div>
-          {/* The day the athlete trained, from the sets they logged — not
-              the moment the confirmation reached the server, which for one
-              sent offline is when the queue was replayed (review item L14). */}
-          {performedDate(confirmation) && (
-            <p className="sl-mono text-[11px] text-ink-400">
-              {t('coachReviewComposerRoster.review.trainedOn', {
-                date: formatDate(lang, performedDate(confirmation)),
-              })}
+    <div className="flex min-h-full flex-col">
+      <div className="flex flex-col gap-4 px-4 pt-3 pb-4 md:px-8">
+        <div>
+          <LargeTitle
+            back={back}
+            actions={<IconButton icon="more" label={t('parcReview.options')} onClick={() => setOptionsOpen(true)} />}
+            title={session?.title || t('parcReview.untitled')}
+            subtitle={subtitle}
+          />
+          {isArchived && (
+            <p className="pk-caption mt-1">
+              {t('parcReview.archivedOn', { date: formatDate(lang, session.archived_at, { day: 'numeric', month: 'long', year: 'numeric' }) })}
             </p>
           )}
-          {confirmation.notes && (
-            <p className="text-[13px] text-ink-700 whitespace-pre-wrap pt-1">{confirmation.notes}</p>
-          )}
         </div>
-      ) : confirmationState === 'none' ? (
-        // Said only once it has been read: while the read is in flight, or
-        // after it failed, the page does not know and claims nothing. (A
-        // confirmation the cache already holds is shown above without
-        // waiting — its date and the athlete's notes are content.)
-        <div className="sl-card p-3 space-y-1">
-          <div className="sl-label text-ink-600">{t('coachReviewConfirmation.status.title')}</div>
-          <p className="text-[13px] text-ink-600">{t('coachReviewConfirmation.status.body')}</p>
-        </div>
-      ) : null}
 
-      <div className="space-y-3">
-        {slotGroups.map((group) => {
-          const renderSlot = (slot) => {
-            // `null` when this coach cannot read the exercise — one of a former
-            // coach's library, until migration 23. The slot's sets are still
-            // the athlete's work: shown under a name that says so (review
-            // item B8), where reading `ex.name` crashed the page.
-            const ex = slot.exercise;
-            const exerciseName = ex?.name ?? t('coachEditorNavErrors.exercise.unavailableTitle');
-            const slotLogs = (setLogs || [])
-              .filter((l) => l.exercise_slot_id === slot.id)
-              .slice()
-              .sort((a, b) => a.set_number - b.set_number);
-            const comment = (slotComments || []).find((x) => x.exercise_slot_id === slot.id);
-            const deviation = (slotDeviations || []).find((d) => d.exercise_slot_id === slot.id);
-            const substituteName = deviation?.substitute_exercise_id
-              ? (exerciseLibrary || []).find((e) => e.id === deviation.substitute_exercise_id)?.name || 'another exercise'
-              : null;
-            // What the coach prescribed: a set the athlete added has no
-            // target, and listed under PLANNED it read "SET 7 (BW)" (live
-            // finding N12). It keeps its "+Set n" pill below, and its actuals.
-            const plannedLogs = slotLogs.filter((l) => !l.is_student_added);
-            const composed = { ...slot, set_logs: plannedLogs };
-            const uniform = isSlotUniform(composed);
-            const summary = summarizeSlotPrescription(composed);
-            const headRest = uniform ? getSlotTargetRest(composed) : null;
-            return (
-              <div key={slot.id} className="sl-card p-4 space-y-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`sl-display text-[16px] ${ex ? 'text-gray-900' : 'text-ink-600'}`}>
-                    {exerciseName}
-                  </span>
-                  {ex && <TypeBadge type={ex.type} />}
-                  {ex && <span className="sl-mono text-[10px] text-ink-400">D{ex.difficulty}</span>}
-                </div>
-                {!ex && (
-                  <p className="text-[12px] text-ink-400">
-                    {t('coachEditorNavErrors.exercise.unavailableBody')}
-                  </p>
-                )}
-                {deviation && (
-                  <div
-                    className="rounded-lg px-2.5 py-1.5 text-[12px] text-ink-900"
-                    style={{
-                      background: 'color-mix(in srgb, var(--color-warn) 12%, transparent)',
-                      border: '1px solid color-mix(in srgb, var(--color-warn) 35%, transparent)',
-                    }}
-                  >
-                    <span className="sl-label mr-1">
-                      {deviation.kind === 'swap' ? 'Swapped' : 'Skipped'}
-                    </span>
-                    {deviation.kind === 'swap'
-                      ? <>did <span className="font-semibold">{substituteName}</span> instead</>
-                      : 'student skipped this exercise'}
-                    {deviation.promote_requested_at && !adoptedSlots.has(slot.id) && (
-                      <div className="mt-1.5 flex items-center gap-2 flex-wrap">
-                        <span className="sl-mono text-[11px]" style={{ color: 'var(--color-accent)' }}>
-                          ★ Student asked to make this permanent
-                        </span>
-                        {online && (
-                          <button
-                            type="button"
-                            onClick={() => declinePromote.mutate({ slotId: slot.id, sessionId })}
-                            disabled={declinePromote.isPending}
-                            className="sl-pill bg-ink-100 text-ink-500 hover:bg-ink-200 px-2.5 disabled:opacity-50"
-                          >
-                            Decline
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {deviation.kind === 'swap' && deviation.substitute_exercise_id && (
-                      <div className="mt-1.5">
-                        {adoptedSlots.has(slot.id) ? (
-                          <span className="sl-mono text-[11px] text-ink-400">
-                            ✓ Adopted into the program
-                          </span>
-                        ) : online ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setAdoptTarget({
-                                slotId: slot.id,
-                                substituteId: deviation.substitute_exercise_id,
-                                originalName: exerciseName,
-                                substituteName,
-                              })
-                            }
-                            className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 px-2.5"
-                          >
-                            Adopt into program
-                          </button>
-                        ) : (
-                          <span className="sl-mono text-[11px] text-ink-400">
-                            Connect to adopt this swap.
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {deviation.kind === 'skip' && (
-                      <div className="mt-1.5">
-                        {adoptedSlots.has(slot.id) ? (
-                          <span className="sl-mono text-[11px] text-ink-400">
-                            ✓ Removed from upcoming sessions
-                          </span>
-                        ) : online ? (
-                          <button
-                            type="button"
-                            onClick={() => setRemoveTarget({ slotId: slot.id, exerciseName })}
-                            className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 px-2.5"
-                          >
-                            Remove from upcoming
-                          </button>
-                        ) : (
-                          <span className="sl-mono text-[11px] text-ink-400">
-                            Connect to update the program.
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-                <div className="sl-mono text-[11px] text-ink-400">
-                  <p>
-                    PLANNED: {summary || `${slot.sets} sets`}
-                    {headRest != null && (
-                      <span className="ml-2">· REST {formatRestSeconds(headRest)}</span>
-                    )}
-                  </p>
-                  {/* Coach-side audit list: SlotProgress shows actuals only,
-                      so the planned-per-set detail lives here when sets diverge.
-                      Student SessionView drops this list because every SetRow
-                      already carries its own target inline. */}
-                  {!uniform && (
-                    <ul className="mt-1 space-y-0.5">
-                      {plannedLogs.map((log) => {
-                        const rest = formatRestSeconds(log.target_rest_seconds);
-                        return (
-                          <li key={log.id} className="flex gap-2">
-                            <span className="sl-label shrink-0">Set {log.set_number}</span>
-                            <span>
-                              {formatSetTarget(log)}
-                              {rest && <span className="ml-2">· REST {rest}</span>}
-                            </span>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </div>
-                <SlotProgress logs={slotLogs} plannedSets={slot.sets} />
-                {(() => {
-                  const deviated = slotLogs.filter(hasLoggedActual);
-                  if (deviated.length === 0) return null;
-                  return (
-                    <div
-                      className="rounded-lg px-2.5 py-1.5 space-y-1"
-                      style={{
-                        background: 'color-mix(in srgb, var(--color-warn) 12%, transparent)',
-                        border: '1px solid color-mix(in srgb, var(--color-warn) 35%, transparent)',
-                      }}
-                    >
-                      <span className="sl-label text-ink-900">
-                        Off-plan
-                      </span>
-                      <ul className="space-y-0.5 sl-mono text-[11px] text-ink-700">
-                        {deviated.map((log) => (
-                          <li key={log.id} className="flex gap-2">
-                            <span className="sl-label shrink-0">
-                              {log.is_student_added ? '+' : ''}Set {log.set_number}
-                            </span>
-                            {/* An added set had no plan to strike through:
-                                "(BW) → 12 @ 60kg" invented one. */}
-                            <span>
-                              {!log.is_student_added && (
-                                <>
-                                  <span className="text-ink-400 line-through">{formatSetTarget(log)}</span>
-                                  <span className="mx-1" aria-hidden="true">→</span>
-                                </>
-                              )}
-                              {formatActual(log)}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  );
-                })()}
-                <SlotVideoStrip
-                  videos={videosBySlot.get(slot.id)}
-                  onPlay={setPlaying}
-                />
-                {comment && (
-                  <div
-                    className="text-[13px] text-gray-900 rounded-lg px-2.5 py-1.5 whitespace-pre-wrap"
-                    style={{
-                      background: 'color-mix(in srgb, var(--color-accent) 10%, transparent)',
-                      border: '1px solid color-mix(in srgb, var(--color-accent) 30%, transparent)',
-                    }}
-                  >
-                    <span
-                      className="sl-label mr-1"
-                      style={{ color: 'var(--color-accent)' }}
-                    >
-                      Student note
-                    </span>
-                    {comment.body}
-                  </div>
-                )}
-              </div>
-            );
-          };
-          if (group.slots.length > 1) {
-            return (
-              <div
-                key={group.key}
-                className="rounded-xl p-2 space-y-2"
-                style={{
-                  borderColor: 'color-mix(in srgb, var(--color-accent) 35%, transparent)',
-                  border: '1px solid color-mix(in srgb, var(--color-accent) 35%, transparent)',
-                  background: 'color-mix(in srgb, var(--color-accent) 6%, transparent)',
-                }}
-              >
-                <div className="px-2 pt-1">
-                  <span className="sl-label" style={{ color: 'var(--color-accent)' }}>
-                    Superset
-                  </span>
-                </div>
-                {group.slots.map(renderSlot)}
-              </div>
-            );
-          }
-          return renderSlot(group.slots[0]);
-        })}
+        {/* Said only once it has been read: while the read is in flight, or
+            after it failed, the page does not know and claims nothing. (A
+            confirmation the cache already holds is shown without waiting —
+            its date and the athlete's notes are content.) */}
+        {!confirmation && confirmationState === 'none' && (
+          <section className="rounded-group bg-surface p-4">
+            <h2 className="pk-headline">{t('coachReviewConfirmation.status.title')}</h2>
+            <p className="pk-body mt-1.5">{t('coachReviewConfirmation.status.body')}</p>
+          </section>
+        )}
+
+        {(setLogs || []).length > 0 && (
+          <section
+            aria-label={t('parcReview.totalsLabel')}
+            className="grid grid-cols-3 gap-3 rounded-group bg-surface p-4"
+          >
+            <Figure
+              value={fmt(totals.done)}
+              label={t(pluralKey(lang, totals.done, 'parcReview.setsDone'), { total: fmt(totals.planned) })}
+              extra={totals.extra > 0 ? t(pluralKey(lang, totals.extra, 'parcReview.added'), { n: fmt(totals.extra) }) : null}
+            />
+            <Figure value={totals.avgRpe != null ? formatRpe(Math.round(totals.avgRpe * 10) / 10, lang) : '–'} label={t('parcReview.avgRpe')} />
+            <Figure
+              value={fmt(totals.changes)}
+              label={t(pluralKey(lang, totals.changes, 'parcReview.changes'))}
+              tone={totals.changes > 0 ? 'amber' : null}
+            />
+          </section>
+        )}
+
+        {slotGroups.map((group) =>
+          group.slots.length > 1 ? (
+            <div key={group.key} className="flex flex-col gap-2">
+              <p className="pk-caption">{t('parcReview.superset')}</p>
+              {group.slots.map(renderSlot)}
+            </div>
+          ) : (
+            renderSlot(group.slots[0])
+          ),
+        )}
+
+        {confirmation?.notes && (
+          <section className="rounded-group bg-surface p-4">
+            <h2 className="text-[15px] font-bold leading-[1.4]">
+              {athleteName ? t('parcReview.noteOf', { name: athleteName }) : t('parcReview.note')}
+            </h2>
+            <p className="pk-body mt-1.5 whitespace-pre-wrap">{confirmation.notes}</p>
+          </section>
+        )}
       </div>
 
       {/* Feedback step — branches on `sessions.reviewed_at`, on whether a
           feedback message exists, and on the confirmation. Feedback is
           one-shot per session (UNIQUE index on messages.session_id), and the
           review itself is one-shot (reviewed_at, set either by the feedback
-          trigger or by "Finish without feedback"). The back-arrow at the top
-          is NOT a completion gesture — it leaves the session reviewable.
+          trigger or by "Finish without feedback"). The back button at the
+          top is NOT a completion gesture — it leaves the session reviewable.
 
-          The two read-only cards come first and do not look at the
+          The two read-only ends come first and do not look at the
           confirmation: a session reviewed before the rule existed keeps
           saying so. The composer — which also carries "Finish without
           feedback", the only other way to mark a session reviewed — is
-          offered for a confirmed session only. */}
+          offered for a confirmed session only. Each carries its ActionBar. */}
       {!feedbackLoading && (
         existingFeedback ? (
           <SessionFeedbackSent
@@ -646,7 +400,7 @@ function SessionReviewPage() {
           <SessionFeedbackComposer
             sessionId={sessionId}
             studentProfileId={student?.profile_id}
-            studentFullName={student?.profile?.full_name}
+            studentFullName={athleteName}
             onFinish={handleBack}
           />
         ) : confirmationState === 'checking' ? null : (
@@ -659,6 +413,28 @@ function SessionReviewPage() {
           />
         )
       )}
+
+      <Sheet open={optionsOpen} onClose={() => setOptionsOpen(false)} title={t('parcReview.options')}>
+        <div className="flex flex-col gap-2">
+          {/* The way into the editor, now that a trained session's row on the
+              sheet opens this page. On a confirmed session the editor is
+              read-only and says why. Leaving through it is deliberate, so the
+              Sessions tab must not bounce back here afterwards. */}
+          <Button as={Link} to={`/coach/students/${studentId}/s/${sessionId}`} onClick={forgetReview} size="lg">
+            {t('parcReview.openEditor')}
+          </Button>
+          <Button
+            size="lg"
+            onClick={() => {
+              setOptionsOpen(false);
+              toggleArchived();
+            }}
+            disabled={archiveSession.isPending}
+          >
+            {isArchived ? t('parcReview.unarchive') : t('parcReview.archive')}
+          </Button>
+        </div>
+      </Sheet>
 
       <VideoLightbox open={!!playing} onClose={() => setPlaying(null)}>
         {playing && <VideoPlayer storagePath={playing.storage_path} />}
@@ -697,6 +473,38 @@ function SessionReviewPage() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+// « hier », « mardi », « le 12 octobre » — when the session was trained, as
+// the line under the title says it.
+function whenText(date, { t, lang }, now = new Date()) {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const ago = Math.round((today - new Date(date.getFullYear(), date.getMonth(), date.getDate())) / 86400000);
+  if (ago === 0 || ago === 1) return formatRelativeDays(lang, -ago);
+  if (ago > 1 && ago < 7) return t('parcReview.whenDay', { day: dayName(lang, ((date.getDay() + 6) % 7) + 1, 'long') });
+  return t('parcReview.whenOn', {
+    date: formatDate(lang, date, {
+      day: 'numeric',
+      month: 'long',
+      ...(date.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}),
+    }),
+  });
+}
+
+// One figure of the session, in large condensed digits over what it counts.
+function Figure({ value, label, extra, tone }) {
+  return (
+    <div className="min-w-0">
+      <div className={`pk-condensed pk-tnum text-[40px] font-extrabold leading-none ${tone === 'amber' ? 'text-amber' : ''}`}>
+        {value}
+      </div>
+      <div className="pk-small mt-1">
+        <span className="sr-only"> </span>
+        {label}
+        {extra && <span className="block">{extra}</span>}
+      </div>
     </div>
   );
 }

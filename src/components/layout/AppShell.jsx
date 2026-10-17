@@ -117,7 +117,10 @@ function useScrollRestoration(ref, pathname) {
 // (design/parc/components/TabBar: « La TabBar disparaît sur les écrans de
 // détail, où l'ActionBar prend la place »).
 export function hasActionBar(pathname) {
-  return /^\/student\/session\/[^/]+\/?$/.test(pathname);
+  return (
+    /^\/student\/session\/[^/]+\/?$/.test(pathname) ||
+    /^\/coach\/student\/[^/]+\/session\/[^/]+\/review\/?$/.test(pathname)
+  );
 }
 
 export default function AppShell() {

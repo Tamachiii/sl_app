@@ -98,8 +98,12 @@ function renderReview(qc) {
   );
 }
 
-const composer = () => screen.queryByPlaceholderText(/What went well/i);
+const composer = () => screen.queryByRole('textbox', { name: /your feedback/i });
+const findComposer = () => screen.findByRole('textbox', { name: /your feedback/i });
 const finishButton = () => screen.queryByRole('button', { name: /finish without feedback/i });
+// What the line under the title says of a confirmed session: who trained, and
+// when. Without a confirmation it is the athlete's name alone.
+const trainedLine = () => screen.queryByText(/^Sam, trained /);
 
 beforeEach(() => {
   server = { data: null, error: null };
@@ -121,13 +125,14 @@ describe('<SessionReview /> on the real confirmation query', () => {
     renderReview(qc);
 
     // First paint, from the cache: the confirmation is shown, the form is not.
-    expect(screen.getByText(/Confirmed by student/i)).toBeInTheDocument();
+    expect(trainedLine()).toBeInTheDocument();
     expect(composer()).not.toBeInTheDocument();
     expect(finishButton()).not.toBeInTheDocument();
 
     expect(await screen.findByText('Not confirmed')).toBeInTheDocument();
     expect(screen.getByText(/Nothing to review yet/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Confirmed by student/i)).not.toBeInTheDocument();
+    expect(trainedLine()).not.toBeInTheDocument();
+    expect(screen.getByText('Sam')).toBeInTheDocument();
     expect(composer()).not.toBeInTheDocument();
     expect(finishButton()).not.toBeInTheDocument();
     expect(confirmationReads).toHaveBeenCalledTimes(1);
@@ -141,7 +146,7 @@ describe('<SessionReview /> on the real confirmation query', () => {
     renderReview(qc);
     expect(composer()).not.toBeInTheDocument();
 
-    expect(await screen.findByPlaceholderText(/What went well/i)).toBeInTheDocument();
+    expect(await findComposer()).toBeInTheDocument();
     expect(finishButton()).toBeInTheDocument();
     expect(confirmationReads).toHaveBeenCalledTimes(1);
   });
@@ -154,8 +159,8 @@ describe('<SessionReview /> on the real confirmation query', () => {
     expect(screen.queryByText('Not confirmed')).not.toBeInTheDocument();
     expect(screen.queryByText(/Nothing to review yet/i)).not.toBeInTheDocument();
 
-    expect(await screen.findByPlaceholderText(/What went well/i)).toBeInTheDocument();
-    expect(screen.getByText(/Confirmed by student/i)).toBeInTheDocument();
+    expect(await findComposer()).toBeInTheDocument();
+    expect(trainedLine()).toBeInTheDocument();
     expect(screen.queryByText('Not confirmed')).not.toBeInTheDocument();
   });
 
@@ -173,7 +178,7 @@ describe('<SessionReview /> on the real confirmation query', () => {
 
     server = { data: ROW, error: null };
     fireEvent.click(screen.getByRole('button', { name: /check again/i }));
-    expect(await screen.findByPlaceholderText(/What went well/i)).toBeInTheDocument();
+    expect(await findComposer()).toBeInTheDocument();
     expect(screen.queryByText(/Confirmation not checked/i)).not.toBeInTheDocument();
   });
 
@@ -186,13 +191,13 @@ describe('<SessionReview /> on the real confirmation query', () => {
 
     // The read is parked until the network is back: not a failure, not a "no".
     expect(await screen.findByText(/Confirmation not checked/i)).toBeInTheDocument();
-    expect(screen.getByText(/Confirmed by student/i)).toBeInTheDocument();
+    expect(trainedLine()).toBeInTheDocument();
     expect(screen.queryByText('Not confirmed')).not.toBeInTheDocument();
     expect(composer()).not.toBeInTheDocument();
 
     server = { data: ROW, error: null };
     onlineManager.setOnline(true);
-    expect(await screen.findByPlaceholderText(/What went well/i)).toBeInTheDocument();
+    expect(await findComposer()).toBeInTheDocument();
     expect(screen.queryByText(/Confirmation not checked/i)).not.toBeInTheDocument();
   });
 
@@ -203,7 +208,7 @@ describe('<SessionReview /> on the real confirmation query', () => {
     const qc = appLikeClient();
     server = { data: ROW, error: null };
     renderReview(qc);
-    const box = await screen.findByPlaceholderText(/What went well/i);
+    const box = await findComposer();
     fireEvent.change(box, { target: { value: 'Good depth on the dips.' } });
 
     server = { data: null, error: { message: 'upstream timeout' } };

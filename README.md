@@ -75,7 +75,7 @@ src/
                        StudentProgrammingSection, StudentGoalsSection, StudentStatsSection,
                        ProgramSwitcher, ProgramSheet, PhaseDivider, SessionRow,
                        SessionEditor, SessionReview,
-                       ExerciseSlotRow, ExerciseLibrary, SessionsFeed, SlotProgress,
+                       ExerciseSlotRow, ExerciseLibrary, SessionsFeed, ReviewExercise,
                        CoachMessages
     messaging/         MessageThread, MessageComposer, ConversationList,
                        UnreadMessagesBadge
