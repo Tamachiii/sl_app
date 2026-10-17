@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Éditeur de séance, coach</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="parc-tokens.css">
+<link rel="stylesheet" href="ds/slcoachparc/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1E4FBF}a:hover{color:#163C93}
+button,input,textarea{font-family:inherit}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 1370px; box-sizing: border-box; background: var(--ground); color: var(--ink); font-family: var(--font-sans); overflow: hidden">
+  <main style="padding: 12px 16px 120px; display: flex; flex-direction: column; gap: 16px">
+
+    <div>
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+        <button type="button" class="pk-icon-btn" aria-label="Retour au programme">
+          <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M15 19l-7-7 7-7"></path></svg>
+        </button>
+        <p role="status" class="pk-small" style="margin: 0; display: flex; align-items: center; gap: 6px">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+          Enregistré
+        </p>
+        <button type="button" class="pk-icon-btn" aria-label="Options de la séance">
+          <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 12h.01M12 12h.01M19 12h.01"></path></svg>
+        </button>
+      </div>
+      <h1 class="pk-large-title" style="margin-top: 16px">Haut 1</h1>
+      <p class="pk-subhead" style="margin: 6px 0 0">Séance 10 sur 24, Intensification</p>
+    </div>
+
+    <section style="background: var(--surface); border-radius: var(--radius-group); padding: 16px">
+      <label for="coach-note" style="display: block; font-size: 15px; line-height: 1.4; font-weight: 700; color: var(--blue)">Note pour Léa</label>
+      <textarea id="coach-note" class="pk-field" rows="2" style="display: block; margin-top: 8px; height: 70px; padding: 10px 12px; line-height: 1.45; resize: none">Arrêt d'une seconde en haut, descente en trois temps.</textarea>
+    </section>
+
+    <sc-if value="{{ show1 }}" hint-placeholder-val="{{ true }}">
+      <section aria-labelledby="ex-1" class="pk-group" style="padding: 4px 16px 12px">
+        <div style="display: flex; align-items: center; gap: 12px; min-height: 60px">
+          <div style="flex: 1; min-width: 0">
+            <h2 id="ex-1" class="pk-headline">Tractions lestées</h2>
+            <p class="pk-caption" style="margin: 2px 0 0">4 séries, de 20 à 25 kg</p>
+          </div>
+          <button type="button" class="pk-icon-btn" aria-label="Options de Tractions lestées" onClick="{{ open1 }}" style="background: var(--fill)">
+            <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 12h.01M12 12h.01M19 12h.01"></path></svg>
+          </button>
+        </div>
+        <div aria-hidden="true" style="display: grid; grid-template-columns: 36px repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 6px">
+          <span class="pk-small" style="text-align: center">Série</span>
+          <span class="pk-small" style="text-align: center">Répétitions</span>
+          <span class="pk-small" style="text-align: center">Lest en kg</span>
+          <span class="pk-small" style="text-align: center">RPE visé</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 36px repeat(3, minmax(0, 1fr)); gap: 8px; align-items: center; margin-bottom: 8px">
+          <span class="pk-condensed pk-tnum" style="font-size: 22px; font-weight: 800; color: var(--ink-2); text-align: center">1</span>
+          <input type="text" inputmode="numeric" value="5" aria-label="Série 1, répétitions" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+          <input type="text" inputmode="decimal" value="20" aria-label="Série 1, lest en kg" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+          <input type="text" inputmode="decimal" value="7" aria-label="Série 1, RPE visé" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+        </div>
+        <div style="display: grid; grid-template-columns: 36px repeat(3, minmax(0, 1fr)); gap: 8px; align-items: center; margin-bottom: 8px">
+          <span class="pk-condensed pk-tnum" style="font-size: 22px; font-weight: 800; color: var(--ink-2); text-align: center">2</span>
+          <input type="text" inputmode="numeric" value="4" aria-label="Série 2, répétitions" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+          <input type="text" inputmode="decimal" value="22,5" aria-label="Série 2, lest en kg" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+          <input type="text" inputmode="decimal" value="8" aria-label="Série 2, RPE visé" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+        </div>
+        <div style="display: grid; grid-template-columns: 36px repeat(3, minmax(0, 1fr)); gap: 8px; align-items: center; margin-bottom: 8px">
+          <span class="pk-condensed pk-tnum" style="font-size: 22px; font-weight: 800; color: var(--ink-2); text-align: center">3</span>
+          <input type="text" inputmode="numeric" value="4" aria-label="Série 3, répétitions" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+          <input type="text" inputmode="decimal" value="22,5" aria-label="Série 3, lest en kg" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+          <input type="text" inputmode="decimal" value="8" aria-label="Série 3, RPE visé" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+        </div>
+        <div style="display: grid; grid-template-columns: 36px repeat(3, minmax(0, 1fr)); gap: 8px; align-items: center; margin-bottom: 8px">
+          <span class="pk-condensed pk-tnum" style="font-size: 22px; font-weight: 800; color: var(--ink-2); text-align: center">4</span>
+          <input type="text" inputmode="numeric" value="3" aria-label="Série 4, répétitions" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+          <input type="text" inputmode="decimal" value="25" aria-label="Série 4, lest en kg" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+          <input type="text" inputmode="decimal" value="9" aria-label="Série 4, RPE visé" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px">
+          <label for="rest-1" class="pk-caption">Repos entre les séries</label>
+          <input id="rest-1" type="text" inputmode="numeric" value="2:30" class="pk-field pk-condensed pk-tnum" style="width: 96px; font-size: 22px; font-weight: 800; text-align: center">
+        </div>
+        <button type="button" class="pk-btn pk-btn-text" style="margin-top: 4px">
+          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M12 5v14M5 12h14"></path></svg>
+          Ajouter une série
+        </button>
+      </section>
+    </sc-if>
+
+    <sc-if value="{{ show2 }}" hint-placeholder-val="{{ true }}">
+      <section aria-labelledby="ex-2" class="pk-group" style="padding: 4px 16px 12px">
+        <div style="display: flex; align-items: center; gap: 12px; min-height: 60px">
+          <div style="flex: 1; min-width: 0">
+            <h2 id="ex-2" class="pk-headline">Dips lestés</h2>
+            <p class="pk-caption" style="margin: 2px 0 0">3 séries de 6 à 27,5 kg</p>
+          </div>
+          <button type="button" class="pk-icon-btn" aria-label="Options de Dips lestés" onClick="{{ open2 }}" style="background: var(--fill)">
+            <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 12h.01M12 12h.01M19 12h.01"></path></svg>
+          </button>
+        </div>
+        <div aria-hidden="true" style="display: grid; grid-template-columns: 36px repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 6px">
+          <span class="pk-small" style="text-align: center">Série</span>
+          <span class="pk-small" style="text-align: center">Répétitions</span>
+          <span class="pk-small" style="text-align: center">Lest en kg</span>
+          <span class="pk-small" style="text-align: center">RPE visé</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 36px repeat(3, minmax(0, 1fr)); gap: 8px; align-items: center; margin-bottom: 8px">
+          <span class="pk-condensed pk-tnum" style="font-size: 22px; font-weight: 800; color: var(--ink-2); text-align: center">1</span>
+          <input type="text" inputmode="numeric" value="6" aria-label="Série 1, répétitions" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+          <input type="text" inputmode="decimal" value="27,5" aria-label="Série 1, lest en kg" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+          <input type="text" inputmode="decimal" value="7,5" aria-label="Série 1, RPE visé" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+        </div>
+        <div style="display: grid; grid-template-columns: 36px repeat(3, minmax(0, 1fr)); gap: 8px; align-items: center; margin-bottom: 8px">
+          <span class="pk-condensed pk-tnum" style="font-size: 22px; font-weight: 800; color: var(--ink-2); text-align: center">2</span>
+          <input type="text" inputmode="numeric" value="6" aria-label="Série 2, répétitions" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+          <input type="text" inputmode="decimal" value="27,5" aria-label="Série 2, lest en kg" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+          <input type="text" inputmode="decimal" value="8" aria-label="Série 2, RPE visé" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+        </div>
+        <div style="display: grid; grid-template-columns: 36px repeat(3, minmax(0, 1fr)); gap: 8px; align-items: center; margin-bottom: 8px">
+          <span class="pk-condensed pk-tnum" style="font-size: 22px; font-weight: 800; color: var(--ink-2); text-align: center">3</span>
+          <input type="text" inputmode="numeric" value="6" aria-label="Série 3, répétitions" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+          <input type="text" inputmode="decimal" value="27,5" aria-label="Série 3, lest en kg" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+          <input type="text" inputmode="decimal" value="8,5" aria-label="Série 3, RPE visé" class="pk-field pk-condensed pk-tnum" style="padding: 0 6px; font-size: 24px; font-weight: 800; text-align: center">
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px">
+          <label for="rest-2" class="pk-caption">Repos entre les séries</label>
+          <input id="rest-2" type="text" inputmode="numeric" value="2:00" class="pk-field pk-condensed pk-tnum" style="width: 96px; font-size: 22px; font-weight: 800; text-align: center">
+        </div>
+        <button type="button" class="pk-btn pk-btn-text" style="margin-top: 4px">
+          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M12 5v14M5 12h14"></path></svg>
+          Ajouter une série
+        </button>
+      </section>
+    </sc-if>
+
+    <sc-if value="{{ show3 }}" hint-placeholder-val="{{ true }}">
+      <section aria-labelledby="ex-3" class="pk-group" style="padding: 4px 16px">
+        <div style="display: flex; align-items: center; gap: 8px; min-height: 60px">
+          <div style="flex: 1; min-width: 0">
+            <h2 id="ex-3" class="pk-headline">Front lever tuck</h2>
+            <p class="pk-caption" style="margin: 2px 0 0">3 tenues de 10 s, repos 2:00</p>
+          </div>
+          <button type="button" class="pk-icon-btn" aria-label="Afficher les séries de Front lever tuck" aria-expanded="false" style="background: none; color: var(--ink-2)">
+            <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M19 9l-7 7-7-7"></path></svg>
+          </button>
+          <button type="button" class="pk-icon-btn" aria-label="Options de Front lever tuck" onClick="{{ open3 }}" style="background: var(--fill)">
+            <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 12h.01M12 12h.01M19 12h.01"></path></svg>
+          </button>
+        </div>
+      </section>
+    </sc-if>
+
+    <sc-if value="{{ hasAdded }}" hint-placeholder-val="{{ false }}">
+      <section aria-labelledby="ex-added" class="pk-group" style="padding: 4px 16px">
+        <div style="display: flex; align-items: center; gap: 8px; min-height: 60px">
+          <div style="flex: 1; min-width: 0">
+            <h2 id="ex-added" class="pk-headline">{{ addedName }}</h2>
+            <p class="pk-caption" style="margin: 2px 0 0; color: var(--amber)">3 séries à régler</p>
+          </div>
+          <button type="button" class="pk-icon-btn" aria-label="Afficher les séries" aria-expanded="false" style="background: none; color: var(--ink-2)">
+            <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M19 9l-7 7-7-7"></path></svg>
+          </button>
+        </div>
+      </section>
+    </sc-if>
+  </main>
+
+  <sc-if value="{{ toastVisible }}" hint-placeholder-val="{{ false }}">
+    <div role="status" style="position: absolute; left: 16px; right: 16px; bottom: 108px; display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; background: var(--ink); color: var(--surface); border-radius: var(--radius-control); box-shadow: var(--shadow-toast)">
+      <p style="margin: 0; flex: 1; font-size: 15px">{{ toastText }}</p>
+      <button type="button" class="pk-btn" style="background: none; color: #9DB8F5" onClick="{{ undo }}">Annuler</button>
+    </div>
+  </sc-if>
+
+  <div class="pk-actionbar" style="position: absolute; left: 0; right: 0; bottom: 0">
+    <button type="button" class="pk-btn pk-btn-primary pk-btn-lg" style="flex: 1" onClick="{{ openAdd }}">
+      <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M12 5v14M5 12h14"></path></svg>
+      Ajouter un exercice
+    </button>
+  </div>
+
+  <sc-if value="{{ actionSheet }}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; justify-content: flex-end; background: var(--overlay)">
+      <section role="dialog" aria-modal="true" aria-labelledby="action-title" class="pk-sheet">
+        <div class="pk-sheet-handle" aria-hidden="true"></div>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+          <h2 id="action-title" class="pk-title">{{ sheetTitle }}</h2>
+          <button type="button" class="pk-icon-btn" aria-label="Fermer" onClick="{{ closeSheet }}" style="background: var(--fill)">
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M6 6l12 12M18 6L6 18"></path></svg>
+          </button>
+        </div>
+        <ul class="pk-group" style="padding: 0; margin-top: 8px">
+          <li><button type="button" class="pk-row" onClick="{{ closeSheet }}" style="width: 100%; border-top: 0; border-left: 0; border-right: 0; background: none; color: inherit; font: inherit; font-size: 17px; font-weight: 600; text-align: left; cursor: pointer">Remplacer l'exercice</button></li>
+          <li><button type="button" class="pk-row" onClick="{{ closeSheet }}" style="width: 100%; border-top: 0; border-left: 0; border-right: 0; background: none; color: inherit; font: inherit; font-size: 17px; font-weight: 600; text-align: left; cursor: pointer">Dupliquer l'exercice</button></li>
+          <li><button type="button" class="pk-row" onClick="{{ closeSheet }}" style="width: 100%; border-top: 0; border-left: 0; border-right: 0; background: none; color: inherit; font: inherit; font-size: 17px; font-weight: 600; text-align: left; cursor: pointer">Monter d'un cran</button></li>
+          <li><button type="button" class="pk-row" onClick="{{ remove }}" style="width: 100%; border-top: 0; border-left: 0; border-right: 0; background: none; color: var(--red); font: inherit; font-size: 17px; font-weight: 600; text-align: left; cursor: pointer">Supprimer l'exercice</button></li>
+        </ul>
+      </section>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ addSheet }}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; justify-content: flex-end; background: var(--overlay)">
+      <section role="dialog" aria-modal="true" aria-labelledby="add-title" class="pk-sheet">
+        <div class="pk-sheet-handle" aria-hidden="true"></div>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+          <h2 id="add-title" class="pk-title">Ajouter un exercice</h2>
+          <button type="button" class="pk-icon-btn" aria-label="Fermer" onClick="{{ closeSheet }}" style="background: var(--fill)">
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M6 6l12 12M18 6L6 18"></path></svg>
+          </button>
+        </div>
+        <label style="position: relative; display: block; margin-top: 12px">
+          <span class="sr-only">Chercher dans ta librairie</span>
+          <svg width="18" height="18" fill="none" stroke="var(--ink-2)" viewBox="0 0 24 24" aria-hidden="true" style="position: absolute; left: 14px; top: 13px"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 10.5a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z"></path></svg>
+          <input type="search" placeholder="Chercher dans ta librairie" class="pk-field" style="padding-left: 42px">
+        </label>
+        <ul class="pk-group" style="padding: 0; margin-top: 8px">
+          <sc-for list="{{ lib }}" as="x" hint-placeholder-count="4">
+            <li>
+              <button type="button" class="pk-row" onClick="{{ x.pick }}" style="width: 100%; border-top: 0; border-left: 0; border-right: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer">
+                <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                  <span class="pk-headline">{{ x.name }}</span>
+                  <span class="pk-caption">{{ x.caption }}</span>
+                </span>
+                <svg width="22" height="22" fill="none" stroke="var(--blue)" viewBox="0 0 24 24" aria-hidden="true" style="flex-shrink: 0"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M12 5v14M5 12h14"></path></svg>
+              </button>
+            </li>
+          </sc-for>
+        </ul>
+      </section>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1370}}'>
+class Component extends DCLogic {
+  constructor(...args) {
+    super(...args);
+    this.state = { removed: {}, sheet: null, toast: null, added: null };
+    this.exercises = {
+      1: { name: 'Tractions lestées', gone: 'Tractions lestées supprimées.' },
+      2: { name: 'Dips lestés', gone: 'Dips lestés supprimés.' },
+      3: { name: 'Front lever tuck', gone: 'Front lever tuck supprimé.' }
+    };
+  }
+  componentWillUnmount() {
+    clearTimeout(this.toastTimer);
+  }
+  showToast(toast) {
+    clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => this.setState({ toast: null }), 8000);
+    return toast;
+  }
+  renderVals() {
+    const st = this.state;
+    const removed = st.removed || {};
+    const open = (k) => () => this.setState({ sheet: k });
+    const closeSheet = () => this.setState({ sheet: null });
+    const remove = () => {
+      const k = this.state.sheet;
+      const next = Object.assign({}, this.state.removed);
+      next[k] = true;
+      this.setState({ removed: next, sheet: null, toast: this.showToast({ text: this.exercises[k].gone, kind: 'removed', key: k }) });
+    };
+    const undo = () => {
+      const t = this.state.toast;
+      if (!t) return;
+      clearTimeout(this.toastTimer);
+      if (t.kind === 'removed') {
+        const next = Object.assign({}, this.state.removed);
+        delete next[t.key];
+        this.setState({ removed: next, toast: null });
+      } else {
+        this.setState({ added: null, toast: null });
+      }
+    };
+    const library = [
+      ['Muscle-up', 'Poids du corps', 'Muscle-up ajouté en fin de séance.'],
+      ['Tractions lourdes', 'Lest, de 1 à 3 répétitions', 'Tractions lourdes ajoutées en fin de séance.'],
+      ['Squat', 'Barre', 'Squat ajouté en fin de séance.'],
+      ['Gainage', 'Tenue en secondes', 'Gainage ajouté en fin de séance.']
+    ];
+    const lib = library.map((x) => ({
+      name: x[0],
+      caption: x[1],
+      pick: () => this.setState({ added: x[0], sheet: null, toast: this.showToast({ text: x[2], kind: 'added' }) })
+    }));
+    const exSheet = st.sheet === 1 || st.sheet === 2 || st.sheet === 3;
+    return {
+      show1: !removed[1],
+      show2: !removed[2],
+      show3: !removed[3],
+      open1: open(1),
+      open2: open(2),
+      open3: open(3),
+      openAdd: open('add'),
+      closeSheet: closeSheet,
+      remove: remove,
+      actionSheet: exSheet,
+      addSheet: st.sheet === 'add',
+      sheetTitle: exSheet ? this.exercises[st.sheet].name : '',
+      lib: lib,
+      hasAdded: !!st.added,
+      addedName: st.added || '',
+      toastVisible: !!st.toast,
+      toastText: st.toast ? st.toast.text : '',
+      undo: undo
+    };
+  }
+}
+</script>
+</body>
+</html>
