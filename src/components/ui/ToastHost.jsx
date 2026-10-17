@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { subscribeToasts, getToasts, dismissToast } from '../../lib/toast';
 import { useI18n } from '../../hooks/useI18n';
+import Toast from '../parc/Toast';
 
 // How long a toast stays. One with an action stays longer: it is the only
 // way back from what was just done, and has to be found, read and reached.
@@ -29,7 +30,7 @@ function useAutoDismiss(id, lifetime, paused, onDismiss) {
   }, [id, paused, onDismiss]);
 }
 
-function Toast({ toast, onDismiss }) {
+function HostedToast({ toast, onDismiss }) {
   const { t } = useI18n();
   // A toast message is an i18n key (pushed by non-React code that can't call
   // t()); resolve it here. t() gives a string that is no key back as it is.
@@ -55,15 +56,15 @@ function Toast({ toast, onDismiss }) {
     }
   }
 
-  const isError = toast.kind === 'error';
   return (
-    <div
-      role={isError ? 'alert' : 'status'}
-      className="sl-card px-4 py-3 flex items-center gap-4 shadow-lg pointer-events-auto"
-      style={{
-        borderLeft: `3px solid ${isError ? 'var(--color-danger)' : 'var(--color-accent)'}`,
-        maxWidth: 'min(92vw, 420px)',
-      }}
+    <Toast
+      kind={toast.kind === 'error' ? 'error' : 'info'}
+      message={resolve(toast.message)}
+      actionLabel={action ? resolve(action.label) : undefined}
+      onAction={action ? runAction : undefined}
+      onDismiss={() => onDismiss(toast.id)}
+      dismissLabel={t('common.dismiss')}
+      className="pointer-events-auto w-full"
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
       onFocus={() => setFocused(true)}
@@ -71,35 +72,14 @@ function Toast({ toast, onDismiss }) {
         // Focus moving between the toast's own buttons has not left it.
         if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false);
       }}
-    >
-      <p className="text-[13px] text-gray-900 flex-1 min-w-0">{resolve(toast.message)}</p>
-      {action && (
-        // Accent on the pill's ink surface, resting and hovered: 5.5:1 and
-        // 5.0:1 (ToastHost.test.jsx recomputes them from the stylesheet).
-        <button
-          type="button"
-          onClick={runAction}
-          className="sl-pill sl-pill-btn shrink-0 -my-1.5 bg-ink-100 text-accent hover:bg-ink-200"
-        >
-          {resolve(action.label)}
-        </button>
-      )}
-      <button
-        type="button"
-        onClick={() => onDismiss(toast.id)}
-        aria-label={t('common.dismiss')}
-        className="sl-hit shrink-0 text-ink-400 hover:text-gray-900"
-      >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
-    </div>
+    />
   );
 }
 
 /**
- * Renders the global toast stack. Mounted once in AppShell. Fixed to the
+ * Renders the global toast stack, drawn by the Parc `Toast`
+ * (components/parc/Toast): a black line, « Annuler » in light blue, an error
+ * with its cross and a close button. Mounted once in AppShell. Fixed to the
  * bottom (above the mobile BottomNav's safe area) so it never shifts page
  * layout. Toasts are pushed from anywhere via lib/toast.pushToast — notably
  * the query client's MutationCache onError for otherwise-silent failures.
@@ -125,14 +105,14 @@ export default function ToastHost() {
 
   return (
     <div
-      className="fixed inset-x-0 z-50 flex flex-col items-center gap-2 px-3 pointer-events-none"
+      className="fixed inset-x-0 z-50 mx-auto flex max-w-[560px] flex-col items-center gap-2.5 px-4 pointer-events-none"
       style={{
         bottom: 'calc(env(safe-area-inset-bottom) + 72px)',
         transition: reducedMotion ? undefined : 'opacity 150ms ease',
       }}
     >
       {toasts.map((toast) => (
-        <Toast key={toast.id} toast={toast} onDismiss={dismissToast} />
+        <HostedToast key={toast.id} toast={toast} onDismiss={dismissToast} />
       ))}
     </div>
   );

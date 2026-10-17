@@ -6,6 +6,7 @@
    beside one (`w-full`, `mt-4`) still wins over it. */
 @import "./styles/parc-tokens.css";
 @import "./styles/bundle.css" layer(components);
+@import "./styles/parc-app.css" layer(components);
 /* The mocks of design/parc/screens are references, not sources: no utility is
    generated from their markup. */
 @source not "../design";

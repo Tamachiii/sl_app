@@ -1,0 +1,150 @@
+/* What the app adds to bundle.css: the classes of the Parc primitives
+   (src/components/parc/) that design/parc describes in a README or a mock
+   without giving them a pk-* class. Every value is a token of
+   parc-tokens.css, except the two colours the Toast README names. Imported
+   into the components layer after bundle.css, like it. */
+
+:root {
+  /* design/parc/components/Toast/README.md: on `ink`, the light blue of the
+     action (10.6:1) and the pink of the error cross (10.3:1). */
+  --toast-action: #9DB8F5;
+  --toast-error: #FF9A8F;
+}
+
+/* ---------- Sheet ----------
+   A modal <dialog> held at the bottom of the screen. The browser's own modal
+   box (centred, a margin all round) is undone; the pk-sheet inside it is what
+   is drawn. */
+.pk-sheet-dialog {
+  position: fixed;
+  inset: auto 0 0 0;
+  width: 100%;
+  max-width: 640px;
+  max-height: 100%;
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  overflow: visible;
+}
+.pk-sheet-dialog::backdrop {
+  background: var(--overlay);
+}
+.pk-sheet-dialog > .pk-sheet {
+  max-height: 90dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: max(var(--safe-bottom), env(safe-area-inset-bottom));
+}
+.pk-sheet-dialog[open] > .pk-sheet {
+  animation: pk-sheet-up 240ms ease-out;
+}
+@keyframes pk-sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: none; }
+}
+
+/* The check of a set just done appears in 160 ms. */
+.pk-set-dot-done > svg {
+  animation: pk-check-in 160ms ease-out;
+}
+@keyframes pk-check-in {
+  from { transform: scale(0.4); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+/* ---------- Toast ---------- */
+.pk-toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  box-sizing: border-box;
+  background: var(--ink);
+  color: var(--surface);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-toast);
+  font-size: 15px;
+  line-height: 1.35;
+}
+.pk-toast .pk-btn,
+.pk-toast .pk-icon-btn {
+  background: none;
+  color: var(--toast-action);
+}
+.pk-toast .pk-icon-btn {
+  color: var(--surface);
+}
+/* The blue ring is 2.6:1 on ink: the toast's controls ring in their own
+   light blue. */
+.pk-toast .pk-btn:focus-visible,
+.pk-toast .pk-icon-btn:focus-visible {
+  outline-color: var(--toast-action);
+}
+
+/* ---------- Segmented control ----------
+   A single choice among two to four, on `fill` (screens/Librairie.dc.html).
+   The inner radius is the control's less the 4px between them. */
+.pk-segmented {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: var(--fill);
+  border-radius: var(--radius-control);
+}
+.pk-segment {
+  padding: 0 var(--space-2);
+  background: none;
+  color: var(--ink-2);
+  border-radius: calc(var(--radius-control) - var(--space-1));
+}
+.pk-segment[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+/* ---------- Side navigation, from 1024px (screens/Roster.dc.html) ---------- */
+.pk-sidenav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: var(--space-6) var(--space-4);
+  box-sizing: border-box;
+  background: var(--surface);
+  border-right: 1px solid var(--line-strong);
+}
+.pk-sidenav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 48px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-control);
+  color: var(--ink-2);
+  font-size: 16px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.pk-sidenav-item[aria-current="page"] {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+.pk-sidenav-item:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* ---------- Motion ----------
+   Nothing moves for someone who asked for less: the sheet appears, the check
+   is there. */
+@media (prefers-reduced-motion: reduce) {
+  .pk-sheet-dialog[open] > .pk-sheet,
+  .pk-set-dot-done > svg {
+    animation: none;
+  }
+}
