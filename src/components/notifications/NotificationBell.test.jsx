@@ -116,6 +116,15 @@ describe('NotificationBell', () => {
     expect(mockNavigate).toHaveBeenCalled();
   });
 
+  it('leaves the popover to be positioned by UserMenu: its wrapper is not positioned', () => {
+    renderBell();
+    const btn = screen.getByRole('button', { name: /open notifications/i });
+    fireEvent.click(btn);
+    const menu = screen.getByRole('menu', { name: /notifications/i });
+    expect(menu.parentElement).toBe(btn.parentElement);
+    expect(btn.parentElement).not.toHaveClass('relative');
+  });
+
   it('calls mark-all-read on the footer action', () => {
     mockList = {
       data: [{

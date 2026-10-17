@@ -57,7 +57,8 @@ function NotificationRow({ notif, onSelect }) {
 
 /**
  * Bell button with an unread-count badge that opens a popover listing recent
- * notifications. Selecting a row marks it read and (if the kind has a
+ * notifications. Mounted only by `ui/UserMenu`, whose group positions the
+ * popover. Selecting a row marks it read and (if the kind has a
  * deep-link) navigates there. A "Mark all read" footer action clears the
  * badge in one shot.
  */
@@ -98,8 +99,12 @@ export default function NotificationBell() {
 
   const badgeLabel = unreadCount > 9 ? '9+' : String(unreadCount);
 
+  // The wrapper is NOT positioned: the popover anchors to the right edge of
+  // the UserMenu group — the avatar's, at the page's padding — so its 320px
+  // fit a 360px screen. Anchored to the bell, an avatar further in, it ran
+  // off the left edge, in a main that does not scroll sideways.
   return (
-    <div ref={ref} className="relative shrink-0">
+    <div ref={ref} className="shrink-0">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

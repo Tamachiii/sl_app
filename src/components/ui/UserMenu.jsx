@@ -102,9 +102,12 @@ export default function UserMenu({ fullName, onSignOut, profileHref }) {
   // Link-mode avatar: tap navigates straight to the Profile page.
   // onPointerEnter preloads LoginPage — Profile is where signOut lives, so
   // by the time the user clicks Sign out the chunk is warm.
+  // The group is `relative`: the bell's popover anchors to its right edge
+  // (NotificationBell). No z-index on it: that would make it a stacking
+  // context, and the popovers' z-30 and z-20 would count only inside it.
   if (profileHref) {
     return (
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="relative flex items-center gap-2 shrink-0">
         <NotificationBell />
         <Link
           to={profileHref}
@@ -121,7 +124,7 @@ export default function UserMenu({ fullName, onSignOut, profileHref }) {
   }
 
   return (
-    <div className="flex items-center gap-2 shrink-0">
+    <div className="relative flex items-center gap-2 shrink-0">
       <NotificationBell />
       <div ref={ref} className="relative">
         <button
