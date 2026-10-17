@@ -113,7 +113,11 @@ Three things to know about `sl-hit`:
 
 Both classes stand in `@layer components` and neither is `!important`: a utility beside them (`px-2`, `w-full`, `min-w-0`) wins. `src/test/hitTargets.test.js` holds the two classes to 44px in the stylesheet — jsdom has no layout, so a component test can only check that the class is on the control.
 
-Used by `ui/ToastHost` (the action pill and the dismiss icon).
+A menu item is a 44px row (`min-h-11`, on one line: the menu's height is counted from it). A menu that hangs off a control inside a card with `overflow-hidden` goes through `coach/PortalMenu`, which draws it on `<body>` and opens it upward when the room below is short. In a dense row, controls that write on a tap sit beside the main target as 44px boxes (`w-11 h-11`, `h-11 min-w-11`), not as `sl-hit` areas that would lie over it, and the row drops the padding they replace (`min-h-11`, no `py-*`).
+
+Used by `ui/ToastHost` (the action pill and the dismiss icon) and by the athlete's session: every pill that is a button is `sl-pill sl-pill-btn` — Swap, Skip, Change, Undo and "make this permanent" in `student/SlotDeviationBar`, "+ Add set" in `student/SlotGroupCard`, "Add note" in `student/SlotCommentBox`, the Undo of a skipped set and the Extra chip in `student/SetRow`, "Reply in messages" in `student/SessionView`. The way back of the session bar is `w-11 h-11`, and so is the slot across from it (`min-w-11 h-11`), which keeps the title centred. The exercises of the swap picker and the two fields of the Actual editor are `min-h-11`. `student/RpeInput` is two rows of five buttons (`grid-cols-5`), each `h-11`: ten columns were about 27 × 36 px on a 390 px phone, and the selector opens after every set.
+
+The rest timer's "+30 s" and Skip (`student/RestTimerBanner`) and the note bubble of a collapsed exercise (`student/SlotCommentBox` `compact`) are `sl-pill sl-pill-btn` too — `px-0` for the two icon-only ones, which `min-width` keeps 44 px wide. The right slot of the session bar is the 44 px placeholder that keeps the title centred while no rest runs; during a rest it grows for the countdown and the two controls, and the title, `min-w-0` and truncated, gives way.
 
 ### `sl-btn-primary` — the accent CTA
 
@@ -202,13 +206,13 @@ One token carries its dark value itself, and is the exception to "inline does no
 
 There is **no `<Header/>` component** — every page builds its own header from primitives. The canonical shape:
 
-1. Back button on the left (`w-9 h-9 rounded-lg bg-ink-100 text-ink-700`), chevron inside.
+1. Back button on the left (`w-11 h-11 shrink-0 rounded-lg bg-ink-100 text-ink-700`, a 44px target that a long title cannot squeeze), chevron inside.
 2. Centered meta: `sl-label` kicker ("WEEK 1 · MON") over `sl-display` h1.
-3. Right-aligned `sl-pill` action buttons (Edit, Archive, etc.) or a 9×9 spacer for balance.
+3. Right-aligned `sl-pill` action buttons (Edit, Archive, etc.) or an 11×11 spacer for balance.
 
 ```jsx
 <div className="flex items-center justify-between gap-3 pt-3 pb-4">
-  <button className="w-9 h-9 rounded-lg bg-ink-100 text-ink-700 flex items-center justify-center">
+  <button className="w-11 h-11 shrink-0 rounded-lg bg-ink-100 text-ink-700 flex items-center justify-center">
     <ChevronLeft />
   </button>
   <div className="min-w-0 text-center">
@@ -225,6 +229,8 @@ Pages with a user menu instead (`StudentTraining`, `CoachHome`) swap the back bu
 
 Every top-level page (both coach & student: Athletes, Sessions, Library, Training, Stats, Goals) renders `ui/UserMenu` as the right-aligned action — wrap the header in `flex items-start justify-between gap-4`.
 
+The notification popover of `ui/UserMenu` hangs from the right edge of the menu's group: the header that holds it keeps it at the page's right padding (`px-4` / `p-4` on a phone), or the 320px popover runs off the left edge of a 360px screen.
+
 ## Responsive layout
 
 The shell + nav structure lives in `layout/AppShell` + `SideNav` + `BottomNav`:
@@ -233,6 +239,8 @@ The shell + nav structure lives in `layout/AppShell` + `SideNav` + `BottomNav`:
 - **`md:` and up** (`≥ 768px`): shell becomes `flex-row`. `BottomNav` gets `md:hidden`; `SideNav` (`hidden md:flex w-56`) becomes the left rail.
 
 Both nav components share their item list via `layout/navItems.getNavItems(role, t)` — one place to edit tabs.
+
+A count on a tab is an accent pill with `sl-on-fill` text: `ReviewCountBadge` puts it over the top right of the icon in `BottomNav` (`variant="icon"`, `leading-none`, `min-w-4`) and at the end of the row in `SideNav` (`variant="count"`, the size of the unread-messages count). It draws at most two digits ("99+") and is read as the tab's name followed by the sentence of the number ("Sessions, 147 sessions to review"): the digits are `aria-hidden` and the sentence is an `sr-only` span — an `aria-label` on a plain span is not read everywhere. In `BottomNav` it comes after the label in the DOM, so the label is read first.
 
 Content inside `main` is wrapped in `mx-auto w-full max-w-5xl` so it caps around ~1024px on wide monitors.
 
@@ -284,12 +292,14 @@ save(parsed.value); // null only for an empty field
 - **Hold the text, not the number.** A caller that stores `parsed.value` loses the separator while it is typed ("82," is 82). `decimalText(stored)` gives the text a field starts with; it is for seeding state, not for the text being typed.
 - **The field draws no message.** Text that is not a number of the caller's range sets `aria-invalid="true"` and a `title` (`uiSharedHelpers.decimalInvalid`, or `uiSharedHelpers.integerInvalid`). Its callers sit in table cells and one-line rows and say what went wrong where they have room.
 - **An empty field that needs an answer** (`allowEmpty={false}`) is not marked until the caller passes `invalid`.
-- **Inside a `<form>`** the `pattern` makes the browser refuse the submit with its own message. A form that shows its own alert is `noValidate`.
+- **Inside a `<form>`** the `pattern` makes the browser refuse the submit with its own message. A form that shows its own alert for text that is not a number is `noValidate`. A form whose other fields rely on the browser's validation (`required`) keeps it: the browser stops text that is not a number, and an empty field that carries `required`; the submit handler stops what the `pattern` cannot see — a number outside the range — and says so itself (`coach/ExerciseLibrary`, `coach/StudentGoalsSection`).
+- **A refused value is said where the field is, and nothing is written.** The athlete's fields show it the same way: an inline `<p role="alert">` under the line (`sl-mono text-[11px] text-danger`), pointed at by the field it is about (`aria-describedby`) — the Actual editor of `student/SetRow` while the text cannot be read, with Save disabled; `student/BodyweightCard` on submit, in a `noValidate` form; a slot of `student/StudentProgramAuthor` on the blur that would have committed it, until the field is put right. A field whose rule is "1 or more" says so (`sessionDecimalInput.wholeNumberAtLeastOne`): "Enter a whole number" is wrong about a 0.
+- **The coach's fields.** A target weight of `coach/ExerciseSlotRow` (the compact row and each per-set row) commits on blur and draws no message: text it cannot read, or a weight past 9999.99, writes nothing and the field shows the stored value again — the field is marked (`aria-invalid`, `title`) only while it is typed. The volume weight of `coach/ExerciseLibrary` (0.1 to 99.99) and the weight of a goal in `coach/StudentGoalsSection` (0 to 9999.99) are refused on submit: the field gets `invalid`, a `<p role="alert">` (`sl-mono text-[11px] text-danger`) pointed at by its `aria-describedby` says the range — `coachDecimalInputs.volumeWeightRange`, `coachDecimalInputs.goalWeightRange`, since "Enter a number" is wrong about a "0" — and both go away as soon as the field changes.
 - **`className` replaces the default look** (the app's bordered mono field); `text-[16px]` is added to it either way.
 
 What `parseDecimalInput` accepts: one optional separator, comma or point, with digits on at least one side — "82", "82,5", "82.5", ",5", "82," — and spaces around it. It refuses "abc", "82kg", "1e3", "1,000.5", "8 2" and "-5" (`reason: 'format'`), a number outside `min`/`max` (`'range'`), and an empty field when `allowEmpty` is `false` (`'empty'`). It never repairs.
 
-Not yet on it — still `type="number"`: `student/SetRow` (actual reps and weight), `coach/ExerciseSlotRow` (reps, seconds, weight, rest), `student/BodyweightCard`, `student/StudentProgramAuthor` (`NumberField`), `student/MyGoals`, `coach/StudentGoalsSection`, `coach/ExerciseLibrary`.
+Not yet on it — still `type="number"`: `coach/ExerciseSlotRow` (sets, reps, seconds, rest), `student/MyGoals`, `coach/StudentGoalsSection` (sets, reps).
 
 ## Toasts
 
@@ -310,6 +320,19 @@ pushToast(t('…'), {                                // one action
 - **A toast stops its clock while it is under the pointer or holds the focus**, and starts again with what was left, two seconds at least. It stays 6 s, 8 s with an action.
 - **Plain toasts merge on (kind, message); toasts with an action never do** — two "Set removed" undo two different sets. The store keeps the three newest on screen.
 - **Look**: the action is `sl-pill sl-pill-btn bg-ink-100 text-accent hover:bg-ink-200` — accent on the pill's surface is 5.46:1, 4.97:1 hovered; `ui/ToastHost.test.jsx` recomputes both. The dismiss icon is `sl-hit`.
+- **The first toasts with an action are the athlete's**: `student/SetRow` pushes "Extra set removed" and "Set skipped" (`sessionTouchUndo.setRemoved` / `setSkipped`, kind `info`) with `uiSharedHelpers.undo`. Push such a toast from the promise of `mutateAsync` or at the tap — never from a per-call `onSuccess`, which is not called once the component that started the mutation has unmounted — and write its `onClick` for a component that may be gone. The coach's review ("Session archived") and the sheet's duplicate ("Session duplicated") push one too, from the hook's own options.
+
+## Live regions
+
+A text that changes every second — a countdown, a progress number — is never inside a live region (`aria-live`, `role="status"`, `role="alert"`, `role="timer"`) and never in an `aria-label` that changes with it: VoiceOver and TalkBack read it aloud each time, and the announcement that matters is lost. Announce the events instead, from a region that is in the page before its text is — a region mounted together with its text says nothing:
+
+```jsx
+<div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+  {announcement /* '' between events */}
+</div>
+```
+
+`student/RestTimerHost` is the model: "Rest 1:30" when a rest starts, "Rest done" when it ends, empty otherwise. The visible countdown (`student/RestTimerBanner`) is plain text.
 
 ## Inline edit — the field must occupy the button's footprint
 
@@ -363,7 +386,7 @@ The pill that says what type an exercise is comes from [`TypeBadge`](../src/comp
 
 **Adding a type**: an entry in `EXERCISE_TYPES` with its classes written out in full (`'bg-legs/15 text-legs'` — Tailwind finds classes by reading the file as text), and its token `--color-legs` in the `@theme` of `src/index.css`. `src/lib/exerciseTypes.test.js` then holds the entry to four things: an id the `exercise_type` enum of `supabase/schema.sql` has, a name in the three languages, a token that `.dark` does not remap, and 4.5:1 for that colour on its own 15% tint over a card, a dialog row and the page (push: 4.78:1 on a card; pull: 7.42:1).
 
-Not yet on it — still the hand-written ternary: `coach/SessionReview`, `coach/ExerciseLibrary`, `student/SlotDeviationBar`, `student/StudentProgramAuthor`.
+Not yet on it — still the hand-written ternary: `coach/SessionReview`.
 
 ## Quick reference
 
