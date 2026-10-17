@@ -108,6 +108,35 @@ export function weekOf({ sessions, upcoming, confirmedIds, now = new Date() }) {
   };
 }
 
+/**
+ * The week of an athlete as WeekDots draws it, from the strip the coach's
+ * roster already holds (`weekDays` of `useCoachDashboardPrograms`: `{
+ * dayNumber, state }` per day): `done` for a day trained, `today` for a
+ * session planned today, `next` for the next session when its day is still to
+ * come, nothing else. The same shape as `weekOf`, for `weekSentence`.
+ */
+export function weekFromStrip(weekDays, todayDayNumber) {
+  const isOpen = (day) => day.state === 'planned' || day.state === 'suggested';
+  // The ring marks the next session only: the first open day of the week,
+  // when it is still to come — as `weekOf` does for the athlete. A session
+  // today, or one whose day has passed without it, is the next one, and a
+  // later day is not.
+  const head = (weekDays || []).find(isOpen);
+  const days = (weekDays || []).map((day) => {
+    if (day.state === 'performed') return 'done';
+    if (isOpen(day) && day.dayNumber === todayDayNumber) return 'today';
+    if (day === head && day.dayNumber > todayDayNumber) return 'next';
+    return 'none';
+  });
+  return {
+    days,
+    doneCount: days.filter((d) => d === 'done').length,
+    doneDays: days.flatMap((d, i) => (d === 'done' ? [i + 1] : [])),
+    todayPlanned: days.includes('today'),
+    nextDay: days.indexOf('next') + 1 || null,
+  };
+}
+
 // « Cette semaine, lundi et mercredi faits, séance prévue aujourd'hui » — the
 // sentence that names the week's dots for a screen reader.
 export function weekSentence(week, { t, lang }) {

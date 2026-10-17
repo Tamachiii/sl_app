@@ -84,7 +84,7 @@ describe('a coach tab tapped while it is open', () => {
 
     fireEvent.click(tab(/athletes/i));
     expect(screen.queryByTestId('overview')).toBeNull();
-    expect(screen.getByRole('link', { name: /open alice/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Alice' })).toBeInTheDocument();
   });
 
   it('Athletes, in a session editor, shows the roster too', () => {
@@ -94,7 +94,7 @@ describe('a coach tab tapped while it is open', () => {
     fireEvent.click(tab(/athletes/i));
     expect(screen.queryByTestId('editor')).toBeNull();
     expect(screen.queryByTestId('overview')).toBeNull();
-    expect(screen.getByRole('link', { name: /open alice/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Alice' })).toBeInTheDocument();
   });
 
   it('Sessions, on a review left open, shows the feed and stays there', () => {

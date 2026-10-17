@@ -12,9 +12,13 @@ import { readState } from '../../lib/readState';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { CoachNotFound, CoachReadProblem } from './CoachPageState';
 import Spinner from '../ui/Spinner';
-import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
-import StudentWeekStrip from './StudentWeekStrip';
+import { Avatar, Button, Icon, LargeTitle, ListGroup, SearchField, StatusText, WeekDots } from '../parc';
+import { useToReviewCount } from '../../hooks/useToReviewCount';
+import { todayDayNumber } from '../../lib/day';
+import { dayName, formatDateTime, formatNumber, pluralKey } from '../../lib/i18n/format';
+import { capitalize } from '../student/sessionModel';
+import { weekFromStrip, weekSentence } from '../student/trainingModel';
 import {
   useRememberCoachStudentsPath,
   useForgetCoachStudentsPath,
@@ -24,204 +28,167 @@ import {
   athletePageOf,
 } from '../../hooks/useRememberCoachStudentsPath';
 
-function initialsOf(fullName) {
-  return (fullName || '')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() ?? '')
-    .join('');
+// The most urgent of an athlete's statuses, said in a word and a colour at
+// the end of their row (design/parc/components/StatusText): no program before
+// sessions to review before silence — the order `buildRoster` ranks them in.
+const URGENCY = { noProgram: 3, toReview: 2, stale: 1 };
+const TONE = { noProgram: 'alert', toReview: 'review', stale: 'quiet' };
+
+function statusText(chip, t, lang) {
+  if (chip.kind === 'toReview') return t('parcRoster.toReview', { n: formatNumber(lang, chip.n) });
+  if (chip.kind === 'stale') return t('parcRoster.quiet', { n: formatNumber(lang, chip.days) });
+  return t('parcRoster.noProgram');
 }
 
-// Attention chips lean on semantic colours (accent / warn / danger), which are
-// identical in both themes, so inline color-mix tints adapt without a dark rule.
-const CHIP_STYLE = {
-  toReview: {
-    background: 'color-mix(in srgb, var(--color-accent) 16%, transparent)',
-    color: 'var(--color-accent)',
-  },
-  stale: {
-    background: 'color-mix(in srgb, var(--color-warn) 20%, transparent)',
-    color: 'var(--color-warn)',
-  },
-  noProgram: {
-    background: 'color-mix(in srgb, var(--color-danger) 16%, transparent)',
-    color: 'var(--color-danger)',
-  },
-};
-
-function chipLabel(chip, t) {
-  if (chip.kind === 'toReview') return t('coach.roster.chipReview', { n: chip.n });
-  if (chip.kind === 'stale') return t('coach.roster.chipStale', { n: chip.days });
-  return t('coach.roster.chipNoProgram');
-}
-
-function RosterCard({ entry, t }) {
+/**
+ * One athlete of the roster (screens/RosterTelephone.dc.html): initials, the
+ * name, the place in the block, the week in seven dots, and at the right the
+ * most urgent status — or, for an athlete with nothing to see to, the day of
+ * the next session. The row is ONE target for "open this athlete": a link
+ * stretched over it. « n à revoir » is a link of its own, raised above it,
+ * to that athlete's sessions in the feed — an anchor cannot sit in an anchor.
+ */
+function RosterRow({ entry }) {
+  const { t, lang } = useI18n();
   const { student, fullName, programName, position, totalSessions, weekDays, chips } = entry;
-  const initials = initialsOf(fullName);
+  const todayDN = todayDayNumber();
+  const week = weekDays ? weekFromStrip(weekDays, todayDN) : null;
+  const facts = [
+    totalSessions > 0
+      ? t('parcRoster.sessionOf', { n: formatNumber(lang, position), total: formatNumber(lang, totalSessions) })
+      : null,
+    programName,
+  ].filter(Boolean);
+  const chip = chips.slice().sort((a, b) => URGENCY[b.kind] - URGENCY[a.kind])[0] ?? null;
+  // A session today comes before any later one.
+  const nextDay = week?.todayPlanned ? todayDN : (week?.nextDay ?? null);
 
-  const bits = [];
-  // Where the athlete is in the BLOCK. "W3" said nothing about how far along
-  // they were once the block stopped being one-week-per-week.
-  if (totalSessions > 0) bits.push(t('coach.roster.sessionOf', { n: position, total: totalSessions }));
-  if (programName) bits.push(programName);
-  const subtitle = bits.join(' · ').toUpperCase();
-
-  // The card is still ONE target for "open this athlete" — the link's ::after
-  // is stretched over the whole card — but it is no longer an <a> wrapped
-  // around everything, because the "N to review" chip is a link of its own
-  // now and an anchor cannot sit inside an anchor. The chip is raised above
-  // the stretched area; every other part of the card falls through to it.
   return (
-    <div className="relative sl-card p-3 hover:bg-ink-50 transition-colors">
-      <Link
-        to={`/coach/students/${student.id}`}
-        aria-label={t('coach.roster.openStudent', { name: fullName })}
-        className="block after:absolute after:inset-0 after:rounded-[inherit]"
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          <div
-            className="w-10 h-10 rounded-full flex items-center justify-center sl-display text-[13px] shrink-0"
-            style={{
-              background: 'color-mix(in srgb, var(--color-accent) 15%, transparent)',
-              color: 'var(--color-accent)',
-              border: '1px solid color-mix(in srgb, var(--color-accent) 35%, transparent)',
-            }}
-            aria-hidden="true"
+    <li className="relative">
+      <div className="pk-row">
+        <Avatar name={fullName} />
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <Link
+            to={`/coach/students/${student.id}`}
+            className="pk-headline text-ink no-underline after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:rounded-control focus-visible:after:outline-2 focus-visible:after:outline-blue"
           >
-            {initials || '—'}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="sl-display text-[16px] text-gray-900 truncate">{fullName}</p>
-            {subtitle && (
-              <p className="sl-mono text-[11px] text-ink-400 mt-1.5 truncate">{subtitle}</p>
-            )}
-          </div>
-        </div>
-
-        {weekDays && <StudentWeekStrip weekDays={weekDays} className="mt-3" />}
-      </Link>
-
-      {chips.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mt-3">
-          {chips.map((chip) =>
-            chip.kind === 'toReview' ? (
-              // "3 to review" used to open the athlete page, which offered no
-              // way to review anything. It opens what it counts: that
-              // athlete's sessions, in the feed. The ::before only widens the
-              // tap area around a pill that is 22px tall.
-              <Link
-                key={chip.kind}
-                to={`/coach/sessions?student=${student.id}`}
-                aria-label={t('coachLoggedHistory.roster.reviewChipAria', { n: chip.n, name: fullName })}
-                className="sl-pill relative z-10 hover:brightness-125 before:absolute before:-inset-1.5"
-                style={CHIP_STYLE[chip.kind]}
-              >
-                {chipLabel(chip, t)}
-              </Link>
-            ) : (
-              <span
-                key={chip.kind}
-                className="sl-pill"
-                style={CHIP_STYLE[chip.kind]}
-              >
-                {chipLabel(chip, t)}
-              </span>
-            ),
+            {fullName}
+          </Link>
+          {facts.length > 0 && <span className="pk-caption">{facts.join(', ')}</span>}
+          {week && (
+            <span className="mt-1">
+              <WeekDots days={week.days} label={weekSentence(week, { t, lang })} />
+            </span>
           )}
-        </div>
-      )}
-    </div>
+        </span>
+        {chip?.kind === 'toReview' ? (
+          <Link
+            to={`/coach/sessions?student=${student.id}`}
+            aria-label={t('parcRoster.toReviewAria', { n: formatNumber(lang, chip.n), name: fullName })}
+            className="relative z-10 flex min-h-11 items-center"
+          >
+            <StatusText tone="review">{statusText(chip, t, lang)}</StatusText>
+          </Link>
+        ) : chip ? (
+          <StatusText tone={TONE[chip.kind]}>{statusText(chip, t, lang)}</StatusText>
+        ) : nextDay ? (
+          <span className="pk-caption whitespace-nowrap">
+            {nextDay === todayDN ? t('parcRoster.today') : capitalize(dayName(lang, nextDay, 'long'))}
+          </span>
+        ) : null}
+      </div>
+    </li>
   );
 }
 
-function ErrorsTriage({ errors, t }) {
+/**
+ * The app's errors, for the coach who maintains it: a closed row at the end
+ * of the roster, opened to read them.
+ */
+function ErrorsTriage({ errors }) {
+  const { t, lang } = useI18n();
+  const [open, setOpen] = useState(false);
   return (
-    <section aria-labelledby="errors-heading" className="space-y-2">
-      <details>
-        <summary className="sl-label text-ink-400 cursor-pointer">
-          <span id="errors-heading">{t('coach.roster.appErrors', { n: errors.length })}</span>
-        </summary>
-        <ul className="mt-2 space-y-1.5">
-          {errors.map((e) => (
-            <li key={e.id} className="sl-card p-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="sl-mono text-[10px] text-ink-400 uppercase">{e.role || '—'}</span>
-                <span className="sl-mono text-[10px] text-ink-400 shrink-0">
-                  {new Date(e.created_at).toLocaleString()}
-                </span>
-              </div>
-              <p className="text-[12px] text-gray-900 mt-1 break-words">{e.message}</p>
-              {e.url && (
-                <p className="sl-mono text-[10px] text-ink-400 mt-0.5 truncate">{e.url}</p>
-              )}
-            </li>
-          ))}
-        </ul>
-      </details>
-    </section>
+    <ListGroup title={t('parcRoster.appErrors')}>
+      <li>
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+          className="pk-row w-full bg-transparent text-left"
+        >
+          <span className="pk-headline flex-1">
+            {t(pluralKey(lang, errors.length, 'parcRoster.errorsCount'), { n: formatNumber(lang, errors.length) })}
+          </span>
+          <Icon name={open ? 'chevron-up' : 'chevron-down'} size={18} className="shrink-0 text-ink-2" />
+        </button>
+      </li>
+      {open &&
+        errors.map((e) => (
+          <li key={e.id} className="pk-row flex-col items-start gap-1">
+            <span className="pk-caption">
+              {[e.role, formatDateTime(lang, e.created_at)].filter(Boolean).join(', ')}
+            </span>
+            <span className="pk-body break-words">{e.message}</span>
+            {e.url && <span className="pk-caption break-all">{e.url}</span>}
+          </li>
+        ))}
+    </ListGroup>
   );
 }
 
-// What stands where the cards will be while the athletes' status is read: the
+// What stands where the rows will be while the athletes' status is read: the
 // names are known, but the order is not — an athlete without a program or with
-// sessions to review goes to the top — so cards drawn now would jump when the
+// sessions to review goes to the top — so rows drawn now would jump when the
 // answer lands. Nothing in it can be tapped.
-function RosterSkeleton({ count, t }) {
+function RosterSkeleton({ count }) {
+  const { t } = useI18n();
   return (
-    <div
-      role="status"
-      aria-busy="true"
-      aria-label={t('coachReviewComposerRoster.roster.loading')}
-      className="space-y-2 md:grid md:grid-cols-2 md:gap-2 md:space-y-0"
-    >
-      {Array.from({ length: count }, (_, i) => (
-        <div key={i} className="sl-card p-3 motion-safe:animate-pulse" aria-hidden="true">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-ink-100 shrink-0" />
-            <div className="flex-1 space-y-2">
-              <div className="h-3.5 w-1/2 rounded bg-ink-100" />
-              <div className="h-2.5 w-1/3 rounded bg-ink-100" />
-            </div>
-          </div>
-        </div>
-      ))}
+    <div role="status" aria-busy="true" aria-label={t('coachReviewComposerRoster.roster.loading')}>
+      <ul className="pk-group">
+        {Array.from({ length: count }, (_, i) => (
+          <li key={i} className="pk-row motion-safe:animate-pulse" aria-hidden="true">
+            <span className="h-11 w-11 shrink-0 rounded-full bg-fill" />
+            <span className="flex flex-1 flex-col gap-2">
+              <span className="h-3.5 w-1/2 rounded bg-fill" />
+              <span className="h-2.5 w-1/3 rounded bg-fill" />
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
 
 // The athletes' status — programs, sessions to review — got no answer. The
-// cards below show what was read and nothing else: no chip is invented for
+// rows below show what was read and nothing else: no status is invented for
 // what was not.
-function RosterStatusNotice({ state, onRetry, retrying, t }) {
+function RosterStatusNotice({ state, onRetry, retrying }) {
+  const { t } = useI18n();
   const offline = state === 'offline';
   return (
-    <div role="status" className="sl-card p-3 flex items-center gap-3">
-      <div className="flex-1 min-w-0">
-        <p className="text-[13px] text-gray-900">
+    <div role="status" className="flex items-center gap-3 rounded-group bg-surface p-4">
+      <div className="min-w-0 flex-1">
+        <p className="pk-body font-semibold">
           {offline
             ? t('coachReviewComposerRoster.roster.offlineTitle')
             : t('coachReviewComposerRoster.roster.failedTitle')}
         </p>
-        <p className="text-[12px] text-ink-400 mt-0.5">
+        <p className="pk-caption mt-0.5">
           {offline
             ? t('coachReviewComposerRoster.roster.offlineBody')
             : t('coachReviewComposerRoster.roster.failedBody')}
         </p>
       </div>
-      <button
-        type="button"
-        onClick={onRetry}
-        disabled={retrying}
-        className="sl-pill sl-pill-btn shrink-0 bg-ink-100 text-ink-700 hover:bg-ink-200 disabled:opacity-50"
-      >
+      <Button onClick={onRetry} disabled={retrying}>
         {t('coachEditorNavErrors.read.retry')}
-      </button>
+      </Button>
     </div>
   );
 }
 
-function RosterView({ students, online, restoring, t }) {
+function RosterView({ students, online, restoring }) {
+  const { t, lang } = useI18n();
   const summaryRead = useCoachDashboardPrograms();
   // How many sessions wait for a review, per athlete — counted by the
   // database, or from the inbox alone: the chips need no history.
@@ -254,58 +221,59 @@ function RosterView({ students, online, restoring, t }) {
   }, [roster, query]);
 
   const loading = statusState === 'loading';
+  // Priority first (design/parc/README.md: « À suivre » before « À jour »),
+  // in the order `buildRoster` gives.
+  const toFollow = filtered.filter((e) => e.hasAttention);
+  const upToDate = filtered.filter((e) => !e.hasAttention);
+  const count = (n) => t(pluralKey(lang, n, 'parcRoster.athletesCount'), { n: formatNumber(lang, n) });
 
   return (
-    <div className="space-y-4">
-      <label className="block">
-        <span className="sr-only">{t('coach.roster.searchLabel')}</span>
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={t('coach.roster.searchPlaceholder')}
-          className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-        />
-      </label>
+    <div className="flex flex-col gap-4">
+      <SearchField label={t('parcRoster.search')} value={query} onChange={(e) => setQuery(e.target.value)} />
 
       {(statusState === 'offline' || statusState === 'failed') && (
         <RosterStatusNotice
           state={statusState}
           onRetry={() => missingReads.forEach((read) => read.refetch({ cancelRefetch: false }))}
           retrying={missingReads.some((read) => read.isFetching)}
-          t={t}
         />
       )}
 
       {loading ? (
-        <RosterSkeleton count={students.length} t={t} />
+        <RosterSkeleton count={students.length} />
+      ) : filtered.length === 0 ? (
+        <p className="rounded-group bg-surface p-4 pk-body">{t('parcRoster.noMatches')}</p>
       ) : (
-        <>
-          {filtered.length === 0 && <EmptyState message={t('coach.roster.noMatches')} />}
-
-          <div className="space-y-2 md:grid md:grid-cols-2 md:gap-2 md:space-y-0">
-            {filtered.map((entry) => (
-              <RosterCard key={entry.student.id} entry={entry} t={t} />
-            ))}
-          </div>
-        </>
+        <div className="flex flex-col gap-6 lg:grid lg:grid-cols-2 lg:items-start">
+          {toFollow.length > 0 && (
+            <ListGroup title={t('parcRoster.toFollow')} aside={count(toFollow.length)}>
+              {toFollow.map((entry) => (
+                <RosterRow key={entry.student.id} entry={entry} />
+              ))}
+            </ListGroup>
+          )}
+          {/* « Up to date » says there is nothing to see to: not said of an
+              athlete whose program or sessions to review were not read. */}
+          {upToDate.length > 0 && (
+            <ListGroup
+              title={missingReads.length > 0 ? t('parcRoster.others') : t('parcRoster.upToDate')}
+              aside={count(upToDate.length)}
+            >
+              {upToDate.map((entry) => (
+                <RosterRow key={entry.student.id} entry={entry} />
+              ))}
+            </ListGroup>
+          )}
+        </div>
       )}
 
-      {clientErrors && clientErrors.length > 0 && <ErrorsTriage errors={clientErrors} t={t} />}
+      {clientErrors && clientErrors.length > 0 && <ErrorsTriage errors={clientErrors} />}
     </div>
   );
 }
 
-// The house title style is an editorial full stop ("Athletes.", "Dashboard.").
-// A name that already ends in one — "Khang N.", "Sammy Jr." — must not become
-// a double period.
-function titleCase(fullName) {
-  const name = (fullName || '').trim() || 'Student';
-  return name.endsWith('.') ? name : `${name}.`;
-}
-
 export default function CoachHome() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { profile, signOut } = useAuth();
   const { studentId } = useParams();
   const navigate = useNavigate();
@@ -346,45 +314,41 @@ export default function CoachHome() {
     navigate(target, { replace: true });
   }, [studentId, isLoading, students, navigate]);
 
+  // How many athletes and sessions to review, under the title.
+  const reviewTotal = useToReviewCount();
+  const facts = [];
+  if (students) facts.push(t(pluralKey(lang, students.length, 'parcRoster.athletesCount'), { n: formatNumber(lang, students.length) }));
+  if (reviewTotal) facts.push(t(pluralKey(lang, reviewTotal, 'parcRoster.sessionsToReview'), { n: formatNumber(lang, reviewTotal) }));
+
   // ONE header, not two. On an athlete the page header *is* the athlete: the
-  // back link takes the kicker slot where "COACH" sits and the name takes the
-  // h1 where "Athletes." sits. Stacking a roster title, a back link and a
-  // separate identity row put the biggest type on the page you just left and
-  // pushed the actual subject three rows down at half the size.
+  // back button to the roster and the athlete's name as the h1. Stacking a
+  // roster title, a back link and a separate identity row put the biggest type
+  // on the page you just left and pushed the actual subject down at half the
+  // size.
+  const menu = <UserMenu fullName={profile?.full_name} onSignOut={signOut} />;
   return (
-    <div className="p-4 pb-6 md:p-8 space-y-5">
-      <div className="pt-3 pb-1 flex items-start justify-between gap-4">
-        {/* The roster and the athlete share ONE header box — same block-level
-            kicker, same h1 classes — so moving between them changes the words
-            and nothing else. That's also why the back chevron is a mono glyph
-            rather than an SVG: an inline-flex icon made the kicker's line box
-            taller than the roster's and indented its label off the title's
-            left edge, so the header visibly jumped on navigation. */}
-        <div className="min-w-0">
-          {selected ? (
-            <Link
-              to="/coach/students"
-              // The coach's explicit "I want the roster" signal — forget the
-              // remembered path, or the restore effect above would bounce them
-              // straight back into the athlete they just left.
-              onClick={clearLastCoachStudentsPath}
-              className="sl-label text-ink-400 hover:text-ink-700 transition-colors block w-fit"
-            >
-              <span aria-hidden="true">‹ </span>
-              {t('coach.roster.backToAll')}
-            </Link>
-          ) : (
-            <div className="sl-label text-ink-400">{t('coach.roster.kicker')}</div>
-          )}
-          {/* truncate because a name is unbounded, and no leading-none:
-              `truncate` clips at the padding edge and a name has descenders
-              the word "Athletes." never did. */}
-          <h1 className="sl-display text-[28px] md:text-[40px] text-gray-900 mt-1 truncate pb-0.5">
-            {selected ? titleCase(selected.profile?.full_name) : t('coach.roster.title')}
-          </h1>
-        </div>
-        <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
-      </div>
+    <div className="flex flex-col gap-6 px-4 pt-3 pb-6 md:px-8">
+      {selected ? (
+        <LargeTitle
+          title={(selected.profile?.full_name || '').trim() || t('parcRoster.unnamed')}
+          back={{
+            label: t('parcRoster.allAthletes'),
+            as: Link,
+            to: '/coach/students',
+            // The coach's explicit "I want the roster" signal — forget the
+            // remembered path, or the restore effect above would bounce them
+            // straight back into the athlete they just left.
+            onClick: clearLastCoachStudentsPath,
+          }}
+          actions={menu}
+        />
+      ) : (
+        <LargeTitle
+          title={t('nav.athletes')}
+          subtitle={facts.length > 0 ? facts.join(', ') : null}
+          trailing={menu}
+        />
+      )}
 
       {rosterState === 'loading' && (
         <div className="flex justify-center py-12"><Spinner /></div>
@@ -404,12 +368,12 @@ export default function CoachHome() {
           body={t('coachEditorNavErrors.athlete.notFoundBody')}
           to="/coach/students"
           onLeave={clearLastCoachStudentsPath}
-          linkLabel={t('coach.roster.backToAll')}
+          linkLabel={t('parcRoster.allAthletes')}
         />
       )}
 
       {rosterState === 'ready' && !studentId && students.length === 0 && (
-        <EmptyState message={t('coach.home.noStudentsExt')} />
+        <p className="rounded-group bg-surface p-4 pk-body">{t('parcRoster.empty')}</p>
       )}
 
       {rosterState === 'ready' && (
@@ -417,9 +381,7 @@ export default function CoachHome() {
           // No tab strip and no identity block: the athlete is ONE page
           // (StudentOverview) under a header that already names them.
           ? selected && <Outlet context={{ student: selected }} />
-          : students.length > 0 && (
-            <RosterView students={students} online={online} restoring={restoring} t={t} />
-          )
+          : students.length > 0 && <RosterView students={students} online={online} restoring={restoring} />
       )}
     </div>
   );

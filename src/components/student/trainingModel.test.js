@@ -10,6 +10,7 @@ import {
   newestTrainedFirst,
   positionsOf,
   trainedOnText,
+  weekFromStrip,
   weekOf,
   weekSentence,
   whenText,
@@ -326,6 +327,56 @@ describe('weekOf', () => {
         }
       });
     });
+  });
+});
+
+// The coach's roster draws an athlete's week from the strip it already holds
+// (`buildDayStrip`), in the shape `weekSentence` reads.
+describe('weekFromStrip', () => {
+  const strip = (states) => states.map((state, i) => ({ dayNumber: i + 1, state }));
+
+  it('marks the days trained and a session today, which is the next one', () => {
+    const week = weekFromStrip(
+      strip(['performed', 'rest', 'planned', 'rest', 'suggested', 'planned', 'rest']),
+      3,
+    );
+    expect(week.days).toEqual(['done', 'none', 'today', 'none', 'none', 'none', 'none']);
+    expect(week).toMatchObject({ doneCount: 1, doneDays: [1], todayPlanned: true, nextDay: null });
+  });
+
+  it('rings the first open day when it is still to come, and no later one', () => {
+    const week = weekFromStrip(strip(['performed', 'rest', 'rest', 'rest', 'suggested', 'planned', 'rest']), 3);
+    expect(week.days).toEqual(['done', 'none', 'none', 'none', 'next', 'none', 'none']);
+    expect(week.nextDay).toBe(5);
+  });
+
+  // Like the athlete's week: a session whose day has passed is still the next
+  // one, and the dots say nothing about when.
+  it('rings nothing while the next session sits on a day gone by', () => {
+    const week = weekFromStrip(strip(['rest', 'planned', 'rest', 'rest', 'planned', 'rest', 'rest']), 4);
+    expect(week.days.every((d) => d === 'none')).toBe(true);
+  });
+
+  // No "missed": a recommended day that passed is nothing, the session stays next.
+  it('leaves a past day that was not trained, and an archived one, empty', () => {
+    const week = weekFromStrip(strip(['planned', 'archived', 'rest', 'rest', 'rest', 'rest', 'rest']), 4);
+    expect(week.days.every((d) => d === 'none')).toBe(true);
+    expect(week).toMatchObject({ doneCount: 0, doneDays: [], todayPlanned: false, nextDay: null });
+  });
+
+  it('never lets today hide a day already trained', () => {
+    const week = weekFromStrip(strip(['rest', 'performed', 'rest', 'rest', 'rest', 'rest', 'rest']), 2);
+    expect(week.days[1]).toBe('done');
+    expect(week.todayPlanned).toBe(false);
+  });
+
+  it('reads an athlete without a strip as an empty week', () => {
+    expect(weekFromStrip(undefined, 1)).toMatchObject({ days: [], doneCount: 0, nextDay: null });
+  });
+
+  it('gives weekSentence what it names', () => {
+    const week = weekFromStrip(strip(['performed', 'rest', 'performed', 'rest', 'planned', 'rest', 'rest']), 4);
+    expect(weekSentence(week, en)).toBe('This week, Monday and Wednesday done, next session Friday');
   });
 });
 

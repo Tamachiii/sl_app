@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, Navigate, useLocation, useOutletContext } from 'react-router-dom';
 
 let mockStudentsData = { data: null, isLoading: false };
@@ -15,6 +15,8 @@ vi.mock('../../hooks/useProgram', () => ({
   useCoachDashboardPrograms: () => mockSummary,
 }));
 
+// Read by the rows' "to review" and by the title's count of sessions to
+// review (hooks/useToReviewCount sums it), so the two cannot disagree.
 vi.mock('../../hooks/useSessionConfirmation', () => ({
   useReviewCounts: () => mockReviewCounts,
 }));
@@ -66,17 +68,25 @@ function renderCoachHome(path = '/coach/students') {
   );
 }
 
-// weekDays that carry no missed/today/upcoming status regardless of the real
-// clock (confirmed = completed, null = rest), so ordering assertions stay
+// The rows' own links — the athlete's name, stretched over the row — in the
+// order they are drawn. The "to review" links lead to the feed instead.
+const cardLinks = () =>
+  screen.queryAllByRole('link').filter((a) => /^\/coach\/students\/[^/?]+$/.test(a.getAttribute('href')));
+const cardNames = () => cardLinks().map((a) => a.textContent);
+// The row of one athlete.
+const rowOf = (name) => screen.getByRole('link', { name }).closest('li');
+
+// weekDays that carry no today/upcoming status regardless of the real clock
+// (performed = trained, rest = nothing), so ordering assertions stay
 // deterministic on any day the suite runs.
 const CALM_WEEK = [
-  { dayNumber: 1, session: { id: 'a' }, confirmed: true },
-  { dayNumber: 2, session: null, confirmed: false },
-  { dayNumber: 3, session: null, confirmed: false },
-  { dayNumber: 4, session: null, confirmed: false },
-  { dayNumber: 5, session: null, confirmed: false },
-  { dayNumber: 6, session: null, confirmed: false },
-  { dayNumber: 7, session: null, confirmed: false },
+  { dayNumber: 1, session: { id: 'a' }, state: 'performed' },
+  { dayNumber: 2, session: null, state: 'rest' },
+  { dayNumber: 3, session: null, state: 'rest' },
+  { dayNumber: 4, session: null, state: 'rest' },
+  { dayNumber: 5, session: null, state: 'rest' },
+  { dayNumber: 6, session: null, state: 'rest' },
+  { dayNumber: 7, session: null, state: 'rest' },
 ];
 
 describe('CoachHome', () => {
@@ -98,41 +108,31 @@ describe('CoachHome', () => {
   it('renders empty state when no students', () => {
     mockStudentsData = { data: [], isLoading: false };
     renderCoachHome();
-    expect(screen.getByText(/no students yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/no athlete yet/i)).toBeInTheDocument();
+    expect(screen.queryByRole('searchbox')).toBeNull();
   });
 
   it('renders the page title', () => {
     mockStudentsData = { data: [], isLoading: false };
     renderCoachHome();
-    expect(screen.getByRole('heading', { level: 1, name: 'Athletes.' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Athletes' })).toBeInTheDocument();
   });
 
-  // jsdom has no layout, so this guards the two structural things that made the
-  // header jump on navigation: a differently-shaped kicker box, and a differently
-  // -styled h1. Same classes + same box shape = same pixels.
-  it('gives the roster and the athlete the same header box', () => {
+  // Moving between the roster and an athlete changes the words of the title,
+  // not its type: both are the one h1 of a Parc LargeTitle.
+  it('draws the roster and the athlete with the same title', () => {
     mockStudentsData = {
       data: [{ id: 's-1', profile_id: 'p-1', created_at: null, profile: { full_name: 'Alice' } }],
       isLoading: false,
     };
 
     renderCoachHome('/coach/students');
-    const rosterH1 = screen.getByRole('heading', { level: 1, name: 'Athletes.' });
-    const rosterKicker = rosterH1.previousElementSibling;
+    const rosterH1 = screen.getByRole('heading', { level: 1, name: 'Athletes' });
 
     renderCoachHome('/coach/students/s-1');
-    const athleteH1 = screen.getByRole('heading', { level: 1, name: 'Alice.' });
-    const athleteKicker = athleteH1.previousElementSibling;
+    const athleteH1 = screen.getByRole('heading', { level: 1, name: 'Alice' });
 
     expect(athleteH1.className).toBe(rosterH1.className);
-    // An inline-flex anchor wrapping an SVG chevron was the original culprit:
-    // taller line box than the roster's block kicker, and a label indented off
-    // the title's left edge. The chevron is a mono glyph in the text run now.
-    expect(athleteKicker.tagName).toBe('A');
-    expect(athleteKicker.querySelector('svg')).toBeNull();
-    expect(athleteKicker.className).toContain('block');
-    expect(athleteKicker.className).toContain('sl-label');
-    expect(rosterKicker.className).toContain('sl-label');
   });
 
   describe('roster landing', () => {
@@ -147,8 +147,8 @@ describe('CoachHome', () => {
       };
       mockSummary = {
         data: {
-          s1: { programName: 'Hyp', activeWeek: { week_number: 3, label: 'B1' }, weekDays: CALM_WEEK },
-          s3: { programName: 'Str', activeWeek: { week_number: 1, label: null }, weekDays: CALM_WEEK },
+          s1: { programName: 'Hyp', position: 7, totalSessions: 24, weekDays: CALM_WEEK },
+          s3: { programName: 'Str', position: 1, totalSessions: 12, weekDays: CALM_WEEK },
           // s2 absent → no active program.
         },
       };
@@ -158,9 +158,14 @@ describe('CoachHome', () => {
 
     it('renders a card link per athlete', () => {
       renderCoachHome();
-      expect(screen.getByRole('link', { name: /open alice/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /open bob/i })).toHaveAttribute('href', '/coach/students/s2');
-      expect(screen.getByRole('link', { name: /open cara/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Alice' })).toHaveAttribute('href', '/coach/students/s1');
+      expect(screen.getByRole('link', { name: 'Bob' })).toHaveAttribute('href', '/coach/students/s2');
+      expect(screen.getByRole('link', { name: 'Cara' })).toHaveAttribute('href', '/coach/students/s3');
+    });
+
+    it('says how many athletes and how many sessions wait for a review, under the title', () => {
+      renderCoachHome();
+      expect(screen.getByText('3 athletes, 2 sessions to review')).toBeInTheDocument();
     });
 
     it('surfaces attention chips', () => {
@@ -169,23 +174,51 @@ describe('CoachHome', () => {
       expect(screen.getByText(/2 to review/i)).toBeInTheDocument();
     });
 
+    it('says how long an athlete has been quiet', () => {
+      mockSummary.data.s1 = { ...mockSummary.data.s1, daysSinceLast: 12 };
+      renderCoachHome();
+      expect(within(rowOf('Alice')).getByText('Quiet 12 d')).toBeInTheDocument();
+      expect(within(screen.getByRole('region', { name: 'To follow' })).getByRole('link', { name: 'Alice' }))
+        .toBeInTheDocument();
+    });
+
+    // design/parc/components/StatusText: one status per athlete, the most
+    // urgent — no program before sessions to review before silence.
+    it('writes one status per athlete, the most urgent', () => {
+      mockSummary.data.s3 = { ...mockSummary.data.s3, daysSinceLast: 12 };
+      mockReviewCounts = { data: { s2: 1, s3: 2 } };
+      renderCoachHome();
+
+      expect(within(rowOf('Bob')).getByText('No program')).toBeInTheDocument();
+      expect(within(rowOf('Bob')).queryByText(/to review/i)).toBeNull();
+      expect(within(rowOf('Cara')).getByText('2 to review')).toBeInTheDocument();
+      expect(within(rowOf('Cara')).queryByText(/quiet/i)).toBeNull();
+    });
+
+    it('says where the athlete is in the block', () => {
+      renderCoachHome();
+      expect(within(rowOf('Alice')).getByText('Session 7 of 24, Hyp')).toBeInTheDocument();
+      // No program, no place in one.
+      expect(within(rowOf('Bob')).queryByText(/^session /i)).toBeNull();
+    });
+
     // Review finding P12: the chip sat inside a card that opened the athlete
     // page, where nothing could be reviewed. It opens what it counts.
     it('links the "to review" chip to that athlete\'s sessions in the feed', () => {
       renderCoachHome();
-      const chip = screen.getByRole('link', { name: /2 to review/i });
+      const chip = screen.getByRole('link', { name: /to review/i });
       expect(chip).toHaveAttribute('href', '/coach/sessions?student=s3');
       expect(chip).toHaveAccessibleName(/cara/i);
       expect(chip).toHaveTextContent(/^2 to review$/i);
     });
 
     // An anchor inside an anchor is invalid HTML, and browsers split it in
-    // ways that differ. The card's link is stretched over the card instead of
+    // ways that differ. The row's link is stretched over the row instead of
     // wrapped around it.
     it('keeps the chip out of the card link, and the card one link', () => {
       renderCoachHome();
-      const card = screen.getByRole('link', { name: /open cara/i });
-      const chip = screen.getByRole('link', { name: /2 to review/i });
+      const card = screen.getByRole('link', { name: 'Cara' });
+      const chip = screen.getByRole('link', { name: /to review/i });
       expect(card).not.toContainElement(chip);
       expect(card).toHaveAttribute('href', '/coach/students/s3');
       expect(card.className).toContain('after:absolute');
@@ -204,30 +237,80 @@ describe('CoachHome', () => {
 
     it('orders attention-first (no-program, then to-review, then calm)', () => {
       renderCoachHome();
-      const names = screen.getAllByRole('link', { name: /open /i }).map((el) => el.getAttribute('aria-label'));
-      expect(names).toEqual(['Open Bob', 'Open Cara', 'Open Alice']);
+      expect(cardNames()).toEqual(['Bob', 'Cara', 'Alice']);
+    });
+
+    // design/parc/README.md: « À suivre » before « À jour », each in the order
+    // buildRoster gives.
+    it('puts the athletes who need a look under "To follow", the others under "Up to date"', () => {
+      renderCoachHome();
+      const toFollow = screen.getByRole('region', { name: 'To follow' });
+      const upToDate = screen.getByRole('region', { name: 'Up to date' });
+
+      expect(within(toFollow).getAllByRole('link', { name: /^(bob|cara)$/i }).map((a) => a.textContent))
+        .toEqual(['Bob', 'Cara']);
+      expect(within(toFollow).getByText('2 athletes')).toBeInTheDocument();
+      expect(within(upToDate).getByRole('link', { name: 'Alice' })).toBeInTheDocument();
+      expect(within(upToDate).getByText('1 athlete')).toBeInTheDocument();
+      expect(toFollow.compareDocumentPosition(upToDate) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('draws no "Up to date" group when every athlete needs a look', () => {
+      mockSummary.data.s1 = { ...mockSummary.data.s1, daysSinceLast: 12 };
+      renderCoachHome();
+      expect(screen.queryByRole('region', { name: 'Up to date' })).toBeNull();
+      expect(cardNames()).toEqual(['Bob', 'Cara', 'Alice']);
     });
 
     it('filters the list by the search box', () => {
       renderCoachHome();
-      fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'ali' } });
-      expect(screen.getByRole('link', { name: /open alice/i })).toBeInTheDocument();
-      expect(screen.queryByRole('link', { name: /open bob/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole('link', { name: /open cara/i })).not.toBeInTheDocument();
+      fireEvent.change(screen.getByRole('searchbox', { name: 'Search an athlete' }), { target: { value: 'ali' } });
+      expect(screen.getByRole('link', { name: 'Alice' })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Bob' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Cara' })).not.toBeInTheDocument();
     });
 
+    it('finds an athlete by the name of their block too, and says when nobody matches', () => {
+      renderCoachHome();
+      fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'str' } });
+      expect(cardNames()).toEqual(['Cara']);
+
+      fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'zzz' } });
+      expect(cardNames()).toEqual([]);
+      expect(screen.getByText(/no athlete matches/i)).toBeInTheDocument();
+    });
+
+    // The app's errors are a closed row at the end of the roster, opened to
+    // read them.
     it('shows the app-errors triage when there are errors', () => {
       mockClientErrors = { data: [{ id: 'e1', role: 'student', message: 'boom', url: '/x', created_at: '2026-01-01' }] };
       renderCoachHome();
-      expect(screen.getByText(/app errors/i)).toBeInTheDocument();
-      expect(screen.getByText('boom')).toBeInTheDocument();
+
+      const triage = screen.getByRole('region', { name: /app errors/i });
+      const toggle = within(triage).getByRole('button', { name: '1 error' });
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByText('boom')).toBeNull();
+      expect(
+        screen.getByRole('region', { name: 'Up to date' }).compareDocumentPosition(triage)
+          & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      expect(within(triage).getByText('boom')).toBeInTheDocument();
+      expect(within(triage).getByText('/x')).toBeInTheDocument();
+    });
+
+    it('shows no app-errors triage without errors', () => {
+      renderCoachHome();
+      expect(screen.queryByRole('region', { name: /app errors/i })).toBeNull();
     });
 
     // Review items P48, N16: the cards read only `data` of the two reads, and
     // a summary that had not arrived — or was answered by a 500 — was "nobody
     // has a program": a red chip on every athlete, all sorted to the top, and
     // re-sorted when the answer landed.
-    describe('while the athletes\u2019 status is not known', () => {
+    describe('while the athletes’ status is not known', () => {
       const refetchSummary = vi.fn();
       const refetchCounts = vi.fn();
       const loadingRead = (refetch) => ({
@@ -239,8 +322,6 @@ describe('CoachHome', () => {
       const pausedRead = (refetch) => ({
         data: undefined, isLoading: true, isError: false, isPaused: true, fetchStatus: 'paused', isFetching: false, refetch,
       });
-      const cardNames = () =>
-        screen.queryAllByRole('link', { name: /open /i }).map((el) => el.getAttribute('aria-label'));
 
       beforeEach(() => {
         refetchSummary.mockReset();
@@ -254,11 +335,14 @@ describe('CoachHome', () => {
 
         const placeholder = screen.getByRole('status', { name: /loading your athletes/i });
         expect(placeholder).toHaveAttribute('aria-busy', 'true');
-        expect(placeholder.children).toHaveLength(3);
+        expect(placeholder.querySelectorAll('li')).toHaveLength(3);
+        expect(placeholder.querySelector('a, button, input')).toBeNull();
         expect(screen.queryByText(/no program/i)).toBeNull();
         expect(screen.queryByText(/^\d+ to review$/i)).toBeNull();
         expect(cardNames()).toEqual([]);
-        expect(screen.queryByText(/no athletes match/i)).toBeNull();
+        expect(screen.queryByRole('region', { name: 'To follow' })).toBeNull();
+        expect(screen.queryByRole('region', { name: 'Up to date' })).toBeNull();
+        expect(screen.queryByText(/no athlete matches/i)).toBeNull();
       });
 
       it('waits for both reads before it draws the cards', () => {
@@ -276,12 +360,28 @@ describe('CoachHome', () => {
         expect(screen.getByText('Athlete status couldn’t be loaded')).toBeInTheDocument();
         expect(screen.queryByText(/no program/i)).toBeNull();
         // Every athlete is still there, A–Z, and opens.
-        expect(cardNames()).toEqual(['Open Alice', 'Open Bob', 'Open Cara']);
-        expect(screen.getByRole('link', { name: /open bob/i })).toHaveAttribute('href', '/coach/students/s2');
+        expect(cardNames()).toEqual(['Alice', 'Bob', 'Cara']);
+        expect(screen.getByRole('link', { name: 'Bob' })).toHaveAttribute('href', '/coach/students/s2');
+        // No block is named and no place in one is invented either.
+        expect(screen.queryByText(/^session /i)).toBeNull();
+        expect(screen.queryByRole('img')).toBeNull();
 
         fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
         expect(refetchSummary).toHaveBeenCalledWith({ cancelRefetch: false });
         expect(refetchCounts).not.toHaveBeenCalled();
+      });
+
+      // « Up to date » is a status too: it says the coach has nothing to see
+      // to. An athlete whose program or sessions to review are not known is
+      // not known to be up to date.
+      it('files no athlete under "Up to date" while their status is not known', () => {
+        mockSummary = failedRead(refetchSummary);
+        mockReviewCounts = { data: {} };
+        renderCoachHome();
+
+        expect(screen.getByText('Athlete status couldn’t be loaded')).toBeInTheDocument();
+        expect(cardNames()).toEqual(['Alice', 'Bob', 'Cara']);
+        expect(screen.queryByRole('region', { name: 'Up to date' })).toBeNull();
       });
 
       it('keeps the review chips it knows when only the summary failed', () => {
@@ -289,7 +389,7 @@ describe('CoachHome', () => {
         renderCoachHome();
         expect(screen.getByText(/2 to review/i)).toBeInTheDocument();
         expect(screen.queryByText(/no program/i)).toBeNull();
-        expect(cardNames()).toEqual(['Open Cara', 'Open Alice', 'Open Bob']);
+        expect(cardNames()).toEqual(['Cara', 'Alice', 'Bob']);
       });
 
       it('shows no "to review" chip it could not count, and keeps what the summary says', () => {
@@ -298,6 +398,8 @@ describe('CoachHome', () => {
 
         expect(screen.getByText('Athlete status couldn’t be loaded')).toBeInTheDocument();
         expect(screen.queryByText(/^\d+ to review$/i)).toBeNull();
+        // Nor does the title count sessions it could not count.
+        expect(screen.getByText('3 athletes')).toBeInTheDocument();
         expect(screen.getByText(/no program/i)).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
         expect(refetchCounts).toHaveBeenCalledWith({ cancelRefetch: false });
@@ -311,7 +413,7 @@ describe('CoachHome', () => {
 
         expect(screen.queryByText(/no program/i)).toBeNull();
         expect(screen.queryByText(/^\d+ to review$/i)).toBeNull();
-        expect(cardNames()).toEqual(['Open Alice', 'Open Bob', 'Open Cara']);
+        expect(cardNames()).toEqual(['Alice', 'Bob', 'Cara']);
         fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
         expect(refetchSummary).toHaveBeenCalledWith({ cancelRefetch: false });
         expect(refetchCounts).toHaveBeenCalledWith({ cancelRefetch: false });
@@ -330,6 +432,110 @@ describe('CoachHome', () => {
         expect(screen.queryByText('Athlete status couldn’t be loaded')).toBeNull();
         expect(screen.getAllByText(/no program/i)).toHaveLength(2);
       });
+    });
+  });
+
+  // The week of each row, in seven dots (design/parc/components/WeekDots),
+  // with the sentence that says it. What StudentWeekStrip used to draw.
+  describe('the week of each athlete', () => {
+    const week = (states) =>
+      Array.from({ length: 7 }, (_, i) => ({
+        dayNumber: i + 1,
+        session: states[i + 1] ? { id: `x${i + 1}` } : null,
+        state: states[i + 1] || 'rest',
+      }));
+    const renderWeek = (states) => {
+      mockSummary = { data: { s1: { programName: 'Hyp', position: 2, totalSessions: 9, weekDays: week(states) } } };
+      renderCoachHome();
+    };
+    const dotsOf = (img) => Array.from(img.children, (dot) => dot.className);
+
+    beforeEach(() => {
+      mockStudentsData = { data: [{ id: 's1', profile: { full_name: 'Alice' } }], isLoading: false };
+      mockReviewCounts = { data: {} };
+      // Pin "today" to Wednesday (dayNumber 3): 2026-04-29 is a Wednesday.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date(2026, 3, 29, 12, 0, 0));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('marks the days trained and a session planned today', () => {
+      renderWeek({ 1: 'performed', 3: 'planned', 5: 'suggested' });
+      const dots = within(rowOf('Alice')).getByRole('img', {
+        name: 'This week, Monday done, a session planned today',
+      });
+      // Today's session is the next one: a later day gets no ring, as on the
+      // athlete's own week.
+      expect(dotsOf(dots)).toEqual(['is-done', '', 'is-today', '', '', '', '']);
+    });
+
+    it('rings the day of the next session when it is still to come', () => {
+      renderWeek({ 1: 'performed', 5: 'suggested', 6: 'planned' });
+      const dots = within(rowOf('Alice')).getByRole('img', {
+        name: 'This week, Monday done, next session Friday',
+      });
+      expect(dotsOf(dots)).toEqual(['is-done', '', '', '', 'is-next', '', '']);
+    });
+
+    it('rings no later day while the next session sits on a day gone by', () => {
+      renderWeek({ 2: 'planned', 5: 'planned' });
+      const dots = within(rowOf('Alice')).getByRole('img', { name: 'This week, nothing planned' });
+      expect(dotsOf(dots)).toEqual(['', '', '', '', '', '', '']);
+    });
+
+    it('keeps today from overriding a day already trained', () => {
+      renderWeek({ 3: 'performed' });
+      const dots = within(rowOf('Alice')).getByRole('img', { name: 'This week, Wednesday done' });
+      expect(dotsOf(dots)[2]).toBe('is-done');
+    });
+
+    // A recommended day that has passed is not a failure. It stays a
+    // recommendation, and the session stays next in the queue.
+    it('never marks a past day as missed', () => {
+      renderWeek({ 1: 'suggested' });
+      const dots = within(rowOf('Alice')).getByRole('img', { name: 'This week, nothing planned' });
+      expect(dotsOf(dots)).toEqual(['', '', '', '', '', '', '']);
+      expect(screen.queryByText(/missed/i)).toBeNull();
+    });
+
+    it('draws seven plain days for a week without a session', () => {
+      renderWeek({});
+      const dots = within(rowOf('Alice')).getByRole('img', { name: 'This week, nothing planned' });
+      expect(dotsOf(dots)).toEqual(['', '', '', '', '', '', '']);
+    });
+
+    it('draws no week for an athlete without a program', () => {
+      mockSummary = { data: {} };
+      renderCoachHome();
+      expect(within(rowOf('Alice')).queryByRole('img')).toBeNull();
+    });
+
+    // At the end of a row with nothing to see to: the day of the next session.
+    it('writes the day of the next session at the end of a calm row', () => {
+      renderWeek({ 5: 'suggested' });
+      expect(within(rowOf('Alice')).getByText('Friday')).toBeInTheDocument();
+    });
+
+    it('writes "Today" when the next session is planned today', () => {
+      renderWeek({ 3: 'planned' });
+      expect(within(rowOf('Alice')).getByText('Today')).toBeInTheDocument();
+    });
+
+    // The session planned today comes before the one planned on Friday.
+    it('writes "Today", not a later day, when sessions are planned today and later', () => {
+      renderWeek({ 3: 'planned', 5: 'suggested' });
+      expect(within(rowOf('Alice')).getByText('Today')).toBeInTheDocument();
+      expect(within(rowOf('Alice')).queryByText('Friday')).toBeNull();
+    });
+
+    it('writes the status instead of the day for a row that needs a look', () => {
+      mockReviewCounts = { data: { s1: 1 } };
+      renderWeek({ 5: 'suggested' });
+      expect(within(rowOf('Alice')).getByText('1 to review')).toBeInTheDocument();
+      expect(within(rowOf('Alice')).queryByText('Friday')).toBeNull();
     });
   });
 
@@ -359,13 +565,13 @@ describe('CoachHome', () => {
 
     it('makes the athlete the page title, and keeps it while a session is open', () => {
       renderCoachHome('/coach/students/s-1');
-      expect(screen.getByRole('heading', { level: 1, name: 'Alice.' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: 'Alice' })).toBeInTheDocument();
       // The roster title is REPLACED, not stacked above the name.
-      expect(screen.queryByRole('heading', { name: 'Athletes.' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'Athletes' })).not.toBeInTheDocument();
 
       // The editor is a child route, so identity must survive the drill-down.
       renderCoachHome('/coach/students/s-1/s/sess-1');
-      expect(screen.getAllByRole('heading', { level: 1, name: 'Alice.' }).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole('heading', { level: 1, name: 'Alice' }).length).toBeGreaterThan(0);
       expect(screen.getByTestId('session-editor')).toHaveTextContent('session:s-1');
     });
 
@@ -379,6 +585,8 @@ describe('CoachHome', () => {
       expect(screen.queryByRole('heading', { level: 2, name: /alice/i })).not.toBeInTheDocument();
     });
 
+    // The title adds nothing to the name: a name that ends in a full stop
+    // keeps the one it has.
     it("doesn't double the full stop on a name that already ends in one", () => {
       mockStudentsData = {
         data: [{
@@ -391,6 +599,15 @@ describe('CoachHome', () => {
       };
       renderCoachHome('/coach/students/s-1');
       expect(screen.getByRole('heading', { level: 1, name: 'Sammy Jr.' })).toBeInTheDocument();
+    });
+
+    it('names an athlete without a name', () => {
+      mockStudentsData = {
+        data: [{ id: 's-1', profile_id: 'p-1', created_at: null, profile: { full_name: '  ' } }],
+        isLoading: false,
+      };
+      renderCoachHome('/coach/students/s-1');
+      expect(screen.getByRole('heading', { level: 1, name: 'Athlete without a name' })).toBeInTheDocument();
     });
 
     it('renders the overview on the bare athlete URL', () => {
@@ -430,7 +647,7 @@ describe('CoachHome', () => {
       renderCoachHome('/coach/students');
 
       expect(screen.getByText('This couldn’t be loaded')).toBeInTheDocument();
-      expect(screen.queryByText(/no students yet/i)).toBeNull();
+      expect(screen.queryByText(/no athlete yet/i)).toBeNull();
       fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
       expect(refetch).toHaveBeenCalledWith({ cancelRefetch: false });
     });
@@ -442,7 +659,7 @@ describe('CoachHome', () => {
       renderCoachHome('/coach/students/s-1');
 
       expect(screen.getByText('This isn’t on this device yet')).toBeInTheDocument();
-      expect(screen.queryByText(/no students yet/i)).toBeNull();
+      expect(screen.queryByText(/no athlete yet/i)).toBeNull();
     });
 
     it('says an athlete who is not on the roster is not found, with the way back to it', () => {
@@ -450,7 +667,7 @@ describe('CoachHome', () => {
       renderCoachHome('/coach/students/nobody');
 
       expect(screen.getByText('Athlete not found')).toBeInTheDocument();
-      expect(screen.queryByText(/no students yet/i)).toBeNull();
+      expect(screen.queryByText(/no athlete yet/i)).toBeNull();
       expect(screen.queryByTestId('overview')).toBeNull();
       const back = screen.getAllByRole('link', { name: /all athletes/i });
       expect(back.at(-1)).toHaveAttribute('href', '/coach/students');
@@ -461,7 +678,7 @@ describe('CoachHome', () => {
       renderCoachHome('/coach/students/nobody/s/sess-1');
 
       expect(screen.getByText('Athlete not found')).toBeInTheDocument();
-      expect(screen.queryByText(/no students yet/i)).toBeNull();
+      expect(screen.queryByText(/no athlete yet/i)).toBeNull();
       expect(screen.queryByTestId('session-editor')).toBeNull();
     });
 
@@ -477,7 +694,7 @@ describe('CoachHome', () => {
       mockStudentsData = { data: [ALICE], isLoading: false };
       renderCoachHome('/coach/students/nobody');
       fireEvent.click(screen.getAllByRole('link', { name: /all athletes/i }).at(-1));
-      fireEvent.click(screen.getByRole('link', { name: /open alice/i }));
+      fireEvent.click(screen.getByRole('link', { name: 'Alice' }));
 
       expect(screen.getByTestId('overview')).toHaveTextContent('overview:s-1');
       expect(sessionStorage.getItem(KEY)).toBe('/coach/students/s-1');
@@ -552,7 +769,7 @@ describe('CoachHome', () => {
 
         renderCoachHome('/coach/students');
         expect(screen.queryByTestId('overview')).toBeNull();
-        expect(screen.getByRole('link', { name: /open alice/i })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Alice' })).toBeInTheDocument();
       });
 
       // What the app before this change left behind must not send the first
@@ -561,7 +778,7 @@ describe('CoachHome', () => {
         localStorage.setItem(KEY, '/coach/students/s-1');
         renderCoachHome('/coach/students');
         expect(screen.queryByTestId('overview')).toBeNull();
-        expect(screen.getByRole('link', { name: /open alice/i })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Alice' })).toBeInTheDocument();
       });
     });
 
@@ -569,14 +786,14 @@ describe('CoachHome', () => {
       sessionStorage.setItem(KEY, '/coach/students/gone');
       renderCoachHome('/coach/students');
       expect(screen.queryByTestId('overview')).not.toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /open alice/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Alice' })).toBeInTheDocument();
     });
 
     it('"All athletes" clears the memory so the roster stays put', () => {
       renderCoachHome('/coach/students/s-1');
       fireEvent.click(screen.getByRole('link', { name: /all athletes/i }));
       expect(sessionStorage.getItem(KEY)).toBeNull();
-      expect(screen.getByRole('link', { name: /open alice/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Alice' })).toBeInTheDocument();
     });
   });
 });
