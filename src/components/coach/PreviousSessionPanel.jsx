@@ -1,6 +1,6 @@
 import { useI18n } from '../../hooks/useI18n';
 import { useLastPerformance } from '../../hooks/useLastPerformance';
-import { formatLastPerformance, daysSince } from '../../lib/lastPerformance';
+import { lastTimeText } from '../student/sessionModel';
 import Spinner from '../ui/Spinner';
 
 /**
@@ -24,37 +24,25 @@ import Spinner from '../ui/Spinner';
  * the old collapsed-by-default panel existed to avoid paying for a slot tree
  * this no longer fetches.
  */
-function ExerciseLine({ name, perf, lang, t }) {
-  const summary = formatLastPerformance(perf);
-  const days = perf ? daysSince(perf.performedAt) : null;
-  let when = '';
-  if (days != null) {
-    try {
-      when = new Intl.RelativeTimeFormat(lang, { numeric: 'auto' }).format(-days, 'day');
-    } catch {
-      when = '';
-    }
-  }
-
+// « Il y a 7 jours, 4 × 5 à 17,5 kg. » — the same words as the athlete's own
+// « La dernière fois » under the set they are logging.
+function ExerciseLine({ name, perf, ctx }) {
+  const text = lastTimeText(perf, ctx);
   return (
-    <li className="flex items-baseline gap-2 py-1.5 border-t border-ink-100 first:border-t-0">
-      <span className="sl-display text-[13px] text-ink-700 truncate min-w-0 flex-1">{name}</span>
-      {summary ? (
-        <>
-          <span className="sl-mono text-[11px] text-ink-400 shrink-0 tabular-nums">{summary}</span>
-          {when && <span className="sl-mono text-[10px] text-ink-300 shrink-0">{when}</span>}
-        </>
-      ) : (
-        // Never trained, or trained only as a swap with no logged actuals —
-        // a prescription is not a performance, so there is nothing to beat.
-        <span className="sl-mono text-[11px] text-ink-300 shrink-0">{t('coach.prev.never')}</span>
-      )}
+    <li className="pk-row">
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="pk-headline truncate">{name}</span>
+        <span className="pk-caption">
+          <span className="sr-only">,</span> {text || ctx.t('parcEditor.notYet')}
+        </span>
+      </span>
     </li>
   );
 }
 
 export default function PreviousSessionPanel({ studentRowId, sessionId, slots }) {
-  const { t, lang } = useI18n();
+  const ctx = useI18n();
+  const { t } = ctx;
   const exercises = (slots || []).map((s) => s.exercise).filter(Boolean);
 
   const { data: byExercise, isLoading } = useLastPerformance(
@@ -69,23 +57,22 @@ export default function PreviousSessionPanel({ studentRowId, sessionId, slots })
   if (exercises.length === 0) return null;
 
   return (
-    <div className="sl-card p-3">
-      <div className="sl-label text-ink-400 mb-1.5">{t('coach.prev.label')}</div>
+    <section aria-labelledby={`last-time-${sessionId}`} className="flex flex-col gap-2.5">
+      <h2 id={`last-time-${sessionId}`} className="pk-headline">{t('parcEditor.lastTime')}</h2>
       {isLoading ? (
         <div className="flex justify-center py-3"><Spinner /></div>
       ) : (
-        <ul>
+        <ul className="pk-group">
           {exercises.map((ex, i) => (
             <ExerciseLine
               key={`${ex.id}-${i}`}
               name={ex.name}
               perf={byExercise?.[ex.id]}
-              lang={lang}
-              t={t}
+              ctx={ctx}
             />
           ))}
         </ul>
       )}
-    </div>
+    </section>
   );
 }

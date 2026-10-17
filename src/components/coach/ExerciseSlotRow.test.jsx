@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DndContext } from '@dnd-kit/core';
 import { SortableContext } from '@dnd-kit/sortable';
@@ -31,36 +31,45 @@ function renderSlotRow(props = {}) {
   return { ...result, props: defaultProps };
 }
 
+// The per-set table of the exercise, named after it.
+const perSetTable = () => screen.queryByRole('table', { name: 'Targets of each set of Pull Up' });
+
 describe('ExerciseSlotRow', () => {
+  // A section named by the exercise: its name, then what it prescribes and
+  // its level on one line (design/parc/screens/Editeur.dc.html).
   it('renders exercise name', () => {
     renderSlotRow();
-    expect(screen.getByText('Pull Up')).toBeInTheDocument();
+    const card = screen.getByRole('region', { name: 'Pull Up' });
+    expect(within(card).getByRole('heading', { level: 2, name: 'Pull Up' })).toBeInTheDocument();
+    expect(within(card).getByText('3 × 10 at 50 kg, Level 2')).toBeInTheDocument();
   });
 
   it('renders a drag handle for reordering', () => {
     renderSlotRow();
     expect(
-      screen.getByRole('button', { name: /reorder pull up/i })
+      screen.getByRole('button', { name: 'Move Pull Up' })
     ).toBeInTheDocument();
   });
 
-  it('clicking delete opens a confirm dialog and confirming calls onDelete', async () => {
+  it('clicking delete opens a confirm sheet and confirming calls onDelete', async () => {
     const user = userEvent.setup();
     const { props } = renderSlotRow();
 
-    await user.click(screen.getByRole('button', { name: /remove exercise/i }));
-    // Dialog opens with the exercise name in the message
-    expect(screen.getByRole('dialog', { hidden: true })).toHaveTextContent(/Pull Up/);
+    await user.click(screen.getByRole('button', { name: 'Remove Pull Up' }));
+    // The sheet asks about the exercise by name, and says what happens.
+    const sheet = screen.getByRole('dialog', { name: 'Remove Pull Up?' });
+    expect(sheet).toHaveTextContent('It leaves this session for good.');
+    expect(props.onDelete).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole('button', { name: 'Remove' }));
+    await user.click(within(sheet).getByRole('button', { name: 'Remove' }));
     expect(props.onDelete).toHaveBeenCalled();
   });
 
-  it('cancelling the confirm dialog does not call onDelete', async () => {
+  it('cancelling the confirm sheet does not call onDelete', async () => {
     const user = userEvent.setup();
     const { props } = renderSlotRow();
 
-    await user.click(screen.getByRole('button', { name: /remove exercise/i }));
+    await user.click(screen.getByRole('button', { name: 'Remove Pull Up' }));
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(props.onDelete).not.toHaveBeenCalled();
   });
@@ -69,8 +78,11 @@ describe('ExerciseSlotRow', () => {
     renderSlotRow();
     expect(screen.getByLabelText('Sets')).toHaveValue(3);
     expect(screen.getByLabelText('Reps')).toHaveValue(10);
-    // A text field (ui/DecimalInput): its value is the text.
-    expect(screen.getByLabelText('Weight')).toHaveValue('50');
+    // A text field (ui/DecimalInput): its value is the text. Empty, it is the
+    // athlete's bodyweight.
+    expect(screen.getByLabelText('Load in kg')).toHaveValue('50');
+    expect(screen.getByLabelText('Load in kg')).toHaveAttribute('placeholder', 'body');
+    expect(screen.getByLabelText('Rest in s')).toHaveAttribute('placeholder', '–');
   });
 
   it('calls onUpdate on sets blur when value changes', async () => {
@@ -85,6 +97,17 @@ describe('ExerciseSlotRow', () => {
     expect(props.onUpdate).toHaveBeenCalledWith(expect.objectContaining({ sets: 5 }));
   });
 
+  // The database holds `sets` above 0: a count below 1 would fail there, or
+  // shrink the exercise. The field shows the stored count again.
+  it.each(['0', '-2', ''])('writes no sets for "%s" and shows the stored count again', (text) => {
+    const { props } = renderSlotRow();
+    const setsInput = screen.getByLabelText('Sets');
+    fireEvent.change(setsInput, { target: { value: text } });
+    fireEvent.blur(setsInput);
+    expect(props.onUpdate).not.toHaveBeenCalled();
+    expect(setsInput).toHaveValue(3);
+  });
+
   it('keeps what the coach is typing when a refetched slot arrives mid-edit', async () => {
     const user = userEvent.setup();
     const { rerender } = render(
@@ -95,12 +118,12 @@ describe('ExerciseSlotRow', () => {
       </DndContext>
     );
 
-    // Commit Sets, then tab into Weight and keep typing. Committing Sets
-    // refetches the slot, so the new props land while Weight has focus.
+    // Commit Sets, then tab into the load and keep typing. Committing Sets
+    // refetches the slot, so the new props land while the load has focus.
     const setsInput = screen.getByLabelText('Sets');
     await user.clear(setsInput);
     await user.type(setsInput, '5');
-    const weightInput = screen.getByLabelText('Weight');
+    const weightInput = screen.getByLabelText('Load in kg');
     await user.click(weightInput);
     await user.clear(weightInput);
     await user.type(weightInput, '7');
@@ -113,39 +136,39 @@ describe('ExerciseSlotRow', () => {
       </DndContext>
     );
 
-    expect(screen.getByLabelText('Weight')).toHaveValue('7');
+    expect(screen.getByLabelText('Load in kg')).toHaveValue('7');
   });
 
-  it('shows "+ Add coach note" button when slot has no notes', () => {
+  it('shows "Add a note" button when slot has no notes', () => {
     renderSlotRow();
-    expect(screen.getByRole('button', { name: /add coach note/i })).toBeInTheDocument();
-    expect(screen.queryByLabelText(/coach note for student/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add a note' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Note for the athlete')).not.toBeInTheDocument();
   });
 
-  it('reveals notes textarea when "+ Add coach note" is clicked', async () => {
+  it('reveals notes textarea when "Add a note" is clicked', async () => {
     const user = userEvent.setup();
     renderSlotRow();
-    await user.click(screen.getByRole('button', { name: /add coach note/i }));
-    expect(screen.getByLabelText(/coach note for student/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Add a note' }));
+    expect(screen.getByRole('textbox', { name: 'Note for the athlete' })).toBeInTheDocument();
   });
 
   it('shows notes textarea pre-expanded when slot already has a note', () => {
     renderSlotRow({ slot: { ...defaultSlot, notes: 'Keep elbows tucked' } });
-    expect(screen.getByLabelText(/coach note for student/i)).toHaveValue('Keep elbows tucked');
-    expect(screen.queryByRole('button', { name: /add coach note/i })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Note for the athlete')).toHaveValue('Keep elbows tucked');
+    expect(screen.queryByRole('button', { name: 'Add a note' })).not.toBeInTheDocument();
   });
 
   it('calls onUpdate with notes on blur when notes change', async () => {
     const user = userEvent.setup();
     const { props } = renderSlotRow();
-    await user.click(screen.getByRole('button', { name: /add coach note/i }));
-    const textarea = screen.getByLabelText(/coach note for student/i);
+    await user.click(screen.getByRole('button', { name: 'Add a note' }));
+    const textarea = screen.getByLabelText('Note for the athlete');
     await user.type(textarea, 'Focus on the negative');
     fireEvent.blur(textarea);
     expect(props.onUpdate).toHaveBeenCalledWith({ notes: 'Focus on the negative' });
   });
 
-  it('clicking "+ Customize sets" reveals a per-set table', async () => {
+  it('clicking "Set by set" reveals a per-set table', async () => {
     const user = userEvent.setup();
     renderSlotRow({
       slot: {
@@ -157,11 +180,15 @@ describe('ExerciseSlotRow', () => {
         ],
       },
     });
-    expect(screen.queryByLabelText(/per-set targets/i)).toBeNull();
-    await user.click(screen.getByRole('button', { name: /customize sets/i }));
-    expect(screen.getByRole('table', { name: /per-set targets/i })).toBeInTheDocument();
-    expect(screen.getByLabelText('Set 1 reps')).toHaveValue(10);
-    expect(screen.getByLabelText('Set 3 weight')).toHaveValue('50');
+    expect(perSetTable()).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Set by set' }));
+    const table = perSetTable();
+    expect(table).toBeInTheDocument();
+    expect(within(table).getAllByRole('columnheader').map((th) => th.textContent)).toEqual([
+      'Set', 'Reps', 'Load in kg', 'Rest in s',
+    ]);
+    expect(screen.getByLabelText('Set 1, reps')).toHaveValue(10);
+    expect(screen.getByLabelText('Set 3, load in kg')).toHaveValue('50');
   });
 
   it('editing a per-set field calls onUpdateSet with that log id', async () => {
@@ -178,8 +205,8 @@ describe('ExerciseSlotRow', () => {
       },
       onUpdateSet,
     });
-    await user.click(screen.getByRole('button', { name: /customize sets/i }));
-    const repsInput = screen.getByLabelText('Set 3 reps');
+    await user.click(screen.getByRole('button', { name: 'Set by set' }));
+    const repsInput = screen.getByLabelText('Set 3, reps');
     await user.clear(repsInput);
     await user.type(repsInput, '6');
     fireEvent.blur(repsInput);
@@ -196,10 +223,10 @@ describe('ExerciseSlotRow', () => {
         ],
       },
     });
-    expect(screen.getByRole('table', { name: /per-set targets/i })).toBeInTheDocument();
+    expect(perSetTable()).toBeInTheDocument();
   });
 
-  it('clicking "reset to uniform" calls onResetToUniform', async () => {
+  it('clicking "Make every set like the first" calls onResetToUniform', async () => {
     const user = userEvent.setup();
     const onResetToUniform = vi.fn();
     renderSlotRow({
@@ -212,11 +239,35 @@ describe('ExerciseSlotRow', () => {
       },
       onResetToUniform,
     });
-    await user.click(screen.getByRole('button', { name: /reset to uniform/i }));
+    expect(screen.queryByRole('button', { name: 'All sets alike' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Make every set like the first' }));
     expect(onResetToUniform).toHaveBeenCalled();
   });
 
-  it('custom mode hides the Sets input and shows + Add set instead', async () => {
+  // Sets that are alike go back to the compact row without a write.
+  it('clicking "All sets alike" goes back to the compact row', async () => {
+    const user = userEvent.setup();
+    const onResetToUniform = vi.fn();
+    renderSlotRow({
+      slot: {
+        ...defaultSlot,
+        set_logs: [
+          { id: 'l1', set_number: 1, target_reps: 10, target_weight_kg: 50 },
+          { id: 'l2', set_number: 2, target_reps: 10, target_weight_kg: 50 },
+          { id: 'l3', set_number: 3, target_reps: 10, target_weight_kg: 50 },
+        ],
+      },
+      onResetToUniform,
+    });
+    await user.click(screen.getByRole('button', { name: 'Set by set' }));
+    expect(screen.queryByRole('button', { name: 'Make every set like the first' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'All sets alike' }));
+    expect(perSetTable()).toBeNull();
+    expect(screen.getByLabelText('Sets')).toHaveValue(3);
+    expect(onResetToUniform).not.toHaveBeenCalled();
+  });
+
+  it('custom mode hides the Sets input and shows "Add a set" instead', async () => {
     const user = userEvent.setup();
     renderSlotRow({
       slot: {
@@ -228,12 +279,12 @@ describe('ExerciseSlotRow', () => {
         ],
       },
     });
-    await user.click(screen.getByRole('button', { name: /customize sets/i }));
+    await user.click(screen.getByRole('button', { name: 'Set by set' }));
     expect(screen.queryByLabelText('Sets')).toBeNull();
-    expect(screen.getByRole('button', { name: /\+ add set/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add a set' })).toBeInTheDocument();
   });
 
-  it('clicking + Add set calls onAddSet', async () => {
+  it('clicking "Add a set" calls onAddSet', async () => {
     const user = userEvent.setup();
     const onAddSet = vi.fn();
     renderSlotRow({
@@ -247,8 +298,8 @@ describe('ExerciseSlotRow', () => {
       },
       onAddSet,
     });
-    await user.click(screen.getByRole('button', { name: /customize sets/i }));
-    await user.click(screen.getByRole('button', { name: /\+ add set/i }));
+    await user.click(screen.getByRole('button', { name: 'Set by set' }));
+    await user.click(screen.getByRole('button', { name: 'Add a set' }));
     expect(onAddSet).toHaveBeenCalledTimes(1);
   });
 
@@ -266,8 +317,8 @@ describe('ExerciseSlotRow', () => {
       },
       onRemoveSet,
     });
-    await user.click(screen.getByRole('button', { name: /customize sets/i }));
-    await user.click(screen.getByRole('button', { name: /remove set 2/i }));
+    await user.click(screen.getByRole('button', { name: 'Set by set' }));
+    await user.click(screen.getByRole('button', { name: 'Remove set 2' }));
     expect(onRemoveSet).toHaveBeenCalledWith(2);
   });
 
@@ -282,8 +333,92 @@ describe('ExerciseSlotRow', () => {
         ],
       },
     });
-    await user.click(screen.getByRole('button', { name: /customize sets/i }));
-    expect(screen.getByRole('button', { name: /remove set 1/i })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Set by set' }));
+    expect(screen.getByRole('button', { name: 'Remove set 1' })).toBeDisabled();
+  });
+
+  // An exercise held for a time counts seconds where the others count reps.
+  describe('an exercise held for a time', () => {
+    const heldSlot = {
+      ...defaultSlot,
+      reps: null,
+      duration_seconds: 30,
+      weight_kg: null,
+      exercise: { name: 'Pull Up', type: 'pull', difficulty: 2, volume_weight: 1 },
+    };
+
+    it('asks for seconds in the compact row', () => {
+      renderSlotRow({ slot: heldSlot });
+      expect(screen.getByLabelText('Seconds')).toHaveValue(30);
+      expect(screen.queryByLabelText('Reps')).toBeNull();
+    });
+
+    it('writes the seconds on blur', () => {
+      const { props } = renderSlotRow({ slot: heldSlot });
+      const seconds = screen.getByLabelText('Seconds');
+      fireEvent.change(seconds, { target: { value: '45' } });
+      fireEvent.blur(seconds);
+      expect(props.onUpdate).toHaveBeenCalledWith({ duration_seconds: 45 });
+    });
+
+    it('asks for each set’s seconds in the per-set table', () => {
+      const onUpdateSet = vi.fn();
+      renderSlotRow({
+        slot: {
+          ...heldSlot,
+          sets: 2,
+          set_logs: [
+            { id: 'l1', set_number: 1, target_duration_seconds: 30 },
+            { id: 'l2', set_number: 2, target_duration_seconds: 20 },
+          ],
+        },
+        onUpdateSet,
+      });
+      expect(within(perSetTable()).getByRole('columnheader', { name: 'Seconds' })).toBeInTheDocument();
+      expect(screen.queryByLabelText('Set 1, reps')).toBeNull();
+      const seconds = screen.getByLabelText('Set 2, seconds');
+      expect(seconds).toHaveValue(20);
+      fireEvent.change(seconds, { target: { value: '25' } });
+      fireEvent.blur(seconds);
+      expect(onUpdateSet).toHaveBeenCalledWith('l2', { duration_seconds: 25 });
+    });
+  });
+
+  // Which sets the athlete is asked to film: one round 44px toggle per set,
+  // then "All" or "None".
+  describe('the sets to film', () => {
+    it('toggles one set, and says which are on', async () => {
+      const user = userEvent.setup();
+      const { props } = renderSlotRow({ slot: { ...defaultSlot, record_video_set_numbers: [1] } });
+      const one = screen.getByRole('button', { name: 'Film set 1' });
+      const two = screen.getByRole('button', { name: 'Film set 2' });
+      expect(one).toHaveAttribute('aria-pressed', 'true');
+      expect(two).toHaveAttribute('aria-pressed', 'false');
+      expect(two).toHaveClass('h-11', 'w-11');
+
+      await user.click(two);
+      expect(props.onUpdate).toHaveBeenCalledWith({ record_video_set_numbers: [1, 2] });
+      await user.click(one);
+      expect(props.onUpdate).toHaveBeenLastCalledWith({ record_video_set_numbers: [] });
+    });
+
+    // Named after the exercise: an editor holds one pair per exercise.
+    it('films every set with "All", and none with "None"', async () => {
+      const user = userEvent.setup();
+      const { props } = renderSlotRow();
+      expect(screen.getByRole('button', { name: 'Film every set of Pull Up' })).toHaveTextContent('All');
+      await user.click(screen.getByRole('button', { name: 'Film every set of Pull Up' }));
+      expect(props.onUpdate).toHaveBeenCalledWith({ record_video_set_numbers: [1, 2, 3] });
+    });
+
+    it('offers "None" once every set is filmed', async () => {
+      const user = userEvent.setup();
+      const { props } = renderSlotRow({ slot: { ...defaultSlot, record_video_set_numbers: [1, 2, 3] } });
+      expect(screen.queryByRole('button', { name: 'Film every set of Pull Up' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Film no set of Pull Up' })).toHaveTextContent('None');
+      await user.click(screen.getByRole('button', { name: 'Film no set of Pull Up' }));
+      expect(props.onUpdate).toHaveBeenCalledWith({ record_video_set_numbers: [] });
+    });
   });
 
   // Review finding L9 (P31, live N3): the weights were `type="number"` fields.
@@ -308,7 +443,7 @@ describe('ExerciseSlotRow', () => {
 
     it('are text fields with the decimal keypad', () => {
       renderSlotRow();
-      const weight = screen.getByLabelText('Weight');
+      const weight = screen.getByLabelText('Load in kg');
       expect(weight).toHaveAttribute('type', 'text');
       expect(weight).toHaveAttribute('inputmode', 'decimal');
     });
@@ -316,7 +451,7 @@ describe('ExerciseSlotRow', () => {
     it.each(['62,5', '62.5'])('the compact row writes "%s" as 62.5 kg', async (text) => {
       const user = userEvent.setup();
       const { props } = renderSlotRow();
-      await typeAndLeave(user, screen.getByLabelText('Weight'), text);
+      await typeAndLeave(user, screen.getByLabelText('Load in kg'), text);
       expect(props.onUpdate).toHaveBeenCalledTimes(1);
       expect(props.onUpdate).toHaveBeenCalledWith({ weight_kg: 62.5 });
     });
@@ -326,7 +461,7 @@ describe('ExerciseSlotRow', () => {
       async (text) => {
         const user = userEvent.setup();
         const { props } = renderSlotRow();
-        const weight = screen.getByLabelText('Weight');
+        const weight = screen.getByLabelText('Load in kg');
         await user.clear(weight);
         await user.type(weight, text);
         // Marked while it is wrong…
@@ -342,14 +477,14 @@ describe('ExerciseSlotRow', () => {
     it('an empty field is still no load: null, on purpose', async () => {
       const user = userEvent.setup();
       const { props } = renderSlotRow();
-      await typeAndLeave(user, screen.getByLabelText('Weight'), '');
+      await typeAndLeave(user, screen.getByLabelText('Load in kg'), '');
       expect(props.onUpdate).toHaveBeenCalledWith({ weight_kg: null });
     });
 
     it('a weight it cannot read stays out of the write; the other fields of the blur go', () => {
       const { props } = renderSlotRow();
       fireEvent.change(screen.getByLabelText('Reps'), { target: { value: '8' } });
-      const weight = screen.getByLabelText('Weight');
+      const weight = screen.getByLabelText('Load in kg');
       fireEvent.change(weight, { target: { value: 'abc' } });
       fireEvent.blur(weight);
       expect(props.onUpdate).toHaveBeenCalledTimes(1);
@@ -359,7 +494,7 @@ describe('ExerciseSlotRow', () => {
 
     it('a weight stored as "62.50" opens as "62.5" and a blur without a change writes nothing', () => {
       const { props } = renderSlotRow({ slot: { ...defaultSlot, weight_kg: '62.50' } });
-      const weight = screen.getByLabelText('Weight');
+      const weight = screen.getByLabelText('Load in kg');
       expect(weight).toHaveValue('62.5');
       fireEvent.blur(weight);
       expect(props.onUpdate).not.toHaveBeenCalled();
@@ -374,14 +509,14 @@ describe('ExerciseSlotRow', () => {
           })),
         },
       });
-      expect(screen.getByLabelText('Weight')).toHaveValue('42.5');
+      expect(screen.getByLabelText('Load in kg')).toHaveValue('42.5');
     });
 
     it.each(['62,5', '62.5'])('a per-set row writes "%s" as 62.5 kg on its own set', async (text) => {
       const user = userEvent.setup();
       const onUpdateSet = vi.fn();
       renderSlotRow({ slot: perSetSlot, onUpdateSet });
-      const weight = screen.getByLabelText('Set 3 weight');
+      const weight = screen.getByLabelText('Set 3, load in kg');
       expect(weight).toHaveAttribute('type', 'text');
       expect(weight).toHaveAttribute('inputmode', 'decimal');
       await typeAndLeave(user, weight, text);
@@ -395,7 +530,7 @@ describe('ExerciseSlotRow', () => {
         const user = userEvent.setup();
         const onUpdateSet = vi.fn();
         renderSlotRow({ slot: perSetSlot, onUpdateSet });
-        const weight = screen.getByLabelText('Set 3 weight');
+        const weight = screen.getByLabelText('Set 3, load in kg');
         await typeAndLeave(user, weight, text);
         expect(onUpdateSet).not.toHaveBeenCalled();
         expect(weight).toHaveValue('60');
@@ -406,7 +541,7 @@ describe('ExerciseSlotRow', () => {
       const user = userEvent.setup();
       const onUpdateSet = vi.fn();
       renderSlotRow({ slot: perSetSlot, onUpdateSet });
-      await typeAndLeave(user, screen.getByLabelText('Set 3 weight'), '');
+      await typeAndLeave(user, screen.getByLabelText('Set 3, load in kg'), '');
       expect(onUpdateSet).toHaveBeenCalledWith('l3', { weight_kg: null });
     });
 
@@ -421,7 +556,7 @@ describe('ExerciseSlotRow', () => {
         },
         onUpdateSet,
       });
-      const weight = screen.getByLabelText('Set 3 weight');
+      const weight = screen.getByLabelText('Set 3, load in kg');
       expect(weight).toHaveValue('62.5');
       fireEvent.blur(weight);
       expect(onUpdateSet).not.toHaveBeenCalled();
@@ -434,8 +569,8 @@ describe('ExerciseSlotRow', () => {
           set_logs: perSetSlot.set_logs.map((l) => (l.id === 'l1' ? { ...l, done: true } : l)),
         },
       });
-      expect(screen.getByLabelText('Set 1 weight')).toBeDisabled();
-      expect(screen.getByLabelText('Set 3 weight')).toBeEnabled();
+      expect(screen.getByLabelText('Set 1, load in kg')).toBeDisabled();
+      expect(screen.getByLabelText('Set 3, load in kg')).toBeEnabled();
     });
   });
 
@@ -458,18 +593,18 @@ describe('ExerciseSlotRow', () => {
     // that is no longer one thing, so the per-set table takes over.
     it('shows the per-set table, without the compact fields or a way back to them', () => {
       renderSlotRow({ slot: startedSlot });
-      expect(screen.getByRole('table', { name: /per-set targets/i })).toBeInTheDocument();
+      expect(perSetTable()).toBeInTheDocument();
       expect(screen.queryByLabelText('Sets')).toBeNull();
-      expect(screen.queryByRole('button', { name: /back to uniform/i })).toBeNull();
-      expect(screen.queryByRole('button', { name: /reset to uniform/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'All sets alike' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Make every set like the first' })).toBeNull();
     });
 
     it('locks the logged sets and marks them', () => {
       renderSlotRow({ slot: startedSlot });
       for (const n of [1, 2]) {
-        expect(screen.getByLabelText(`Set ${n} reps`)).toBeDisabled();
-        expect(screen.getByLabelText(`Set ${n} weight`)).toBeDisabled();
-        expect(screen.getByLabelText(`Set ${n} rest`)).toBeDisabled();
+        expect(screen.getByLabelText(`Set ${n}, reps`)).toBeDisabled();
+        expect(screen.getByLabelText(`Set ${n}, load in kg`)).toBeDisabled();
+        expect(screen.getByLabelText(`Set ${n}, rest in s`)).toBeDisabled();
         expect(screen.getByRole('img', { name: `Set ${n} is logged` })).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: `Remove set ${n}` })).toBeNull();
       }
@@ -481,7 +616,7 @@ describe('ExerciseSlotRow', () => {
       const onRemoveSet = vi.fn();
       renderSlotRow({ slot: startedSlot, onUpdateSet, onRemoveSet });
 
-      const reps = screen.getByLabelText('Set 3 reps');
+      const reps = screen.getByLabelText('Set 3, reps');
       expect(reps).toBeEnabled();
       await user.clear(reps);
       await user.type(reps, '8');
@@ -497,14 +632,14 @@ describe('ExerciseSlotRow', () => {
       const user = userEvent.setup();
       const onAddSet = vi.fn();
       renderSlotRow({ slot: startedSlot, onAddSet });
-      await user.click(screen.getByRole('button', { name: /\+ add set/i }));
+      await user.click(screen.getByRole('button', { name: 'Add a set' }));
       expect(onAddSet).toHaveBeenCalledTimes(1);
     });
 
     it('cannot be removed, and says why', async () => {
       const user = userEvent.setup();
       const { props } = renderSlotRow({ slot: startedSlot });
-      const remove = screen.getByRole('button', { name: /remove exercise/i });
+      const remove = screen.getByRole('button', { name: 'Remove Pull Up' });
       expect(remove).toBeDisabled();
       expect(remove).toHaveAttribute('title', expect.stringMatching(/logged sets/i));
       await user.click(remove);
@@ -528,8 +663,8 @@ describe('ExerciseSlotRow', () => {
           ],
         },
       });
-      expect(screen.getByLabelText('Set 1 reps')).toBeDisabled();
-      expect(screen.getByLabelText('Set 2 reps')).toBeEnabled();
+      expect(screen.getByLabelText('Set 1, reps')).toBeDisabled();
+      expect(screen.getByLabelText('Set 2, reps')).toBeEnabled();
     });
 
     // Extras are kept out of the table (they are the athlete's, not the
@@ -545,7 +680,7 @@ describe('ExerciseSlotRow', () => {
           ],
         },
       });
-      expect(screen.getByRole('button', { name: /remove exercise/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Remove Pull Up' })).toBeDisabled();
       // The prescription itself is untouched, so the compact row stays.
       expect(screen.getByLabelText('Sets')).toBeEnabled();
     });
@@ -566,21 +701,22 @@ describe('ExerciseSlotRow', () => {
 
     it('disables every field of the compact row and drops what would change the slot', () => {
       renderSlotRow({ slot, readOnly: true });
-      for (const label of ['Sets', 'Reps', 'Weight', 'Rest (s)']) {
+      for (const label of ['Sets', 'Reps', 'Load in kg', 'Rest in s']) {
         expect(screen.getByLabelText(label)).toBeDisabled();
       }
-      expect(screen.queryByRole('button', { name: /remove exercise/i })).toBeNull();
-      expect(screen.queryByRole('button', { name: /reorder pull up/i })).toBeNull();
-      expect(screen.queryByRole('button', { name: /customize sets/i })).toBeNull();
-      expect(screen.queryByRole('button', { name: /add coach note/i })).toBeNull();
-      // The "record these sets" toggles stay visible as information.
-      expect(screen.getByRole('button', { name: '1' })).toBeDisabled();
-      expect(screen.queryByRole('button', { name: /^all$/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Remove Pull Up' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Move Pull Up' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Set by set' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Add a note' })).toBeNull();
+      // The "film these sets" toggles stay visible as information.
+      expect(screen.getByRole('button', { name: 'Film set 1' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Film set 1' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.queryByRole('button', { name: /Film every set|Film no set/ })).toBeNull();
     });
 
     it('keeps the coach note readable, not editable', () => {
       renderSlotRow({ slot, readOnly: true });
-      const note = screen.getByLabelText(/coach note for student/i);
+      const note = screen.getByLabelText('Note for the athlete');
       expect(note).toHaveValue('Keep elbows tucked');
       expect(note).toHaveAttribute('readonly');
     });
@@ -596,10 +732,10 @@ describe('ExerciseSlotRow', () => {
         },
         readOnly: true,
       });
-      expect(screen.getByLabelText('Set 1 reps')).toBeDisabled();
-      expect(screen.getByLabelText('Set 2 reps')).toBeDisabled();
-      expect(screen.queryByRole('button', { name: /remove set/i })).toBeNull();
-      expect(screen.queryByRole('button', { name: /\+ add set/i })).toBeNull();
+      expect(screen.getByLabelText('Set 1, reps')).toBeDisabled();
+      expect(screen.getByLabelText('Set 2, reps')).toBeDisabled();
+      expect(screen.queryByRole('button', { name: /^Remove set/ })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Add a set' })).toBeNull();
       // Only the set that IS logged carries the mark.
       expect(screen.getAllByRole('img', { name: /is logged/i })).toHaveLength(1);
     });

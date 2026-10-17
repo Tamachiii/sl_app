@@ -563,16 +563,33 @@ describe('CoachHome', () => {
       expect(screen.queryAllByRole('tab')).toHaveLength(0);
     });
 
-    it('makes the athlete the page title, and keeps it while a session is open', () => {
+    it('makes the athlete the page title', () => {
       renderCoachHome('/coach/students/s-1');
       expect(screen.getByRole('heading', { level: 1, name: 'Alice' })).toBeInTheDocument();
       // The roster title is REPLACED, not stacked above the name.
       expect(screen.queryByRole('heading', { name: 'Athletes' })).not.toBeInTheDocument();
+    });
 
-      // The editor is a child route, so identity must survive the drill-down.
+    // The session editor is a page of its own (design/parc/screens/
+    // Editeur.dc.html): its title is the session, the athlete's name under
+    // it. The athlete's header stands aside — no second h1 above the editor's
+    // — and neither the roster title nor "All athletes" takes its place.
+    it('draws no title of its own over the session editor, and hands it the athlete', () => {
       renderCoachHome('/coach/students/s-1/s/sess-1');
-      expect(screen.getAllByRole('heading', { level: 1, name: 'Alice' }).length).toBeGreaterThan(0);
+      expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+      expect(screen.queryByRole('link', { name: /all athletes/i })).toBeNull();
+      // The editor is a child route, so identity must survive the drill-down.
       expect(screen.getByTestId('session-editor')).toHaveTextContent('session:s-1');
+    });
+
+    // The header stands aside only for the editor it would sit over: while
+    // the athlete is not known, or not there, the page keeps its title and
+    // its way back.
+    it('keeps a title over an editor route whose athlete is not shown', () => {
+      mockStudentsData = { data: [], isLoading: false };
+      renderCoachHome('/coach/students/nobody/s/sess-1');
+      expect(screen.getByRole('heading', { level: 1, name: 'Athletes' })).toBeInTheDocument();
+      expect(screen.queryByTestId('session-editor')).toBeNull();
     });
 
     it('carries nothing but the name — no second identity row under the title', () => {

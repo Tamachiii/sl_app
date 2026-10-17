@@ -90,10 +90,13 @@ describe('a coach tab tapped while it is open', () => {
   it('Athletes, in a session editor, shows the roster too', () => {
     renderApp('/coach/students/s-1/s/sess-1');
     expect(screen.getByTestId('editor')).toBeInTheDocument();
+    // The editor is a page of its own: no athlete title over it.
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
 
     fireEvent.click(tab(/athletes/i));
     expect(screen.queryByTestId('editor')).toBeNull();
     expect(screen.queryByTestId('overview')).toBeNull();
+    expect(screen.getByRole('heading', { level: 1, name: 'Athletes' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Alice' })).toBeInTheDocument();
   });
 

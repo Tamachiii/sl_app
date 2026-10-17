@@ -74,9 +74,9 @@ function Section({ id, title, defaultOpen = false, children }) {
  * feed. Both existed on the old Profile tab and were lost when the tabs were
  * merged, which left the page with no way to review or to write.
  *
- * They sit here, directly under the header, and not inside it: the header
- * stays mounted over the session editor, where a band of actions above the
- * work is exactly what the editor's own header was trimmed to avoid.
+ * They sit here, directly under the header, and not inside it: the header is
+ * the athlete's name and its way back, and the session editor — a child of the
+ * same page — draws a header of its own, without them.
  */
 function AthleteActions({ student }) {
   const { t } = useI18n();

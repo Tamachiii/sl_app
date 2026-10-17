@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, Outlet, useNavigate, useParams } from 'react-router-dom';
+import { Link, Outlet, useMatch, useNavigate, useParams } from 'react-router-dom';
 import { useIsRestoring } from '@tanstack/react-query';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
@@ -326,9 +326,14 @@ export default function CoachHome() {
   // on the page you just left and pushed the actual subject down at half the
   // size.
   const menu = <UserMenu fullName={profile?.full_name} onSignOut={signOut} />;
+  // The session editor is a page of its own (design/parc/screens/
+  // Editeur.dc.html): its title is the session, and the athlete's header
+  // stands aside while it is shown. While the athlete is not known yet, or
+  // not found, the page keeps its own header and its way back.
+  const inEditor = !!useMatch('/coach/students/:studentId/s/:sessionId');
   return (
     <div className="flex flex-col gap-6 px-4 pt-3 pb-6 md:px-8">
-      {selected ? (
+      {inEditor && selected && rosterState === 'ready' ? null : selected ? (
         <LargeTitle
           title={(selected.profile?.full_name || '').trim() || t('parcRoster.unnamed')}
           back={{
