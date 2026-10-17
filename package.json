@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "eslint src --max-warnings 16",
+    "lint": "eslint src --max-warnings 14",
     "test": "vitest",
     "test:db": "vitest run --config vitest.db.config.js",
     "test:docs": "vitest run --config vitest.docs.config.js",

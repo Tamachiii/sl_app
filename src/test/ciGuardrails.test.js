@@ -385,16 +385,25 @@ describe('deploy: version.json says which build is the oldest allowed', () => {
 });
 
 describe('CI gate: lint warnings have a ceiling', () => {
-  // The count on the day the ceiling went in (2026-10-03). It is a ratchet:
-  // lowering the number in package.json is progress, raising it is not —
-  // fix the new warning, or disable it inline with the reason, instead.
-  const CEILING = 26;
+  // The ceiling of package.json, written here too so that raising it there
+  // fails here. It is a ratchet: 26 when it went in (2026-10-03), 16 after
+  // wave 2, 14 after wave 3. When a warning is fixed, both numbers go down
+  // together; neither goes up — fix the new warning, or disable it inline
+  // with the reason, instead.
+  const CEILING = 14;
 
   it('fails on one warning more than the count on record', () => {
     const { scripts } = JSON.parse(read('package.json'));
     const m = scripts.lint.match(/^eslint src --max-warnings[= ](\d+)$/);
     expect(m, `lint script is "${scripts.lint}"`).not.toBeNull();
     expect(Number(m[1])).toBeLessThanOrEqual(CEILING);
+  });
+
+  it('is the number on record, not one below it that nothing holds', () => {
+    // A script lowered without this file would leave the guard above
+    // allowing the old count back.
+    const { scripts } = JSON.parse(read('package.json'));
+    expect(Number(/--max-warnings[= ](\d+)/.exec(scripts.lint)?.[1])).toBe(CEILING);
   });
 
   it('is what CI runs, not a bare eslint that would skip the ceiling', () => {
