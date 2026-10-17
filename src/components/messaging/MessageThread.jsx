@@ -18,11 +18,17 @@ import ConfirmDialog from '../ui/ConfirmDialog';
 import MessageComposer from './MessageComposer';
 import SessionReferenceCard from './SessionReferenceCard';
 
+// A reader within this distance of the end of the thread is reading the
+// latest messages, and a new one scrolls the thread for them.
+const NEAR_BOTTOM_PX = 80;
+
 /**
  * Renders the message history with `otherProfileId` plus a sticky composer.
  *
- * Auto-scrolls to the bottom on first paint and on new messages, and marks
- * the visible incoming messages as read while the thread is mounted.
+ * Scrolls to the bottom on first paint, on a message of mine, and on a new
+ * message when the reader was at the bottom — a reader scrolled up into the
+ * history stays where they are. Marks the visible incoming messages as read
+ * while the thread is mounted.
  *
  * `headerSlot` is optional — pages can put a back arrow / counterpart label /
  * archive pill there. Inside a tab body we render with no header.
@@ -132,6 +138,9 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
 
   const scrollerRef = useRef(null);
   const lastSeenIdRef = useRef(null);
+  // Whether the reader was at the end of the thread at their last scroll.
+  // True until they scroll, so a thread opens at its bottom.
+  const nearBottomRef = useRef(true);
   // Tracks the id of the last incoming message we've already attempted to
   // mark as read for THIS counterpart, so the effect doesn't refire on every
   // re-render. Resets when the thread switches counterparts.
@@ -139,6 +148,9 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
 
   useEffect(() => {
     lastMarkedIdRef.current = null;
+    // CoachMessages switches counterparts without remounting the thread: the
+    // next one opens at its bottom too.
+    nearBottomRef.current = true;
     setPendingDeleteId(null);
     cancelPress();
   }, [otherProfileId, cancelPress]);
@@ -158,18 +170,26 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
     markReadMutate(otherProfileId);
   }, [otherProfileId, me, messages, markReadMutate]);
 
-  // Auto-scroll to bottom on initial load and when a new message arrives.
+  function handleScroll(e) {
+    const el = e.currentTarget;
+    nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
+  }
+
+  // Scroll to the bottom on first paint, and when a new message arrives if it
+  // is mine or the reader was at the bottom. A reader who scrolled up to read
+  // the history is not pulled down by the other side's message.
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el || !messages?.length) return;
-    const lastId = messages[messages.length - 1].id;
-    if (lastSeenIdRef.current === lastId) return;
-    lastSeenIdRef.current = lastId;
+    const last = messages[messages.length - 1];
+    if (lastSeenIdRef.current === last.id) return;
+    lastSeenIdRef.current = last.id;
+    if (last.sender_id !== me && !nearBottomRef.current) return;
     // RAF so we measure after the new bubble lays out.
     requestAnimationFrame(() => {
       el.scrollTop = el.scrollHeight;
     });
-  }, [messages]);
+  }, [messages, me]);
 
   return (
     <div className={`flex flex-col min-h-0 flex-1 ${className}`}>
@@ -179,6 +199,7 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
 
       <div
         ref={scrollerRef}
+        onScroll={handleScroll}
         className="flex-1 min-h-0 overflow-y-auto px-4 md:px-8"
         role="log"
         aria-live="polite"
@@ -243,7 +264,10 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
                         )}
                         <div
                           {...pressHandlers}
-                          className={`rounded-2xl px-3.5 py-2 text-[14px] leading-snug whitespace-pre-wrap transition-transform duration-150 ${
+                          // wrap-anywhere, not break-words: a long URL must not set
+                          // the bubble's smallest width, or it overflows the
+                          // 80% column and the thread scrolls sideways.
+                          className={`rounded-2xl px-3.5 py-2 text-[14px] leading-snug whitespace-pre-wrap wrap-anywhere transition-transform duration-150 ${
                             fromMe
                               ? 'bg-[var(--color-accent)] text-[var(--color-ink-900)]'
                               : 'bg-ink-100 text-ink-800'
