@@ -53,4 +53,14 @@ describe.each(modes)('the notification popover of %s', (_, props, avatar) => {
 
     expect(menu).toHaveClass('absolute', 'right-0', 'w-[320px]', 'max-w-[calc(100vw-2rem)]');
   });
+
+  it('the avatar is a 44px target, like the bell beside it', () => {
+    render(
+      <MemoryRouter>
+        <UserMenu fullName="Alan Turing" {...props} />
+      </MemoryRouter>,
+    );
+    expect(avatar()).toHaveClass('w-11', 'h-11');
+    expect(avatar()).not.toHaveClass('w-10');
+  });
 });

@@ -116,7 +116,7 @@ export default function NotificationBell() {
             ? t('notifications.openWithUnread', { n: unreadCount })
             : t('notifications.open')
         }
-        className="relative w-10 h-10 rounded-full bg-ink-100 flex items-center justify-center text-ink-700 cursor-pointer hover:bg-ink-200 active:scale-95 transition-transform"
+        className="relative w-11 h-11 rounded-full bg-ink-100 flex items-center justify-center text-ink-700 cursor-pointer hover:bg-ink-200 active:scale-95 transition-transform"
       >
         {BellIcon}
         {unreadCount > 0 && (
@@ -141,14 +141,17 @@ export default function NotificationBell() {
           aria-label={t('notifications.title')}
           className="absolute right-0 top-12 z-30 w-[320px] max-w-[calc(100vw-2rem)] rounded-xl bg-white shadow-lg border border-ink-100 overflow-hidden"
         >
-          <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-ink-100">
+          {/* 52px with or without "Mark all read": the button is 44px high. It
+              may shrink: its German label takes two lines rather than
+              pushing the row past a 320px popover. */}
+          <div className="flex items-center justify-between gap-2 min-h-13 pl-3 pr-1 py-1 border-b border-ink-100">
             <span className="sl-label">{t('notifications.title')}</span>
             {unreadCount > 0 && (
               <button
                 type="button"
                 onClick={() => markAll.mutate()}
                 disabled={markAll.isPending}
-                className="sl-mono text-[10px] uppercase tracking-wide text-ink-400 hover:text-[var(--color-accent)] disabled:opacity-50"
+                className="sl-pill sl-pill-btn text-ink-400 hover:text-[var(--color-accent)] disabled:opacity-50"
               >
                 {t('notifications.markAllRead')}
               </button>

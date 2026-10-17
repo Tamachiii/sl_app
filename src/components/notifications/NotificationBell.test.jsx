@@ -43,6 +43,13 @@ describe('NotificationBell', () => {
     mockNavigate.mockReset();
   });
 
+  it('is a 44px target', () => {
+    renderBell();
+    const btn = screen.getByRole('button', { name: /open notifications/i });
+    expect(btn).toHaveClass('w-11', 'h-11');
+    expect(btn).not.toHaveClass('w-10');
+  });
+
   it('renders the bell button without a badge when nothing is unread', () => {
     renderBell();
     const btn = screen.getByRole('button', { name: /open notifications/i });
@@ -139,7 +146,13 @@ describe('NotificationBell', () => {
     mockCount = { data: 1 };
     renderBell();
     fireEvent.click(screen.getByRole('button', { name: /1 unread/i }));
-    fireEvent.click(screen.getByRole('button', { name: /mark all read/i }));
+    const markAllBtn = screen.getByRole('button', { name: /mark all read/i });
+    // A pill that is a button: 44px high (review N18 — it was 81x15).
+    expect(markAllBtn).toHaveClass('sl-pill', 'sl-pill-btn');
+    // "Alle als gelesen markieren" wraps inside the pill instead of
+    // widening the header past the popover.
+    expect(markAllBtn).not.toHaveClass('shrink-0');
+    fireEvent.click(markAllBtn);
     expect(mockMarkAll.mutate).toHaveBeenCalledTimes(1);
   });
 });

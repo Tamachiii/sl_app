@@ -114,7 +114,7 @@ export default function UserMenu({ fullName, onSignOut, profileHref }) {
           aria-label={t('common.openProfile')}
           onPointerEnter={preloadLogin}
           onFocus={preloadLogin}
-          className="w-10 h-10 rounded-full bg-ink-100 flex items-center justify-center sl-display text-[13px] text-ink-900 cursor-pointer hover:brightness-95 active:scale-95 transition-transform"
+          className="w-11 h-11 rounded-full bg-ink-100 flex items-center justify-center sl-display text-[13px] text-ink-900 cursor-pointer hover:brightness-95 active:scale-95 transition-transform"
           style={{ border: '1.5px solid var(--color-accent)' }}
         >
           {initials}
@@ -136,7 +136,7 @@ export default function UserMenu({ fullName, onSignOut, profileHref }) {
           aria-expanded={open}
           aria-controls={menuId}
           aria-label={t('common.openUserMenu')}
-          className="w-10 h-10 rounded-full bg-ink-100 flex items-center justify-center sl-display text-[13px] text-ink-900 cursor-pointer hover:brightness-95 active:scale-95 transition-transform"
+          className="w-11 h-11 rounded-full bg-ink-100 flex items-center justify-center sl-display text-[13px] text-ink-900 cursor-pointer hover:brightness-95 active:scale-95 transition-transform"
           style={{ border: '1.5px solid var(--color-accent)' }}
         >
           {initials}

@@ -66,7 +66,7 @@ export default function CoachMessages() {
             type="button"
             onClick={() => navigate('/coach/messages')}
             aria-label={t('common.back')}
-            className="w-9 h-9 rounded-lg bg-ink-100 text-ink-700 flex items-center justify-center"
+            className="w-11 h-11 shrink-0 rounded-lg bg-ink-100 text-ink-700 flex items-center justify-center"
           >
             {ChevronLeft}
           </button>
