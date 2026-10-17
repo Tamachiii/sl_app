@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { useI18n } from '../../hooks/useI18n';
 import { useSendMessage } from '../../hooks/useMessages';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { Icon } from '../parc';
 
 const MAX_LEN = 4000;
 
@@ -11,8 +12,9 @@ function touchScreen() {
   return typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
 }
 
-export default function MessageComposer({ recipientProfileId, autoFocus = false }) {
+export default function MessageComposer({ recipientProfileId, recipientName, autoFocus = false }) {
   const { t } = useI18n();
+  const name = (recipientName || '').trim();
   const [body, setBody] = useState('');
   const [error, setError] = useState(null);
   const sendMessage = useSendMessage();
@@ -54,7 +56,7 @@ export default function MessageComposer({ recipientProfileId, autoFocus = false 
           setError(null);
           requestAnimationFrame(autoSize);
         },
-        onError: (err) => setError(err?.message || t('messaging.sendError')),
+        onError: (err) => setError(err?.message || t('parcMessages.sendError')),
       },
     );
   }
@@ -71,22 +73,21 @@ export default function MessageComposer({ recipientProfileId, autoFocus = false 
     handleSubmit(e);
   }
 
+  // The bar at the bottom of the conversation: the field, rounded, and the
+  // round send button (design/parc/screens/Conversation.dc.html).
   return (
-    <div className="bg-white border-t border-ink-100">
+    <div className="border-t border-line-strong bg-surface">
       {(error || tooLong) && (
-        <div role="alert" className="sl-mono text-[11px] text-danger px-4 md:px-8 pt-1.5">
-          {error || t('messaging.tooLong', { n: MAX_LEN })}
-        </div>
+        <p role="alert" className="m-0 px-4 pt-2 text-[13px] leading-[1.35] text-red md:px-8">
+          {error || t('parcMessages.tooLong', { n: MAX_LEN })}
+        </p>
       )}
       {!isOnline && (
-        <div role="status" className="sl-mono text-[11px] text-ink-400 px-4 md:px-8 pt-1.5">
-          {t('messaging.offline')}
-        </div>
+        <p role="status" className="pk-small m-0 px-4 pt-2 md:px-8">
+          {t('parcMessages.offline')}
+        </p>
       )}
-      <form
-        onSubmit={handleSubmit}
-        className="flex items-end gap-2 px-4 md:px-8 py-2.5"
-      >
+      <form onSubmit={handleSubmit} className="flex items-end gap-2 px-4 py-3 md:px-8">
         <textarea
           ref={textareaRef}
           value={body}
@@ -95,18 +96,17 @@ export default function MessageComposer({ recipientProfileId, autoFocus = false 
           rows={1}
           autoFocus={autoFocus}
           disabled={!recipientProfileId}
-          placeholder={t('messaging.placeholder')}
-          aria-label={t('messaging.composerLabel')}
-          className="flex-1 resize-none rounded-2xl bg-ink-100 px-3 py-2 text-[16px] text-gray-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] disabled:opacity-50"
+          placeholder={name ? t('parcMessages.placeholder', { name }) : t('parcMessages.placeholderAnyone')}
+          aria-label={name ? t('parcMessages.composerLabel', { name }) : t('parcMessages.placeholderAnyone')}
+          className="pk-field block flex-1 resize-none rounded-[22px] px-4 py-2.5 leading-[1.4] disabled:opacity-50"
         />
         <button
           type="submit"
           disabled={!canSend}
-          aria-label={t('messaging.send')}
-          className="sl-btn-primary text-[12px] disabled:opacity-50 shrink-0"
-          style={{ padding: '10px 14px' }}
+          aria-label={sendMessage.isPending ? t('parcMessages.sending') : t('parcMessages.send')}
+          className="pk-btn pk-btn-primary h-11 w-11 shrink-0 rounded-full p-0"
         >
-          {sendMessage.isPending ? t('messaging.sending') : t('messaging.send')}
+          <Icon name="send" size={20} />
         </button>
       </form>
     </div>

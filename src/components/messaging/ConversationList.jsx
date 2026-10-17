@@ -2,24 +2,18 @@ import { Link } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
 import { useAuth } from '../../hooks/useAuth';
 import { useConversations, formatMessageStamp } from '../../hooks/useMessages';
+import { formatNumber, pluralKey } from '../../lib/i18n/format';
 import Spinner from '../ui/Spinner';
-import EmptyState from '../ui/EmptyState';
-
-function initialsOf(fullName) {
-  return (fullName || '')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() ?? '')
-    .join('');
-}
+import { Avatar, Count } from '../parc';
 
 /**
- * `linkPrefix`/`linkSuffix` let coach + student callers point at their own
- * thread URL: coach = `/coach/messages/<otherProfileId>`, student = a fixed
- * `/student/messages` (single coach, no list).
+ * The coach's conversations (design/parc/screens/MessagesCoach.dc.html): one
+ * row per counterpart, the newest first — the avatar, the name and the time of
+ * the last message, the message itself (« Toi : … » when it is the coach's),
+ * in ink with its count while it is unread. `linkBuilder` gives the thread's
+ * address; `query` keeps the conversations whose name holds it.
  */
-export default function ConversationList({ linkBuilder, emptyMessage }) {
+export default function ConversationList({ linkBuilder, emptyMessage, query = '' }) {
   const { t, lang } = useI18n();
   const { user } = useAuth();
   const me = user?.id;
@@ -30,57 +24,55 @@ export default function ConversationList({ linkBuilder, emptyMessage }) {
   }
 
   if (!conversations || conversations.length === 0) {
-    return <EmptyState message={emptyMessage || t('messaging.noConversations')} />;
+    return <p className="rounded-group bg-surface p-4 pk-body">{emptyMessage || t('parcMessages.noConversationStudent')}</p>;
+  }
+
+  const q = query.trim().toLowerCase();
+  const shown = q
+    ? conversations.filter((c) => (c.otherFullName || '').toLowerCase().includes(q))
+    : conversations;
+
+  if (shown.length === 0) {
+    return <p className="rounded-group bg-surface p-4 pk-body">{t('parcMessages.noMatch')}</p>;
   }
 
   return (
-    <ul className="space-y-2 list-none p-0 m-0">
-      {conversations.map((c) => {
+    <ul className="pk-group" aria-label={t('parcMessages.listLabel')}>
+      {shown.map((c) => {
         const fromMe = c.lastMessage.sender_id === me;
-        const previewPrefix = fromMe ? `${t('messaging.youPrefix')} ` : '';
-        const preview = `${previewPrefix}${c.lastMessage.body}`;
+        const preview = fromMe ? t('parcMessages.you', { text: c.lastMessage.body }) : c.lastMessage.body;
+        const name = (c.otherFullName || '').trim() || t('parcMessages.unknown');
+        const unread = c.unreadCount > 0;
         return (
           <li key={c.otherProfileId}>
-            <Link
-              to={linkBuilder(c)}
-              className="sl-card flex items-center gap-3 px-3.5 py-3 hover:bg-ink-50/50 dark:hover:bg-ink-800 transition-colors"
-            >
-              <div
-                className="w-11 h-11 rounded-full flex items-center justify-center sl-display text-[14px] shrink-0"
-                style={{
-                  background: 'color-mix(in srgb, var(--color-accent) 15%, transparent)',
-                  color: 'var(--color-accent)',
-                  border: '1px solid color-mix(in srgb, var(--color-accent) 35%, transparent)',
-                }}
-                aria-hidden="true"
-              >
-                {initialsOf(c.otherFullName) || '—'}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-2 justify-between">
-                  <span className="sl-display text-[15px] text-gray-900 truncate">
-                    {c.otherFullName || '—'}
-                  </span>
-                  <span className="sl-mono text-[10px] text-ink-400 tabular-nums shrink-0">
+            <Link to={linkBuilder(c)} className="pk-row text-ink no-underline">
+              <Avatar name={name} />
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="flex items-baseline justify-between gap-2">
+                  <span className="pk-headline truncate">{name}</span>
+                  <span className="pk-small pk-tnum shrink-0">
+                    <span className="sr-only">, </span>
                     {formatMessageStamp(c.lastMessage.created_at, lang)}
                   </span>
-                </div>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <p className="text-[13px] text-ink-700 truncate flex-1">{preview}</p>
-                  {c.unreadCount > 0 && (
-                    <span
-                      className="sl-mono text-[10px] tabular-nums px-2 py-0.5 rounded-full shrink-0"
-                      style={{
-                        background: 'var(--color-accent)',
-                        color: 'var(--color-ink-900)',
-                      }}
-                      aria-label={t('messaging.unreadAria', { n: c.unreadCount })}
-                    >
-                      {c.unreadCount}
-                    </span>
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className={`min-w-0 flex-1 truncate text-[14px] leading-[1.4] ${unread ? 'font-semibold text-ink' : 'text-ink-2'}`}>
+                    <span className="sr-only">, </span>
+                    {preview}
+                  </span>
+                  {unread && (
+                    <>
+                      <span className="sr-only">, </span>
+                      <Count
+                        count={c.unreadCount}
+                        countLabel={t(pluralKey(lang, c.unreadCount, 'parcMessages.unreadMessages'), {
+                          n: formatNumber(lang, c.unreadCount),
+                        })}
+                      />
+                    </>
                   )}
-                </div>
-              </div>
+                </span>
+              </span>
             </Link>
           </li>
         );

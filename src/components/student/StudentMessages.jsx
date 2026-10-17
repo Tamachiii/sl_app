@@ -2,9 +2,9 @@ import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { useMyCoach } from '../../hooks/useStudents';
 import UserMenu from '../ui/UserMenu';
-import EmptyState from '../ui/EmptyState';
 import Spinner from '../ui/Spinner';
 import MessageThread from '../messaging/MessageThread';
+import { LargeTitle } from '../parc';
 
 /**
  * Student Messages tab. Each student has exactly one coach (`students.coach_id`),
@@ -16,22 +16,15 @@ export default function StudentMessages() {
   const { data: coach, isLoading } = useMyCoach();
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
-      {/* Match the standard top-level page header: kicker (coach's name)
-          above an h1 page title. Right-aligned bell + avatar sits at the
-          top so it lines up with the kicker, like every other student tab.
-          The composer inside MessageThread spans full width and handles
-          its own keyboard inset. */}
-      <div className="px-4 md:px-8 pt-7 pb-3 flex items-start justify-between gap-4 shrink-0">
-        <div className="min-w-0">
-          <div className="sl-label text-ink-400 truncate">
-            {coach?.full_name || t('messaging.coach')}
-          </div>
-          <h1 className="sl-display text-[32px] md:text-[44px] text-gray-900 leading-none mt-1">
-            {t('messaging.title')}
-          </h1>
-        </div>
-        <UserMenu fullName={profile?.full_name} onSignOut={signOut} profileHref="/student/profile" />
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* The title of a tab, with the coach's name under it: the thread
+          below spans the width and keeps its composer above the keyboard. */}
+      <div className="shrink-0 border-b border-line-strong px-4 pt-3 pb-4 md:px-8">
+        <LargeTitle
+          title={t('parcMessages.title')}
+          subtitle={coach?.full_name || null}
+          trailing={<UserMenu fullName={profile?.full_name} onSignOut={signOut} profileHref="/student/profile" />}
+        />
       </div>
 
       {isLoading && (
@@ -39,16 +32,12 @@ export default function StudentMessages() {
       )}
 
       {!isLoading && !coach && (
-        <EmptyState message={t('messaging.noCoach')} />
+        <p className="mx-4 mt-4 rounded-group bg-surface p-4 pk-body md:mx-8">{t('parcMessages.noCoach')}</p>
       )}
 
       {!isLoading && coach && (
-        <div className="flex-1 min-h-0 flex">
-          <MessageThread
-            otherProfileId={coach.id}
-            otherFullName={coach.full_name}
-            className="w-full"
-          />
+        <div className="flex min-h-0 flex-1">
+          <MessageThread otherProfileId={coach.id} otherFullName={coach.full_name} className="w-full" />
         </div>
       )}
     </div>

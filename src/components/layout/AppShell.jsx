@@ -119,7 +119,9 @@ function useScrollRestoration(ref, pathname) {
 export function hasActionBar(pathname) {
   return (
     /^\/student\/session\/[^/]+\/?$/.test(pathname) ||
-    /^\/coach\/student\/[^/]+\/session\/[^/]+\/review\/?$/.test(pathname)
+    /^\/coach\/student\/[^/]+\/session\/[^/]+\/review\/?$/.test(pathname) ||
+    // A conversation: its composer is the bar at the bottom.
+    /^\/coach\/messages\/[^/]+\/?$/.test(pathname)
   );
 }
 

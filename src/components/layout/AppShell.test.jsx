@@ -69,7 +69,10 @@ describe('<AppShell />', () => {
     ['/coach/students/st-1/s/sess-1', true],
     ['/coach/student/st-1/session/sess-1/review', false],
     ['/coach/student/st-1/session/sess-1/review/', false],
-  ])('on %s, shows the tab bar: %s (the session and the review have their ActionBar instead)', (path, shown) => {
+    ['/coach/messages', true],
+    ['/coach/messages/p-1', false],
+    ['/student/messages', true],
+  ])('on %s, shows the tab bar: %s (the session, the review and a conversation have their bar instead)', (path, shown) => {
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <MemoryRouter initialEntries={[path]}>
