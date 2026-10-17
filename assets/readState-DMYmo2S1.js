@@ -1,0 +1,1 @@
+function s(i,{online:t,restoring:n}){const r=i.filter(e=>e.data==null);return r.length===0?"ready":n||r.some(e=>e.fetchStatus==="fetching")?"loading":r.some(e=>e.isSuccess)?"failed":!t||r.some(e=>e.isPaused)?"offline":r.some(e=>e.isError)?"failed":"loading"}export{s as r};
