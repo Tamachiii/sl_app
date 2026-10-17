@@ -1,10 +1,12 @@
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useI18n } from '../../hooks/useI18n';
 
 // `container`: where the lightbox is drawn — the document's <body> by default,
 // or the open sheet (a modal <dialog>) it was opened from: the page behind a
 // modal dialog is inert and under it, and so would a lightbox drawn there be.
 export default function VideoLightbox({ open, onClose, container, children }) {
+  const { t } = useI18n();
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -37,8 +39,8 @@ export default function VideoLightbox({ open, onClose, container, children }) {
       <button
         type="button"
         onClick={onClose}
-        aria-label="Close"
-        className="absolute top-4 right-4 w-10 h-10 rounded-full flex items-center justify-center bg-white/20 hover:bg-white/30 text-white active:scale-95 transition ring-1 ring-white/30"
+        aria-label={t('common.close')}
+        className="absolute top-4 right-4 w-11 h-11 rounded-full flex items-center justify-center bg-white/20 hover:bg-white/30 text-white active:scale-95 transition ring-1 ring-white/30"
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" />

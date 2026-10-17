@@ -1,0 +1,25 @@
+// The athlete's program draft in the Parc design (no mock).
+export default {
+  parcAuthor: {
+    title: 'Write a program',
+    offline: 'You’re offline. Your changes are sent when the connection returns.',
+    intro: 'Sketch a program for your coach. They approve it, or send it back, before it counts.',
+    name: 'Name of the program',
+    namePlaceholder: 'My off-season block',
+    create: 'Create the draft',
+    creating: 'Creating…',
+    notFound: 'Draft not found.',
+    submitted: 'Submitted, waiting for your coach',
+    submittedBody: 'Your coach was told. You get a notification when they approve it or send it back.',
+    phase: 'Phase {n}',
+    removePhase: 'Remove phase {n}',
+    remove: 'Remove {name}',
+    exerciseFallback: 'Exercise',
+    submit: 'Submit for approval',
+    submitEmpty: 'Add at least one exercise before submitting.',
+    discard: 'Discard the draft',
+    discardTitle: 'Discard this draft?',
+    pickerHint: 'From your coach’s library.',
+    noExercise: 'No exercise found.',
+  },
+};

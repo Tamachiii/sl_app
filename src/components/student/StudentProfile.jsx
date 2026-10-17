@@ -1,9 +1,10 @@
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Spinner from '../ui/Spinner';
-import Dialog from '../ui/Dialog';
 import LanguageSelect from '../ui/LanguageSelect';
 import EditableText from '../ui/EditableText';
+import { formatNumber, pluralKey } from '../../lib/i18n/format';
+import { Avatar, Button, LargeTitle, ListGroup, Row, Sheet } from '../parc';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { useBackOr } from '../../hooks/useBackOr';
@@ -12,20 +13,13 @@ import { useMyGoals } from '../../hooks/useGoals';
 import { useStudentLifetimeStats } from '../../hooks/useStudentLifetimeStats';
 import { usePushSubscription } from '../../hooks/usePushSubscription';
 
-function initialsOf(name) {
-  return (name || '')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() ?? '')
-    .join('');
-}
-
-function StatTile({ label, value, mono = true }) {
+// One figure of the athlete's history, in large condensed digits over what
+// it counts.
+function Figure({ value, label }) {
   return (
-    <div className="sl-card p-3 flex flex-col items-start">
-      <span className="sl-label text-ink-400">{label}</span>
-      <span className={`sl-display text-[24px] text-gray-900 mt-1 tabular-nums ${mono ? '' : ''}`}>{value}</span>
+    <div className="min-w-0">
+      <div className="pk-condensed pk-tnum text-[36px] font-extrabold leading-none">{value}</div>
+      <div className="pk-small mt-1">{label}</div>
     </div>
   );
 }
@@ -136,78 +130,55 @@ function ChangePasswordDialog({ open, onClose }) {
     }
   }
 
+  const field = (label, props) => (
+    <label className="flex flex-col gap-1.5">
+      <span className="pk-caption">{label}</span>
+      <input type="password" required className="pk-field" {...props} />
+    </label>
+  );
+
   return (
-    <Dialog open={open} onClose={handleClose} title={t('student.profile.account.changePassword')}>
+    <Sheet open={open} onClose={handleClose} title={t('student.profile.account.changePassword')}>
       {done ? (
-        <div className="space-y-4">
-          <p className="text-[14px] text-gray-700">{t('student.profile.account.pwChanged')}</p>
-          <button
-            type="button"
-            onClick={handleClose}
-            className="sl-btn-primary w-full text-[14px]"
-            style={{ padding: '10px 16px' }}
-          >
+        <div className="flex flex-col gap-4">
+          <p className="pk-body m-0">{t('student.profile.account.pwChanged')}</p>
+          <Button variant="primary" size="lg" onClick={handleClose}>
             {t('common.close')}
-          </button>
+          </Button>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <label className="block">
-            <span className="sl-label text-ink-400 block mb-1">{t('profilePasswordRecheck.currentPassword')}</span>
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={current}
-              onChange={(e) => setCurrent(e.target.value)}
-              required
-              className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-            />
-          </label>
-          <label className="block">
-            <span className="sl-label text-ink-400 block mb-1">{t('student.profile.account.newPassword')}</span>
-            <input
-              type="password"
-              autoComplete="new-password"
-              value={pw}
-              onChange={(e) => setPw(e.target.value)}
-              required
-              className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-            />
-          </label>
-          <label className="block">
-            <span className="sl-label text-ink-400 block mb-1">{t('student.profile.account.confirmPassword')}</span>
-            <input
-              type="password"
-              autoComplete="new-password"
-              value={pw2}
-              onChange={(e) => setPw2(e.target.value)}
-              required
-              className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-            />
-          </label>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          {field(t('profilePasswordRecheck.currentPassword'), {
+            autoComplete: 'current-password',
+            value: current,
+            onChange: (e) => setCurrent(e.target.value),
+          })}
+          {field(t('student.profile.account.newPassword'), {
+            autoComplete: 'new-password',
+            value: pw,
+            onChange: (e) => setPw(e.target.value),
+          })}
+          {field(t('student.profile.account.confirmPassword'), {
+            autoComplete: 'new-password',
+            value: pw2,
+            onChange: (e) => setPw2(e.target.value),
+          })}
           {err && (
-            <p className="text-[13px]" style={{ color: 'var(--color-danger, #c00)' }}>{err}</p>
+            <p role="alert" className="m-0 text-[13px] leading-[1.35] text-red">
+              {err}
+            </p>
           )}
-          <div className="flex gap-2 pt-1">
-            <button
-              type="submit"
-              disabled={busy}
-              className="flex-1 sl-btn-primary text-[14px] disabled:opacity-50"
-              style={{ padding: '10px 16px' }}
-            >
+          <div className="flex flex-col gap-1">
+            <Button type="submit" variant="primary" size="lg" disabled={busy}>
               {busy ? t('common.saving') : t('common.save')}
-            </button>
-            <button
-              type="button"
-              onClick={handleClose}
-              className="flex-1 bg-ink-100 text-ink-700 rounded-lg py-2 sl-display text-[14px] hover:bg-ink-200"
-            >
+            </Button>
+            <Button variant="text" onClick={handleClose}>
               {t('common.cancel')}
-            </button>
+            </Button>
           </div>
         </form>
       )}
-    </Dialog>
+    </Sheet>
   );
 }
 
@@ -226,42 +197,33 @@ function RestNotificationToggle() {
         : t('student.profile.notifications.restTimerHint');
 
   return (
-    <section aria-labelledby="profile-notifications-heading" className="space-y-2">
-      <h2 id="profile-notifications-heading" className="sl-label text-ink-400">
-        {t('student.profile.notifications.title')}
-      </h2>
-      <div className="sl-card p-4 space-y-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="sl-display text-[15px] text-gray-900">
-              {t('student.profile.notifications.restTimerLabel')}
-            </div>
-            <p className="text-[12px] text-ink-400 mt-1 leading-relaxed">{hint}</p>
-          </div>
-          <button
-            type="button"
-            onClick={enabled ? disable : enable}
-            disabled={pending || !supported || permission === 'denied'}
-            aria-pressed={enabled}
-            // Off state via utility classes so it flips in dark mode; the
-            // enabled accent pill is theme-independent (matches sl-btn-primary).
-            className={`sl-pill shrink-0 disabled:opacity-50 ${enabled ? '' : 'bg-ink-100 text-ink-700'}`}
-            style={enabled ? { background: 'var(--color-accent)', color: 'var(--color-ink-900)' } : undefined}
-          >
-            {pending
-              ? t('student.profile.notifications.pending')
-              : enabled
-                ? t('student.profile.notifications.disable')
-                : t('student.profile.notifications.enable')}
-          </button>
-        </div>
-      </div>
-    </section>
+    <ListGroup title={t('parcProfile.notifications')}>
+      <li className="pk-row">
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="pk-headline">{t('parcProfile.restLabel')}</span>
+          <span className="pk-caption">{hint}</span>
+        </span>
+        <Button
+          variant={enabled ? 'primary' : 'secondary'}
+          onClick={enabled ? disable : enable}
+          disabled={pending || !supported || permission === 'denied'}
+          aria-pressed={enabled}
+          className="shrink-0"
+        >
+          {pending
+            ? t('student.profile.notifications.pending')
+            : enabled
+              ? t('student.profile.notifications.disable')
+              : t('student.profile.notifications.enable')}
+        </Button>
+      </li>
+    </ListGroup>
   );
 }
 
 export default function StudentProfile() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
+  const nameHintId = useId();
   // Back on the first entry of the tab (a link, a cold start) goes to the
   // athlete's home instead of leaving the app (L31).
   const goBack = useBackOr('/student');
@@ -273,7 +235,6 @@ export default function StudentProfile() {
   const [renameError, setRenameError] = useState('');
 
   const fullName = profile?.full_name || '';
-  const initials = initialsOf(fullName);
 
   // Profile shows a count, not a singular "active goal". Picking one from
   // many would be arbitrary (the previous logic just grabbed the first
@@ -290,184 +251,110 @@ export default function StudentProfile() {
     if (error) setRenameError(error.message || t('student.profile.header.renameError'));
   }
 
-  return (
-    <div className="p-4 pb-6 md:p-8 space-y-5">
-      {/* Editorial header matching every other top-level student page —
-          kicker + giant display title on the left. The right-hand slot
-          (where UserMenu's avatar normally lives) holds a back button
-          instead, since the avatar would just navigate to where we already
-          are. Hit zone matches the avatar's so muscle memory transfers. */}
-      <div className="pt-3 pb-1 flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="sl-label text-ink-400">{t('student.profile.kicker')}</div>
-          <h1 className="sl-display text-[32px] md:text-[44px] text-gray-900 leading-none mt-1">
-            {t('student.profile.title')}
-          </h1>
-        </div>
-        <button
-          type="button"
-          onClick={goBack}
-          aria-label={t('common.back')}
-          className="w-10 h-10 rounded-full bg-ink-100 flex items-center justify-center text-ink-700 hover:brightness-95 active:scale-95 transition-transform shrink-0"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-      </div>
+  const sessions = stats?.sessionsCompleted ?? 0;
+  const sets = stats?.setsDone ?? 0;
 
-      {/* Identity card */}
-      <div className="sl-card p-5 flex items-center gap-4">
-        <div
-          className="w-16 h-16 rounded-full bg-ink-100 flex items-center justify-center sl-display text-[20px] text-ink-900 shrink-0"
-          style={{ border: '2px solid var(--color-accent)' }}
-          aria-hidden="true"
-        >
-          {initials || '·'}
-        </div>
+  return (
+    <div className="flex flex-col gap-6 px-4 pt-3 pb-6 md:px-8">
+      {/* A page of the athlete's own, reached from the avatar: back where the
+          avatar would be, since it would lead here. */}
+      <LargeTitle back={{ label: t('common.back'), onClick: goBack }} title={t('parcProfile.title')} />
+
+      <section className="flex items-center gap-4 rounded-group bg-surface p-4">
+        <Avatar name={fullName} size={64} />
         <div className="min-w-0 flex-1">
-          <div className="sl-label text-ink-400">{t('student.profile.header.displayName')}</div>
-          <EditableText
-            value={fullName}
-            onSave={handleRename}
-            placeholder={t('student.profile.header.namePlaceholder')}
-            ariaLabel={t('student.profile.header.editName')}
-            className="sl-display text-[24px] text-gray-900 block mt-1"
-            inputClassName="sl-display text-[20px]"
-          />
+          <h2 className="pk-title m-0">
+            <EditableText
+              value={fullName}
+              onSave={handleRename}
+              placeholder={t('student.profile.header.namePlaceholder')}
+              ariaLabel={false}
+              describedBy={nameHintId}
+              inputClassName="!text-[22px] font-bold"
+            />
+          </h2>
+          <p id={nameHintId} className="pk-caption m-0 mt-0.5">
+            {t('parcProfile.nameHint')}
+          </p>
           {renameError && (
-            <p className="text-[12px] mt-1" style={{ color: 'var(--color-danger, #c00)' }}>{renameError}</p>
+            <p role="alert" className="m-0 mt-1 text-[13px] leading-[1.35] text-red">
+              {renameError}
+            </p>
           )}
         </div>
-      </div>
+      </section>
 
-      {/* Coach card */}
       {coach && (
-        <div className="sl-card p-4 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="sl-label text-ink-400">{t('student.profile.coach.title')}</div>
-            <div className="sl-display text-[18px] text-gray-900 mt-0.5 truncate">{coach.full_name}</div>
-          </div>
-          <Link
-            to={`/student/messages`}
-            className="sl-pill shrink-0"
-            style={{ background: 'var(--color-accent)', color: 'var(--color-ink-900)' }}
-          >
-            {t('student.profile.coach.message')}
-          </Link>
-        </div>
+        <ListGroup title={t('parcProfile.coach')}>
+          <Row
+            leading={<Avatar name={coach.full_name} />}
+            title={coach.full_name}
+            trailing={
+              <Button
+                as={Link}
+                to="/student/messages"
+                aria-label={t('parcProfile.writeTo', { name: coach.full_name })}
+                className="shrink-0"
+              >
+                {t('parcProfile.write')}
+              </Button>
+            }
+          />
+        </ListGroup>
       )}
 
-      {/* Lifetime totals */}
-      <section aria-labelledby="profile-lifetime-heading" className="space-y-2">
-        <h2 id="profile-lifetime-heading" className="sl-label text-ink-400">{t('student.profile.lifetime.title')}</h2>
+      <section aria-labelledby="profile-lifetime-heading" className="flex flex-col gap-2.5">
+        <h2 id="profile-lifetime-heading" className="pk-headline">
+          {t('parcProfile.lifetime')}
+        </h2>
         {statsLoading ? (
           <div className="flex justify-center py-6"><Spinner /></div>
         ) : (
-          <div className="grid grid-cols-3 gap-2">
-            <StatTile
-              label={t('student.profile.lifetime.sessions')}
-              value={stats?.sessionsCompleted ?? 0}
-            />
-            <StatTile
-              label={t('student.profile.lifetime.setsDone')}
-              value={stats?.setsDone ?? 0}
-            />
-            <StatTile
-              label={t('student.profile.lifetime.volumeKg')}
-              value={(stats?.totalVolumeKg ?? 0).toLocaleString()}
+          <div className="grid grid-cols-3 gap-3 rounded-group bg-surface p-4">
+            <Figure value={formatNumber(lang, sessions)} label={t(pluralKey(lang, sessions, 'parcProfile.sessions'))} />
+            <Figure value={formatNumber(lang, sets)} label={t(pluralKey(lang, sets, 'parcProfile.sets'))} />
+            <Figure
+              value={formatNumber(lang, Math.round(stats?.totalVolumeKg ?? 0))}
+              label={t('parcProfile.volume')}
             />
           </div>
         )}
       </section>
 
       {/* The bodyweight and the records live on the Stats page
-          (design/parc/screens/Stats.dc.html). */}
-
-      {/* Phase 3.4: draft a program for the coach to approve. English-only,
-          like the other student off-script surfaces. */}
-      <Link
-        to="/student/author"
-        className="sl-card p-4 flex items-center justify-between gap-3 hover:bg-ink-50 transition-colors"
-      >
-        <div className="min-w-0">
-          <div className="sl-display text-[15px] text-gray-900">Draft a program</div>
-          <p className="sl-mono text-[11px] text-ink-400 mt-0.5">Sketch a plan for your coach to approve</p>
-        </div>
-        <span className="sl-mono text-[12px]" style={{ color: 'var(--color-accent)' }}>Build →</span>
-      </Link>
-
-      {/* Goals summary — count + tap-through. See activeGoalsCount comment
-          above for why we no longer surface a single "featured" goal. */}
-      <section aria-labelledby="profile-goals-heading" className="space-y-2">
-        <h2 id="profile-goals-heading" className="sl-label text-ink-400">{t('student.profile.goals.title')}</h2>
-        <Link
+          (design/parc/screens/Stats.dc.html). Goals, and a program to draft
+          for the coach to approve (Phase 3.4), are pages of their own. */}
+      <ListGroup label={t('parcProfile.goals')}>
+        <Row
           to="/student/goals"
-          className="sl-card p-4 flex items-center justify-between gap-3 hover:bg-ink-50 transition-colors"
-        >
-          <div className="min-w-0">
-            {totalGoalsCount === 0 ? (
-              <span className="sl-mono text-[12px] text-ink-400">{t('student.profile.goals.empty')}</span>
-            ) : (
-              <>
-                <div className="sl-display text-[24px] text-gray-900 tabular-nums leading-none">
-                  {activeGoalsCount}
-                </div>
-                <div className="sl-mono text-[11px] text-ink-400 mt-1">
-                  {t('student.profile.goals.inProgress', { n: activeGoalsCount })}
-                </div>
-              </>
-            )}
-          </div>
-          <span className="sl-mono text-[11px] shrink-0" style={{ color: 'var(--color-accent)' }}>
-            {t('student.profile.goals.viewAll')}
-          </span>
-        </Link>
-      </section>
+          title={t('parcProfile.goals')}
+          subtitle={
+            totalGoalsCount === 0
+              ? t('parcProfile.goalsEmpty')
+              : t(pluralKey(lang, activeGoalsCount, 'parcProfile.goalsInProgress'), {
+                  n: formatNumber(lang, activeGoalsCount),
+                })
+          }
+        />
+        <Row to="/student/author" title={t('parcProfile.draftTitle')} subtitle={t('parcProfile.draftCaption')} />
+      </ListGroup>
 
-      {/* Preferences */}
-      <section aria-labelledby="profile-prefs-heading" className="space-y-2">
-        <h2 id="profile-prefs-heading" className="sl-label text-ink-400">{t('student.profile.prefs.title')}</h2>
-        <div className="sl-card divide-y divide-ink-100">
-          <div className="flex items-center justify-between gap-2 px-3 py-2.5">
-            <span className="sl-label">{t('common.language')}</span>
-            <LanguageSelect />
-          </div>
+      <section aria-labelledby="profile-prefs-heading" className="flex flex-col gap-2.5">
+        <h2 id="profile-prefs-heading" className="pk-headline">
+          {t('parcProfile.prefs')}
+        </h2>
+        <div className="rounded-group bg-surface p-4">
+          <LanguageSelect label={t('common.language')} />
         </div>
       </section>
 
       <RestNotificationToggle />
 
-      {/* Account */}
-      <section aria-labelledby="profile-account-heading" className="space-y-2">
-        <h2 id="profile-account-heading" className="sl-label text-ink-400">{t('student.profile.account.title')}</h2>
-        <div className="sl-card divide-y divide-ink-100">
-          <div className="flex items-center justify-between gap-2 px-3 py-2.5">
-            <span className="sl-label">{t('student.profile.account.email')}</span>
-            <span className="sl-mono text-[12px] text-ink-700 truncate max-w-[60%]">
-              {user?.email || '—'}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setPwOpen(true)}
-            className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-ink-50 transition-colors"
-          >
-            <span className="sl-label">{t('student.profile.account.changePassword')}</span>
-            <span className="sl-mono text-[11px] text-ink-400">→</span>
-          </button>
-          <button
-            type="button"
-            onClick={signOut}
-            className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-[14px] text-gray-900 hover:bg-ink-50 transition-colors"
-          >
-            <svg className="w-4 h-4 text-ink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-            {t('common.signOut')}
-          </button>
-        </div>
-      </section>
+      <ListGroup title={t('parcProfile.account')}>
+        <Row title={t('student.profile.account.email')} subtitle={user?.email || '–'} />
+        <Row onClick={() => setPwOpen(true)} chevron title={t('student.profile.account.changePassword')} />
+        <Row onClick={signOut} title={<span className="text-red">{t('common.signOut')}</span>} />
+      </ListGroup>
 
       <ChangePasswordDialog open={pwOpen} onClose={() => setPwOpen(false)} />
     </div>

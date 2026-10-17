@@ -252,8 +252,8 @@ describe.each(Object.keys(MODES))('a session opened without a network (reads %s)
     expect(confirmButton()).toBeInTheDocument();
 
     expect(gym.getMutationCache().getAll()).toEqual([]);
-    expect(banner()).toHaveTextContent('Offline — your changes will sync when you reconnect.');
-    expect(banner()).not.toHaveTextContent(/waiting to sync/i);
+    expect(banner()).toHaveTextContent('Offline. Your changes are sent when the connection returns.');
+    expect(banner()).not.toHaveTextContent(/waits? for the connection/i);
     // Nor would anything be stored with the queue for the next launch.
     expect(dehydrate(gym).mutations).toEqual([]);
     expect(supabase.rpc).not.toHaveBeenCalled();
@@ -270,7 +270,7 @@ describe.each(Object.keys(MODES))('a session opened without a network (reads %s)
     expect(facts()).toHaveTextContent('0 of 3 sets done');
     await settle();
     expect(gym.getMutationCache().getAll()).toEqual([]);
-    expect(banner()).not.toHaveTextContent(/waiting to sync/i);
+    expect(banner()).not.toHaveTextContent(/waits? for the connection/i);
     expect(supabase.rpc).not.toHaveBeenCalled();
 
     setNetwork(true, mode);

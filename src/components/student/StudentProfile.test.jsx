@@ -106,32 +106,56 @@ describe('StudentProfile', () => {
     expect(screen.getByText('Ada Lovelace')).toBeInTheDocument();
   });
 
-  it('renders the coach card with name + Message link', () => {
+  it('renders the coach card with name + a Write link to the messages', () => {
     renderProfile();
-    expect(screen.getByText('Your coach')).toBeInTheDocument();
-    expect(screen.getByText('Alan Turing')).toBeInTheDocument();
-    const link = screen.getByRole('link', { name: /^Message$/i });
+    const coach = within(screen.getByRole('region', { name: 'Your coach' }));
+    expect(coach.getByText('Alan Turing')).toBeInTheDocument();
+    // "Write" on the screen, the coach's name for a screen reader.
+    const link = coach.getByRole('link', { name: 'Write to Alan Turing' });
+    expect(link).toHaveTextContent('Write');
     expect(link).toHaveAttribute('href', '/student/messages');
+  });
+
+  it('renders no coach card without a coach', () => {
+    mockCoach = { data: null };
+    renderProfile();
+    expect(screen.queryByRole('region', { name: 'Your coach' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /^write to/i })).not.toBeInTheDocument();
   });
 
   it('renders the lifetime totals from the stats hook', () => {
     renderProfile();
-    expect(screen.getByText('12')).toBeInTheDocument();
-    expect(screen.getByText('87')).toBeInTheDocument();
-    // 4250 -> 4,250 via toLocaleString
-    expect(screen.getByText('4,250')).toBeInTheDocument();
+    const lifetime = within(screen.getByRole('region', { name: 'Since the start' }));
+    expect(lifetime.getByText('12')).toBeInTheDocument();
+    expect(lifetime.getByText('sessions done')).toBeInTheDocument();
+    expect(lifetime.getByText('87')).toBeInTheDocument();
+    expect(lifetime.getByText('sets done')).toBeInTheDocument();
+    // 4250 -> 4,250 in the app's language
+    expect(lifetime.getByText('4,250')).toBeInTheDocument();
+    expect(lifetime.getByText('kg lifted')).toBeInTheDocument();
+  });
+
+  it('counts one of each in the singular', () => {
+    mockStats = { data: { sessionsCompleted: 1, setsDone: 1, totalVolumeKg: 60 }, isLoading: false };
+    renderProfile();
+    const lifetime = within(screen.getByRole('region', { name: 'Since the start' }));
+    expect(lifetime.getByText('session done')).toBeInTheDocument();
+    expect(lifetime.getByText('set done')).toBeInTheDocument();
   });
 
   it('shows a spinner while lifetime stats are loading', () => {
     mockStats = { data: undefined, isLoading: true };
     renderProfile();
-    // Three stat tile values would be 0; instead we render a Spinner via role=status.
-    expect(screen.queryByText('Sessions')).not.toBeInTheDocument();
+    // No figure of 0 while they are read: the spinner, named for a screen reader.
+    const lifetime = within(screen.getByRole('region', { name: 'Since the start' }));
+    expect(lifetime.getByRole('status', { name: 'Loading' })).toBeInTheDocument();
+    expect(lifetime.queryByText('0')).not.toBeInTheDocument();
+    expect(lifetime.queryByText(/sessions done/)).not.toBeInTheDocument();
   });
 
   it('shows a count of in-progress goals (not a single featured goal)', () => {
     // Mock has one non-achieved goal; with another non-achieved goal added,
-    // the tile reads "2".
+    // the row reads "2 in progress".
     mockGoals = {
       data: [
         { id: 'g-1', achieved: false, exercise: { name: 'Front Lever' } },
@@ -140,12 +164,11 @@ describe('StudentProfile', () => {
       ],
     };
     renderProfile();
-    expect(screen.getByText('2')).toBeInTheDocument();
-    expect(screen.getByText(/2 in progress/i)).toBeInTheDocument();
-    // The tile is a tap-through to the Goals page.
-    const link = screen.getByRole('link', { name: /VIEW ALL/i });
+    // The row is a tap-through to the Goals page.
+    const link = screen.getByRole('link', { name: /^Goals/ });
     expect(link).toHaveAttribute('href', '/student/goals');
-    // No specific goal name should be surfaced — the tile is a summary.
+    expect(link).toHaveTextContent('2 in progress');
+    // No specific goal name should be surfaced — the row is a summary.
     expect(screen.queryByText('Front Lever')).not.toBeInTheDocument();
     expect(screen.queryByText('Pull Up')).not.toBeInTheDocument();
   });
@@ -153,7 +176,22 @@ describe('StudentProfile', () => {
   it('shows the empty-goals copy when there are no goals at all', () => {
     mockGoals = { data: [] };
     renderProfile();
-    expect(screen.getByText(/no goals yet/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /^Goals/ })).toHaveTextContent('No goal yet. Your coach sets them.');
+    expect(screen.queryByText(/in progress/)).not.toBeInTheDocument();
+  });
+
+  it('leads to the program the athlete writes for the coach to approve', () => {
+    renderProfile();
+    const link = screen.getByRole('link', { name: /^Write a program/ });
+    expect(link).toHaveAttribute('href', '/student/author');
+    expect(link).toHaveTextContent('A draft your coach approves');
+  });
+
+  it('offers the language under Preferences', () => {
+    renderProfile();
+    const prefs = within(screen.getByRole('region', { name: 'Preferences' }));
+    expect(prefs.getByRole('group', { name: 'Language' })).toBeInTheDocument();
+    expect(prefs.getByRole('button', { name: 'English' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('renders the email and surfaces sign-out / change-password actions', () => {
@@ -190,8 +228,11 @@ describe('StudentProfile', () => {
   it('renaming via EditableText calls updateProfile with the new full_name', async () => {
     const user = userEvent.setup();
     renderProfile();
-    // EditableText renders the value as a button until clicked.
-    await user.click(screen.getByRole('button', { name: /edit your name/i }));
+    // EditableText renders the value as a button until clicked: named by the
+    // name itself, described by what it is.
+    const name = screen.getByRole('button', { name: 'Ada Lovelace' });
+    expect(name).toHaveAccessibleDescription('Your name, as your coach sees it');
+    await user.click(name);
     const input = screen.getByRole('textbox');
     await user.clear(input);
     await user.type(input, 'Grace Hopper');

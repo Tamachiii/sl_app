@@ -4,26 +4,35 @@ import TypeBadge from './TypeBadge';
 import { I18nProvider } from '../../hooks/useI18n';
 
 const classesOf = (element) => [...element.classList].sort();
+// The mark before the name: the colour of the type, hidden from a screen
+// reader, which reads the name.
+const markOf = (badge) => badge.querySelector('[aria-hidden="true"]');
 
 describe('<TypeBadge />', () => {
   it('draws pull in the pull colour, under its name', () => {
     render(<TypeBadge type="pull" />);
     const badge = screen.getByText('Pull');
     expect(badge.tagName).toBe('SPAN');
-    expect(classesOf(badge)).toEqual(['bg-pull/15', 'sl-pill', 'text-pull']);
+    expect(badge).toHaveClass('text-ink-2');
+    expect(markOf(badge)).toHaveClass('bg-chart-pull', 'rounded-full');
+    expect(markOf(badge)).not.toHaveClass('bg-chart-push');
   });
 
   it('draws push in the push colour, under its name', () => {
     render(<TypeBadge type="push" />);
-    expect(classesOf(screen.getByText('Push'))).toEqual(['bg-push/15', 'sl-pill', 'text-push']);
+    const badge = screen.getByText('Push');
+    expect(badge).toHaveClass('text-ink-2');
+    expect(markOf(badge)).toHaveClass('bg-chart-push');
+    expect(markOf(badge)).not.toHaveClass('bg-chart-pull');
   });
 
   it('draws a type it does not know neutral, under its own name — not as a push', () => {
     // The four hand-written badges were `type === 'pull' ? pull : push`.
     render(<TypeBadge type="legs" />);
     const badge = screen.getByText('legs');
-    expect(classesOf(badge)).toEqual(['bg-ink-100', 'sl-pill', 'text-ink-500']);
+    expect(classesOf(markOf(badge))).toContain('bg-ink-3');
     expect(badge.className).not.toMatch(/push|pull/);
+    expect(markOf(badge).className).not.toMatch(/push|pull/);
   });
 
   it.each([[null], [undefined], ['']])('draws nothing for no type (%j)', (type) => {
@@ -31,17 +40,19 @@ describe('<TypeBadge />', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('adds the classes of its caller to the pill', () => {
+  it('adds the classes of its caller to the badge', () => {
     render(<TypeBadge type="pull" className="shrink-0 ml-auto" />);
-    expect(classesOf(screen.getByText('Pull'))).toEqual(['bg-pull/15', 'ml-auto', 'shrink-0', 'sl-pill', 'text-pull']);
+    const badge = screen.getByText('Pull');
+    expect(badge).toHaveClass('shrink-0', 'ml-auto', 'text-ink-2');
+    expect(markOf(badge)).toHaveClass('bg-chart-pull');
   });
 
   it.each([
-    ['fr', 'pull', 'Tirer'],
-    ['fr', 'push', 'Pousser'],
-    ['de', 'pull', 'Zug'],
-    ['de', 'push', 'Druck'],
-  ])('names the type in the language of the app (%s, %s)', (lang, type, label) => {
+    ['fr', 'pull', 'Tirer', 'bg-chart-pull'],
+    ['fr', 'push', 'Pousser', 'bg-chart-push'],
+    ['de', 'pull', 'Zug', 'bg-chart-pull'],
+    ['de', 'push', 'Druck', 'bg-chart-push'],
+  ])('names the type in the language of the app (%s, %s)', (lang, type, label, mark) => {
     localStorage.setItem('sl_app_lang', lang);
     try {
       render(
@@ -49,7 +60,7 @@ describe('<TypeBadge />', () => {
           <TypeBadge type={type} />
         </I18nProvider>,
       );
-      expect(screen.getByText(label)).toHaveClass('sl-pill');
+      expect(markOf(screen.getByText(label))).toHaveClass(mark);
     } finally {
       localStorage.removeItem('sl_app_lang');
     }

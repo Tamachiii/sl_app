@@ -46,8 +46,10 @@ describe('NotificationBell', () => {
   it('is a 44px target', () => {
     renderBell();
     const btn = screen.getByRole('button', { name: /open notifications/i });
-    expect(btn).toHaveClass('w-11', 'h-11');
-    expect(btn).not.toHaveClass('w-10');
+    // The Parc round icon button: src/test/hitTargets.test.js holds
+    // `.pk-icon-btn` to 44px. No size utility beside it shrinks it again.
+    expect(btn).toHaveClass('pk-icon-btn');
+    expect(btn.className).not.toMatch(/(^|\s)(w|h|size)-\d/);
   });
 
   it('renders the bell button without a badge when nothing is unread', () => {
@@ -65,10 +67,16 @@ describe('NotificationBell', () => {
     expect(screen.getByRole('button', { name: /3 unread/i })).toBeInTheDocument();
   });
 
-  it('caps the badge at 9+', () => {
+  it('caps the badge at 99+, the Parc count; the name says the whole number', () => {
     mockCount = { data: 42 };
+    const { unmount } = renderBell();
+    expect(screen.getByText('42').closest('.pk-count')).not.toBeNull();
+    unmount();
+
+    mockCount = { data: 120 };
     renderBell();
-    expect(screen.getByText('9+')).toBeInTheDocument();
+    expect(screen.getByText('99+')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /120 unread/i })).toBeInTheDocument();
   });
 
   it('opens the popover and renders empty-state when there are no notifications', () => {
@@ -147,11 +155,12 @@ describe('NotificationBell', () => {
     renderBell();
     fireEvent.click(screen.getByRole('button', { name: /1 unread/i }));
     const markAllBtn = screen.getByRole('button', { name: /mark all read/i });
-    // A pill that is a button: 44px high (review N18 — it was 81x15).
-    expect(markAllBtn).toHaveClass('sl-pill', 'sl-pill-btn');
-    // "Alle als gelesen markieren" wraps inside the pill instead of
+    // A Parc text button: 44px high (`.pk-btn`, review N18 — it was 81x15).
+    expect(markAllBtn).toHaveClass('pk-btn', 'pk-btn-text');
+    // "Alle als gelesen markieren" wraps inside the button instead of
     // widening the header past the popover.
     expect(markAllBtn).not.toHaveClass('shrink-0');
+    expect(markAllBtn).not.toHaveClass('whitespace-nowrap');
     fireEvent.click(markAllBtn);
     expect(mockMarkAll.mutate).toHaveBeenCalledTimes(1);
   });

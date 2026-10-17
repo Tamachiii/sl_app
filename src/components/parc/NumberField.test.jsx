@@ -30,4 +30,17 @@ describe('NumberField', () => {
     expect(field).toHaveClass('pk-condensed', 'min-h-button-lg', 'text-[28px]!');
     expect(field).toHaveAttribute('inputmode', 'numeric');
   });
+
+  // A message written by the caller for several fields at once.
+  it('keeps the description the caller gives when it has no error of its own', () => {
+    render(
+      <>
+        <NumberField label="Séries" value="0" onChange={() => {}} invalid aria-describedby="slot-alert" />
+        <p id="slot-alert">Un nombre entier, 1 au moins</p>
+      </>,
+    );
+    const field = screen.getByLabelText('Séries');
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(field).toHaveAccessibleDescription('Un nombre entier, 1 au moins');
+  });
 });

@@ -5,8 +5,8 @@ import { useEffect, useRef, useState } from 'react';
  * Renders as a button (showing `value` or `placeholder`), becomes an input when clicked.
  * Commits on Enter or blur. Cancels on Escape.
  *
- * `ariaLabel` names the button and the field. `ariaLabel={false}` leaves the
- * button named by its text — a heading that is also the way to rename it —
+ * `ariaLabel` names the button and the field — every caller gives one.
+ * `ariaLabel={false}` leaves the button named by its text — a heading that is also the way to rename it —
  * and `describedBy` then says what a tap does.
  */
 export default function EditableText({
@@ -66,7 +66,7 @@ export default function EditableText({
         onBlur={commit}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
-        aria-label={ariaLabel === false ? undefined : ariaLabel || 'Edit title'}
+        aria-label={ariaLabel === false ? undefined : ariaLabel}
         aria-labelledby={ariaLabel === false ? describedBy : undefined}
         // The box has to occupy the SAME footprint as the button it replaces,
         // or clicking a title makes the page twitch. An <input> defaults to
@@ -92,7 +92,7 @@ export default function EditableText({
         e.stopPropagation();
         setEditing(true);
       }}
-      aria-label={ariaLabel === false ? undefined : ariaLabel || `Edit ${value || placeholder}`}
+      aria-label={ariaLabel === false ? undefined : ariaLabel}
       aria-describedby={ariaLabel === false ? describedBy : undefined}
       // `hover:bg-ink-100`, NOT `hover:bg-gray-100`: index.css remaps the bare
       // `.bg-gray-100` for dark mode but has no rule for the hover VARIANT, so

@@ -1,0 +1,25 @@
+// The athlete's program draft in the Parc design (no mock).
+export default {
+  parcAuthor: {
+    title: 'Écrire un programme',
+    offline: 'Tu es hors ligne. Tes changements partent quand la connexion revient.',
+    intro: 'Esquisse un programme pour ton coach. Il le valide, ou te le renvoie, avant qu’il compte.',
+    name: 'Nom du programme',
+    namePlaceholder: 'Mon bloc d’intersaison',
+    create: 'Créer le brouillon',
+    creating: 'Création…',
+    notFound: 'Brouillon introuvable.',
+    submitted: 'Soumis, en attente de ton coach',
+    submittedBody: 'Ton coach est prévenu. Tu reçois une notification quand il le valide ou te le renvoie.',
+    phase: 'Phase {n}',
+    removePhase: 'Retirer la phase {n}',
+    remove: 'Retirer {name}',
+    exerciseFallback: 'Exercice',
+    submit: 'Soumettre à la validation',
+    submitEmpty: 'Ajoute au moins un exercice avant de soumettre.',
+    discard: 'Abandonner le brouillon',
+    discardTitle: 'Abandonner ce brouillon ?',
+    pickerHint: 'Dans la librairie de ton coach.',
+    noExercise: 'Aucun exercice trouvé.',
+  },
+};

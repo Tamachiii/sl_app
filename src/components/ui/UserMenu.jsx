@@ -5,6 +5,7 @@ import { usePushSubscription } from '../../hooks/usePushSubscription';
 import { preloadLogin } from '../../lib/preload';
 import LanguageSelect from './LanguageSelect';
 import NotificationBell from '../notifications/NotificationBell';
+import { Button } from '../parc';
 
 /**
  * Web Push opt-in row for the coach popover (mirrors the student's
@@ -28,29 +29,24 @@ function PushToggleRow() {
         : null;
 
   return (
-    <div className="px-3 py-2.5 border-b border-ink-100 space-y-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <span className="sl-label">{t('coach.notifications.label')}</span>
-        <button
-          type="button"
+    <div className="flex flex-col gap-1.5 border-b border-line px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="pk-body font-semibold">{t('coach.notifications.label')}</span>
+        <Button
+          variant={enabled ? 'primary' : 'secondary'}
           onClick={enabled ? disable : enable}
           disabled={pending || denied}
           aria-pressed={enabled}
-          // Off state uses utility classes so it flips in dark mode; the
-          // enabled accent pill is theme-independent (matches sl-btn-primary).
-          className={`sl-pill shrink-0 text-[11px] disabled:opacity-50 ${enabled ? '' : 'bg-ink-100 text-ink-700'}`}
-          style={enabled ? { background: 'var(--color-accent)', color: 'var(--color-ink-900)' } : undefined}
+          className="shrink-0"
         >
           {pending
             ? t('coach.notifications.pending')
             : enabled
               ? t('coach.notifications.on')
               : t('coach.notifications.enable')}
-        </button>
+        </Button>
       </div>
-      {hint && (
-        <p className="text-[11px] text-ink-400 leading-snug">{hint}</p>
-      )}
+      {hint && <p className="pk-small m-0">{hint}</p>}
     </div>
   );
 }
@@ -114,8 +110,7 @@ export default function UserMenu({ fullName, onSignOut, profileHref }) {
           aria-label={t('common.openProfile')}
           onPointerEnter={preloadLogin}
           onFocus={preloadLogin}
-          className="w-11 h-11 rounded-full bg-ink-100 flex items-center justify-center sl-display text-[13px] text-ink-900 cursor-pointer hover:brightness-95 active:scale-95 transition-transform"
-          style={{ border: '1.5px solid var(--color-accent)' }}
+          className="pk-icon-btn text-[16px] font-bold text-ink no-underline"
         >
           {initials}
         </Link>
@@ -136,8 +131,7 @@ export default function UserMenu({ fullName, onSignOut, profileHref }) {
           aria-expanded={open}
           aria-controls={menuId}
           aria-label={t('common.openUserMenu')}
-          className="w-11 h-11 rounded-full bg-ink-100 flex items-center justify-center sl-display text-[13px] text-ink-900 cursor-pointer hover:brightness-95 active:scale-95 transition-transform"
-          style={{ border: '1.5px solid var(--color-accent)' }}
+          className="pk-icon-btn text-[16px] font-bold text-ink no-underline"
         >
           {initials}
         </button>
@@ -146,22 +140,19 @@ export default function UserMenu({ fullName, onSignOut, profileHref }) {
             id={menuId}
             role="menu"
             aria-label={t('common.openUserMenu')}
-            className="absolute right-0 top-12 z-20 min-w-[168px] rounded-xl bg-white shadow-lg border border-ink-100 overflow-hidden"
+            className="absolute top-12 right-0 z-20 w-[300px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-group border border-line bg-surface shadow-lg"
           >
-            <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-ink-100">
-              <span className="sl-label">{t('common.language')}</span>
-              <LanguageSelect />
+            <div className="border-b border-line px-4 py-3">
+              <LanguageSelect label={t('common.language')} />
             </div>
             <PushToggleRow />
             {onSignOut && (
               <button
+                type="button"
                 role="menuitem"
                 onClick={() => { setOpen(false); onSignOut(); }}
-                className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-900 hover:bg-gray-50 text-left"
+                className="flex min-h-13 w-full items-center px-4 text-left text-[16px] font-semibold text-red hover:bg-fill"
               >
-                <svg className="w-4 h-4 text-ink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                </svg>
                 {t('common.signOut')}
               </button>
             )}

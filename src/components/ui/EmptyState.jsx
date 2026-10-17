@@ -1,17 +1,8 @@
-/**
- * `compact` trims the vertical padding for empties that sit INSIDE a section of
- * a longer page (e.g. the Goals and Stats blocks of the coach Progress tab)
- * rather than standing in for a whole screen. Two page-sized empties stacked on
- * one page is ~8rem of dead scroll.
- */
+// A sentence where a list would be, when it holds nothing.
 export default function EmptyState({ message, compact = false }) {
   return (
-    <div
-      className={`flex flex-col items-center justify-center text-gray-400 ${
-        compact ? 'py-6' : 'py-16'
-      }`}
-    >
-      <p className="text-sm">{message}</p>
+    <div className={`flex flex-col items-center justify-center ${compact ? 'py-6' : 'py-16'}`}>
+      <p className="pk-body m-0 text-center text-ink-2">{message}</p>
     </div>
   );
 }

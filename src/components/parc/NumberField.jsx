@@ -11,7 +11,8 @@ import DecimalInput from '../ui/DecimalInput';
  * `size="lg"` is the field of an input sheet: condensed 28px digits in a 56px
  * box. `error` is the sentence of a refused entry — the expected range — in
  * `red` under the field, tied to it by `aria-describedby`; the field is then
- * `aria-invalid` with a 2px red outline.
+ * `aria-invalid` with a 2px red outline. Without one, `invalid` and
+ * `aria-describedby` are the caller's: a message it writes for several fields.
  *
  * The rest goes to DecimalInput: `value`, `onChange(event, parsed)`, `min`,
  * `max`, `integer`, `allowEmpty`, `disabled`, `onBlur`, `autoFocus`.
@@ -29,7 +30,7 @@ export default function NumberField({ label, error, size, className = '', ...res
         <DecimalInput
           {...rest}
           invalid={Boolean(error) || rest.invalid}
-          aria-describedby={error ? errorId : undefined}
+          aria-describedby={error ? errorId : rest['aria-describedby']}
           className={fieldClass}
         />
       </label>

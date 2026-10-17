@@ -79,6 +79,13 @@ const pressedScope = () =>
     .map((chip) => chip.textContent);
 const pickScope = (name) => fireEvent.click(within(scopeGroup()).getByRole('button', { name }));
 
+// The figures are the athlete's Stats page's own (student/StatsParts): a row
+// of the Summary list, by its label, and the sessions done of the scope.
+const summaryRow = (label) =>
+  within(screen.getByRole('region', { name: 'Summary' })).getByText(label).closest('li');
+const sessionsDone = () => within(summaryRow('Sessions done')).getByText('5 of 12');
+const noSessionsDone = () => screen.queryByText('5 of 12');
+
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
@@ -97,29 +104,31 @@ describe('StudentStatsSection', () => {
     renderSection();
     expect(statsCalls[0]).toEqual({ studentId: 'st-1', scope: 'all', enabled: true });
     expect(programsCalls[0]).toBe('st-1');
-    expect(screen.getByText('5/12')).toBeInTheDocument();
-    expect(screen.getByText(/42% complete/i)).toBeInTheDocument();
+    expect(sessionsDone()).toBeInTheDocument();
+    expect(within(summaryRow('Sessions done')).getByText('42% done')).toBeInTheDocument();
+    expect(within(summaryRow('Average RPE')).getByText('7.3')).toBeInTheDocument();
     expect(pressedScope()).toEqual(['All']);
   });
 
-  // The same card as the athlete's page: prescribed sets done of prescribed,
+  // The same row as the athlete's page: prescribed sets done of prescribed,
   // and the sets the athlete added said apart.
   it('says the sets the athlete added apart from the prescribed ones, and only when there are some', () => {
     mockStats = { data: { ...sampleData, totalExtraSetsDone: 3 }, isLoading: false };
     const { again } = renderSection();
-    expect(screen.getByText('42')).toBeInTheDocument();
-    expect(screen.getByText('of 100 prescribed · +3 extra')).toBeInTheDocument();
+    expect(within(summaryRow('Sets done')).getByText('42 of 100')).toBeInTheDocument();
+    expect(within(summaryRow('Sets done')).getByText('3 sets added')).toBeInTheDocument();
 
     mockStats = { data: { ...sampleData, totalExtraSetsDone: 0 }, isLoading: false };
     again();
-    expect(screen.getByText('of 100 prescribed')).toBeInTheDocument();
-    expect(screen.queryByText(/extra/)).not.toBeInTheDocument();
+    expect(within(summaryRow('Sets done')).getByText('42 of 100')).toBeInTheDocument();
+    expect(screen.queryByText(/added/)).not.toBeInTheDocument();
   });
 
   it('shows a spinner, and no figures, while the stats load', () => {
     mockStats = { data: undefined, isLoading: true };
     renderSection();
-    expect(screen.queryByText('5/12')).not.toBeInTheDocument();
+    expect(noSessionsDone()).not.toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Loading' })).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Block' })).not.toBeInTheDocument();
     expect(screen.queryByText(/no training logged yet/i)).not.toBeInTheDocument();
   });
@@ -129,6 +138,9 @@ describe('StudentStatsSection', () => {
     renderSection();
     expect(screen.getByText(/no training logged yet for this scope/i)).toBeInTheDocument();
     expect(scopeGroup()).toBeInTheDocument();
+    // And no figures of zero under it.
+    expect(screen.queryByRole('region', { name: 'Summary' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Progression' })).not.toBeInTheDocument();
   });
 
   // B39: the same panel as the athlete's page, on the same weeks.
@@ -153,10 +165,11 @@ describe('StudentStatsSection', () => {
     }
   });
 
-  // The section is not in Parc yet: its chart keeps its own choice of
-  // exercise (a select), remembered for each athlete — where the athlete's
-  // page opens the chart under a row of its Progression list instead.
-  it('lets the coach pick the exercise of the chart, and remembers it for this athlete', () => {
+  // The athlete's page's « Progression » list: a row per exercise, which
+  // opens its chart under it. The section used to keep a chart with a select
+  // of exercises; the open exercise is remembered for each athlete under the
+  // key that select used.
+  it('opens the chart of an exercise under its row, and remembers it for this athlete', () => {
     const point = (session_id, date, tonnage) => ({ session_id, key: session_id, date, tonnage });
     mockStats = {
       data: {
@@ -171,23 +184,35 @@ describe('StudentStatsSection', () => {
       },
       isLoading: false,
     };
-    const first = renderSection();
-    const select = screen.getByRole('combobox', { name: 'Exercise' });
-    expect(select).toHaveValue('e-1');
-    expect(screen.getByText(/Highest, 1,240 kg\./)).toBeInTheDocument();
+    const rowButton = (name) =>
+      within(screen.getByRole('region', { name: 'Progression' })).getByRole('button', { name: new RegExp(`^${name},`) });
+    const chartCaption = () => screen.queryByText(/^Tonnage done:/);
 
-    fireEvent.change(select, { target: { value: 'e-2' } });
-    expect(screen.getByText(/Highest, 800 kg\./)).toBeInTheDocument();
+    const first = renderSection();
+    expect(rowButton('Bench')).toHaveTextContent('Last session, 1,240 kg lifted');
+    expect(rowButton('Bench')).toHaveTextContent('+240 kg');
+    // Closed, until the coach opens one. No select of exercises.
+    expect(rowButton('Bench')).toHaveAttribute('aria-expanded', 'false');
+    expect(chartCaption()).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Exercise' })).not.toBeInTheDocument();
+
+    fireEvent.click(rowButton('Row'));
+    expect(rowButton('Row')).toHaveAttribute('aria-expanded', 'true');
+    expect(rowButton('Row').closest('li').nextElementSibling).toContainElement(chartCaption());
+    expect(chartCaption()).toHaveTextContent('Highest, 800 kg.');
     expect(localStorage.getItem('sl_stats_prefs:coach:st-1:exerciseId')).toBe('e-2');
     first.unmount();
 
     const again = renderSection();
-    expect(screen.getByRole('combobox', { name: 'Exercise' })).toHaveValue('e-2');
+    expect(rowButton('Row')).toHaveAttribute('aria-expanded', 'true');
+    expect(chartCaption()).toHaveTextContent('Highest, 800 kg.');
     again.unmount();
 
     // Another athlete: their own choice, none yet.
     renderSection({ studentId: 'st-2' });
-    expect(screen.getByRole('combobox', { name: 'Exercise' })).toHaveValue('e-1');
+    expect(rowButton('Row')).toHaveAttribute('aria-expanded', 'false');
+    expect(rowButton('Bench')).toHaveAttribute('aria-expanded', 'false');
+    expect(chartCaption()).not.toBeInTheDocument();
   });
 
   it('reads the scope from ?statsScope=, not from the editor\'s ?program=', () => {
@@ -243,7 +268,7 @@ describe('StudentStatsSection — the scope is known before anything is computed
     expect(statsCalls.every((c) => c.enabled === false && c.scope === 'p-2')).toBe(true);
     // Held back is not "nothing logged": no empty state, no figures.
     expect(screen.queryByText(/no training logged yet/i)).not.toBeInTheDocument();
-    expect(screen.queryByText('5/12')).not.toBeInTheDocument();
+    expect(noSessionsDone()).not.toBeInTheDocument();
 
     mockProgramsQuery = null;
     mockStats = { data: sampleData, isLoading: false };
@@ -251,14 +276,14 @@ describe('StudentStatsSection — the scope is known before anything is computed
 
     expect(statsCalls.at(-1)).toEqual({ studentId: 'st-1', scope: 'p-2', enabled: true });
     expect(enabledScopes()).toEqual(['p-2']);
-    expect(screen.getByText('5/12')).toBeInTheDocument();
+    expect(sessionsDone()).toBeInTheDocument();
   });
 
   it('does not wait for the programs list to compute "all"', () => {
     mockProgramsQuery = { data: undefined };
     renderSection();
     expect(statsCalls[0]).toEqual({ studentId: 'st-1', scope: 'all', enabled: true });
-    expect(screen.getByText('5/12')).toBeInTheDocument();
+    expect(sessionsDone()).toBeInTheDocument();
   });
 
   it('falls back to "all" for a saved block that is gone, without ever computing it', () => {
@@ -304,7 +329,7 @@ describe('StudentStatsSection — the scope is known before anything is computed
     mockProgramsQuery = programsQuery;
     renderSection();
     expect(statsCalls.at(-1)).toEqual({ studentId: 'st-1', scope: 'all', enabled: true });
-    expect(screen.getByText('5/12')).toBeInTheDocument();
+    expect(sessionsDone()).toBeInTheDocument();
   });
 });
 
@@ -320,7 +345,7 @@ describe('StudentStatsSection — changing the scope keeps the section', () => {
     renderSection({ search: '?statsScope=p-2' });
     // The selector already shows the choice that was just made.
     expect(pressedScope()).toEqual(['Block B']);
-    expect(screen.getByText('5/12')).toBeInTheDocument();
+    expect(sessionsDone()).toBeInTheDocument();
   });
 
   it('marks the outgoing figures as busy, and only them', () => {
@@ -329,7 +354,7 @@ describe('StudentStatsSection — changing the scope keeps the section', () => {
 
     const busy = container.querySelectorAll('[aria-busy="true"]');
     expect(busy).toHaveLength(1);
-    expect(busy[0]).toContainElement(screen.getByText('5/12'));
+    expect(busy[0]).toContainElement(sessionsDone());
     expect(busy[0]).toHaveClass('opacity-50');
     expect(busy[0]).not.toContainElement(scopeGroup());
   });
@@ -338,7 +363,7 @@ describe('StudentStatsSection — changing the scope keeps the section', () => {
     const { container } = renderSection({ search: '?statsScope=p-2' });
     expect(container.querySelector('[aria-busy]')).toBeNull();
     expect(container.querySelector('.opacity-50')).toBeNull();
-    expect(screen.getByText('5/12')).toBeInTheDocument();
+    expect(sessionsDone()).toBeInTheDocument();
   });
 
   it('still opens on a spinner when there is nothing to keep', () => {

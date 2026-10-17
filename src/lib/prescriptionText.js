@@ -3,7 +3,7 @@
 // « 2 × 8 à 100 kg, 6 à 100 kg ». Read from the per-set targets of the slot's
 // `set_logs` when it has them (lib/volume: the targets live there), else from
 // the slot's own columns. Strings in the `parcPrescription` namespace.
-import { formatNumber } from './i18n/format';
+import { formatNumber, pluralKey } from './i18n/format';
 
 // Beyond this many groups of identical sets the exercise is said in one word.
 const MAX_GROUPS = 3;
@@ -39,7 +39,7 @@ function targetsOf(slot) {
 function groupText({ count, reps, seconds, kg }, { t, lang }) {
   const load = kg > 0 ? formatNumber(lang, kg) : null;
   if (seconds != null && reps == null) {
-    const hold = t(count === 1 ? 'parcPrescription.holdOne' : 'parcPrescription.holdMany', {
+    const hold = t(pluralKey(lang, count, 'parcPrescription.hold'), {
       count: formatNumber(lang, count),
       s: formatNumber(lang, seconds),
     });

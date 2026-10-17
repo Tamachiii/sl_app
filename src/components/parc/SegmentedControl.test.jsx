@@ -23,4 +23,15 @@ describe('SegmentedControl', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Tirage' }));
     expect(onChange).toHaveBeenCalledWith('pull');
   });
+
+  it('without a visible label, is named by ariaLabel', () => {
+    render(<SegmentedControl ariaLabel="Language" options={options} value="pull" onChange={() => {}} />);
+    const group = screen.getByRole('group', { name: 'Language' });
+    expect(group).not.toHaveAttribute('aria-labelledby');
+  });
+
+  it('with a visible label, is named by it and not by ariaLabel', () => {
+    render(<SegmentedControl label="Type" ariaLabel="Language" options={options} value="pull" onChange={() => {}} />);
+    expect(screen.getByRole('group', { name: 'Type' })).not.toHaveAttribute('aria-label');
+  });
 });

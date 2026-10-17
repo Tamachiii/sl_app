@@ -1,7 +1,5 @@
 import { useId, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Dialog from '../ui/Dialog';
-import DecimalInput from '../ui/DecimalInput';
 import Spinner from '../ui/Spinner';
 import TypeBadge from '../ui/TypeBadge';
 import UserMenu from '../ui/UserMenu';
@@ -11,40 +9,33 @@ import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { isActiveExercise, useExerciseLibrary } from '../../hooks/useExerciseLibrary';
 import { useMyDraft, useDraftTree, useCreateDraft, useDraftActions } from '../../hooks/useAuthoring';
 import { decimalText, parseDecimalInput } from '../../lib/number';
+import { formatNumber } from '../../lib/i18n/format';
+import { prescriptionText } from '../../lib/prescriptionText';
+import { Button, ConfirmSheet, Icon, IconButton, LargeTitle, NumberField, SearchField, Sheet } from '../parc';
 
 /**
  * Phase 3.4d — student program authoring, OFFLINE-CAPABLE. A student drafts a
  * whole program (weeks → sessions → exercise slots + slot-level targets) that
  * stays inert until the coach approves it. Every edit is an optimistic local
  * cache write that syncs as one idempotent whole-tree snapshot when online (or
- * on reconnect). English-only, matching the other student off-script surfaces —
- * except what a slot's number fields say when they refuse a value, which is
- * the app's shared wording, in the athlete's language.
+ * on reconnect). In the Parc design (no mock): a section per phase, a card per
+ * session, a row per exercise with its three fields; strings in `parcAuthor`.
  */
 export default function StudentProgramAuthor() {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const { profile, signOut } = useAuth();
   const online = useOnlineStatus();
   const { data: draft, isLoading } = useMyDraft();
 
   return (
-    <div className="p-4 pb-6 md:p-8 space-y-5">
-      <div className="flex items-center justify-between gap-3 pt-3 pb-1">
-        <div className="min-w-0">
-          <div className="sl-label text-ink-400">Build</div>
-          <h1 className="sl-display text-[22px] text-gray-900">Draft a program.</h1>
-        </div>
-        <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
-      </div>
+    <div className="flex flex-col gap-6 px-4 pt-3 pb-6 md:px-8">
+      <LargeTitle
+        title={t('parcAuthor.title')}
+        trailing={<UserMenu fullName={profile?.full_name} onSignOut={signOut} profileHref="/student/profile" />}
+      />
 
-      {!online && (
-        <div
-          className="rounded-lg px-3 py-2 sl-mono text-[12px] text-ink-600"
-          style={{ background: 'color-mix(in srgb, var(--color-warn) 12%, transparent)' }}
-        >
-          You're offline — changes sync when you reconnect.
-        </div>
-      )}
+      {!online && <p className="m-0 rounded-group bg-amber-soft p-4 pk-body">{t('parcAuthor.offline')}</p>}
 
       {isLoading ? (
         <div className="flex justify-center py-12"><Spinner /></div>
@@ -58,36 +49,32 @@ export default function StudentProgramAuthor() {
 }
 
 function CreateDraftCard() {
+  const { t } = useI18n();
+  const nameId = useId();
   const [name, setName] = useState('');
   const create = useCreateDraft();
   return (
-    <div className="sl-card p-4 space-y-3">
-      <p className="text-[14px] text-gray-900">
-        Sketch a program for your coach to review. They'll approve it (or send it back) before it goes live.
-      </p>
-      <label className="block">
-        <span className="sl-label text-ink-400 block mb-1.5">Program name</span>
+    <section className="flex flex-col gap-4 rounded-group bg-surface p-4">
+      <p className="pk-body m-0">{t('parcAuthor.intro')}</p>
+      <label htmlFor={nameId} className="flex flex-col gap-1.5">
+        <span className="pk-caption">{t('parcAuthor.name')}</span>
         <input
+          id={nameId}
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. My off-season block"
-          className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[16px] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+          placeholder={t('parcAuthor.namePlaceholder')}
+          className="pk-field"
         />
       </label>
-      <button
-        type="button"
-        onClick={() => create.mutate({ name })}
-        disabled={create.isPending}
-        className="sl-btn-primary w-full text-[13px] disabled:opacity-50"
-        style={{ padding: '10px 16px' }}
-      >
-        {create.isPending ? 'Creating…' : 'Create draft'}
-      </button>
-    </div>
+      <Button variant="primary" size="lg" onClick={() => create.mutate({ name })} disabled={create.isPending}>
+        {create.isPending ? t('parcAuthor.creating') : t('parcAuthor.create')}
+      </Button>
+    </section>
   );
 }
 
 function DraftBuilder({ programId, onDiscarded }) {
+  const { t } = useI18n();
   const { data: tree, isLoading } = useDraftTree(programId);
   const { data: library } = useExerciseLibrary();
   const actions = useDraftActions(programId);
@@ -105,137 +92,113 @@ function DraftBuilder({ programId, onDiscarded }) {
   );
 
   if (isLoading) return <div className="flex justify-center py-12"><Spinner /></div>;
-  if (!tree) return <p className="sl-mono text-[12px] text-ink-400">Draft not found.</p>;
+  if (!tree) return <p className="pk-body m-0">{t('parcAuthor.notFound')}</p>;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="sl-display text-[18px] text-gray-900">{tree.name}</span>
+    <div className="flex flex-col gap-6">
+      <div>
+        <h2 className="pk-title">{tree.name}</h2>
         {submitted && (
-          <span className="sl-pill" style={{ background: 'color-mix(in srgb, var(--color-accent) 15%, transparent)', color: 'var(--color-accent)' }}>
-            Submitted — awaiting coach
-          </span>
+          <>
+            <p className="m-0 mt-1 text-[15px] font-semibold text-blue">{t('parcAuthor.submitted')}</p>
+            <p className="pk-caption m-0 mt-1">{t('parcAuthor.submittedBody')}</p>
+          </>
         )}
       </div>
-
-      {submitted && (
-        <p className="sl-mono text-[12px] text-ink-400">
-          Your coach has been notified. You'll get a notification when they approve it or send it back.
-        </p>
-      )}
 
       {(tree.weeks || []).map((week) => (
         <WeekCard key={week.id} week={week} library={library || []} canEdit={canEdit} actions={actions} />
       ))}
 
       {canEdit && (
-        <button
-          type="button"
-          onClick={actions.addWeek}
-          className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3"
-        >
-          + Add week
-        </button>
+        <Button variant="text" className="self-start" onClick={actions.addWeek}>
+          <Icon name="plus" size={18} />
+          {t('parcProgram.addPhase')}
+        </Button>
       )}
 
-      <div className="sl-card p-4 space-y-3">
+      <div className="flex flex-col gap-1">
         {!submitted && (
           <>
-            <button
-              type="button"
-              onClick={actions.submit}
-              disabled={totalSlots === 0}
-              title={totalSlots === 0 ? 'Add at least one exercise first' : undefined}
-              className="sl-btn-primary w-full text-[13px] disabled:opacity-50"
-              style={{ padding: '10px 16px' }}
-            >
-              Submit for approval
-            </button>
-            {totalSlots === 0 && (
-              <p className="sl-mono text-[11px] text-ink-400 text-center">Add at least one exercise before submitting.</p>
-            )}
+            <Button variant="primary" size="lg" onClick={actions.submit} disabled={totalSlots === 0}>
+              {t('parcAuthor.submit')}
+            </Button>
+            {totalSlots === 0 && <p className="pk-caption m-0 text-center">{t('parcAuthor.submitEmpty')}</p>}
           </>
         )}
-        {confirmDiscard ? (
-          <div className="rounded-lg p-3 space-y-2" style={{ background: 'color-mix(in srgb, var(--color-danger) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--color-danger) 35%, transparent)' }}>
-            <p className="text-[13px] text-gray-900">Discard this draft? This can't be undone.</p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => actions.discard({ onSettled: onDiscarded })}
-                className="flex-1 rounded-lg py-2 sl-mono text-[12px] text-white"
-                style={{ background: 'var(--color-danger)' }}
-              >
-                DISCARD
-              </button>
-              <button type="button" onClick={() => setConfirmDiscard(false)} className="flex-1 sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 justify-center">
-                Cancel
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setConfirmDiscard(true)}
-            className="sl-mono text-[11px] text-ink-400 hover:text-danger underline w-full"
-          >
-            Discard draft
-          </button>
-        )}
+        <Button variant="text" className="text-red" onClick={() => setConfirmDiscard(true)}>
+          {t('parcAuthor.discard')}
+        </Button>
       </div>
+
+      <ConfirmSheet
+        open={confirmDiscard}
+        onClose={() => setConfirmDiscard(false)}
+        onConfirm={() => actions.discard({ onSettled: onDiscarded })}
+        title={t('parcAuthor.discardTitle')}
+        message={t('parcEditor.deleteMessage')}
+        confirmText={t('parcAuthor.discard')}
+      />
     </div>
   );
 }
 
 function WeekCard({ week, library, canEdit, actions }) {
+  const { t, lang } = useI18n();
+  const n = formatNumber(lang, week.week_number);
   return (
-    <div className="sl-card p-4 space-y-3">
+    <section aria-label={t('parcAuthor.phase', { n })} className="flex flex-col gap-2.5">
       <div className="flex items-center justify-between gap-2">
-        <span className="sl-display text-[15px] text-gray-900">Week {week.week_number}</span>
+        <h3 className="pk-headline">{t('parcAuthor.phase', { n })}</h3>
         {canEdit && (
-          <button type="button" onClick={() => actions.deleteRow('weeks', week.id)} className="sl-pill bg-ink-100 text-ink-500 hover:bg-ink-200 px-2.5">
-            Remove week
-          </button>
+          <IconButton
+            icon="close"
+            tone="none"
+            label={t('parcAuthor.removePhase', { n })}
+            onClick={() => actions.deleteRow('weeks', week.id)}
+          />
         )}
       </div>
       {(week.sessions || []).map((session) => (
         <SessionCard key={session.id} session={session} library={library} canEdit={canEdit} actions={actions} />
       ))}
       {canEdit && (
-        <button
-          type="button"
-          onClick={() => actions.addSession(week.id)}
-          className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3"
-        >
-          + Add session
-        </button>
+        <Button variant="text" className="self-start" onClick={() => actions.addSession(week.id)}>
+          <Icon name="plus" size={18} />
+          {t('parcProgram.addSession')}
+        </Button>
       )}
-    </div>
+    </section>
   );
 }
 
 function SessionCard({ session, library, canEdit, actions }) {
+  const { t } = useI18n();
   const [pickerOpen, setPickerOpen] = useState(false);
   return (
-    <div className="rounded-lg border border-ink-100 p-3 space-y-2">
+    <div className="flex flex-col gap-2 rounded-group bg-surface p-4">
       <div className="flex items-center justify-between gap-2">
-        <span className="sl-display text-[14px] text-gray-900">{session.title}</span>
+        <h4 className="pk-headline">{session.title}</h4>
         {canEdit && (
-          <button type="button" onClick={() => actions.deleteRow('sessions', session.id)} className="sl-mono text-[11px] text-ink-400 hover:text-danger">
-            Remove
-          </button>
+          <IconButton
+            icon="close"
+            tone="none"
+            label={t('parcAuthor.remove', { name: session.title })}
+            onClick={() => actions.deleteRow('sessions', session.id)}
+          />
         )}
       </div>
-      <div className="space-y-1.5">
+      <ul className="flex flex-col">
         {(session.exercise_slots || []).map((slot) => (
           <SlotRow key={slot.id} slot={slot} canEdit={canEdit} actions={actions} />
         ))}
-      </div>
+      </ul>
       {canEdit && (
         <>
-          <button type="button" onClick={() => setPickerOpen(true)} className="sl-pill bg-ink-100 text-ink-600 hover:bg-ink-200 px-3">
-            + Add exercise
-          </button>
+          <Button variant="text" className="self-start" onClick={() => setPickerOpen(true)}>
+            <Icon name="plus" size={18} />
+            {t('parcEditor.addExercise')}
+          </Button>
           <ExercisePicker
             open={pickerOpen}
             onClose={() => setPickerOpen(false)}
@@ -259,7 +222,7 @@ const SLOT_COUNT_RULES = { integer: true, min: 1, max: 2147483647, allowEmpty: f
 const SLOT_WEIGHT_RULES = { max: 9999.99 };
 
 function SlotRow({ slot, canEdit, actions }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const alertId = useId();
   const [sets, setSets] = useState(decimalText(slot.sets ?? 3));
   const [reps, setReps] = useState(decimalText(slot.reps ?? 5));
@@ -300,51 +263,68 @@ function SlotRow({ slot, canEdit, actions }) {
       : null;
   const describe = (wrong) => (wrong ? alertId : undefined);
 
+  const name = slot.exercise?.name || t('parcAuthor.exerciseFallback');
+  const ctx = { t, lang };
   return (
-    <div className="rounded-lg bg-ink-50 px-3 py-2 flex items-center gap-2 flex-wrap">
-      <span className="sl-display text-[14px] text-gray-900 flex-1 min-w-0 truncate">{slot.exercise?.name || 'Exercise'}</span>
+    <li className="flex flex-col gap-2 border-t border-line py-3 first:border-t-0">
+      <div className="flex items-center gap-2">
+        <span className="pk-body min-w-0 flex-1 truncate font-semibold">{name}</span>
+        {canEdit && (
+          <IconButton
+            icon="close"
+            tone="none"
+            size={18}
+            label={t('parcAuthor.remove', { name })}
+            onClick={() => actions.deleteRow('exercise_slots', slot.id)}
+          />
+        )}
+      </div>
       {canEdit ? (
         <>
-          <NumberField label="sets" value={sets} onChange={setSets} onBlur={commit} width="w-12" rules={SLOT_COUNT_RULES} invalid={refused && !setsInput.ok} describedBy={describe(countWrong && !setsInput.ok)} />
-          <NumberField label="reps" value={reps} onChange={setReps} onBlur={commit} width="w-12" rules={SLOT_COUNT_RULES} invalid={refused && !repsInput.ok} describedBy={describe(countWrong && !repsInput.ok)} />
-          <NumberField label="kg" value={weight} onChange={setWeight} onBlur={commit} width="w-16" rules={SLOT_WEIGHT_RULES} invalid={refused && !weightInput.ok} describedBy={describe(weightWrong)} />
-          <button type="button" onClick={() => actions.deleteRow('exercise_slots', slot.id)} aria-label="Remove exercise" className="sl-pill bg-ink-100 text-ink-500 hover:bg-ink-200 px-2.5">
-            ✕
-          </button>
+          <div className="grid grid-cols-3 gap-2">
+            <NumberField
+              {...SLOT_COUNT_RULES}
+              label={t('parcEditor.sets')}
+              value={sets}
+              onChange={(e) => setSets(e.target.value)}
+              onBlur={commit}
+              invalid={refused && !setsInput.ok}
+              aria-describedby={describe(countWrong && !setsInput.ok)}
+            />
+            <NumberField
+              {...SLOT_COUNT_RULES}
+              label={t('parcEditor.reps')}
+              value={reps}
+              onChange={(e) => setReps(e.target.value)}
+              onBlur={commit}
+              invalid={refused && !repsInput.ok}
+              aria-describedby={describe(countWrong && !repsInput.ok)}
+            />
+            <NumberField
+              {...SLOT_WEIGHT_RULES}
+              label={t('parcEditor.load')}
+              value={weight}
+              onChange={(e) => setWeight(e.target.value)}
+              onBlur={commit}
+              invalid={refused && !weightInput.ok}
+              aria-describedby={describe(weightWrong)}
+            />
+          </div>
           {message && (
-            <p id={alertId} role="alert" className="basis-full sl-mono text-[11px] text-danger">
+            <p id={alertId} role="alert" className="m-0 text-[13px] leading-[1.35] text-red">
               {message}
             </p>
           )}
         </>
       ) : (
-        <span className="sl-mono text-[12px] text-ink-500">
-          {slot.sets} × {slot.reps ?? '—'}{slot.weight_kg != null ? ` @ ${Number(slot.weight_kg)}kg` : ''}
-        </span>
+        <span className="pk-caption">{prescriptionText(slot, ctx)}</span>
       )}
-    </div>
-  );
-}
-
-function NumberField({ label, value, onChange, onBlur, width, rules, invalid, describedBy }) {
-  return (
-    <label className="flex items-center gap-1 text-[13px] text-ink-500">
-      <DecimalInput
-        {...rules}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={onBlur}
-        invalid={invalid}
-        aria-label={label}
-        aria-describedby={describedBy}
-        className={`${width} rounded-lg bg-white border border-ink-200 px-2 py-1.5 text-gray-900`}
-      />
-      <span className="sl-label normal-case">{label}</span>
-    </label>
+    </li>
   );
 }
 
 function ExercisePicker({ open, onClose, library, onPick }) {
+  const { t } = useI18n();
   const [query, setQuery] = useState('');
   // An exercise the coach archived stays in the library read — the slots that
   // already use it need its name — but is not offered for a new slot.
@@ -355,28 +335,26 @@ function ExercisePicker({ open, onClose, library, onPick }) {
       .filter((e) => (q ? e.name.toLowerCase().includes(q) : true));
   }, [library, query]);
   return (
-    <Dialog open={open} onClose={onClose} title="Add exercise">
-      <p className="sl-mono text-[12px] text-ink-400 mb-3">Pick from your coach's library.</p>
-      <input
-        type="text"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search…"
-        aria-label="Search exercises"
-        className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[16px] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] mb-3"
-      />
-      <div className="max-h-64 overflow-y-auto -mx-1 px-1 space-y-1">
-        {candidates.length === 0 ? (
-          <p className="sl-mono text-[12px] text-ink-400 py-4 text-center">No exercises found.</p>
-        ) : (
-          candidates.map((ex) => (
-            <button key={ex.id} type="button" onClick={() => onPick(ex)} className="w-full flex items-center gap-2 rounded-lg px-3 py-2.5 text-left hover:bg-ink-50">
-              <span className="sl-display text-[15px] text-gray-900 flex-1 min-w-0 truncate">{ex.name}</span>
-              <TypeBadge type={ex.type} className="shrink-0" />
-            </button>
-          ))
-        )}
+    <Sheet open={open} onClose={onClose} title={t('parcEditor.addExercise')} description={t('parcAuthor.pickerHint')}>
+      <div className="flex flex-col gap-3">
+        <SearchField label={t('parcLibrary.search')} value={query} onChange={(e) => setQuery(e.target.value)} />
+        <div className="max-h-72 overflow-y-auto">
+          {candidates.length === 0 ? (
+            <p className="pk-caption m-0 py-4 text-center">{t('parcAuthor.noExercise')}</p>
+          ) : (
+            <ul className="pk-group">
+              {candidates.map((ex) => (
+                <li key={ex.id}>
+                  <button type="button" onClick={() => onPick(ex)} className="pk-row w-full bg-transparent text-left">
+                    <span className="pk-headline min-w-0 flex-1 truncate">{ex.name}</span>
+                    <TypeBadge type={ex.type} className="shrink-0" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
-    </Dialog>
+    </Sheet>
   );
 }

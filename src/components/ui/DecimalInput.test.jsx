@@ -45,6 +45,13 @@ describe('<DecimalInput />', () => {
     expect(field()).toHaveClass('text-[16px]', 'w-16', 'text-center');
   });
 
+  it('is drawn as the Parc field without a className of the caller, and only then', () => {
+    const { rerender } = render(<DecimalInput aria-label="Weight" value="" onChange={() => {}} />);
+    expect(field()).toHaveClass('pk-field', 'pk-tnum');
+    rerender(<DecimalInput aria-label="Weight" value="" onChange={() => {}} className="w-16 text-center" />);
+    expect(field()).not.toHaveClass('pk-field');
+  });
+
   it('keeps "82,5" as typed and reports 82.5', async () => {
     const onParsed = vi.fn();
     render(<Field onParsed={onParsed} />);

@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
-import ConfirmDialog from '../ui/ConfirmDialog';
+import { ConfirmSheet } from '../parc';
 import { isQueuedWrite } from '../../lib/persistence';
 import { hasUnsyncedDraft } from '../../lib/offlineMutations';
+import { formatNumber, pluralKey } from '../../lib/i18n/format';
 
 /**
  * Asks before a sign-out that would throw unsynced work away.
@@ -28,7 +29,7 @@ import { hasUnsyncedDraft } from '../../lib/offlineMutations';
 export default function SignOutGuard() {
   const { guardSignOut } = useAuth();
   const queryClient = useQueryClient();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   // The question on screen: how many writes it is about (0: a draft alone).
   const [question, setQuestion] = useState(null);
   // Its answer, for whoever waits — every tap on "Sign out" made meanwhile.
@@ -65,13 +66,15 @@ export default function SignOutGuard() {
   if (!question) return null;
 
   const { writes } = question;
-  let message;
-  if (writes === 0) message = t('authOffline.signOutDraft');
-  else if (writes === 1) message = t('authOffline.signOutOne', { n: writes });
-  else message = t('authOffline.signOutMany', { n: writes });
+  const message =
+    writes === 0
+      ? t('authOffline.signOutDraft')
+      : t(pluralKey(lang, writes, { one: 'authOffline.signOutOne', other: 'authOffline.signOutMany' }), {
+          n: formatNumber(lang, writes),
+        });
 
   return (
-    <ConfirmDialog
+    <ConfirmSheet
       open
       onClose={() => answer(false)}
       onConfirm={() => answer(true)}

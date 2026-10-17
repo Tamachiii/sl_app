@@ -449,7 +449,7 @@ describe('a session confirmed without a network', () => {
     expect(waitingLine()).toHaveAttribute('role', 'status');
     expect(confirmCta()).toBeNull();
     expect(screen.queryByText(/confirming…/i)).toBeNull();
-    expect(banner()).toHaveTextContent('Offline · 1 change waiting to sync');
+    expect(banner()).toHaveTextContent('Offline. 1 change waits for the connection.');
     // Nothing has left the device.
     expect(server.writes).toEqual([]);
     expect(server.confirmations.has('s-2')).toBe(false);
@@ -474,7 +474,7 @@ describe('a session confirmed without a network', () => {
     const relaunched = relaunch(gym);
     const list = renderList(relaunched);
     await expectListMovedOn(user);
-    expect(banner()).toHaveTextContent('Offline · 1 change waiting to sync');
+    expect(banner()).toHaveTextContent('Offline. 1 change waits for the connection.');
     list.unmount();
 
     renderSession(relaunched);
@@ -516,7 +516,7 @@ describe('a session confirmed without a network', () => {
     expect(confirmedCard()).toBeNull();
     expect(screen.queryByText(/confirming…/i)).toBeNull();
     expect(waitingLine()).toBeNull();
-    expect(banner()).toHaveTextContent('Offline · 2 changes waiting to sync');
+    expect(banner()).toHaveTextContent('Offline. 2 changes wait for the connection.');
 
     // The note of the confirmation that has not been sent is still in the
     // field: it is written over.
@@ -528,7 +528,7 @@ describe('a session confirmed without a network', () => {
     await waitFor(() => expect(confirmedCard()).not.toBeNull());
     expect(within(confirmedCard()).getByText('second')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Undo confirmation' })).toBeEnabled();
-    expect(banner()).toHaveTextContent('Offline · 3 changes waiting to sync');
+    expect(banner()).toHaveTextContent('Offline. 3 changes wait for the connection.');
 
     setNetwork(true);
     await waitFor(() => expect(server.writes).toEqual(['confirm', 'undo', 'confirm']));
@@ -634,7 +634,7 @@ describe('a note written without a network', () => {
     expect(screen.queryByRole('textbox', { name: 'Note for your coach' })).toBeNull();
     expect(await screen.findByRole('region', { name: 'Your note for the coach' })).toHaveTextContent('left elbow');
     expect(within(note()).getByRole('button', { name: 'Edit the note' })).toBeInTheDocument();
-    expect(banner()).toHaveTextContent('Offline · 1 change waiting to sync');
+    expect(banner()).toHaveTextContent('Offline. 1 change waits for the connection.');
     expect(server.notes.size).toBe(0);
 
     setNetwork(true);

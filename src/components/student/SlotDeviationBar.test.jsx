@@ -170,10 +170,12 @@ describe('SlotDeviationBar', () => {
       await user.click(replaceButton());
       const picker = screen.getByRole('dialog', { name: 'Replace the exercise' });
 
+      // The badge: a mark of the type's chart colour before its name.
       const push = within(within(picker).getByRole('button', { name: /goblet squat/i })).getByText('Push');
-      expect(push).toHaveClass('sl-pill', 'bg-push/15', 'text-push', 'shrink-0');
+      expect(push).toHaveClass('text-ink-2', 'shrink-0');
+      expect(push.querySelector('[aria-hidden="true"]')).toHaveClass('bg-chart-push');
       const pull = within(within(picker).getByRole('button', { name: /seated row/i })).getByText('Pull');
-      expect(pull).toHaveClass('sl-pill', 'bg-pull/15', 'text-pull');
+      expect(pull.querySelector('[aria-hidden="true"]')).toHaveClass('bg-chart-pull');
       // The raw value of the enum is gone.
       expect(within(picker).queryByText('push')).not.toBeInTheDocument();
     });

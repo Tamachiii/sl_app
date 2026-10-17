@@ -1,0 +1,27 @@
+// The athlete's profile in the Parc design (no mock: built from design/parc/README.md and the primitives).
+export default {
+  parcProfile: {
+    title: 'Profil',
+    nameHint: 'Dein Name, wie dein Coach ihn sieht',
+    rename: 'Deinen Namen ändern',
+    coach: 'Dein Coach',
+    write: 'Schreiben',
+    writeTo: '{name} schreiben',
+    lifetime: 'Seit Beginn',
+    sessionsOne: 'Einheit erledigt',
+    sessionsMany: 'Einheiten erledigt',
+    setsOne: 'Satz erledigt',
+    setsMany: 'Sätze erledigt',
+    volume: 'kg bewegt',
+    draftTitle: 'Ein Programm schreiben',
+    draftCaption: 'Ein Entwurf, den dein Coach freigibt',
+    goals: 'Ziele',
+    goalsInProgressOne: '{n} laufend',
+    goalsInProgressMany: '{n} laufend',
+    goalsEmpty: 'Noch kein Ziel. Dein Coach legt sie fest.',
+    prefs: 'Einstellungen',
+    notifications: 'Benachrichtigungen',
+    restLabel: 'Ende der Pause',
+    account: 'Konto',
+  },
+};

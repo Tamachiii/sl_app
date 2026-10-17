@@ -168,10 +168,10 @@ describe('<OfflineBanner />', () => {
     goOffline();
 
     queueWrite(qc, MUTATION_KEYS.toggleDone);
-    expect(await screen.findByText('Offline · 1 change waiting to sync')).toBeInTheDocument();
+    expect(await screen.findByText('Offline. 1 change waits for the connection.')).toBeInTheDocument();
 
     queueWrite(qc, MUTATION_KEYS.confirmSession);
-    expect(await screen.findByText('Offline · 2 changes waiting to sync')).toBeInTheDocument();
+    expect(await screen.findByText('Offline. 2 changes wait for the connection.')).toBeInTheDocument();
   });
 
   it('a session that was only opened is not a change waiting to sync', async () => {
@@ -194,12 +194,12 @@ describe('<OfflineBanner />', () => {
 
     expect(qc.getMutationCache().getAll().map((m) => m.state.isPaused)).toEqual([true, true]);
     expect(screen.getByTestId('offline-banner')).toHaveTextContent(
-      'Offline — your changes will sync when you reconnect.',
+      'Offline. Your changes are sent when the connection returns.',
     );
 
     // And next to a real one, it still is not counted.
     queueWrite(qc, MUTATION_KEYS.setRpe);
-    expect(await screen.findByText('Offline · 1 change waiting to sync')).toBeInTheDocument();
+    expect(await screen.findByText('Offline. 1 change waits for the connection.')).toBeInTheDocument();
   });
 
   it('counts a write that is between two attempts when the network goes: it is owed like the others', async () => {
@@ -216,6 +216,6 @@ describe('<OfflineBanner />', () => {
 
     goOffline();
 
-    expect(await screen.findByText('Offline · 1 change waiting to sync')).toBeInTheDocument();
+    expect(await screen.findByText('Offline. 1 change waits for the connection.')).toBeInTheDocument();
   });
 });

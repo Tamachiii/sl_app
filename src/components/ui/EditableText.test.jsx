@@ -44,7 +44,7 @@ describe('<EditableText />', () => {
         <button>focus sink</button>
       </div>,
     );
-    await user.click(screen.getByRole('button', { name: /Edit Hello/i }));
+    await user.click(screen.getByRole('button', { name: 'Hello' }));
     await user.clear(screen.getByRole('textbox'));
     await user.type(screen.getByRole('textbox'), 'Bye');
     await user.click(screen.getByRole('button', { name: /focus sink/i }));

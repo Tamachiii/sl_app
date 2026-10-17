@@ -13,22 +13,9 @@ import {
   statsPrefsKey,
 } from '../../lib/statsPrefs';
 import Spinner from '../ui/Spinner';
-import EmptyState from '../ui/EmptyState';
-import ExerciseProgressChart from '../student/ExerciseProgressChart';
 import ProgramScopeSelector from '../student/ProgramScopeSelector';
 import WeeklyVolumePanel from '../student/WeeklyVolumePanel';
-
-function StatCard({ label, value, sub }) {
-  return (
-    <div className="sl-card p-3.5">
-      <div className="sl-label text-ink-400">{label}</div>
-      <div className="sl-display text-[28px] text-gray-900 leading-none mt-1.5 tabular-nums">
-        {value}
-      </div>
-      {sub && <div className="sl-mono text-[11px] text-ink-400 mt-1">{sub}</div>}
-    </div>
-  );
-}
+import { ProgressList, Summary } from '../student/StatsParts';
 
 export default function StudentStatsSection() {
   const { student } = useOutletContext();
@@ -118,7 +105,7 @@ export default function StudentStatsSection() {
   const hasData = stats.totalSessions > 0;
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-6">
       {hasPrograms && (
         <ProgramScopeSelector
           programs={programs}
@@ -128,63 +115,27 @@ export default function StudentStatsSection() {
       )}
 
       <div
-        className={isSwitchingScope ? 'opacity-50' : undefined}
+        className={`flex flex-col gap-6${isSwitchingScope ? ' opacity-50' : ''}`}
         aria-busy={isSwitchingScope ? 'true' : undefined}
       >
         {/* Coach-voice, and accurate: the athlete may well have a program, they
             just have not logged anything in the selected scope yet. This used to
             render the student-side "No program assigned yet". */}
-        {!hasData && <EmptyState message={t('coach.stats.noData')} compact />}
+        {!hasData && <p className="rounded-group bg-surface p-4 pk-body">{t('coach.stats.noData')}</p>}
 
-        {hasData && <CoachStatsBody
-          stats={stats}
-          completionPct={completionPct}
-          weeksReachToday={scopeReachesToday(scope, programs)}
-          exerciseStorageKey={exerciseKey}
-          t={t}
-        />}
-      </div>
-    </div>
-  );
-}
-
-function CoachStatsBody({ stats, completionPct, weeksReachToday, exerciseStorageKey, t }) {
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-2">
-        <StatCard
-          label={t('student.stats.sessions')}
-          value={`${stats.totalSessionsConfirmed}/${stats.totalSessions}`}
-          sub={t('student.stats.pctComplete', { n: completionPct })}
-        />
-        <StatCard
-          label={t('student.stats.setsDone')}
-          value={stats.totalSetsDone}
-          // The prescribed sets done, of the prescribed sets; what the athlete
-          // added is said apart, never in the count.
-          sub={stats.totalExtraSetsDone > 0
-            ? `${t('student.stats.ofPrescribed', { n: stats.totalSets })} · ${t('statsCompletionRules.extraSets', { n: stats.totalExtraSetsDone })}`
-            : t('student.stats.ofPrescribed', { n: stats.totalSets })}
-        />
-        <StatCard
-          label={t('student.stats.avgRpe')}
-          value={stats.avgRpe != null ? stats.avgRpe.toFixed(1) : '—'}
-          sub={stats.avgRpe != null ? t('student.stats.acrossLogged') : t('student.stats.logSetsToSee')}
-        />
-      </div>
-
-      {/* The panel carries its own heading. */}
-      <WeeklyVolumePanel weeks={stats.weeklyVolume} current={weeksReachToday} />
-
-      <div>
-        <div className="sl-label text-ink-400 mb-2.5">
-          {t('student.stats.exerciseProgression')}
-        </div>
-        <ExerciseProgressChart
-          exercises={stats.exerciseProgress?.exercises ?? []}
-          byExercise={stats.exerciseProgress?.byExercise ?? {}}
-          storageKey={exerciseStorageKey}
-        />
+        {/* The same figures as on the athlete's own Stats page, said the same
+            way (student/StatsParts). */}
+        {hasData && (
+          <>
+            <WeeklyVolumePanel weeks={stats.weeklyVolume} current={scopeReachesToday(scope, programs)} />
+            <ProgressList
+              exercises={stats.exerciseProgress?.exercises ?? []}
+              byExercise={stats.exerciseProgress?.byExercise ?? {}}
+              storageKey={exerciseKey}
+            />
+            <Summary stats={stats} completionPct={completionPct} />
+          </>
+        )}
       </div>
     </div>
   );

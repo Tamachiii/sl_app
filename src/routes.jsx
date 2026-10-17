@@ -43,7 +43,7 @@ function RedirectToRoleHome() {
     return (
       <div className="flex flex-col items-center gap-4 px-6 py-12 text-center">
         <Spinner />
-        {!isOnline && <p className="sl-mono text-[12px] text-ink-400">{t('authOffline.roleWait')}</p>}
+        {!isOnline && <p className="pk-caption m-0">{t('authOffline.roleWait')}</p>}
       </div>
     );
   }
