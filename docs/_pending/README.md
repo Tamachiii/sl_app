@@ -51,7 +51,7 @@ Delete the paragraph that starts "<first words>": <what it described> no longer 
 ### Rules
 
 - **Describe the code as it is at the end of the package**, in the present tense. No history ("we used to"), no plan ("will be added in wave 5") — a later package writes its own snippet.
-- **Name files, functions, tables and columns in back-ticks**, spelled exactly. From wave 4, `npm run test:docs` checks that every back-ticked identifier and `src` path in the folded documents exists in the repository. This folder is not checked, because a snippet may name something another lane of the same wave is still creating.
+- **Name files, functions, tables and columns in back-ticks**, spelled exactly. No test checks that every back-ticked identifier and `src` path in the folded documents exists in the repository: the package that would add it, under `npm run test:docs`, is `docs-truth-pass` in `docs/BACKLOG.md`. Such a test leaves this folder out, because a snippet may name something another lane of the same wave is still creating.
 - **Say what becomes false.** If the change makes an existing sentence wrong, add a *Delete* or *Replace* block for it. A stale rule is worse than a missing one: a later review will "fix" correct code towards it.
 - **Which document**:
   | Target | What goes there |
