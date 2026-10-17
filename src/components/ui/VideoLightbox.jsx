@@ -1,18 +1,27 @@
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 
-export default function VideoLightbox({ open, onClose, children }) {
+// `container`: where the lightbox is drawn — the document's <body> by default,
+// or the open sheet (a modal <dialog>) it was opened from: the page behind a
+// modal dialog is inert and under it, and so would a lightbox drawn there be.
+export default function VideoLightbox({ open, onClose, container, children }) {
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    // Escape closes the player and nothing else: heard first — in the capture
+    // phase of the window — and kept here, so that a sheet the player was
+    // opened from (which closes on Escape too) stays open behind it.
     function onKey(e) {
-      if (e.key === 'Escape') onClose?.();
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      onClose?.();
     }
-    window.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
     return () => {
       document.body.style.overflow = prev;
-      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onKey, true);
     };
   }, [open, onClose]);
 
@@ -43,6 +52,6 @@ export default function VideoLightbox({ open, onClose, children }) {
         {children}
       </div>
     </div>,
-    document.body
+    container ?? document.body
   );
 }

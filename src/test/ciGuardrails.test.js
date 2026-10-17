@@ -387,10 +387,10 @@ describe('deploy: version.json says which build is the oldest allowed', () => {
 describe('CI gate: lint warnings have a ceiling', () => {
   // The ceiling of package.json, written here too so that raising it there
   // fails here. It is a ratchet: 26 when it went in (2026-10-03), 16 after
-  // wave 2, 14 after wave 3. When a warning is fixed, both numbers go down
-  // together; neither goes up — fix the new warning, or disable it inline
-  // with the reason, instead.
-  const CEILING = 14;
+  // wave 2, 14 after wave 3, 13 with the Parc session screen. When a warning
+  // is fixed, both numbers go down together; neither goes up — fix the new
+  // warning, or disable it inline with the reason, instead.
+  const CEILING = 13;
 
   it('fails on one warning more than the count on record', () => {
     const { scripts } = JSON.parse(read('package.json'));

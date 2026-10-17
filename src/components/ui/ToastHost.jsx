@@ -107,7 +107,9 @@ export default function ToastHost() {
     <div
       className="fixed inset-x-0 z-50 mx-auto flex max-w-[560px] flex-col items-center gap-2.5 px-4 pointer-events-none"
       style={{
-        bottom: 'calc(env(safe-area-inset-bottom) + 72px)',
+        // Above the bottom nav, or above the ActionBar of the page that has
+        // one, which says its height in --toast-lift (parc/ActionBar).
+        bottom: 'var(--toast-lift, calc(env(safe-area-inset-bottom) + 72px))',
         transition: reducedMotion ? undefined : 'opacity 150ms ease',
       }}
     >

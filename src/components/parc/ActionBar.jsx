@@ -1,3 +1,11 @@
+import { useLayoutEffect, useRef } from 'react';
+
+// The bottom of the toasts while an ActionBar is on screen: its height and a
+// gap, so that a toast stands above the bar and never on it (ui/ToastHost
+// reads it, design/parc/components/Toast: « au-dessus de l'ActionBar »).
+export const TOAST_LIFT_VAR = '--toast-lift';
+const TOAST_GAP_PX = 10;
+
 /**
  * The bar at the bottom of an athlete's screen (design/parc/components/
  * ActionBar): the main action within reach of the thumb, and the rest that is
@@ -13,8 +21,27 @@
  * phone's home bar, which `env(safe-area-inset-bottom)` measures for real.
  */
 export default function ActionBar({ className = '', children, ...rest }) {
+  const ref = useRef(null);
+
+  // While the bar is shown, the toasts stand above it: its height, measured
+  // again when it changes (a rest that starts, a label on two lines).
+  useLayoutEffect(() => {
+    const bar = ref.current;
+    const root = document.documentElement;
+    if (!bar) return undefined;
+    const lift = () => root.style.setProperty(TOAST_LIFT_VAR, `${bar.offsetHeight + TOAST_GAP_PX}px`);
+    lift();
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(lift) : null;
+    observer?.observe(bar);
+    return () => {
+      observer?.disconnect();
+      root.style.removeProperty(TOAST_LIFT_VAR);
+    };
+  }, []);
+
   return (
     <div
+      ref={ref}
       {...rest}
       className={`pk-actionbar ${className}`}
       style={{ paddingBottom: 'max(var(--space-3), env(safe-area-inset-bottom))', ...rest.style }}

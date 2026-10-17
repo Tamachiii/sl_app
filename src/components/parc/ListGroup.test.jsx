@@ -48,7 +48,8 @@ describe('Row', () => {
     const link = screen.getByRole('link');
     expect(link).toHaveAttribute('href', '/coach/students/1');
     expect(link).toHaveClass('pk-row');
-    expect(link).toHaveTextContent('Léa MartinSéance 7 sur 242 à revoir');
+    // The comma between the title and the second line is for a screen reader.
+    expect(link).toHaveAccessibleName('Léa Martin, Séance 7 sur 24, 2 à revoir');
     expect(link.querySelectorAll('svg')).toHaveLength(1);
   });
 

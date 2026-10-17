@@ -44,3 +44,12 @@ describe('formatRestClock', () => {
     expect(formatRestClock(seconds)).toBe(text);
   });
 });
+
+describe('ActionBar and the toasts', () => {
+  it('lifts the toasts above itself while it is shown', () => {
+    const { unmount } = render(<ActionBar />);
+    expect(document.documentElement.style.getPropertyValue('--toast-lift')).toMatch(/px$/);
+    unmount();
+    expect(document.documentElement.style.getPropertyValue('--toast-lift')).toBe('');
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 // The save is a stub: `mutate` is called and nothing ever answers — which is
@@ -15,9 +15,10 @@ import SlotCommentBox from './SlotCommentBox';
 
 const NOTE = { id: 'sc-1', exercise_slot_id: 'sl-1', body: 'felt heavy' };
 
-const field = () => screen.queryByPlaceholderText(/note for your coach/i);
-const addPill = () => screen.queryByRole('button', { name: /^add note for coach$/i });
-const editPill = () => screen.queryByRole('button', { name: /^edit note for coach$/i });
+const field = () => screen.queryByRole('textbox', { name: 'Note for your coach' });
+const addButton = () => screen.queryByRole('button', { name: 'Add a note for the coach' });
+const editButton = () => screen.queryByRole('button', { name: 'Edit the note' });
+const shownNote = () => screen.queryByRole('region', { name: 'Your note for the coach' });
 
 function renderBox(comment) {
   return render(<SlotCommentBox sessionId="s-1" slotId="sl-1" comment={comment} />);
@@ -27,22 +28,41 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+// One exercise is shown at a time on the session screen, so the note control
+// is always in the exercise: the form a collapsed card showed beside its
+// header is gone with the accordion.
 describe('SlotCommentBox', () => {
-  it('offers "Add note" on an exercise without one, and the note itself on one that has it', () => {
+  it('offers "Add a note for the coach" on an exercise without one, and the note itself on one that has it', () => {
     const { rerender } = renderBox(undefined);
-    expect(addPill()).toHaveTextContent('Add note');
+    expect(addButton()).toBeInTheDocument();
+    expect(shownNote()).toBeNull();
 
     rerender(<SlotCommentBox sessionId="s-1" slotId="sl-1" comment={NOTE} />);
-    expect(editPill()).toHaveTextContent('felt heavy');
+    // The note is shown whole, signed, with the way to change it under it.
+    expect(shownNote()).toHaveTextContent('felt heavy');
+    expect(within(shownNote()).getByRole('button', { name: 'Edit the note' })).toBeInTheDocument();
+    expect(addButton()).toBeNull();
   });
 
-  // P68: a pill that is a button is 44 px tall (`sl-pill-btn`), not 23.
-  it('draws the pill at 44 px, with or without a note', () => {
+  // P68: a button is 44 px tall. jsdom lays nothing out: the 44 px are the
+  // Parc button's class, whose min-height is the target size.
+  it('draws its button at 44 px, with or without a note', () => {
     const { rerender } = renderBox(undefined);
-    expect(addPill()).toHaveClass('sl-pill', 'sl-pill-btn');
+    expect(addButton()).toHaveClass('pk-btn');
 
     rerender(<SlotCommentBox sessionId="s-1" slotId="sl-1" comment={NOTE} />);
-    expect(editPill()).toHaveClass('sl-pill', 'sl-pill-btn');
+    expect(editButton()).toHaveClass('pk-btn');
+  });
+
+  it('opens a field named for what it is, with the focus in it', async () => {
+    const user = userEvent.setup();
+    renderBox(undefined);
+
+    await user.click(addButton());
+
+    expect(field()).toBeInTheDocument();
+    expect(field()).toHaveFocus();
+    expect(addButton()).toBeNull();
   });
 
   // P25. The field used to close in the save's `onSuccess`: without a network
@@ -52,7 +72,7 @@ describe('SlotCommentBox', () => {
     const user = userEvent.setup();
     renderBox(undefined);
 
-    await user.click(addPill());
+    await user.click(addButton());
     await user.type(field(), 'felt heavy');
     await user.tab();
 
@@ -63,14 +83,14 @@ describe('SlotCommentBox', () => {
     );
     // Nothing has answered: the field is closed all the same.
     expect(field()).toBeNull();
-    expect(addPill()).toBeInTheDocument();
+    expect(addButton()).toBeInTheDocument();
   });
 
   it('left unchanged, it closes and saves nothing', async () => {
     const user = userEvent.setup();
     renderBox(NOTE);
 
-    await user.click(editPill());
+    await user.click(editButton());
     expect(field()).toHaveValue('felt heavy');
     await user.tab();
 
@@ -84,7 +104,7 @@ describe('SlotCommentBox', () => {
     // The note changed while the field was closed: a save that landed, a read.
     rerender(<SlotCommentBox sessionId="s-1" slotId="sl-1" comment={{ ...NOTE, body: 'felt light' }} />);
 
-    await user.click(editPill());
+    await user.click(editButton());
 
     expect(field()).toHaveValue('felt light');
   });
@@ -94,7 +114,7 @@ describe('SlotCommentBox', () => {
   it('does not replace what is being typed when the note changes under it', async () => {
     const user = userEvent.setup();
     const { rerender } = renderBox(NOTE);
-    await user.click(editPill());
+    await user.click(editButton());
     await user.type(field(), ', left elbow');
 
     rerender(<SlotCommentBox sessionId="s-1" slotId="sl-1" comment={undefined} />);
@@ -105,7 +125,7 @@ describe('SlotCommentBox', () => {
   describe('a save that failed', () => {
     async function writeAndFail(user) {
       const view = renderBox(NOTE);
-      await user.click(editPill());
+      await user.click(editButton());
       await user.clear(field());
       await user.type(field(), 'felt heavy, left elbow');
       await user.tab();
@@ -121,14 +141,15 @@ describe('SlotCommentBox', () => {
       await writeAndFail(user);
 
       expect(field()).toBeNull();
-      expect(editPill()).toHaveTextContent('felt heavy');
+      expect(shownNote()).toHaveTextContent('felt heavy');
+      expect(shownNote()).not.toHaveTextContent('left elbow');
     });
 
     it('is what the field opens on next: the athlete does not write it twice', async () => {
       const user = userEvent.setup();
       await writeAndFail(user);
 
-      await user.click(editPill());
+      await user.click(editButton());
       expect(field()).toHaveValue('felt heavy, left elbow');
 
       // Leaving it sends it again.
@@ -144,14 +165,14 @@ describe('SlotCommentBox', () => {
     it('is forgotten once the field has been left again', async () => {
       const user = userEvent.setup();
       await writeAndFail(user);
-      await user.click(editPill());
+      await user.click(editButton());
       await user.clear(field());
       await user.type(field(), 'felt heavy');
       await user.tab();
       // Back to the note the database has: nothing to send.
       expect(mockSave.mutate).toHaveBeenCalledTimes(1);
 
-      await user.click(editPill());
+      await user.click(editButton());
       expect(field()).toHaveValue('felt heavy');
     });
   });
@@ -160,69 +181,11 @@ describe('SlotCommentBox', () => {
     const { container, rerender } = render(
       <SlotCommentBox sessionId="s-1" slotId="sl-1" comment={NOTE} locked />,
     );
-    expect(screen.getByText(/your note:/i).parentElement).toHaveTextContent('Your note: felt heavy');
+    expect(shownNote()).toHaveTextContent('felt heavy');
     expect(screen.queryByRole('button')).toBeNull();
+    expect(field()).toBeNull();
 
     rerender(<SlotCommentBox sessionId="s-1" slotId="sl-1" comment={undefined} locked />);
-    expect(container).toBeEmptyDOMElement();
-  });
-});
-
-// B29. The form a collapsed exercise's card shows beside its header.
-describe('SlotCommentBox, compact', () => {
-  const renderCompact = (comment, extra = {}) =>
-    render(
-      <SlotCommentBox
-        compact
-        sessionId="s-1"
-        slotId="sl-1"
-        comment={comment}
-        exerciseName="Bench press"
-        fieldClassName="px-4 pb-3"
-        {...extra}
-      />,
-    );
-  const addBubble = () => screen.queryByRole('button', { name: 'Add note for coach: Bench press' });
-  const editBubble = () => screen.queryByRole('button', { name: 'Edit note for coach: Bench press' });
-
-  it('is a 44 px button named after the exercise, which says whether it has a note', () => {
-    const { rerender } = renderCompact(undefined);
-    expect(addBubble()).toHaveClass('sl-pill', 'sl-pill-btn');
-    expect(addBubble()).toHaveClass('text-ink-400');
-
-    rerender(
-      <SlotCommentBox compact sessionId="s-1" slotId="sl-1" comment={NOTE} exerciseName="Bench press" />,
-    );
-    expect(editBubble()).toHaveClass('sl-pill', 'sl-pill-btn', 'text-accent');
-    expect(addBubble()).toBeNull();
-  });
-
-  it('opens its field on a line of its own, and saves and closes when it is left', async () => {
-    const user = userEvent.setup();
-    renderCompact(undefined);
-
-    await user.click(addBubble());
-    expect(field().parentElement).toHaveClass('basis-full', 'px-4', 'pb-3');
-    await user.type(field(), 'left elbow');
-    await user.tab();
-
-    expect(mockSave.mutate).toHaveBeenCalledWith(
-      { sessionId: 's-1', slotId: 'sl-1', body: 'left elbow' },
-      expect.any(Object),
-    );
-    expect(field()).toBeNull();
-    expect(addBubble()).toBeInTheDocument();
-  });
-
-  it('opens on the note the exercise has', async () => {
-    const user = userEvent.setup();
-    renderCompact(NOTE);
-    await user.click(editBubble());
-    expect(field()).toHaveValue('felt heavy');
-  });
-
-  it('locked, renders nothing: the card shows a passive badge', () => {
-    const { container } = renderCompact(NOTE, { locked: true });
     expect(container).toBeEmptyDOMElement();
   });
 });

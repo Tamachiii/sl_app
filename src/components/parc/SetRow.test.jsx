@@ -66,6 +66,11 @@ describe('SetRow: a tap and a long press', () => {
     return { onPress, onLongPress, row: screen.getByRole('button') };
   }
 
+  it('reads as one sentence: the title, the target and the state, separated by commas', () => {
+    inList(<SetRow state="current" number={3} title="Série 3" caption="5 répétitions, 20 kg" trailing="En cours" onPress={() => {}} />);
+    expect(screen.getByRole('button')).toHaveAccessibleName('Série 3, 5 répétitions, 20 kg, En cours');
+  });
+
   it('is a button described by the sentence that says how to fail a set', () => {
     const { row } = setup();
     expect(row).toHaveClass('pk-row');

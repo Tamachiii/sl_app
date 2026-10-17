@@ -11,7 +11,7 @@
 // session (P22) — and a stubbed hook starts nothing.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import {
   QueryClient,
@@ -211,7 +211,14 @@ const settle = () =>
   });
 
 const banner = () => screen.getByTestId('offline-banner');
-const confirmButton = () => screen.queryByRole('button', { name: /^confirm session$/i });
+const confirmButton = () => screen.queryByRole('button', { name: 'Confirm session' });
+// The page's title, and the exercise it shows: one at a time, its name the
+// panel's heading (the chips above name every exercise of the session).
+const title = () => screen.queryByRole('heading', { level: 1, name: 'Pull A' });
+const shownExercise = (name) => screen.queryByRole('heading', { level: 2, name });
+const findShownExercise = (name) => screen.findByRole('heading', { level: 2, name });
+// The facts under the title: « 2 exercises, 0 of 4 sets done ».
+const facts = () => screen.queryByText(/sets done$/);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -236,9 +243,9 @@ describe.each(Object.keys(MODES))('a session opened without a network (reads %s)
     setNetwork(false, mode);
     renderPage(gym);
 
-    expect(screen.getByText('Pull A')).toBeInTheDocument();
-    expect(screen.getByText('Bench Press')).toBeInTheDocument();
-    expect(screen.getByText('0 of 4 sets')).toBeInTheDocument();
+    expect(title()).toBeInTheDocument();
+    expect(shownExercise('Bench Press')).toBeInTheDocument();
+    expect(facts()).toHaveTextContent('2 exercises, 0 of 4 sets done');
     await settle();
     // The workout can be done and confirmed from here: the confirmation is a
     // write of the queue, and this session is the next one of the list.
@@ -260,7 +267,7 @@ describe.each(Object.keys(MODES))('a session opened without a network (reads %s)
     setNetwork(false, mode);
     renderPage(gym);
 
-    expect(screen.getByText('0 of 3 sets')).toBeInTheDocument();
+    expect(facts()).toHaveTextContent('0 of 3 sets done');
     await settle();
     expect(gym.getMutationCache().getAll()).toEqual([]);
     expect(banner()).not.toHaveTextContent(/waiting to sync/i);
@@ -268,7 +275,7 @@ describe.each(Object.keys(MODES))('a session opened without a network (reads %s)
 
     setNetwork(true, mode);
     // The set is added there, and shown.
-    expect(await screen.findByText('0 of 4 sets')).toBeInTheDocument();
+    await waitFor(() => expect(facts()).toHaveTextContent('0 of 4 sets done'));
     expect(supabase.rpc).toHaveBeenCalledTimes(1);
     expect(supabase.rpc).toHaveBeenCalledWith('ensure_set_logs', { p_session_id: 's-2' });
     expect(server.rows.map((r) => r.id)).toContain('sl-2-2');
@@ -289,6 +296,8 @@ describe.each(Object.keys(MODES))('a session opened without a network (reads %s)
     expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
     expect(confirmButton()).toBeNull();
     expect(screen.queryByText(/of \d+ sets/i)).toBeNull();
+    // Nor a set to validate.
+    expect(screen.queryByRole('button', { name: /^validate set/i })).toBeNull();
     await settle();
     expect(screen.getByText(/this session isn’t on this device yet/i)).toBeInTheDocument();
     expect(confirmButton()).toBeNull();
@@ -296,9 +305,9 @@ describe.each(Object.keys(MODES))('a session opened without a network (reads %s)
 
     // No tap: the return of the network is enough.
     setNetwork(true, mode);
-    expect(await screen.findByText('Bench Press')).toBeInTheDocument();
-    expect(screen.getByText('Pull A')).toBeInTheDocument();
-    expect(screen.getByText('0 of 4 sets')).toBeInTheDocument();
+    expect(await findShownExercise('Bench Press')).toBeInTheDocument();
+    expect(title()).toBeInTheDocument();
+    expect(facts()).toHaveTextContent('0 of 4 sets done');
     expect(confirmButton()).toBeInTheDocument();
     expect(screen.queryByText(/isn’t on this device/i)).toBeNull();
   });
@@ -311,8 +320,8 @@ describe('a session opened on a network', () => {
     const client = makeClient('paused');
     renderPage(client);
 
-    expect(await screen.findByText('Bench Press')).toBeInTheDocument();
-    expect(screen.getByText('0 of 4 sets')).toBeInTheDocument();
+    expect(await findShownExercise('Bench Press')).toBeInTheDocument();
+    expect(facts()).toHaveTextContent('0 of 4 sets done');
     await settle();
 
     expect(db.requestsTo('sessions')).toHaveLength(1);
@@ -326,8 +335,10 @@ describe('a session opened on a network', () => {
     const client = makeClient('paused');
     renderPage(client);
 
-    expect(await screen.findByText('0 of 4 sets')).toBeInTheDocument();
+    await waitFor(() => expect(facts()).toHaveTextContent('0 of 4 sets done'));
     await settle();
+    // The exercise shown has its second set again.
+    expect(within(screen.getByRole('list', { name: 'Sets' })).getByText('Set 2')).toBeInTheDocument();
 
     expect(supabase.rpc).toHaveBeenCalledTimes(1);
     expect(supabase.rpc).toHaveBeenCalledWith('ensure_set_logs', { p_session_id: 's-2' });
@@ -357,7 +368,7 @@ describe('a session opened on a network', () => {
       server.rows.map((r) => ({ ...r })),
     );
     renderPage(client);
-    expect(screen.getByText('0 of 4 sets')).toBeInTheDocument();
+    expect(facts()).toHaveTextContent('0 of 4 sets done');
 
     // The database is asked, by the id of the session; it is short of nothing.
     await waitFor(() => expect(supabase.rpc).toHaveBeenCalledTimes(1));
@@ -365,7 +376,10 @@ describe('a session opened on a network', () => {
     await settle();
 
     expect(server.rows.map((r) => r.id)).toEqual(['sl-1-1', 'sl-1-2', 'sl-2-1', 'sl-2-2']);
-    expect(screen.getByText('0 of 4 sets')).toBeInTheDocument();
+    expect(facts()).toHaveTextContent('0 of 4 sets done');
+    // Two sets on the exercise shown, as the coach left it: no third one.
+    expect(within(screen.getByRole('list', { name: 'Sets' })).queryByText('Set 3')).toBeNull();
+    expect(screen.getByText('Set 1 of 2')).toBeInTheDocument();
     // The answer told the device that its copy was behind: it was read again,
     // and with the session as it is now there is nothing left to ask.
     expect(db.requestsTo('sessions')).toHaveLength(1);

@@ -1,22 +1,11 @@
 import { memo } from 'react';
 import { useI18n } from '../../hooks/useI18n';
 
-// The ratings offered, in order: half steps from 6 to 10 (decision L34). An
-// athlete who felt 7.5 had to say 7 or 8. The database takes 1 to 10 in steps
-// of 0.5 (`set_logs.rpe numeric(3,1)`, migration
-// 2026_10_16_21_rpe_half_steps_day_check); below 6 is not offered.
-export const RPE_VALUES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
+// The ratings and their writing live in lib/rpe.js; re-exported for the
+// callers that still import them from here.
+import { RPE_VALUES, formatRpe } from '../../lib/rpe';
 
-// A rating as the athlete reads it: "7.5" in English, "7,5" in French and
-// German, "8" for a whole one. The API hands `numeric` over as a JSON number.
-export function formatRpe(value, lang = 'en') {
-  const n = Number(value);
-  try {
-    return new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(n);
-  } catch {
-    return String(n);
-  }
-}
+export { RPE_VALUES, formatRpe };
 
 // Two rows of five at 44 px (P68). Ten columns on a 390 px phone left each
 // button about 27 × 36 px, and the selector opens after every set — between

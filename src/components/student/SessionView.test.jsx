@@ -4,6 +4,11 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { IsRestoringProvider } from '@tanstack/react-query';
 
+// The session screen on its hook layer, stubbed: what the page shows for each
+// state of its reads, and what each gesture asks the hooks to write. The real
+// hooks are under it in SessionView.offline.test.jsx, SessionView.confirm.test.jsx
+// and SessionView.reviewedLock.test.jsx.
+
 let mockSessionData = { data: null, isLoading: false };
 let mockSetLogsData = { data: [], isLoading: false };
 
@@ -25,17 +30,26 @@ vi.mock('../../hooks/useSession', () => ({
 // the hook does with it is in hooks/useSetLogs.ensure.test.jsx.
 const mockEnsureSetLogs = vi.fn();
 const mockRefetchLogs = vi.fn();
+// The writes of a set. One stub per hook, shared by every set of the page: a
+// test asks which set a write was for by its `logId`.
+const mockToggleDone = vi.fn();
+const mockSetFailed = vi.fn();
+const mockSetRpe = vi.fn();
+const mockLogActual = vi.fn();
+const mockSetSkipped = vi.fn();
+const mockAddSet = vi.fn();
+const mockRemoveSet = vi.fn(() => Promise.resolve({ removed: null }));
 
 vi.mock('../../hooks/useSetLogs', () => ({
   useSetLogs: () => ({ refetch: mockRefetchLogs, ...mockSetLogsData }),
   useEnsureSetLogs: (...args) => mockEnsureSetLogs(...args),
-  useToggleSetDone: () => ({ mutate: vi.fn() }),
-  useSetFailed: () => ({ mutate: vi.fn() }),
-  useSetRpe: () => ({ mutate: vi.fn() }),
-  useLogActual: () => ({ mutate: vi.fn() }),
-  useSetSkipped: () => ({ mutate: vi.fn() }),
-  useAddStudentSet: () => ({ mutate: vi.fn(), isPending: false }),
-  useRemoveStudentSet: () => ({ mutate: vi.fn(), isPending: false }),
+  useToggleSetDone: () => ({ mutate: mockToggleDone }),
+  useSetFailed: () => ({ mutate: mockSetFailed }),
+  useSetRpe: () => ({ mutate: mockSetRpe }),
+  useLogActual: () => ({ mutate: mockLogActual }),
+  useSetSkipped: () => ({ mutate: mockSetSkipped }),
+  useAddStudentSet: () => ({ mutate: mockAddSet, isPending: false }),
+  useRemoveStudentSet: () => ({ mutate: vi.fn(), mutateAsync: mockRemoveSet, isPending: false }),
 }));
 
 let mockDeviations = { data: [], isLoading: false };
@@ -53,9 +67,11 @@ vi.mock('../../hooks/useLastPerformance', () => ({
 }));
 
 // The real isActiveExercise: the swap picker filters with it.
+let mockLibrary = [];
+
 vi.mock('../../hooks/useExerciseLibrary', async () => {
   const actual = await vi.importActual('../../hooks/useExerciseLibrary');
-  return { ...actual, useExerciseLibrary: () => ({ data: [], isLoading: false }) };
+  return { ...actual, useExerciseLibrary: () => ({ data: mockLibrary, isLoading: false }) };
 });
 
 let mockOnline = true;
@@ -68,9 +84,12 @@ let mockConfirmation = { data: null, isLoading: false };
 const mockConfirm = { mutate: vi.fn(), isPending: false };
 const mockUnconfirm = { mutate: vi.fn(), isPending: false };
 
+let mockSlotComments = [];
+const mockSaveComment = vi.fn();
+
 vi.mock('../../hooks/useSlotComments', () => ({
-  useSlotComments: () => ({ data: [], isLoading: false }),
-  useSaveSlotComment: () => ({ mutate: vi.fn(), isPending: false }),
+  useSlotComments: () => ({ data: mockSlotComments, isLoading: false }),
+  useSaveSlotComment: () => ({ mutate: mockSaveComment, isPending: false }),
 }));
 
 let mockVideos = { data: [], isLoading: false };
@@ -101,122 +120,233 @@ vi.mock('../../hooks/useMessages', () => ({
 }));
 
 import SessionView from './SessionView';
-import { resetRestTimer } from '../../hooks/useRestTimer';
+import { resetRestTimer, startRestTimer } from '../../hooks/useRestTimer';
+import { getToasts, dismissToast } from '../../lib/toast';
 
-function renderSessionView() {
-  return render(
+// ── Fixtures ──────────────────────────────────────────────────────────────
+
+// An exercise of the session, with its library row.
+function slot(id, name, fields = {}) {
+  return {
+    id,
+    sets: 1,
+    reps: 5,
+    weight_kg: 50,
+    sort_order: 0,
+    exercise: { id: `ex-${id}`, name, type: 'push', difficulty: 1, volume_weight: 1 },
+    ...fields,
+  };
+}
+
+// A set row as useSetLogs gives it: pending unless told otherwise, 5 × 50 kg.
+function setLog(id, slotId, n, fields = {}) {
+  return {
+    id,
+    exercise_slot_id: slotId,
+    set_number: n,
+    done: false,
+    failed: false,
+    skipped: false,
+    rpe: null,
+    target_reps: 5,
+    target_weight_kg: 50,
+    ...fields,
+  };
+}
+
+// The two reads, as useQuery reports them once they hold data.
+function loaded(slots, fields = {}) {
+  return {
+    data: { title: 'Day 1', exercise_slots: slots, program_is_active: true, ...fields },
+    isLoading: false,
+    fetchStatus: 'idle',
+  };
+}
+
+function logsRead(logs, fields = {}) {
+  return { data: logs, isLoading: false, fetchStatus: 'idle', ...fields };
+}
+
+const CONFIRMED = {
+  id: 'c-1',
+  session_id: 'sess-1',
+  student_id: 'u-1',
+  notes: null,
+  confirmed_at: '2026-04-14T10:00:00Z',
+};
+
+function page() {
+  return (
     <MemoryRouter>
       <SessionView />
     </MemoryRouter>
   );
 }
 
-describe('SessionView', () => {
-  beforeEach(() => {
-    mockConfirmation = { data: null, isLoading: false };
-    mockConfirmWaiting = false;
-    Object.assign(mockConfirm, { isPending: false, isPaused: false });
-    Object.assign(mockUnconfirm, { isPending: false, isPaused: false });
-    mockFeedback = { data: null };
-    mockDeviations = { data: [], isLoading: false };
-    vi.clearAllMocks();
-    resetRestTimer();
-  });
+function renderSessionView() {
+  return render(page());
+}
 
+function rerenderSessionView(view) {
+  view.rerender(page());
+}
+
+// The sets as the cache holds them after a write: the hooks write the cache at
+// the tap (useSetLogs), and the page is drawn again from it.
+function settle(view, logs) {
+  mockSetLogsData = logsRead(logs);
+  rerenderSessionView(view);
+}
+
+// ── What the screen is made of ───────────────────────────────────────────
+
+const panel = () => screen.getByRole('region', { name: 'Set in progress' });
+const shownExercise = () => within(panel()).getByRole('heading', { level: 2 }).textContent;
+const chipRow = () => screen.queryByRole('navigation', { name: 'Exercises of the session' });
+const chip = (name) => within(chipRow()).getByRole('button', { name });
+const shownChip = () => chipRow().querySelector('[aria-current="true"]')?.textContent;
+const setList = () => screen.queryByRole('list', { name: 'Sets' });
+// The row of set n, found by its title (« Set 2 », « Set 2, failed »): jsdom
+// joins the title and the caption of a row without a space in its name. A row
+// that can be touched is a button; one that cannot is no button.
+const setRow = (n) =>
+  setList() ? within(setList()).queryByText(new RegExp(`^Set ${n}(, \\w+)?$`))?.closest('li') ?? null : null;
+const setRowButton = (n) => setRow(n)?.querySelector('button') ?? null;
+const holdHint = () => screen.queryByText('Press and hold a set to mark it failed.');
+const actionBar = () => document.querySelector('.pk-actionbar');
+const inBar = () => within(actionBar());
+const validateButton = () => screen.queryByRole('button', { name: /^validate set \d+$/i });
+const confirmButtons = () => screen.queryAllByRole('button', { name: /^confirm session$/i });
+const confirmButton = () => screen.queryByRole('button', { name: /^confirm session$/i });
+// An open sheet, by its title. A closed one is not on screen (`display: none`).
+const sheet = (name) => screen.queryByRole('dialog', { name });
+const rpeSheet = () => screen.queryByRole('dialog', { name: /^RPE of set \d+$/ });
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  resetRestTimer();
+  for (const toast of getToasts()) dismissToast(toast.id);
+  mockOnline = true;
+  mockSessionData = loaded([]);
+  mockSetLogsData = logsRead([]);
+  mockConfirmation = { data: null, isLoading: false };
+  mockConfirmWaiting = false;
+  Object.assign(mockConfirm, { isPending: false, isPaused: false });
+  Object.assign(mockUnconfirm, { isPending: false, isPaused: false });
+  mockFeedback = { data: null };
+  mockDeviations = { data: [], isLoading: false };
+  mockLastPerformance = { data: {} };
+  mockLibrary = [];
+  mockSlotComments = [];
+  mockVideos = { data: [], isLoading: false };
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  resetRestTimer();
+});
+
+describe('SessionView', () => {
   it('renders loading spinner', () => {
     mockSessionData = { data: undefined, isLoading: true, fetchStatus: 'fetching' };
     mockSetLogsData = { data: undefined, isLoading: false, fetchStatus: 'idle' };
     renderSessionView();
-    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveAccessibleName(/loading/i);
   });
 
-  it('renders exercise names and set info', () => {
-    mockSessionData = {
-      data: {
-        title: 'Push Day',
-        exercise_slots: [
-          {
-            id: 'slot-1',
-            sets: 3,
-            reps: 10,
-            weight_kg: 20,
-            sort_order: 0,
-            exercise: { name: 'Dip', type: 'push', difficulty: 2, volume_weight: 1 },
-          },
-        ],
-      },
-      isLoading: false,
-    };
-    mockSetLogsData = {
-      data: [
-        { id: 'log-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, rpe: null },
-        { id: 'log-2', exercise_slot_id: 'slot-1', set_number: 2, done: false, rpe: null },
-      ],
-      isLoading: false,
-    };
+  it('shows the exercise, the set in progress with its figures, and its sets', () => {
+    mockSessionData = loaded([slot('slot-1', 'Dip', { sets: 3, reps: 10, weight_kg: 20 })], { title: 'Push Day' });
+    mockSetLogsData = logsRead([
+      setLog('log-1', 'slot-1', 1, { target_reps: 10, target_weight_kg: 20 }),
+      setLog('log-2', 'slot-1', 2, { target_reps: 10, target_weight_kg: 20 }),
+    ]);
     renderSessionView();
 
-    expect(screen.getByText('Dip')).toBeInTheDocument();
-    expect(screen.getByText('3 × 10 @ 20kg')).toBeInTheDocument();
-    // Two SetRows render → two indicator buttons in the pending state.
-    expect(screen.getAllByRole('button', { name: /mark set done/i })).toHaveLength(2);
+    expect(shownExercise()).toBe('Dip');
+    const figures = within(panel());
+    expect(figures.getByText('Set 1 of 2')).toBeInTheDocument();
+    // The two figures of the set in progress, each over its unit.
+    expect(figures.getByText('10')).toBeInTheDocument();
+    expect(figures.getByText('reps')).toBeInTheDocument();
+    expect(figures.getByText('20')).toBeInTheDocument();
+    expect(figures.getByText('kg added')).toBeInTheDocument();
+
+    // Two rows, each a button that says its set and its target.
+    expect(within(setList()).getAllByRole('listitem')).toHaveLength(2);
+    expect(setRowButton(1)).toHaveTextContent('10 reps, 20 kg');
+    expect(setRowButton(1)).toHaveTextContent('In progress');
+    expect(setRowButton(2)).toHaveTextContent('10 reps, 20 kg');
+    expect(setRowButton(2)).not.toHaveTextContent('In progress');
+    expect(holdHint()).toBeInTheDocument();
   });
 
   // B8, the athlete's half: the library row of an exercise of a former
   // coach's library is hidden by row-level security, and the embed is null.
   // The page used to throw on its name and go down whole.
   it('opens a session whose exercise cannot be read, and names it as unavailable', () => {
-    mockSessionData = {
-      data: {
-        title: 'Push Day',
-        exercise_slots: [
-          { id: 'slot-1', sets: 2, reps: 10, weight_kg: 20, sort_order: 0, exercise: null },
-        ],
-      },
-      isLoading: false,
-    };
-    mockSetLogsData = {
-      data: [
-        { id: 'log-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, rpe: null },
-        { id: 'log-2', exercise_slot_id: 'slot-1', set_number: 2, done: false, rpe: null },
-      ],
-      isLoading: false,
-    };
+    mockSessionData = loaded([slot('slot-1', null, { sets: 2, exercise: null })], { title: 'Push Day' });
+    mockSetLogsData = logsRead([setLog('log-1', 'slot-1', 1), setLog('log-2', 'slot-1', 2)]);
     renderSessionView();
 
-    expect(screen.getByText('Exercise unavailable')).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /mark set done/i })).toHaveLength(2);
-    expect(screen.getByRole('button', { name: /^confirm session$/i })).toBeInTheDocument();
+    expect(shownExercise()).toBe('Exercise unavailable');
+    expect(within(setList()).getAllByRole('listitem')).toHaveLength(2);
+    expect(inBar().getByRole('button', { name: 'Validate set 1' })).toBeEnabled();
+    expect(confirmButton()).toBeInTheDocument();
   });
 
   it('renders header with session title', () => {
-    mockSessionData = {
-      data: { title: 'Pull Day', exercise_slots: [] },
-      isLoading: false,
-    };
-    mockSetLogsData = { data: [], isLoading: false };
+    mockSessionData = loaded([], { title: 'Pull Day' });
     renderSessionView();
-    expect(screen.getByText('Pull Day')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Pull Day' })).toBeInTheDocument();
+  });
+
+  // The progress bar is gone: what it counted is said under the title, as
+  // facts — the day, the exercises, the sets done.
+  it('says the day, the exercises and the sets done under the title', () => {
+    mockSessionData = loaded([slot('slot-a', 'Squat'), slot('slot-b', 'Bench', { sort_order: 1 })], {
+      scheduled_date: '2026-10-12',
+    });
+    mockSetLogsData = logsRead([
+      setLog('a-1', 'slot-a', 1, { done: true, rpe: 8 }),
+      setLog('a-2', 'slot-a', 2, { failed: true }),
+      setLog('b-1', 'slot-b', 1),
+    ]);
+    renderSessionView();
+    expect(screen.getByText('Monday, 2 exercises, 1 of 3 sets done')).toBeInTheDocument();
+  });
+
+  // Failed sets count as dealt with in the confirm sheet (the athlete worked
+  // through them) but NOT among the sets done, which say what was completed.
+  it('counts only done sets under the title, and failed ones as logged in the confirm sheet', async () => {
+    const user = userEvent.setup();
+    mockSessionData = loaded([slot('slot-1', 'Squat', { sets: 4 })]);
+    mockSetLogsData = logsRead([
+      setLog('l-1', 'slot-1', 1, { done: true, rpe: 7 }),
+      setLog('l-2', 'slot-1', 2, { done: true, rpe: 8 }),
+      setLog('l-3', 'slot-1', 3, { failed: true }),
+      setLog('l-4', 'slot-1', 4),
+    ]);
+    renderSessionView();
+
+    expect(screen.getByText('1 exercise, 2 of 4 sets done')).toBeInTheDocument();
+    await user.click(confirmButton());
+    expect(within(sheet('Confirm the session')).getByText('3 of 4 sets logged')).toBeInTheDocument();
   });
 
   it('shows "Confirm session" button when not yet confirmed', () => {
-    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
-    mockSetLogsData = { data: [], isLoading: false };
     renderSessionView();
     expect(screen.getByRole('button', { name: /confirm session/i })).toBeInTheDocument();
   });
 
   it('opens confirm dialog, types notes, and calls useConfirmSession', async () => {
     const user = userEvent.setup();
-    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
-    mockSetLogsData = { data: [], isLoading: false };
     renderSessionView();
 
-    // Notes textarea is hidden until the Student opens the confirm dialog.
-    expect(screen.queryByLabelText(/notes for your coach/i)).toBeNull();
+    // Notes textarea is hidden until the athlete opens the confirm sheet.
+    expect(screen.queryByLabelText(/note for your coach/i)).toBeNull();
 
-    await user.click(screen.getByRole('button', { name: /^confirm session$/i }));
-    await user.type(screen.getByLabelText(/notes for your coach/i), 'felt strong');
+    await user.click(confirmButton());
+    await user.type(screen.getByLabelText(/note for your coach/i), 'felt strong');
     await user.click(screen.getByRole('button', { name: /^confirm$/i }));
 
     expect(mockConfirm.mutate).toHaveBeenCalledWith(
@@ -234,17 +364,13 @@ describe('SessionView', () => {
   // the server's confirmed_at default — an offline confirm can replay days later.
   it('confirm sends the date of the earliest logged set, not today', async () => {
     const user = userEvent.setup();
-    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
-    mockSetLogsData = {
-      data: [
-        { id: 'l-2', done: true, logged_at: new Date(2026, 7, 18, 19, 30).toISOString() },
-        { id: 'l-1', done: true, logged_at: new Date(2026, 7, 18, 18, 0).toISOString() },
-      ],
-      isLoading: false,
-    };
+    mockSetLogsData = logsRead([
+      { id: 'l-2', done: true, logged_at: new Date(2026, 7, 18, 19, 30).toISOString() },
+      { id: 'l-1', done: true, logged_at: new Date(2026, 7, 18, 18, 0).toISOString() },
+    ]);
     renderSessionView();
 
-    await user.click(screen.getByRole('button', { name: /^confirm session$/i }));
+    await user.click(confirmButton());
     await user.click(screen.getByRole('button', { name: /^confirm$/i }));
 
     expect(mockConfirm.mutate).toHaveBeenCalledWith(
@@ -255,30 +381,27 @@ describe('SessionView', () => {
 
   it('cancel in confirm dialog closes it without calling useConfirmSession', async () => {
     const user = userEvent.setup();
-    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
-    mockSetLogsData = { data: [], isLoading: false };
     renderSessionView();
 
-    await user.click(screen.getByRole('button', { name: /^confirm session$/i }));
-    expect(screen.getByLabelText(/notes for your coach/i)).toBeInTheDocument();
+    await user.click(confirmButton());
+    expect(screen.getByLabelText(/note for your coach/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /^cancel$/i }));
     expect(mockConfirm.mutate).not.toHaveBeenCalled();
-    expect(screen.queryByLabelText(/notes for your coach/i)).toBeNull();
+    expect(screen.queryByLabelText(/note for your coach/i)).toBeNull();
+    expect(sheet('Confirm the session')).toBeNull();
   });
 
   // P25. The answer to a confirmation can be hours away — the write is parked
   // without a network, which is neither a success nor a failure — and the
-  // page behind the dialog shows the session as confirmed from the tap. The
+  // page behind the sheet shows the session as confirmed from the tap. The
   // dialog used to wait for the answer, on "Confirming…" with Cancel off.
   describe('the confirm dialog closes at the tap', () => {
-    const notesField = () => screen.queryByLabelText(/notes for your coach/i);
+    const notesField = () => screen.queryByLabelText(/note for your coach/i);
 
     function openDialog(user) {
-      mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
-      mockSetLogsData = { data: [], isLoading: false };
       renderSessionView();
-      return user.click(screen.getByRole('button', { name: /^confirm session$/i }));
+      return user.click(confirmButton());
     }
 
     it('without waiting for the answer of the write', async () => {
@@ -291,6 +414,7 @@ describe('SessionView', () => {
       // `mutate` is a stub: nothing has answered, and nothing will.
       expect(mockConfirm.mutate).toHaveBeenCalledTimes(1);
       expect(notesField()).toBeNull();
+      expect(sheet('Confirm the session')).toBeNull();
     });
 
     it('the note leaves the field when the database has it, not before', async () => {
@@ -299,16 +423,16 @@ describe('SessionView', () => {
       await user.type(notesField(), 'felt strong');
       await user.click(screen.getByRole('button', { name: /^confirm$/i }));
 
-      // The confirmation was refused (the hook put the page back): the dialog
+      // The confirmation was refused (the hook put the page back): the sheet
       // opens on what was written.
-      await user.click(screen.getByRole('button', { name: /^confirm session$/i }));
+      await user.click(confirmButton());
       expect(notesField()).toHaveValue('felt strong');
       await user.click(screen.getByRole('button', { name: /^cancel$/i }));
 
       // It landed.
       const { onSuccess } = mockConfirm.mutate.mock.calls[0][1];
       act(() => onSuccess());
-      await user.click(screen.getByRole('button', { name: /^confirm session$/i }));
+      await user.click(confirmButton());
       expect(notesField()).toHaveValue('');
     });
 
@@ -327,23 +451,10 @@ describe('SessionView', () => {
   // Keyed on that alone the buttons stayed off, and "Confirm session" on
   // "Confirming…", for a session confirmed and un-confirmed in the gym.
   describe('a write that waits for a network does not hold its button', () => {
-    const CONFIRMED = {
-      id: 'c-1',
-      session_id: 'sess-1',
-      student_id: 'u-1',
-      notes: null,
-      confirmed_at: '2026-04-14T10:00:00Z',
-    };
-
-    beforeEach(() => {
-      mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
-      mockSetLogsData = { data: [], isLoading: false };
-    });
-
     it('"Confirm session" stays available while a confirmation is parked (confirm, then undo, offline)', () => {
       Object.assign(mockConfirm, { isPending: true, isPaused: true });
       renderSessionView();
-      expect(screen.getByRole('button', { name: /^confirm session$/i })).toBeEnabled();
+      expect(confirmButton()).toBeEnabled();
       expect(screen.queryByText(/confirming…/i)).toBeNull();
     });
 
@@ -351,6 +462,17 @@ describe('SessionView', () => {
       Object.assign(mockConfirm, { isPending: true, isPaused: false });
       renderSessionView();
       expect(screen.getByRole('button', { name: /^confirming…$/i })).toBeDisabled();
+    });
+
+    it('…in the page as in the ActionBar, whichever carries it', () => {
+      // Sets still to do: the page carries "Confirm session", as a text button.
+      Object.assign(mockConfirm, { isPending: true, isPaused: false });
+      mockSessionData = loaded([slot('slot-1', 'Squat')]);
+      mockSetLogsData = logsRead([setLog('l-1', 'slot-1', 1)]);
+      renderSessionView();
+      const held = screen.getByRole('button', { name: /^confirming…$/i });
+      expect(held).toBeDisabled();
+      expect(actionBar()).not.toContainElement(held);
     });
 
     it('"Undo confirmation" stays available while an undo is parked (undo, then confirm again, offline)', () => {
@@ -370,18 +492,14 @@ describe('SessionView', () => {
     it('the confirmed card says that the confirmation is kept on the device, while it is', () => {
       mockConfirmation = { data: CONFIRMED, isLoading: false };
       mockConfirmWaiting = true;
-      const { rerender } = renderSessionView();
+      const view = renderSessionView();
 
-      const line = screen.getByText(/saved on this device\. it will be sent as soon as you’re back online/i);
+      const line = screen.getByText(/saved on this device\. it will be sent as soon as you are back online/i);
       expect(line).toHaveAttribute('role', 'status');
-      expect(line.closest('.sl-card')).toHaveTextContent(/session confirmed/i);
+      expect(line.closest('section')).toHaveTextContent(/session confirmed/i);
 
       mockConfirmWaiting = false;
-      rerender(
-        <MemoryRouter>
-          <SessionView />
-        </MemoryRouter>,
-      );
+      rerenderSessionView(view);
       expect(screen.queryByText(/saved on this device/i)).toBeNull();
       expect(screen.getByText(/session confirmed/i)).toBeInTheDocument();
     });
@@ -398,39 +516,27 @@ describe('SessionView', () => {
   // Live item N8: "Confirm session" was offered at 0 of 12 sets, and the
   // dialog said nothing about what was being confirmed.
   describe('the confirm dialog says what is confirmed', () => {
-    const SLOT = {
-      id: 'slot-1',
-      sets: 3,
-      reps: 10,
-      weight_kg: 20,
-      sort_order: 0,
-      exercise: { name: 'Dip', type: 'push', difficulty: 2, volume_weight: 1 },
-    };
-    const setRow = (n, fields = {}) => ({
-      id: `log-${n}`,
-      exercise_slot_id: 'slot-1',
-      set_number: n,
-      done: false,
-      failed: false,
-      skipped: false,
-      rpe: null,
-      ...fields,
-    });
-    const dialog = () => screen.getByLabelText(/notes for your coach/i).closest('dialog');
-    const inDialog = () => within(dialog());
+    const SLOT = slot('slot-1', 'Dip', { sets: 3 });
+    const nthSet = (n, fields = {}) => setLog(`log-${n}`, 'slot-1', n, fields);
+    const inDialog = () => within(sheet('Confirm the session'));
 
     function openOn(user, logs) {
-      mockSessionData = { data: { title: 'Push Day', exercise_slots: [SLOT] }, isLoading: false };
-      mockSetLogsData = { data: logs, isLoading: false };
+      mockSessionData = loaded([SLOT], { title: 'Push Day' });
+      mockSetLogsData = logsRead(logs);
       renderSessionView();
-      return user.click(screen.getByRole('button', { name: /^confirm session$/i }));
+      return user.click(confirmButton());
     }
 
-    it('how many sets are logged, counted like the progress bar: done, failed and skipped', async () => {
+    it('how many sets are logged, counted as dealt with: done, failed and skipped', async () => {
       const user = userEvent.setup();
-      await openOn(user, [setRow(1, { done: true }), setRow(2, { failed: true }), setRow(3)]);
+      await openOn(user, [
+        nthSet(1, { done: true }),
+        nthSet(2, { failed: true }),
+        nthSet(3, { skipped: true }),
+        nthSet(4),
+      ]);
 
-      expect(inDialog().getByText('Sets logged: 2 of 3')).toBeInTheDocument();
+      expect(inDialog().getByText('3 of 4 sets logged')).toBeInTheDocument();
       // Something is logged: one tap confirms.
       await user.click(inDialog().getByRole('button', { name: /^confirm$/i }));
       expect(mockConfirm.mutate).toHaveBeenCalledTimes(1);
@@ -439,28 +545,28 @@ describe('SessionView', () => {
     it('the sets of an exercise the athlete skipped count as dealt with', async () => {
       const user = userEvent.setup();
       mockDeviations = { data: [{ exercise_slot_id: 'slot-1', kind: 'skip' }], isLoading: false };
-      await openOn(user, [setRow(1), setRow(2), setRow(3)]);
+      await openOn(user, [nthSet(1), nthSet(2), nthSet(3)]);
 
-      expect(inDialog().getByText('Sets logged: 3 of 3')).toBeInTheDocument();
+      expect(inDialog().getByText('3 of 3 sets logged')).toBeInTheDocument();
       await user.click(inDialog().getByRole('button', { name: /^confirm$/i }));
       expect(mockConfirm.mutate).toHaveBeenCalledTimes(1);
     });
 
     it('with nothing logged it asks a second time before it confirms', async () => {
       const user = userEvent.setup();
-      await openOn(user, [setRow(1), setRow(2), setRow(3)]);
-      expect(inDialog().getByText('Sets logged: 0 of 3')).toBeInTheDocument();
+      await openOn(user, [nthSet(1), nthSet(2), nthSet(3)]);
+      expect(inDialog().getByText('0 of 3 sets logged')).toBeInTheDocument();
       expect(inDialog().queryByRole('alert')).toBeNull();
-      await user.type(screen.getByLabelText(/notes for your coach/i), 'did it at home');
+      await user.type(screen.getByLabelText(/note for your coach/i), 'did it at home');
 
       await user.click(inDialog().getByRole('button', { name: /^confirm$/i }));
 
-      // Asked, not sent — and the dialog is still there, with the note.
+      // Asked, not sent — and the sheet is still there, with the note.
       expect(mockConfirm.mutate).not.toHaveBeenCalled();
       expect(inDialog().getByRole('alert')).toHaveTextContent(
-        /you haven’t logged a single set of this session\. confirm it anyway\?/i,
+        /you logged no set of this session\. confirm it anyway\?/i,
       );
-      expect(screen.getByLabelText(/notes for your coach/i)).toHaveValue('did it at home');
+      expect(screen.getByLabelText(/note for your coach/i)).toHaveValue('did it at home');
       expect(inDialog().queryByRole('button', { name: /^confirm$/i })).toBeNull();
 
       await user.click(inDialog().getByRole('button', { name: /^confirm anyway$/i }));
@@ -469,17 +575,17 @@ describe('SessionView', () => {
         expect.objectContaining({ sessionId: 'sess-1', notes: 'did it at home' }),
         expect.any(Object),
       );
-      expect(screen.queryByLabelText(/notes for your coach/i)).toBeNull();
+      expect(screen.queryByLabelText(/note for your coach/i)).toBeNull();
     });
 
     it('a dialog that was closed asks again from the start', async () => {
       const user = userEvent.setup();
-      await openOn(user, [setRow(1), setRow(2), setRow(3)]);
+      await openOn(user, [nthSet(1), nthSet(2), nthSet(3)]);
       await user.click(inDialog().getByRole('button', { name: /^confirm$/i }));
       expect(inDialog().getByRole('alert')).toBeInTheDocument();
       await user.click(inDialog().getByRole('button', { name: /^cancel$/i }));
 
-      await user.click(screen.getByRole('button', { name: /^confirm session$/i }));
+      await user.click(confirmButton());
 
       expect(inDialog().queryByRole('alert')).toBeNull();
       await user.click(inDialog().getByRole('button', { name: /^confirm$/i }));
@@ -488,10 +594,9 @@ describe('SessionView', () => {
 
     it('a session without a set has nothing to count, and is confirmed in one tap', async () => {
       const user = userEvent.setup();
-      mockSessionData = { data: { title: 'Mobility', exercise_slots: [] }, isLoading: false };
-      mockSetLogsData = { data: [], isLoading: false };
+      mockSessionData = loaded([], { title: 'Mobility' });
       renderSessionView();
-      await user.click(screen.getByRole('button', { name: /^confirm session$/i }));
+      await user.click(confirmButton());
 
       expect(inDialog().queryByText(/sets logged/i)).toBeNull();
       await user.click(inDialog().getByRole('button', { name: /^confirm$/i }));
@@ -500,754 +605,100 @@ describe('SessionView', () => {
   });
 
   it('displays coach note when slot has notes', () => {
-    mockSessionData = {
-      data: {
-        title: 'Push Day',
-        exercise_slots: [
-          {
-            id: 'slot-1',
-            sets: 3,
-            reps: 10,
-            weight_kg: 20,
-            sort_order: 0,
-            notes: 'Keep elbows tucked throughout',
-            exercise: { name: 'Dip', type: 'push', difficulty: 2, volume_weight: 1 },
-          },
-        ],
-      },
-      isLoading: false,
-    };
-    mockSetLogsData = { data: [], isLoading: false };
+    mockSessionData = loaded([slot('slot-1', 'Dip', { notes: 'Keep elbows tucked throughout' })]);
+    mockSetLogsData = logsRead([setLog('l-1', 'slot-1', 1)]);
     renderSessionView();
-    expect(screen.getByText('Keep elbows tucked throughout')).toBeInTheDocument();
-  });
-
-  it('auto-opens only the first incomplete slot when earlier slots are done', () => {
-    mockSessionData = {
-      data: {
-        title: 'Mixed Day',
-        exercise_slots: [
-          {
-            id: 'slot-done',
-            sets: 2,
-            reps: 10,
-            weight_kg: 20,
-            sort_order: 0,
-            exercise: { name: 'Dip', type: 'push', difficulty: 2, volume_weight: 1 },
-          },
-          {
-            id: 'slot-open',
-            sets: 2,
-            reps: 10,
-            weight_kg: 20,
-            sort_order: 1,
-            exercise: { name: 'Pullup', type: 'pull', difficulty: 2, volume_weight: 1 },
-          },
-        ],
-      },
-      isLoading: false,
-    };
-    mockSetLogsData = {
-      data: [
-        // Done sets need an RPE to count as resolved (so the auto-expanded
-        // RPE panel on the last set has a chance to be filled in).
-        { id: 'l-1', exercise_slot_id: 'slot-done', set_number: 1, done: true, rpe: 7 },
-        { id: 'l-2', exercise_slot_id: 'slot-done', set_number: 2, done: true, rpe: 8 },
-        { id: 'l-3', exercise_slot_id: 'slot-open', set_number: 1, done: false, rpe: null },
-        { id: 'l-4', exercise_slot_id: 'slot-open', set_number: 2, done: false, rpe: null },
-      ],
-      isLoading: false,
-    };
-    renderSessionView();
-
-    // Both exercise headers are visible.
-    expect(screen.getByText('Dip')).toBeInTheDocument();
-    expect(screen.getByText('Pullup')).toBeInTheDocument();
-    // The completed slot's body (SetRows) is hidden; the incomplete slot's body is visible.
-    // Pullup has two pending SetRows; Dip has none because it's collapsed.
-    expect(screen.getAllByRole('button', { name: /mark set done/i })).toHaveLength(2);
-  });
-
-  it('auto-opens only the first slot when multiple slots are incomplete', () => {
-    mockSessionData = {
-      data: {
-        title: 'Fresh Day',
-        exercise_slots: [
-          {
-            id: 'slot-a',
-            sets: 1,
-            reps: 5,
-            weight_kg: 50,
-            sort_order: 0,
-            exercise: { name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
-          },
-          {
-            id: 'slot-b',
-            sets: 1,
-            reps: 5,
-            weight_kg: 50,
-            sort_order: 1,
-            exercise: { name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
-          },
-          {
-            id: 'slot-c',
-            sets: 1,
-            reps: 5,
-            weight_kg: 50,
-            sort_order: 2,
-            exercise: { name: 'Row', type: 'pull', difficulty: 1, volume_weight: 1 },
-          },
-        ],
-      },
-      isLoading: false,
-    };
-    mockSetLogsData = {
-      data: [
-        { id: 'l-a', exercise_slot_id: 'slot-a', set_number: 1, done: false, rpe: null },
-        { id: 'l-b', exercise_slot_id: 'slot-b', set_number: 1, done: false, rpe: null },
-        { id: 'l-c', exercise_slot_id: 'slot-c', set_number: 1, done: false, rpe: null },
-      ],
-      isLoading: false,
-    };
-    renderSessionView();
-
-    // All three exercise headers visible.
-    expect(screen.getByText('Squat')).toBeInTheDocument();
-    expect(screen.getByText('Bench')).toBeInTheDocument();
-    expect(screen.getByText('Row')).toBeInTheDocument();
-
-    // Only the first incomplete slot (Squat) is auto-open, so only one SetRow is rendered.
-    expect(screen.getAllByRole('button', { name: /mark set done/i })).toHaveLength(1);
-  });
-
-  it('drops manual override after state-reverting action so auto-open resumes', async () => {
-    const user = userEvent.setup();
-    const slots = [
-      {
-        id: 'slot-1',
-        sets: 1,
-        reps: 10,
-        weight_kg: 20,
-        sort_order: 0,
-        exercise: { name: 'Dip', type: 'push', difficulty: 2, volume_weight: 1 },
-      },
-    ];
-    // Start: the one set is already done AND has an RPE → firstOpenIdx = -1,
-    // group auto-closed. (A done-without-RPE set keeps the group open so the
-    // auto-expanded RPE panel doesn't collapse before the student records it.)
-    mockSessionData = { data: { title: 'Back Nav', exercise_slots: slots }, isLoading: false };
-    mockSetLogsData = {
-      data: [{ id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: true, rpe: 8 }],
-      isLoading: false,
-    };
-    const { rerender } = renderSessionView();
-
-    // Auto-closed: no SetRow visible.
-    expect(screen.queryByRole('button', { name: /mark set failed/i })).toBeNull();
-    expect(screen.getByRole('button', { expanded: false, name: /Dip/i })).toBeInTheDocument();
-
-    // Student goes "back" into the completed exercise by clicking the header.
-    await user.click(screen.getByRole('button', { expanded: false, name: /Dip/i }));
-    // The done set's indicator is shown: "Done. Hold to mark set failed".
-    expect(screen.getByRole('button', { name: /mark set failed/i })).toBeInTheDocument();
-
-    // Student cancels/undoes the set. firstOpenIdx flips from -1 → 0,
-    // which should drop the manual override and auto-open the group.
-    mockSetLogsData = {
-      data: [{ id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, rpe: null }],
-      isLoading: false,
-    };
-    rerender(
-      <MemoryRouter>
-        <SessionView />
-      </MemoryRouter>
-    );
-    expect(screen.getByRole('button', { name: /mark set done/i })).toBeInTheDocument();
-
-    // Student re-completes the set AND records RPE. firstOpenIdx flips 0 → -1.
-    // Before the fix, sticky manualOpen kept the group expanded; now it should auto-close.
-    mockSetLogsData = {
-      data: [{ id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: true, rpe: 8 }],
-      isLoading: false,
-    };
-    rerender(
-      <MemoryRouter>
-        <SessionView />
-      </MemoryRouter>
-    );
-    expect(screen.queryByRole('button', { name: /mark set failed/i })).toBeNull();
-    expect(screen.getByRole('button', { expanded: false, name: /Dip/i })).toBeInTheDocument();
-  });
-
-  it('done set without RPE keeps the group open (so auto-expanded RPE panel survives)', () => {
-    mockSessionData = {
-      data: {
-        title: 'Last Set',
-        exercise_slots: [
-          {
-            id: 'slot-1',
-            sets: 1,
-            reps: 5,
-            weight_kg: 50,
-            sort_order: 0,
-            exercise: { name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
-          },
-          {
-            id: 'slot-2',
-            sets: 1,
-            reps: 5,
-            weight_kg: 50,
-            sort_order: 1,
-            exercise: { name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
-          },
-        ],
-      },
-      isLoading: false,
-    };
-    // Squat is done but rpe is null — under the new rule, the group is
-    // unresolved, so Squat (not Bench) stays auto-open.
-    mockSetLogsData = {
-      data: [
-        { id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: true, rpe: null },
-        { id: 'l-2', exercise_slot_id: 'slot-2', set_number: 1, done: false, rpe: null },
-      ],
-      isLoading: false,
-    };
-    renderSessionView();
-
-    expect(screen.getByRole('button', { expanded: true, name: /Squat/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { expanded: false, name: /Bench/i })).toBeInTheDocument();
-  });
-
-  it('failed set bypasses the RPE requirement and lets the group resolve', () => {
-    mockSessionData = {
-      data: {
-        title: 'Failed Bypass',
-        exercise_slots: [
-          {
-            id: 'slot-1',
-            sets: 1,
-            reps: 5,
-            weight_kg: 50,
-            sort_order: 0,
-            exercise: { name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
-          },
-          {
-            id: 'slot-2',
-            sets: 1,
-            reps: 5,
-            weight_kg: 50,
-            sort_order: 1,
-            exercise: { name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
-          },
-        ],
-      },
-      isLoading: false,
-    };
-    // Squat is failed (no rpe needed) → group resolves → auto-open advances to Bench.
-    mockSetLogsData = {
-      data: [
-        { id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, failed: true, rpe: null },
-        { id: 'l-2', exercise_slot_id: 'slot-2', set_number: 1, done: false, rpe: null },
-      ],
-      isLoading: false,
-    };
-    renderSessionView();
-
-    expect(screen.getByRole('button', { expanded: false, name: /Squat/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { expanded: true, name: /Bench/i })).toBeInTheDocument();
-  });
-
-  it('skipped set resolves its group: auto-open advances and progress counts it', () => {
-    mockSessionData = {
-      data: {
-        title: 'Skip Set',
-        exercise_slots: [
-          {
-            id: 'slot-1',
-            sets: 1,
-            reps: 5,
-            weight_kg: 50,
-            sort_order: 0,
-            exercise: { name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
-          },
-          {
-            id: 'slot-2',
-            sets: 1,
-            reps: 5,
-            weight_kg: 50,
-            sort_order: 1,
-            exercise: { name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
-          },
-        ],
-      },
-      isLoading: false,
-    };
-    // Squat's only set is skipped (neither done nor failed, per the DB CHECK).
-    // Before the fix it stayed "unresolved" forever: the accordion pinned to
-    // Squat and progress capped at 0%.
-    mockSetLogsData = {
-      data: [
-        { id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, failed: false, skipped: true, rpe: null },
-        { id: 'l-2', exercise_slot_id: 'slot-2', set_number: 1, done: false, failed: false, rpe: null },
-      ],
-      isLoading: false,
-    };
-    renderSessionView();
-
-    expect(screen.getByRole('button', { expanded: false, name: /Squat/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { expanded: true, name: /Bench/i })).toBeInTheDocument();
-    expect(screen.getByText('50%')).toBeInTheDocument();
-  });
-
-  it('skip-deviated exercise resolves its group even though its logs stay pending', () => {
-    mockSessionData = {
-      data: {
-        title: 'Skip Exercise',
-        exercise_slots: [
-          {
-            id: 'slot-1',
-            sets: 1,
-            reps: 5,
-            weight_kg: 50,
-            sort_order: 0,
-            exercise: { name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
-          },
-          {
-            id: 'slot-2',
-            sets: 1,
-            reps: 5,
-            weight_kg: 50,
-            sort_order: 1,
-            exercise: { name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
-          },
-        ],
-      },
-      isLoading: false,
-    };
-    // The whole Squat exercise is skip-deviated; its logs are merely hidden
-    // by SlotGroupCard, so without the skippedSlotIds pass-through they would
-    // pin the accordion and hold progress below 100% for the whole session.
-    mockDeviations = {
-      data: [{ exercise_slot_id: 'slot-1', student_id: 'u-1', kind: 'skip' }],
-      isLoading: false,
-    };
-    mockSetLogsData = {
-      data: [
-        { id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, failed: false, rpe: null },
-        { id: 'l-2', exercise_slot_id: 'slot-2', set_number: 1, done: false, failed: false, rpe: null },
-      ],
-      isLoading: false,
-    };
-    renderSessionView();
-
-    expect(screen.getByRole('button', { expanded: false, name: /Squat/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { expanded: true, name: /Bench/i })).toBeInTheDocument();
-    expect(screen.getByText('50%')).toBeInTheDocument();
-  });
-
-  it('accordion: opening another slot closes the currently-open one', async () => {
-    const user = userEvent.setup();
-    mockSessionData = {
-      data: {
-        title: 'Multi',
-        exercise_slots: [
-          {
-            id: 'slot-a',
-            sets: 1,
-            reps: 5,
-            weight_kg: 50,
-            sort_order: 0,
-            exercise: { name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
-          },
-          {
-            id: 'slot-b',
-            sets: 1,
-            reps: 5,
-            weight_kg: 50,
-            sort_order: 1,
-            exercise: { name: 'Bench', type: 'push', difficulty: 1, volume_weight: 1 },
-          },
-          {
-            id: 'slot-c',
-            sets: 1,
-            reps: 5,
-            weight_kg: 50,
-            sort_order: 2,
-            exercise: { name: 'Row', type: 'pull', difficulty: 1, volume_weight: 1 },
-          },
-        ],
-      },
-      isLoading: false,
-    };
-    mockSetLogsData = {
-      data: [
-        { id: 'l-a', exercise_slot_id: 'slot-a', set_number: 1, done: false, rpe: null },
-        { id: 'l-b', exercise_slot_id: 'slot-b', set_number: 1, done: false, rpe: null },
-        { id: 'l-c', exercise_slot_id: 'slot-c', set_number: 1, done: false, rpe: null },
-      ],
-      isLoading: false,
-    };
-    renderSessionView();
-
-    // Initially Squat (firstOpenIdx) is auto-open; Bench and Row collapsed.
-    expect(screen.getByRole('button', { expanded: true, name: /Squat/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { expanded: false, name: /Bench/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { expanded: false, name: /Row/i })).toBeInTheDocument();
-
-    // Tapping Row opens it and closes Squat.
-    await user.click(screen.getByRole('button', { expanded: false, name: /Row/i }));
-    expect(screen.getByRole('button', { expanded: false, name: /Squat/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { expanded: false, name: /Bench/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { expanded: true, name: /Row/i })).toBeInTheDocument();
-
-    // Tapping Bench closes Row and opens Bench (still single-open accordion).
-    await user.click(screen.getByRole('button', { expanded: false, name: /Bench/i }));
-    expect(screen.getByRole('button', { expanded: false, name: /Squat/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { expanded: true, name: /Bench/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { expanded: false, name: /Row/i })).toBeInTheDocument();
-  });
-
-  it('manual toggle on an auto-open slot collapses it', async () => {
-    const user = userEvent.setup();
-    mockSessionData = {
-      data: {
-        title: 'Single',
-        exercise_slots: [
-          {
-            id: 'slot-1',
-            sets: 2,
-            reps: 10,
-            weight_kg: 20,
-            sort_order: 0,
-            exercise: { name: 'Dip', type: 'push', difficulty: 2, volume_weight: 1 },
-          },
-        ],
-      },
-      isLoading: false,
-    };
-    mockSetLogsData = {
-      data: [
-        { id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, rpe: null },
-      ],
-      isLoading: false,
-    };
-    renderSessionView();
-
-    // Auto-open: SetRow visible (its indicator button reads "Mark set done").
-    expect(screen.getByRole('button', { name: /mark set done/i })).toBeInTheDocument();
-
-    // Click the slot header to collapse.
-    await user.click(screen.getByRole('button', { expanded: true }));
-    expect(screen.queryByRole('button', { name: /mark set done/i })).toBeNull();
-  });
-
-  it('renders a superset group as a single collapsible unit', () => {
-    mockSessionData = {
-      data: {
-        title: 'Super',
-        exercise_slots: [
-          {
-            id: 'slot-a',
-            sets: 3,
-            reps: 8,
-            weight_kg: 10,
-            sort_order: 0,
-            superset_group: 1,
-            exercise: { name: 'Curl', type: 'pull', difficulty: 1, volume_weight: 1 },
-          },
-          {
-            id: 'slot-b',
-            sets: 3,
-            reps: 8,
-            weight_kg: 10,
-            sort_order: 1,
-            superset_group: 1,
-            exercise: { name: 'Skullcrusher', type: 'push', difficulty: 1, volume_weight: 1 },
-          },
-        ],
-      },
-      isLoading: false,
-    };
-    mockSetLogsData = {
-      data: [
-        { id: 'l-a1', exercise_slot_id: 'slot-a', set_number: 1, done: false, rpe: null },
-        { id: 'l-b1', exercise_slot_id: 'slot-b', set_number: 1, done: false, rpe: null },
-      ],
-      isLoading: false,
-    };
-    renderSessionView();
-
-    expect(screen.getByText(/Superset/i)).toBeInTheDocument();
-    // Header always shows the exercise count, regardless of open/closed state.
-    expect(screen.getByText(/2 exercises/i)).toBeInTheDocument();
-    expect(screen.getByText('Curl')).toBeInTheDocument();
-    expect(screen.getByText('Skullcrusher')).toBeInTheDocument();
-    // Supersets share a single comment box (anchored to the lead slot), not
-    // one per exercise. Without this guarantee, students would see the
-    // "Add note for coach" prompt N times for an N-exercise superset.
-    expect(screen.getAllByRole('button', { name: /add note for coach/i })).toHaveLength(1);
-  });
-
-  // Per-slot numbering must reflect cumulative slot position, not group
-  // index. With a single → 2-slot superset → single layout, the trailing
-  // single slot used to render as 03 (group index + 1) instead of 04.
-  it('numbers slots by cumulative position so a slot after a superset advances by the superset length', () => {
-    mockSessionData = {
-      data: {
-        title: 'Numbering',
-        exercise_slots: [
-          {
-            id: 'slot-1',
-            sets: 1,
-            reps: 5,
-            weight_kg: 100,
-            sort_order: 0,
-            exercise: { name: 'Dips', type: 'push', difficulty: 1, volume_weight: 1 },
-          },
-          {
-            id: 'slot-2a',
-            sets: 1,
-            reps: 5,
-            weight_kg: 100,
-            sort_order: 1,
-            superset_group: 1,
-            exercise: { name: 'Dips', type: 'push', difficulty: 1, volume_weight: 1 },
-          },
-          {
-            id: 'slot-2b',
-            sets: 1,
-            reps: 5,
-            weight_kg: 100,
-            sort_order: 2,
-            superset_group: 1,
-            exercise: { name: 'Dips', type: 'push', difficulty: 1, volume_weight: 1 },
-          },
-          {
-            id: 'slot-3',
-            sets: 1,
-            reps: 5,
-            weight_kg: 90,
-            sort_order: 3,
-            exercise: { name: 'Bench Press', type: 'push', difficulty: 1, volume_weight: 1 },
-          },
-        ],
-      },
-      isLoading: false,
-    };
-    mockSetLogsData = {
-      data: [
-        { id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, rpe: null },
-        { id: 'l-2a', exercise_slot_id: 'slot-2a', set_number: 1, done: false, rpe: null },
-        { id: 'l-2b', exercise_slot_id: 'slot-2b', set_number: 1, done: false, rpe: null },
-        { id: 'l-3', exercise_slot_id: 'slot-3', set_number: 1, done: false, rpe: null },
-      ],
-      isLoading: false,
-    };
-    renderSessionView();
-
-    // The single slots show their globalIdx in the SlotHeader. Open the
-    // superset so its inner slots' indices render too.
-    fireEvent.click(screen.getByRole('button', { name: /Superset/i }));
-    expect(screen.getByText('01')).toBeInTheDocument();
-    expect(screen.getByText('02')).toBeInTheDocument();
-    expect(screen.getByText('03')).toBeInTheDocument();
-    expect(screen.getByText('04')).toBeInTheDocument();
-  });
-
-  it('shows a grouped summary in the header and per-set targets inline on SetRows when heterogeneous', () => {
-    mockSessionData = {
-      data: {
-        title: 'Drop Set Day',
-        exercise_slots: [
-          {
-            id: 'slot-1',
-            sets: 3,
-            reps: 6,
-            weight_kg: 100,
-            sort_order: 0,
-            exercise: { name: 'Squat', type: 'push', difficulty: 2, volume_weight: 1 },
-          },
-        ],
-      },
-      isLoading: false,
-    };
-    mockSetLogsData = {
-      data: [
-        { id: 'log-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, rpe: null, target_reps: 6, target_weight_kg: 100 },
-        { id: 'log-2', exercise_slot_id: 'slot-1', set_number: 2, done: false, rpe: null, target_reps: 6, target_weight_kg: 100 },
-        { id: 'log-3', exercise_slot_id: 'slot-1', set_number: 3, done: false, rpe: null, target_reps: 8, target_weight_kg: 80 },
-      ],
-      isLoading: false,
-    };
-    renderSessionView();
-
-    // Header: grouped summary (no separate per-set list).
-    expect(screen.getByText('2 × 6 @ 100kg · 1 × 8 @ 80kg')).toBeInTheDocument();
-    // SetRows render their own target inline when sets are heterogeneous.
-    expect(screen.getAllByText('6 @ 100kg')).toHaveLength(2);
-    expect(screen.getByText('8 @ 80kg')).toBeInTheDocument();
-  });
-
-  // Failed sets count toward session progress (the student worked through
-  // them) but NOT toward the "X of Y sets" tally (which tracks successful
-  // completion).
-  it('progress bar counts failed sets; "X of Y" tally counts only done', () => {
-    mockSessionData = {
-      data: {
-        title: 'Mixed',
-        exercise_slots: [
-          {
-            id: 'slot-1',
-            sets: 4,
-            reps: 5,
-            weight_kg: 50,
-            sort_order: 0,
-            exercise: { name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
-          },
-        ],
-      },
-      isLoading: false,
-    };
-    mockSetLogsData = {
-      data: [
-        { id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: true, failed: false, rpe: 7 },
-        { id: 'l-2', exercise_slot_id: 'slot-1', set_number: 2, done: true, failed: false, rpe: 8 },
-        { id: 'l-3', exercise_slot_id: 'slot-1', set_number: 3, done: false, failed: true, rpe: null },
-        { id: 'l-4', exercise_slot_id: 'slot-1', set_number: 4, done: false, failed: false, rpe: null },
-      ],
-      isLoading: false,
-    };
-    renderSessionView();
-
-    // Tally still reads "2 of 4" (only successful) — the percentage reads
-    // "75%" (3 of 4 sets resolved: two done + one failed).
-    expect(screen.getByText('2 of 4 sets')).toBeInTheDocument();
-    expect(screen.getByText('75%')).toBeInTheDocument();
+    const note = screen.getByRole('region', { name: 'Coach’s note' });
+    expect(note).toHaveTextContent('Keep elbows tucked throughout');
   });
 
   it('shows confirmed banner and undo button when already confirmed', async () => {
     const user = userEvent.setup();
-    mockConfirmation = {
-      data: {
-        id: 'c-1',
-        session_id: 'sess-1',
-        student_id: 'u-1',
-        confirmed_at: '2026-04-14T10:00:00Z',
-        notes: 'great session',
-      },
-      isLoading: false,
-    };
-    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
-    mockSetLogsData = { data: [], isLoading: false };
+    mockConfirmation = { data: { ...CONFIRMED, notes: 'great session' }, isLoading: false };
     renderSessionView();
 
     expect(screen.getByText(/session confirmed/i)).toBeInTheDocument();
     expect(screen.getByText('great session')).toBeInTheDocument();
 
-    // Undo goes through the app's ConfirmDialog now, not a native confirm() —
-    // so the click opens the dialog and the mutation waits for its button.
+    // Undo asks first, in a sheet: the click opens it and the mutation waits
+    // for its button.
     await user.click(screen.getByRole('button', { name: /undo confirmation/i }));
     expect(mockUnconfirm.mutate).not.toHaveBeenCalled();
 
-    // Both the confirm-session Dialog and this one live in the DOM, so pick
-    // the one carrying the undo title rather than by role alone.
-    const dialog = screen.getByText(/undo confirmation\?/i).closest('dialog');
+    const dialog = sheet('Undo the confirmation?');
     await user.click(within(dialog).getByRole('button', { name: /undo confirmation/i }));
     expect(mockUnconfirm.mutate).toHaveBeenCalledWith({ sessionId: 'sess-1' });
+    expect(sheet('Undo the confirmation?')).toBeNull();
   });
 
   it('dismissing the undo dialog leaves the confirmation in place', async () => {
     const user = userEvent.setup();
-    mockConfirmation = {
-      data: {
-        id: 'c-1',
-        session_id: 'sess-1',
-        student_id: 'u-1',
-        confirmed_at: '2026-04-14T10:00:00Z',
-        notes: null,
-      },
-      isLoading: false,
-    };
-    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
-    mockSetLogsData = { data: [], isLoading: false };
+    mockConfirmation = { data: CONFIRMED, isLoading: false };
     renderSessionView();
 
     await user.click(screen.getByRole('button', { name: /undo confirmation/i }));
-    const dialog = screen.getByText(/undo confirmation\?/i).closest('dialog');
-    await user.click(within(dialog).getByRole('button', { name: /cancel/i }));
+    const dialog = sheet('Undo the confirmation?');
+    await user.click(within(dialog).getByRole('button', { name: 'Keep the confirmation' }));
     expect(mockUnconfirm.mutate).not.toHaveBeenCalled();
+    expect(sheet('Undo the confirmation?')).toBeNull();
+  });
+
+  // A confirmed session has its sets locked: nothing is left to validate, so
+  // there is no ActionBar, and no rest runs in it.
+  it('a confirmed session has no ActionBar: nothing to validate, nothing to confirm', () => {
+    mockConfirmation = { data: CONFIRMED, isLoading: false };
+    mockSessionData = loaded([slot('slot-1', 'Squat')]);
+    mockSetLogsData = logsRead([setLog('l-1', 'slot-1', 1, { done: true, rpe: 8 })]);
+    renderSessionView();
+
+    expect(actionBar()).toBeNull();
+    expect(validateButton()).toBeNull();
+    expect(confirmButton()).toBeNull();
+    // The set is shown, and cannot be touched.
+    expect(within(setList()).getAllByRole('listitem')).toHaveLength(1);
+    expect(setRow(1)).toHaveTextContent('5 reps, 50 kg');
+    expect(setRowButton(1)).toBeNull();
   });
 
   // Past-program sessions reach SessionView via the stats calendar history
   // overlay. They must be read-only — no Confirm, no Undo, locked sets — so
   // historical training data can't be retroactively rewritten.
   it('past-program session: hides Confirm and shows read-only banner when unconfirmed', () => {
-    mockSessionData = {
-      data: { title: 'Old Day', exercise_slots: [], program_is_active: false },
-      isLoading: false,
-    };
-    mockSetLogsData = { data: [], isLoading: false };
+    mockSessionData = loaded([], { title: 'Old Day', program_is_active: false });
     renderSessionView();
 
-    expect(screen.queryByRole('button', { name: /confirm session/i })).toBeNull();
-    expect(screen.getByText(/from a past program/i)).toBeInTheDocument();
-    expect(screen.getByText(/read-only/i)).toBeInTheDocument();
+    expect(confirmButton()).toBeNull();
+    expect(screen.getByText('From a past block, read only.')).toBeInTheDocument();
   });
 
   it('past-program session: hides Undo and shows confirmation-locked banner when confirmed', () => {
-    mockConfirmation = {
-      data: {
-        id: 'c-1',
-        session_id: 'sess-1',
-        student_id: 'u-1',
-        confirmed_at: '2026-04-14T10:00:00Z',
-        notes: null,
-      },
-      isLoading: false,
-    };
-    mockSessionData = {
-      data: { title: 'Old Day', exercise_slots: [], program_is_active: false },
-      isLoading: false,
-    };
-    mockSetLogsData = { data: [], isLoading: false };
+    mockConfirmation = { data: CONFIRMED, isLoading: false };
+    mockSessionData = loaded([], { title: 'Old Day', program_is_active: false });
     renderSessionView();
 
     expect(screen.queryByRole('button', { name: /undo confirmation/i })).toBeNull();
-    expect(screen.getByText(/from a past program/i)).toBeInTheDocument();
-    expect(screen.getByText(/confirmation is locked/i)).toBeInTheDocument();
+    expect(screen.getByText('From a past block. The confirmation can no longer change.')).toBeInTheDocument();
   });
 
-  it('past-program session: SetRow toggle button is disabled', () => {
-    mockSessionData = {
-      data: {
-        title: 'Old Day',
-        program_is_active: false,
-        exercise_slots: [
-          {
-            id: 'slot-1',
-            sets: 1,
-            reps: 5,
-            weight_kg: 50,
-            sort_order: 0,
-            exercise: { name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
-          },
-        ],
-      },
-      isLoading: false,
-    };
-    mockSetLogsData = {
-      data: [{ id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, rpe: null }],
-      isLoading: false,
-    };
+  it('past-program session: no set can be validated, touched or held', () => {
+    mockSessionData = loaded([slot('slot-1', 'Squat')], { title: 'Old Day', program_is_active: false });
+    mockSetLogsData = logsRead([setLog('l-1', 'slot-1', 1)]);
     renderSessionView();
 
-    expect(screen.getByRole('button', { name: /mark set done/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /set rpe/i })).toBeDisabled();
+    // The set is shown as it is…
+    expect(within(setList()).getAllByRole('listitem')).toHaveLength(1);
+    // …as a plain row: no sheet to open, no press to hold, no hint about one.
+    expect(setRow(1)).toHaveTextContent('5 reps, 50 kg');
+    expect(setRowButton(1)).toBeNull();
+    expect(holdHint()).toBeNull();
+    // Nothing to validate and nothing to confirm: no ActionBar at all.
+    expect(actionBar()).toBeNull();
+    expect(validateButton()).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add a set' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Replace' })).toBeNull();
   });
 
-  it("shows the coach's feedback section when feedback exists for the session", async () => {
-    const user = userEvent.setup();
+  it("shows the coach's feedback section when feedback exists for the session", () => {
     mockFeedback = {
       data: {
         id: 'msg-1',
@@ -1255,60 +706,656 @@ describe('SessionView', () => {
         created_at: '2026-04-15T10:00:00Z',
       },
     };
-    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
-    mockSetLogsData = { data: [], isLoading: false };
     renderSessionView();
 
-    expect(screen.getByText("Coach's feedback")).toBeInTheDocument();
-    expect(
-      screen.getByText('Great work — push the bar harder next week.')
-    ).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /reply in messages/i }));
+    const card = screen.getByRole('region', { name: 'Coach’s feedback' });
+    expect(card).toHaveTextContent('Great work — push the bar harder next week.');
+    expect(card).toHaveTextContent('stamp');
+    expect(within(card).getByRole('link', { name: /reply in messages/i })).toHaveAttribute(
+      'href',
+      '/student/messages',
+    );
   });
 
-  // P68. jsdom lays nothing out: the 44 px are read from the classes.
-  it('draws its buttons at 44 px: the way back, the slot across from it, and "Reply in messages"', () => {
+  // P68. jsdom lays nothing out: the 44 px are read from the classes, which
+  // the Parc stylesheet sizes at --target-min (44px) and more.
+  it('draws its controls at 44 px: the way back, the chips, the rows, the main action and "Reply in messages"', () => {
     mockFeedback = {
       data: { id: 'msg-1', body: 'Good.', created_at: '2026-04-15T10:00:00Z' },
     };
-    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
-    mockSetLogsData = { data: [], isLoading: false };
+    mockSessionData = loaded([slot('slot-a', 'Squat'), slot('slot-b', 'Bench', { sort_order: 1 })]);
+    mockSetLogsData = logsRead([setLog('a-1', 'slot-a', 1), setLog('b-1', 'slot-b', 1)]);
     renderSessionView();
 
-    const back = screen.getByRole('button', { name: /go back/i });
-    expect(back).toHaveClass('w-11', 'h-11');
-    expect(back).not.toHaveClass('w-9');
-    // The slot of the rest-timer pill: as wide as the way back, so the title
-    // stays centred between them.
-    const bar = back.parentElement;
-    expect(bar.lastElementChild).toHaveClass('min-w-11', 'h-11');
-    expect(screen.getByRole('button', { name: /reply in messages/i })).toHaveClass('sl-pill', 'sl-pill-btn');
+    expect(screen.getByRole('button', { name: 'Back to training' })).toHaveClass('pk-icon-btn');
+    expect(chip('Squat')).toHaveClass('pk-chip');
+    expect(setRowButton(1)).toHaveClass('pk-row');
+    expect(inBar().getByRole('button', { name: 'Validate set 1' })).toHaveClass('pk-btn', 'pk-btn-lg');
+    expect(confirmButton()).toHaveClass('pk-btn');
+    expect(screen.getByRole('link', { name: /reply in messages/i })).toHaveClass('pk-btn');
   });
 
   it('hides the feedback section when no feedback exists', () => {
-    mockFeedback = { data: null };
-    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
-    mockSetLogsData = { data: [], isLoading: false };
     renderSessionView();
-    expect(screen.queryByText("Coach's feedback")).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Coach’s feedback' })).toBeNull();
+    expect(screen.queryByText('Coach’s feedback')).toBeNull();
   });
 
   it('coach-archived unconfirmed session: hides Confirm and shows archive read-only banner', () => {
-    mockSessionData = {
-      data: {
-        title: 'Day 1',
-        exercise_slots: [],
-        program_is_active: true,
-        archived_at: '2026-04-20T10:00:00Z',
-      },
-      isLoading: false,
-    };
-    mockSetLogsData = { data: [], isLoading: false };
+    mockSessionData = loaded([], { archived_at: '2026-04-20T10:00:00Z' });
     renderSessionView();
 
-    expect(screen.queryByRole('button', { name: /confirm session/i })).toBeNull();
-    expect(screen.getByText(/archived by your coach/i)).toBeInTheDocument();
-    expect(screen.getByText(/read-only/i)).toBeInTheDocument();
+    expect(confirmButton()).toBeNull();
+    expect(screen.getByText('Archived by your coach, read only.')).toBeInTheDocument();
+  });
+});
+
+// The accordion is gone: the screen shows one exercise at a time, picked by a
+// row of chips, and opens on the one the athlete has to do next.
+describe('SessionView: one exercise at a time', () => {
+  const SQUAT = slot('slot-a', 'Squat');
+  const BENCH = slot('slot-b', 'Bench', { sort_order: 1 });
+  const ROW = slot('slot-c', 'Row', { sort_order: 2 });
+
+  it('opens on the first exercise with a set to do, and shows only its sets', () => {
+    mockSessionData = loaded([slot('slot-done', 'Dip', { sets: 2 }), slot('slot-open', 'Pullup', { sets: 2, sort_order: 1 })]);
+    mockSetLogsData = logsRead([
+      setLog('l-1', 'slot-done', 1, { done: true, rpe: 7 }),
+      setLog('l-2', 'slot-done', 2, { done: true, rpe: 8 }),
+      setLog('l-3', 'slot-open', 1),
+      setLog('l-4', 'slot-open', 2),
+    ]);
+    renderSessionView();
+
+    // Both exercises have their chip; the one shown is current.
+    expect(chip('Dip')).toBeInTheDocument();
+    expect(chip('Pullup')).toHaveAttribute('aria-current', 'true');
+    expect(chip('Dip')).not.toHaveAttribute('aria-current');
+    expect(shownExercise()).toBe('Pullup');
+    // Pullup's two pending sets, and none of Dip's done ones.
+    expect(within(setList()).getAllByRole('listitem')).toHaveLength(2);
+    expect(screen.queryByText(/^Set \d+, done$/)).toBeNull();
+    expect(inBar().getByRole('button', { name: 'Validate set 1' })).toBeInTheDocument();
+  });
+
+  it('opens on the first exercise when several have sets to do', () => {
+    mockSessionData = loaded([SQUAT, BENCH, ROW]);
+    mockSetLogsData = logsRead([setLog('l-a', 'slot-a', 1), setLog('l-b', 'slot-b', 1), setLog('l-c', 'slot-c', 1)]);
+    renderSessionView();
+
+    expect(within(chipRow()).getAllByRole('button').map((c) => c.textContent)).toEqual(['Squat', 'Bench', 'Row']);
+    expect(shownChip()).toBe('Squat');
+    expect(shownExercise()).toBe('Squat');
+    // Only the exercise shown has its sets on screen.
+    expect(within(setList()).getAllByRole('listitem')).toHaveLength(1);
+  });
+
+  it('opens on the first exercise of a session whose every set is dealt with', () => {
+    mockSessionData = loaded([SQUAT, BENCH]);
+    mockSetLogsData = logsRead([
+      setLog('l-a', 'slot-a', 1, { done: true, rpe: 8 }),
+      setLog('l-b', 'slot-b', 1, { failed: true }),
+    ]);
+    renderSessionView();
+    expect(shownExercise()).toBe('Squat');
+    expect(within(panel()).getByText('Exercise done')).toBeInTheDocument();
+  });
+
+  // The RPE is asked in a sheet right after a set is validated: the screen no
+  // longer waits on the exercise for it, as the accordion did.
+  it('a set done without its RPE does not hold the screen on its exercise', () => {
+    mockSessionData = loaded([SQUAT, BENCH]);
+    mockSetLogsData = logsRead([setLog('l-1', 'slot-a', 1, { done: true }), setLog('l-2', 'slot-b', 1)]);
+    renderSessionView();
+    expect(shownExercise()).toBe('Bench');
+  });
+
+  it('a failed set is dealt with: the screen opens on the next exercise', () => {
+    mockSessionData = loaded([SQUAT, BENCH]);
+    mockSetLogsData = logsRead([setLog('l-1', 'slot-a', 1, { failed: true }), setLog('l-2', 'slot-b', 1)]);
+    renderSessionView();
+    expect(shownExercise()).toBe('Bench');
+    expect(shownChip()).toBe('Bench');
+  });
+
+  // Squat's only set is skipped (neither done nor failed, per the DB CHECK).
+  // Before the fix it stayed "unresolved" forever: the page pinned to Squat
+  // and its count stayed short of the sets the athlete had dealt with.
+  it('a skipped set is dealt with: the screen opens on the next exercise, and the count has it', async () => {
+    const user = userEvent.setup();
+    mockSessionData = loaded([SQUAT, BENCH]);
+    mockSetLogsData = logsRead([setLog('l-1', 'slot-a', 1, { skipped: true }), setLog('l-2', 'slot-b', 1)]);
+    renderSessionView();
+
+    expect(shownExercise()).toBe('Bench');
+    await user.click(confirmButton());
+    expect(within(sheet('Confirm the session')).getByText('1 of 2 sets logged')).toBeInTheDocument();
+  });
+
+  // The whole Squat exercise is skip-deviated; its sets stay pending in the
+  // database and are not shown, so without the skipped exercises counted as
+  // dealt with they would pin the screen and the count for the whole session.
+  it('an exercise the athlete skipped is dealt with, though its sets stay pending', async () => {
+    const user = userEvent.setup();
+    mockDeviations = {
+      data: [{ exercise_slot_id: 'slot-a', student_id: 'u-1', kind: 'skip' }],
+      isLoading: false,
+    };
+    mockSessionData = loaded([SQUAT, BENCH]);
+    mockSetLogsData = logsRead([setLog('l-1', 'slot-a', 1), setLog('l-2', 'slot-b', 1)]);
+    renderSessionView();
+
+    expect(shownExercise()).toBe('Bench');
+
+    // Its own screen says it was skipped, with no set to do.
+    await user.click(chip('Squat'));
+    expect(within(panel()).getByText('Exercise skipped')).toBeInTheDocument();
+    expect(screen.getByText('You skipped this exercise.')).toBeInTheDocument();
+    expect(setList()).toBeNull();
+
+    await user.click(confirmButton());
+    expect(within(sheet('Confirm the session')).getByText('1 of 2 sets logged')).toBeInTheDocument();
+  });
+
+  it('a chip shows its exercise, and only one is current', async () => {
+    const user = userEvent.setup();
+    mockSessionData = loaded([SQUAT, BENCH, ROW]);
+    mockSetLogsData = logsRead([setLog('l-a', 'slot-a', 1), setLog('l-b', 'slot-b', 1), setLog('l-c', 'slot-c', 1)]);
+    renderSessionView();
+    expect(shownExercise()).toBe('Squat');
+
+    await user.click(chip('Row'));
+    expect(shownExercise()).toBe('Row');
+    expect(chipRow().querySelectorAll('[aria-current="true"]')).toHaveLength(1);
+    expect(shownChip()).toBe('Row');
+
+    await user.click(chip('Bench'));
+    expect(shownExercise()).toBe('Bench');
+    expect(shownChip()).toBe('Bench');
+    // The ActionBar follows the exercise shown.
+    expect(inBar().getByRole('button', { name: 'Validate set 1' })).toBeInTheDocument();
+  });
+
+  // The chips replace the numbered headers of the accordion: one per
+  // exercise, in the session's order, the exercises of a superset included.
+  it("has one chip per exercise in the session's order, a superset's exercises included", () => {
+    mockSessionData = loaded([
+      slot('slot-1', 'Dips'),
+      slot('slot-2a', 'Pull-up', { sort_order: 1, superset_group: 1 }),
+      slot('slot-2b', 'Push-up', { sort_order: 2, superset_group: 1 }),
+      slot('slot-3', 'Bench Press', { sort_order: 3 }),
+    ]);
+    mockSetLogsData = logsRead([
+      setLog('l-1', 'slot-1', 1),
+      setLog('l-2a', 'slot-2a', 1),
+      setLog('l-2b', 'slot-2b', 1),
+      setLog('l-3', 'slot-3', 1),
+    ]);
+    renderSessionView();
+
+    expect(within(chipRow()).getAllByRole('button').map((c) => c.textContent)).toEqual([
+      'Dips',
+      'Pull-up',
+      'Push-up',
+      'Bench Press',
+    ]);
+  });
+
+  it('a session of one exercise has no chips', () => {
+    mockSessionData = loaded([SQUAT]);
+    mockSetLogsData = logsRead([setLog('l-a', 'slot-a', 1)]);
+    renderSessionView();
+    expect(chipRow()).toBeNull();
+    expect(shownExercise()).toBe('Squat');
+  });
+
+  it('a superset says its partner, and shares one note for the coach, kept on its first exercise', async () => {
+    const user = userEvent.setup();
+    mockSessionData = loaded([
+      slot('slot-a', 'Curl', { superset_group: 1 }),
+      slot('slot-b', 'Skullcrusher', { sort_order: 1, superset_group: 1 }),
+    ]);
+    mockSetLogsData = logsRead([setLog('l-a1', 'slot-a', 1), setLog('l-b1', 'slot-b', 1)]);
+    renderSessionView();
+
+    expect(within(panel()).getByText('In a superset with Skullcrusher')).toBeInTheDocument();
+    // Without one note per superset, the athlete would be asked for a note
+    // once per exercise of it.
+    expect(screen.getAllByRole('button', { name: 'Add a note for the coach' })).toHaveLength(1);
+
+    await user.click(chip('Skullcrusher'));
+    expect(within(panel()).getByText('In a superset with Curl')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Add a note for the coach' }));
+    await user.type(screen.getByLabelText('Note for your coach'), 'Elbows hurt');
+    await user.tab();
+    expect(mockSaveComment).toHaveBeenCalledWith(
+      { sessionId: 'sess-1', slotId: 'slot-a', body: 'Elbows hurt' },
+      expect.any(Object),
+    );
+  });
+
+  it('shows the note of a superset on each of its exercises', async () => {
+    const user = userEvent.setup();
+    mockSlotComments = [{ id: 'c-1', exercise_slot_id: 'slot-a', body: 'Elbows hurt' }];
+    mockSessionData = loaded([
+      slot('slot-a', 'Curl', { superset_group: 1 }),
+      slot('slot-b', 'Skullcrusher', { sort_order: 1, superset_group: 1 }),
+    ]);
+    mockSetLogsData = logsRead([setLog('l-a1', 'slot-a', 1), setLog('l-b1', 'slot-b', 1)]);
+    renderSessionView();
+
+    expect(screen.getByRole('region', { name: 'Your note for the coach' })).toHaveTextContent('Elbows hurt');
+    await user.click(chip('Skullcrusher'));
+    expect(screen.getByRole('region', { name: 'Your note for the coach' })).toHaveTextContent('Elbows hurt');
+  });
+
+  // The header's grouped summary is gone: each row says its own target, and
+  // the panel the figures of the set in progress.
+  it('heterogeneous sets: each row says its own target, the panel the set in progress', () => {
+    mockSessionData = loaded([slot('slot-1', 'Squat', { sets: 3, reps: 6, weight_kg: 100 })], { title: 'Drop Set Day' });
+    const logs = [
+      setLog('log-1', 'slot-1', 1, { target_reps: 6, target_weight_kg: 100 }),
+      setLog('log-2', 'slot-1', 2, { target_reps: 6, target_weight_kg: 100 }),
+      setLog('log-3', 'slot-1', 3, { target_reps: 8, target_weight_kg: 80 }),
+    ];
+    mockSetLogsData = logsRead(logs);
+    const view = renderSessionView();
+
+    expect(setRowButton(1)).toHaveTextContent('6 reps, 100 kg');
+    expect(setRowButton(2)).toHaveTextContent('6 reps, 100 kg');
+    expect(setRowButton(3)).toHaveTextContent('8 reps, 80 kg');
+    expect(within(panel()).getByText('6')).toBeInTheDocument();
+    expect(within(panel()).getByText('100')).toBeInTheDocument();
+
+    settle(view, [
+      { ...logs[0], done: true, rpe: 8 },
+      { ...logs[1], done: true, rpe: 9 },
+      logs[2],
+    ]);
+    expect(within(panel()).getByText('Set 3 of 3')).toBeInTheDocument();
+    expect(within(panel()).getByText('8')).toBeInTheDocument();
+    expect(within(panel()).getByText('80')).toBeInTheDocument();
+  });
+
+  it('an exercise the athlete replaced is named by its substitute, on its chip and its panel', () => {
+    mockLibrary = [{ id: 'ex-ring', name: 'Ring dip', type: 'push' }];
+    mockDeviations = {
+      data: [{ exercise_slot_id: 'slot-a', kind: 'swap', substitute_exercise_id: 'ex-ring' }],
+      isLoading: false,
+    };
+    mockSessionData = loaded([SQUAT, BENCH]);
+    mockSetLogsData = logsRead([setLog('l-a', 'slot-a', 1), setLog('l-b', 'slot-b', 1)]);
+    renderSessionView();
+
+    expect(within(chipRow()).getAllByRole('button').map((c) => c.textContent)).toEqual(['Ring dip', 'Bench']);
+    expect(shownExercise()).toBe('Ring dip');
+    expect(screen.getByText('You do Ring dip instead.')).toBeInTheDocument();
+  });
+});
+
+// The ActionBar carries the one action that moves the session on: validate the
+// set in progress, go to the next exercise, or confirm the session.
+describe('SessionView: the main action', () => {
+  const SQUAT = slot('slot-a', 'Squat');
+  const BENCH = slot('slot-b', 'Bench', { sort_order: 1 });
+
+  // A tap on « Validate set n », then the cache written as the hook writes it,
+  // then the RPE sheet answered with `answer` — a rating, or its close button.
+  async function validateAndAnswer(user, view, logsAfter, answer) {
+    await user.click(inBar().getByRole('button', { name: /^validate set \d+$/i }));
+    settle(view, logsAfter);
+    await user.click(within(rpeSheet()).getByRole('button', { name: answer }));
+  }
+
+  it('validates the set in progress — the first set of the exercise with no outcome — and asks its RPE', async () => {
+    const user = userEvent.setup();
+    mockSessionData = loaded([slot('slot-1', 'Squat', { sets: 4 })]);
+    mockSetLogsData = logsRead([
+      setLog('l-1', 'slot-1', 1, { done: true, rpe: 8 }),
+      setLog('l-2', 'slot-1', 2, { failed: true }),
+      setLog('l-3', 'slot-1', 3, { skipped: true }),
+      setLog('l-4', 'slot-1', 4),
+    ]);
+    renderSessionView();
+
+    expect(within(panel()).getByText('Set 4 of 4')).toBeInTheDocument();
+    expect(setRowButton(4)).toHaveTextContent('In progress');
+    await user.click(inBar().getByRole('button', { name: 'Validate set 4' }));
+
+    expect(mockToggleDone).toHaveBeenCalledTimes(1);
+    expect(mockToggleDone).toHaveBeenCalledWith({ logId: 'l-4', done: true });
+    // The RPE sheet opens on the set just validated: 6 to 10 in half steps,
+    // none chosen yet.
+    const sheetOfSet = rpeSheet();
+    expect(sheetOfSet).toHaveAccessibleName('RPE of set 4');
+    const ratings = within(sheetOfSet).getAllByRole('button', { name: /^RPE / });
+    expect(ratings.map((b) => b.textContent)).toEqual(['6', '6.5', '7', '7.5', '8', '8.5', '9', '9.5', '10']);
+    for (const rating of ratings) expect(rating).toHaveAttribute('aria-pressed', 'false');
+    expect(within(sheetOfSet).getByRole('button', { name: 'Close without RPE' })).toBeInTheDocument();
+  });
+
+  it('a rating is written, closes the sheet, and the screen moves on to the next exercise', async () => {
+    const user = userEvent.setup();
+    mockSessionData = loaded([SQUAT, BENCH]);
+    mockSetLogsData = logsRead([setLog('l-1', 'slot-a', 1), setLog('l-2', 'slot-b', 1)]);
+    const view = renderSessionView();
+
+    await validateAndAnswer(
+      user,
+      view,
+      [setLog('l-1', 'slot-a', 1, { done: true }), setLog('l-2', 'slot-b', 1)],
+      'RPE 7.5',
+    );
+
+    // The set was done at the tap; the rating is a write of its own.
+    expect(mockSetRpe).toHaveBeenCalledWith({ logId: 'l-1', rpe: 7.5 });
+    expect(rpeSheet()).toBeNull();
+    expect(shownExercise()).toBe('Bench');
+    expect(shownChip()).toBe('Bench');
+    expect(inBar().getByRole('button', { name: 'Validate set 1' })).toBeInTheDocument();
+  });
+
+  it('closing the RPE sheet writes no rating, and moves on too', async () => {
+    const user = userEvent.setup();
+    mockSessionData = loaded([SQUAT, BENCH]);
+    mockSetLogsData = logsRead([setLog('l-1', 'slot-a', 1), setLog('l-2', 'slot-b', 1)]);
+    const view = renderSessionView();
+
+    await validateAndAnswer(
+      user,
+      view,
+      [setLog('l-1', 'slot-a', 1, { done: true }), setLog('l-2', 'slot-b', 1)],
+      'Close without RPE',
+    );
+
+    expect(mockSetRpe).not.toHaveBeenCalled();
+    expect(rpeSheet()).toBeNull();
+    expect(shownExercise()).toBe('Bench');
+  });
+
+  it('stays on an exercise that still has sets to do', async () => {
+    const user = userEvent.setup();
+    mockSessionData = loaded([slot('slot-a', 'Squat', { sets: 2 }), BENCH]);
+    mockSetLogsData = logsRead([setLog('a-1', 'slot-a', 1), setLog('a-2', 'slot-a', 2), setLog('b-1', 'slot-b', 1)]);
+    const view = renderSessionView();
+
+    await validateAndAnswer(
+      user,
+      view,
+      [setLog('a-1', 'slot-a', 1, { done: true }), setLog('a-2', 'slot-a', 2), setLog('b-1', 'slot-b', 1)],
+      'RPE 8',
+    );
+
+    expect(shownExercise()).toBe('Squat');
+    expect(within(panel()).getByText('Set 2 of 2')).toBeInTheDocument();
+    expect(inBar().getByRole('button', { name: 'Validate set 2' })).toBeInTheDocument();
+  });
+
+  // The exercises of a superset are done in turn: a set of one, then a set of
+  // the other. The screen goes to the partner after each RPE, and leaves the
+  // superset once both are finished.
+  it('alternates between the exercises of a superset, then leaves it', async () => {
+    const user = userEvent.setup();
+    mockSessionData = loaded([
+      slot('slot-a', 'Curl', { sets: 2, superset_group: 1 }),
+      slot('slot-b', 'Skullcrusher', { sets: 2, sort_order: 1, superset_group: 1 }),
+      slot('slot-c', 'Row', { sort_order: 2 }),
+    ]);
+    const a1 = setLog('a-1', 'slot-a', 1);
+    const a2 = setLog('a-2', 'slot-a', 2);
+    const b1 = setLog('b-1', 'slot-b', 1);
+    const b2 = setLog('b-2', 'slot-b', 2);
+    const c1 = setLog('c-1', 'slot-c', 1);
+    const done = (log) => ({ ...log, done: true });
+    mockSetLogsData = logsRead([a1, a2, b1, b2, c1]);
+    const view = renderSessionView();
+    expect(shownExercise()).toBe('Curl');
+
+    await validateAndAnswer(user, view, [done(a1), a2, b1, b2, c1], 'RPE 8');
+    expect(mockToggleDone).toHaveBeenLastCalledWith({ logId: 'a-1', done: true });
+    expect(shownExercise()).toBe('Skullcrusher');
+    expect(inBar().getByRole('button', { name: 'Validate set 1' })).toBeInTheDocument();
+
+    await validateAndAnswer(user, view, [done(a1), a2, done(b1), b2, c1], 'Close without RPE');
+    expect(mockToggleDone).toHaveBeenLastCalledWith({ logId: 'b-1', done: true });
+    expect(shownExercise()).toBe('Curl');
+    expect(inBar().getByRole('button', { name: 'Validate set 2' })).toBeInTheDocument();
+
+    await validateAndAnswer(user, view, [done(a1), done(a2), done(b1), b2, c1], 'RPE 8');
+    expect(shownExercise()).toBe('Skullcrusher');
+    expect(inBar().getByRole('button', { name: 'Validate set 2' })).toBeInTheDocument();
+
+    await validateAndAnswer(user, view, [done(a1), done(a2), done(b1), done(b2), c1], 'RPE 9');
+    expect(shownExercise()).toBe('Row');
+    expect(inBar().getByRole('button', { name: 'Validate set 1' })).toBeInTheDocument();
+  });
+
+  it('a finished exercise offers to go to the next one with a set to do', async () => {
+    const user = userEvent.setup();
+    mockSessionData = loaded([SQUAT, BENCH]);
+    mockSetLogsData = logsRead([setLog('l-1', 'slot-a', 1, { done: true, rpe: 8 }), setLog('l-2', 'slot-b', 1)]);
+    renderSessionView();
+    expect(shownExercise()).toBe('Bench');
+
+    await user.click(chip('Squat'));
+    expect(within(panel()).getByText('Exercise done')).toBeInTheDocument();
+    expect(validateButton()).toBeNull();
+
+    await user.click(inBar().getByRole('button', { name: 'Go to Bench' }));
+    expect(shownExercise()).toBe('Bench');
+    expect(inBar().getByRole('button', { name: 'Validate set 1' })).toBeInTheDocument();
+  });
+
+  // Exactly one "Confirm session" at a time: a text button in the page while
+  // sets are left — confirming early is possible, not the next step — and the
+  // ActionBar's main button once every set is dealt with.
+  it('while sets are left, the page carries "Confirm session" and the ActionBar validates', () => {
+    mockSessionData = loaded([slot('slot-a', 'Squat', { sets: 2 })]);
+    mockSetLogsData = logsRead([setLog('a-1', 'slot-a', 1, { done: true, rpe: 8 }), setLog('a-2', 'slot-a', 2)]);
+    renderSessionView();
+
+    expect(confirmButtons()).toHaveLength(1);
+    expect(actionBar()).not.toContainElement(confirmButton());
+    expect(inBar().getByRole('button', { name: 'Validate set 2' })).toBeInTheDocument();
+  });
+
+  it('once every set is dealt with, the ActionBar carries "Confirm session", and only the ActionBar', async () => {
+    const user = userEvent.setup();
+    mockSessionData = loaded([SQUAT, BENCH]);
+    mockSetLogsData = logsRead([
+      setLog('l-1', 'slot-a', 1, { done: true, rpe: 8 }),
+      setLog('l-2', 'slot-b', 1, { skipped: true }),
+    ]);
+    renderSessionView();
+
+    expect(confirmButtons()).toHaveLength(1);
+    expect(actionBar()).toContainElement(confirmButton());
+    expect(validateButton()).toBeNull();
+    expect(screen.queryByRole('button', { name: /^go to/i })).toBeNull();
+
+    await user.click(confirmButton());
+    expect(sheet('Confirm the session')).toBeInTheDocument();
+  });
+
+  // The main action follows the sets: a set put back to pending (an Undo) is
+  // to validate again, and a session whose last set is dealt with is to
+  // confirm — whichever way the cache changed.
+  it('follows the sets as they change', () => {
+    mockSessionData = loaded([SQUAT]);
+    mockSetLogsData = logsRead([setLog('l-1', 'slot-a', 1, { done: true, rpe: 8 })]);
+    const view = renderSessionView();
+    expect(inBar().getByRole('button', { name: /^confirm session$/i })).toBeInTheDocument();
+
+    settle(view, [setLog('l-1', 'slot-a', 1)]);
+    expect(inBar().getByRole('button', { name: 'Validate set 1' })).toBeInTheDocument();
+    expect(actionBar()).not.toContainElement(confirmButton());
+
+    settle(view, [setLog('l-1', 'slot-a', 1, { done: true, rpe: 8 })]);
+    expect(inBar().getByRole('button', { name: /^confirm session$/i })).toBeInTheDocument();
+    expect(validateButton()).toBeNull();
+  });
+
+  // P61. An extra set has no prescription: it says what was done, or it is
+  // not done. « Validate » opens its sheet instead of writing anything, with
+  // its fields seeded by the set before it, as it was done.
+  it('an extra set that does not say what was done opens its sheet instead of being validated', async () => {
+    const user = userEvent.setup();
+    mockSessionData = loaded([slot('slot-1', 'Squat')]);
+    mockSetLogsData = logsRead([
+      setLog('l-1', 'slot-1', 1, { done: true, rpe: 8, target_reps: 5, target_weight_kg: 60 }),
+      setLog('l-2', 'slot-1', 2, { is_student_added: true, target_reps: null, target_weight_kg: null }),
+    ]);
+    renderSessionView();
+
+    expect(setRowButton(2)).toHaveTextContent('Set 2, added');
+    expect(setRowButton(2)).toHaveTextContent('Say what you did');
+    await user.click(inBar().getByRole('button', { name: 'Validate set 2' }));
+
+    expect(mockToggleDone).not.toHaveBeenCalled();
+    expect(rpeSheet()).toBeNull();
+    const sheetOfSet = within(sheet('Set 2, added'));
+    expect(sheetOfSet.getByRole('textbox', { name: 'Reps' })).toHaveValue('5');
+    expect(sheetOfSet.getByRole('textbox', { name: 'Load in kg' })).toHaveValue('60');
+
+    // Saved, it is done in the same write, and its RPE is asked.
+    await user.click(sheetOfSet.getByRole('button', { name: 'Validate set 2' }));
+    expect(mockLogActual).toHaveBeenCalledWith({ logId: 'l-2', actualReps: 5, actualWeightKg: 60, done: true });
+    expect(sheet('Set 2, added')).toBeNull();
+    expect(rpeSheet()).toHaveAccessibleName('RPE of set 2');
+  });
+
+  it('a tap on a row opens the sheet of that set', async () => {
+    const user = userEvent.setup();
+    mockSessionData = loaded([slot('slot-1', 'Squat', { sets: 2 })]);
+    mockSetLogsData = logsRead([
+      setLog('l-1', 'slot-1', 1, { done: true, rpe: 7.5, target_reps: 5, target_weight_kg: 20 }),
+      setLog('l-2', 'slot-1', 2),
+    ]);
+    renderSessionView();
+
+    expect(setRowButton(1)).toHaveTextContent('RPE 7.5');
+    await user.click(setRowButton(1));
+    const sheetOfSet = within(sheet('Set 1, done'));
+    expect(sheetOfSet.getByRole('textbox', { name: 'Reps' })).toHaveValue('5');
+    expect(sheetOfSet.getByRole('textbox', { name: 'Load in kg' })).toHaveValue('20');
+    expect(sheetOfSet.getByRole('button', { name: 'RPE 7.5' })).toHaveAttribute('aria-pressed', 'true');
+    // A done set is saved, not validated again.
+    expect(sheetOfSet.getByRole('button', { name: 'Save' })).toBeInTheDocument();
+  });
+
+  // A long press marks a set failed — never a tap — with an Undo in a toast.
+  // The exercise stays on the screen: following "the first exercise with a set
+  // to do" would take it away, and the set its Undo brings back with it.
+  it('a long press marks the set failed, offers Undo, and keeps its exercise on the screen', () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-17T10:00:00Z') });
+    mockSessionData = loaded([SQUAT, BENCH]);
+    mockSetLogsData = logsRead([setLog('l-1', 'slot-a', 1, { target_rest_seconds: 90 }), setLog('l-2', 'slot-b', 1)]);
+    const view = renderSessionView();
+
+    // The context menu is the long press for those who cannot hold.
+    fireEvent.contextMenu(setRowButton(1));
+    expect(mockSetFailed).toHaveBeenCalledWith({ logId: 'l-1', failed: true });
+    expect(mockToggleDone).not.toHaveBeenCalled();
+    // A failed set is rested like a done one.
+    expect(screen.getByRole('timer', { name: 'Rest, 1:30 left' })).toBeInTheDocument();
+    const toast = getToasts().at(-1);
+    expect(toast.message).toBe('Set 1 marked failed.');
+    expect(toast.action.label).toBe('uiSharedHelpers.undo');
+
+    settle(view, [setLog('l-1', 'slot-a', 1, { failed: true, target_rest_seconds: 90 }), setLog('l-2', 'slot-b', 1)]);
+    expect(shownExercise()).toBe('Squat');
+    expect(setRowButton(1)).toHaveTextContent('Set 1, failed');
+    expect(inBar().getByRole('button', { name: 'Go to Bench' })).toBeInTheDocument();
+
+    // Undo: the set is pending again, and the rest it started is over.
+    act(() => toast.action.onClick());
+    expect(mockSetFailed).toHaveBeenLastCalledWith({ logId: 'l-1', failed: false });
+    expect(mockToggleDone).not.toHaveBeenCalled();
+    expect(screen.queryByRole('timer')).toBeNull();
+  });
+
+  it('"Add a set" adds the set after the last one of the exercise shown', async () => {
+    const user = userEvent.setup();
+    mockSessionData = loaded([SQUAT, slot('slot-b', 'Bench', { sets: 2, sort_order: 1 })]);
+    mockSetLogsData = logsRead([
+      setLog('a-1', 'slot-a', 1, { done: true, rpe: 8 }),
+      setLog('b-1', 'slot-b', 1),
+      setLog('b-2', 'slot-b', 2),
+    ]);
+    renderSessionView();
+    expect(shownExercise()).toBe('Bench');
+
+    await user.click(screen.getByRole('button', { name: 'Add a set' }));
+    expect(mockAddSet).toHaveBeenCalledWith({ slotId: 'slot-b', setNumber: 3 });
+  });
+
+  // The insert is online-only: a set added without a network would wait,
+  // stored nowhere.
+  it('offline, says that adding a set needs a connection', () => {
+    mockOnline = false;
+    mockSessionData = loaded([SQUAT]);
+    mockSetLogsData = logsRead([setLog('a-1', 'slot-a', 1)]);
+    renderSessionView();
+    expect(screen.queryByRole('button', { name: 'Add a set' })).toBeNull();
+    expect(screen.getByText('Connect to add a set.')).toBeInTheDocument();
+  });
+});
+
+// The rest that is running is in the ActionBar, at the left of the main
+// action: the time left, and « +30 s ». The clock is frozen, so the time left
+// is the time the rest was started for.
+describe('SessionView: the rest in the ActionBar', () => {
+  const SQUAT = slot('slot-a', 'Squat', { sets: 2 });
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-17T10:00:00Z') });
+    mockSessionData = loaded([SQUAT]);
+    mockSetLogsData = logsRead([
+      setLog('l-1', 'slot-a', 1, { target_rest_seconds: 90 }),
+      setLog('l-2', 'slot-a', 2, { target_rest_seconds: 90 }),
+    ]);
+  });
+
+  it('validating a set starts the rest prescribed after it, shown in the ActionBar', () => {
+    renderSessionView();
+    expect(screen.queryByRole('timer')).toBeNull();
+
+    fireEvent.click(inBar().getByRole('button', { name: 'Validate set 1' }));
+
+    const timer = inBar().getByRole('timer');
+    expect(timer).toHaveAccessibleName('Rest, 1:30 left');
+    expect(timer).toHaveTextContent('1:30');
+    expect(inBar().getByRole('button', { name: 'Add 30 seconds of rest' })).toHaveTextContent('+30 s');
+  });
+
+  it('shows a rest that runs, whoever started it, and "+30 s" adds 30 seconds to it', () => {
+    startRestTimer('l-1', 45);
+    renderSessionView();
+    expect(inBar().getByRole('timer')).toHaveAccessibleName('Rest, 0:45 left');
+
+    fireEvent.click(inBar().getByRole('button', { name: 'Add 30 seconds of rest' }));
+    expect(inBar().getByRole('timer')).toHaveAccessibleName('Rest, 1:15 left');
+
+    fireEvent.click(inBar().getByRole('button', { name: 'Add 30 seconds of rest' }));
+    expect(inBar().getByRole('timer')).toHaveAccessibleName('Rest, 1:45 left');
+  });
+
+  it('shows nothing once the rest is over', () => {
+    startRestTimer('l-1', 45);
+    vi.setSystemTime(new Date('2026-10-17T10:01:00Z'));
+    renderSessionView();
+    expect(screen.queryByRole('timer')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add 30 seconds of rest' })).toBeNull();
+    // The main action stays.
+    expect(inBar().getByRole('button', { name: 'Validate set 1' })).toBeInTheDocument();
+  });
+
+  it('is not shown on a session whose sets are locked', () => {
+    startRestTimer('l-1', 45);
+    mockConfirmation = { data: CONFIRMED, isLoading: false };
+    renderSessionView();
+    expect(screen.queryByRole('timer')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add 30 seconds of rest' })).toBeNull();
   });
 });
 
@@ -1319,59 +1366,18 @@ describe('SessionView', () => {
 // the thread with the coach.
 describe('SessionView: a session the coach has reviewed', () => {
   const REVIEWED_AT = '2026-04-15T09:00:00Z';
-  const CONFIRMATION = {
-    id: 'c-1',
-    session_id: 'sess-1',
-    student_id: 'u-1',
-    confirmed_at: '2026-04-14T10:00:00Z',
-    notes: null,
-  };
-  const SLOT = {
-    id: 'slot-1',
-    sets: 1,
-    reps: 5,
-    weight_kg: 50,
-    sort_order: 0,
-    exercise: { id: 'ex-1', name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
-  };
+  const CONFIRMATION = CONFIRMED;
+  const SLOT = slot('slot-1', 'Squat');
   // Pending, so its exercise is the one the page opens by itself.
-  const PENDING_LOG = {
-    id: 'l-1',
-    exercise_slot_id: 'slot-1',
-    set_number: 1,
-    done: false,
-    rpe: null,
-  };
+  const PENDING_LOG = setLog('l-1', 'slot-1', 1);
 
   function session(fields = {}) {
-    return {
-      data: { title: 'Day 1', exercise_slots: [], program_is_active: true, ...fields },
-      isLoading: false,
-    };
-  }
-
-  function rerenderSessionView(view) {
-    view.rerender(
-      <MemoryRouter>
-        <SessionView />
-      </MemoryRouter>
-    );
+    return loaded([], fields);
   }
 
   const lockLine = () => screen.queryByText(/reviewed by your coach/i);
   const coachLink = () => screen.queryByRole('link', { name: /message your coach/i });
   const undoButton = () => screen.queryByRole('button', { name: /undo confirmation/i });
-  const confirmButton = () => screen.queryByRole('button', { name: /^confirm session$/i });
-
-  beforeEach(() => {
-    mockConfirmation = { data: null, isLoading: false };
-    mockFeedback = { data: null };
-    mockDeviations = { data: [], isLoading: false };
-    mockSetLogsData = { data: [], isLoading: false };
-    mockVideos = { data: [], isLoading: false };
-    vi.clearAllMocks();
-    resetRestTimer();
-  });
 
   describe('confirmed', () => {
     beforeEach(() => {
@@ -1384,7 +1390,7 @@ describe('SessionView: a session the coach has reviewed', () => {
 
       expect(screen.getByText(/session confirmed/i)).toBeInTheDocument();
       expect(undoButton()).toBeNull();
-      expect(lockLine()).toHaveTextContent(/this session can no longer be changed/i);
+      expect(lockLine()).toHaveTextContent(/this session can no longer change/i);
       expect(coachLink()).toHaveAttribute('href', '/student/messages');
       // Nothing to confirm a second time.
       expect(confirmButton()).toBeNull();
@@ -1402,22 +1408,22 @@ describe('SessionView: a session the coach has reviewed', () => {
     // A confirmed session already has its sets locked; the note for the coach
     // is what a review closes on top of that.
     it('closes the note for the coach, which a confirmation alone leaves open', () => {
-      mockSetLogsData = { data: [PENDING_LOG], isLoading: false };
+      mockSetLogsData = logsRead([PENDING_LOG]);
 
       mockSessionData = session({ exercise_slots: [SLOT], reviewed_at: null });
       const open = renderSessionView();
-      expect(screen.getByRole('button', { name: /add note for coach/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /add a note for the coach/i })).toBeInTheDocument();
       open.unmount();
 
       mockSessionData = session({ exercise_slots: [SLOT], reviewed_at: REVIEWED_AT });
       renderSessionView();
-      expect(screen.queryByRole('button', { name: /add note for coach/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /add a note for the coach/i })).toBeNull();
     });
 
     it('keeps the line of a past program or an archived session, which no coach can lift', () => {
       mockSessionData = session({ reviewed_at: REVIEWED_AT, program_is_active: false });
       const past = renderSessionView();
-      expect(screen.getByText(/from a past program — confirmation is locked/i)).toBeInTheDocument();
+      expect(screen.getByText('From a past block. The confirmation can no longer change.')).toBeInTheDocument();
       expect(lockLine()).toBeNull();
       expect(coachLink()).toBeNull();
       expect(undoButton()).toBeNull();
@@ -1425,7 +1431,7 @@ describe('SessionView: a session the coach has reviewed', () => {
 
       mockSessionData = session({ reviewed_at: REVIEWED_AT, archived_at: '2026-04-20T10:00:00Z' });
       renderSessionView();
-      expect(screen.getByText(/archived by your coach — confirmation is locked/i)).toBeInTheDocument();
+      expect(screen.getByText('Archived by your coach. The confirmation can no longer change.')).toBeInTheDocument();
       expect(lockLine()).toBeNull();
       expect(coachLink()).toBeNull();
       expect(undoButton()).toBeNull();
@@ -1436,53 +1442,75 @@ describe('SessionView: a session the coach has reviewed', () => {
   // after the review, exist from before the two were tied together.
   describe('not confirmed', () => {
     it('is read-only: no set, RPE, extra set, swap, skip or note can be written', () => {
-      mockSetLogsData = { data: [PENDING_LOG], isLoading: false };
+      mockSetLogsData = logsRead([PENDING_LOG]);
       mockSessionData = session({ exercise_slots: [SLOT], reviewed_at: REVIEWED_AT });
       renderSessionView();
 
-      expect(screen.getByRole('button', { name: /mark set done/i })).toBeDisabled();
-      expect(screen.getByRole('button', { name: /set rpe/i })).toBeDisabled();
-      expect(screen.queryByRole('button', { name: /log what you actually did/i })).toBeNull();
-      expect(screen.queryByRole('button', { name: /add set/i })).toBeNull();
-      expect(screen.queryByText(/can't do this exercise/i)).toBeNull();
-      expect(screen.queryByRole('button', { name: /add note for coach/i })).toBeNull();
+      // The set is shown, as a row that opens nothing and holds nothing: no
+      // sheet, so no actual value and no RPE.
+      expect(within(setList()).getAllByRole('listitem')).toHaveLength(1);
+      expect(setRow(1)).toHaveTextContent('5 reps, 50 kg');
+      expect(setRowButton(1)).toBeNull();
+      expect(holdHint()).toBeNull();
+      expect(validateButton()).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Add a set' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Replace' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Skip' })).toBeNull();
+      expect(screen.queryByRole('button', { name: /add a note for the coach/i })).toBeNull();
     });
 
-    it('the same session, not reviewed, offers all of them', () => {
-      mockSetLogsData = { data: [PENDING_LOG], isLoading: false };
+    it('the same session, not reviewed, offers all of them', async () => {
+      const user = userEvent.setup();
+      mockSetLogsData = logsRead([PENDING_LOG]);
       mockSessionData = session({ exercise_slots: [SLOT], reviewed_at: null });
       renderSessionView();
 
-      expect(screen.getByRole('button', { name: /mark set done/i })).toBeEnabled();
-      expect(screen.getByRole('button', { name: /set rpe/i })).toBeEnabled();
-      expect(screen.getByRole('button', { name: /log what you actually did/i })).toBeEnabled();
-      expect(screen.getByRole('button', { name: /add set/i })).toBeInTheDocument();
-      expect(screen.getByText(/can't do this exercise/i)).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /add note for coach/i })).toBeInTheDocument();
+      expect(inBar().getByRole('button', { name: 'Validate set 1' })).toBeEnabled();
+      expect(setRowButton(1)).toBeEnabled();
+      expect(holdHint()).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Add a set' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Replace' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Skip' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /add a note for the coach/i })).toBeInTheDocument();
       expect(lockLine()).toBeNull();
+
+      // The row opens the set's sheet: what was actually done, and the RPE.
+      await user.click(setRowButton(1));
+      const sheetOfSet = within(sheet('Set 1'));
+      expect(sheetOfSet.getByRole('textbox', { name: 'Reps' })).toBeEnabled();
+      expect(sheetOfSet.getByRole('button', { name: 'RPE 8' })).toBeEnabled();
     });
 
-    // The video of a set is part of what the coach read. The lock reaches the
-    // button through SetRow's `locked`, like every other control of the row.
-    it('keeps the video the coach saw: it plays, and cannot be replaced or deleted', () => {
-      const slot = { ...SLOT, record_video_set_numbers: [1] };
-      mockSetLogsData = { data: [PENDING_LOG], isLoading: false };
+    // The video of a set is part of what the coach read. Its row still opens
+    // the set's sheet — the one thing left to do is to watch it.
+    it('keeps the video the coach saw: it plays, and cannot be replaced or deleted', async () => {
+      const user = userEvent.setup();
+      const slotWithVideo = { ...SLOT, record_video_set_numbers: [1] };
+      mockSetLogsData = logsRead([PENDING_LOG]);
       mockVideos = {
         data: [{ id: 'v-1', set_log_id: 'l-1', storage_path: 'u-1/slot-1/1.mp4' }],
         isLoading: false,
       };
 
-      mockSessionData = session({ exercise_slots: [slot], reviewed_at: null });
+      mockSessionData = session({ exercise_slots: [slotWithVideo], reviewed_at: null });
       const open = renderSessionView();
-      expect(screen.getByRole('button', { name: /replace video/i })).toBeEnabled();
-      expect(screen.getByRole('button', { name: /delete video/i })).toBeEnabled();
+      expect(setRowButton(1)).toHaveTextContent('video sent');
+      await user.click(setRowButton(1));
+      let sheetOfSet = within(sheet('Set 1'));
+      expect(sheetOfSet.getByRole('button', { name: 'Replace the video' })).toBeEnabled();
+      expect(sheetOfSet.getByRole('button', { name: 'Delete the video' })).toBeEnabled();
       open.unmount();
 
-      mockSessionData = session({ exercise_slots: [slot], reviewed_at: REVIEWED_AT });
+      mockSessionData = session({ exercise_slots: [slotWithVideo], reviewed_at: REVIEWED_AT });
       renderSessionView();
-      expect(screen.getByRole('button', { name: /play video/i })).toBeEnabled();
-      expect(screen.getByRole('button', { name: /replace video/i })).toBeDisabled();
-      expect(screen.getByRole('button', { name: /delete video/i })).toBeDisabled();
+      await user.click(setRowButton(1));
+      sheetOfSet = within(sheet('Set 1'));
+      expect(sheetOfSet.getByRole('button', { name: 'Watch the video' })).toBeEnabled();
+      expect(sheetOfSet.getByRole('button', { name: 'Replace the video' })).toBeDisabled();
+      expect(sheetOfSet.getByRole('button', { name: 'Delete the video' })).toBeDisabled();
+      // Nothing else of the set is offered.
+      expect(sheetOfSet.queryByRole('textbox')).toBeNull();
+      expect(sheetOfSet.queryByRole('button', { name: /^RPE / })).toBeNull();
     });
 
     // Confirming is the one thing left: without it the session would stay
@@ -1492,7 +1520,7 @@ describe('SessionView: a session the coach has reviewed', () => {
       mockSessionData = session({ reviewed_at: REVIEWED_AT });
       renderSessionView();
 
-      expect(lockLine()).toHaveTextContent(/what you logged can no longer be changed/i);
+      expect(lockLine()).toHaveTextContent(/your sets can no longer change/i);
       expect(lockLine()).toHaveTextContent(/you can still confirm the session/i);
       expect(coachLink()).toHaveAttribute('href', '/student/messages');
 
@@ -1508,7 +1536,7 @@ describe('SessionView: a session the coach has reviewed', () => {
       mockSessionData = session({ reviewed_at: REVIEWED_AT, archived_at: '2026-04-20T10:00:00Z' });
       renderSessionView();
 
-      expect(screen.getByText(/archived by your coach — read-only/i)).toBeInTheDocument();
+      expect(screen.getByText('Archived by your coach, read only.')).toBeInTheDocument();
       expect(lockLine()).toBeNull();
       expect(coachLink()).toBeNull();
       expect(confirmButton()).toBeNull();
@@ -1523,21 +1551,21 @@ describe('SessionView: a session the coach has reviewed', () => {
     const handedOver = () => mockEnsureSetLogs.mock.calls.at(-1);
 
     it('are left to the hook, with the session, its exercises and the sets the page has read', () => {
-      mockSetLogsData = { data: [PENDING_LOG], isLoading: false };
+      mockSetLogsData = logsRead([PENDING_LOG]);
       mockSessionData = session({ exercise_slots: [SLOT], reviewed_at: null });
       renderSessionView();
       expect(handedOver()).toEqual(['sess-1', [SLOT], [PENDING_LOG], { enabled: true }]);
     });
 
     it('are not asked for on a reviewed session', () => {
-      mockSetLogsData = { data: [PENDING_LOG], isLoading: false };
+      mockSetLogsData = logsRead([PENDING_LOG]);
       mockSessionData = session({ exercise_slots: [SLOT], reviewed_at: REVIEWED_AT });
       renderSessionView();
       expect(handedOver()[3]).toEqual({ enabled: false });
     });
 
     it('nor on a session of a past program, nor on an archived one', () => {
-      mockSetLogsData = { data: [PENDING_LOG], isLoading: false };
+      mockSetLogsData = logsRead([PENDING_LOG]);
       mockSessionData = session({ exercise_slots: [SLOT], program_is_active: false });
       renderSessionView().unmount();
       expect(handedOver()[3]).toEqual({ enabled: false });
@@ -1550,18 +1578,18 @@ describe('SessionView: a session the coach has reviewed', () => {
     // "Missing" is counted on the session and its sets: while one of the two
     // is being read again, the other may be the older copy.
     it('nor while the session or its sets are being read again', () => {
-      mockSetLogsData = { data: [PENDING_LOG], isLoading: false };
+      mockSetLogsData = logsRead([PENDING_LOG]);
       mockSessionData = { ...session({ exercise_slots: [SLOT] }), isFetching: true };
       renderSessionView().unmount();
       expect(handedOver()[3]).toEqual({ enabled: false });
 
       mockSessionData = session({ exercise_slots: [SLOT] });
-      mockSetLogsData = { data: [PENDING_LOG], isLoading: false, isFetching: true };
+      mockSetLogsData = logsRead([PENDING_LOG], { isFetching: true });
       const view = renderSessionView();
       expect(handedOver()[3]).toEqual({ enabled: false });
 
       // Both have answered.
-      mockSetLogsData = { data: [PENDING_LOG], isLoading: false, isFetching: false };
+      mockSetLogsData = logsRead([PENDING_LOG], { isFetching: false });
       rerenderSessionView(view);
       expect(handedOver()[3]).toEqual({ enabled: true });
     });
@@ -1604,7 +1632,7 @@ describe('SessionView: a session the coach has reviewed', () => {
     });
 
     it('does not ask for a session in progress', () => {
-      mockSetLogsData = { data: [PENDING_LOG], isLoading: false };
+      mockSetLogsData = logsRead([PENDING_LOG]);
       mockSessionData = session({ exercise_slots: [SLOT], reviewed_at: null });
       renderSessionView();
       expect(mockRefetchSession).not.toHaveBeenCalled();
@@ -1627,8 +1655,8 @@ describe('SessionView: a session the coach has reviewed', () => {
     });
 
     // A review without feedback sends nothing that would refresh the row, so
-    // the tap on Undo asks too — and the dialog does not outlive the answer.
-    it('asks once more on a tap on Undo, and a "reviewed" answer takes the dialog away', async () => {
+    // the tap on Undo asks too — and the sheet does not outlive the answer.
+    it('asks once more on a tap on Undo, and a "reviewed" answer takes the sheet away', async () => {
       const user = userEvent.setup();
       mockConfirmation = { data: CONFIRMATION, isLoading: false };
       mockSessionData = session({ reviewed_at: null });
@@ -1638,13 +1666,14 @@ describe('SessionView: a session the coach has reviewed', () => {
       await user.click(undoButton());
       expect(mockRefetchSession).toHaveBeenCalledTimes(2);
       expect(mockRefetchSession).toHaveBeenLastCalledWith({ cancelRefetch: false });
-      const dialog = screen.getByText(/undo confirmation\?/i).closest('dialog');
+      const dialog = sheet('Undo the confirmation?');
       expect(within(dialog).getByRole('button', { name: /undo confirmation/i })).toBeInTheDocument();
 
       mockSessionData = session({ reviewed_at: REVIEWED_AT });
       rerenderSessionView(view);
 
-      expect(within(dialog).queryByRole('button', { name: /undo confirmation/i })).toBeNull();
+      expect(dialog.open).toBe(false);
+      expect(within(dialog).queryByRole('button', { name: /undo confirmation/i, hidden: true })).toBeNull();
       expect(undoButton()).toBeNull();
       expect(lockLine()).toBeInTheDocument();
       expect(mockUnconfirm.mutate).not.toHaveBeenCalled();
@@ -1659,15 +1688,8 @@ describe('SessionView: a session the coach has reviewed', () => {
 // (live item N1). What each state of the two reads looks like is here; that
 // the real reads get into those states is in SessionView.offline.test.jsx.
 describe('SessionView: a session whose reads did not answer', () => {
-  const SLOT = {
-    id: 'slot-1',
-    sets: 1,
-    reps: 5,
-    weight_kg: 50,
-    sort_order: 0,
-    exercise: { id: 'ex-1', name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
-  };
-  const LOG = { id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, rpe: null };
+  const SLOT = slot('slot-1', 'Squat');
+  const LOG = setLog('l-1', 'slot-1', 1);
 
   // A read as useQuery reports it, without data.
   const waiting = { data: undefined, isLoading: false, fetchStatus: 'paused', isPaused: true };
@@ -1675,39 +1697,15 @@ describe('SessionView: a session whose reads did not answer', () => {
   const onItsWay = { data: undefined, isLoading: true, fetchStatus: 'fetching' };
   // The sets are not asked for while the session has no exercise to show.
   const notAsked = { data: undefined, isLoading: false, fetchStatus: 'idle' };
-  const loaded = (fields = {}) => ({
-    data: { title: 'Pull A', exercise_slots: [SLOT], program_is_active: true, ...fields },
-    isLoading: false,
-    fetchStatus: 'idle',
-  });
+  const loadedPullA = (fields = {}) => loaded([SLOT], { title: 'Pull A', ...fields });
 
-  const confirmButton = () => screen.queryByRole('button', { name: /^confirm session$/i });
   const retryButton = () => screen.queryByRole('button', { name: /try again/i });
   const notOnDevice = () => screen.queryByText(/this session isn’t on this device yet/i);
   const notLoaded = () => screen.queryByText(/this session couldn’t be loaded/i);
 
-  function rerenderSessionView(view) {
-    view.rerender(
-      <MemoryRouter>
-        <SessionView />
-      </MemoryRouter>
-    );
-  }
-
   beforeEach(() => {
-    mockOnline = true;
-    mockConfirmation = { data: null, isLoading: false };
-    mockFeedback = { data: null };
-    mockDeviations = { data: [], isLoading: false };
-    mockVideos = { data: [], isLoading: false };
-    mockSessionData = loaded();
-    mockSetLogsData = { data: [LOG], isLoading: false, fetchStatus: 'idle' };
-    vi.clearAllMocks();
-    resetRestTimer();
-  });
-
-  afterEach(() => {
-    mockOnline = true;
+    mockSessionData = loadedPullA();
+    mockSetLogsData = logsRead([LOG]);
   });
 
   it('without a network and with nothing on the device: says so, and offers nothing to confirm', () => {
@@ -1719,14 +1717,15 @@ describe('SessionView: a session whose reads did not answer', () => {
     renderSessionView();
 
     expect(notOnDevice()).toBeInTheDocument();
-    expect(screen.getByText(/you’re offline\. it will open as soon as the connection is back/i)).toBeInTheDocument();
+    expect(screen.getByText('It will show as soon as you are online.')).toBeInTheDocument();
     expect(retryButton()).toBeInTheDocument();
-    // The page keeps its bar and its way back…
-    expect(screen.getByText('Session')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /go back/i })).toBeInTheDocument();
+    // The page keeps its title and its way back…
+    expect(screen.getByRole('heading', { level: 1, name: 'Session' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Back to training' })).toBeInTheDocument();
     // …and nothing that speaks for a session it does not have.
     expect(confirmButton()).toBeNull();
-    expect(screen.queryByText(/of \d+ sets/i)).toBeNull();
+    expect(actionBar()).toBeNull();
+    expect(screen.queryByText(/of \d+ sets done/i)).toBeNull();
     expect(screen.queryByRole('status', { name: /loading/i })).toBeNull();
   });
 
@@ -1756,7 +1755,7 @@ describe('SessionView: a session whose reads did not answer', () => {
     renderSessionView();
 
     expect(notLoaded()).toBeInTheDocument();
-    expect(screen.getByText(/check your connection, then try again/i)).toBeInTheDocument();
+    expect(screen.getByText('Check your connection and try again.')).toBeInTheDocument();
     expect(notOnDevice()).toBeNull();
     expect(confirmButton()).toBeNull();
 
@@ -1778,8 +1777,9 @@ describe('SessionView: a session whose reads did not answer', () => {
 
     expect(notOnDevice()).toBeInTheDocument();
     // What is known is said: the title of the session.
-    expect(screen.getByText('Pull A')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Pull A' })).toBeInTheDocument();
     expect(screen.queryByText('Squat')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Set in progress' })).toBeNull();
     expect(confirmButton()).toBeNull();
 
     await user.click(retryButton());
@@ -1794,7 +1794,7 @@ describe('SessionView: a session whose reads did not answer', () => {
     expect(screen.getByRole('status')).toHaveAccessibleName(/loading/i);
     session.unmount();
 
-    mockSessionData = loaded();
+    mockSessionData = loadedPullA();
     mockSetLogsData = onItsWay;
     const sets = renderSessionView();
     expect(screen.getByRole('status')).toHaveAccessibleName(/loading/i);
@@ -1822,23 +1822,24 @@ describe('SessionView: a session whose reads did not answer', () => {
   // the device being offline changes nothing to what it holds.
   it('data wins: the workout the device holds is shown, offline and after a refresh that failed', () => {
     mockOnline = false;
-    mockSessionData = { ...loaded(), isError: true, isPaused: true, fetchStatus: 'paused' };
+    mockSessionData = { ...loadedPullA(), isError: true, isPaused: true, fetchStatus: 'paused' };
     mockSetLogsData = { data: [LOG], isLoading: false, isError: true, fetchStatus: 'idle' };
     renderSessionView();
 
-    expect(screen.getByText('Squat')).toBeInTheDocument();
-    expect(screen.getByText(/0 of 1 sets/i)).toBeInTheDocument();
+    expect(shownExercise()).toBe('Squat');
+    expect(screen.getByText(/0 of 1 sets done/i)).toBeInTheDocument();
+    expect(inBar().getByRole('button', { name: 'Validate set 1' })).toBeInTheDocument();
     expect(confirmButton()).toBeInTheDocument();
     expect(notOnDevice()).toBeNull();
     expect(notLoaded()).toBeNull();
   });
 
   it('a session without an exercise waits for no sets', () => {
-    mockSessionData = loaded({ exercise_slots: [] });
+    mockSessionData = loadedPullA({ exercise_slots: [] });
     mockSetLogsData = notAsked;
     renderSessionView();
 
-    expect(screen.getByText('Pull A')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Pull A' })).toBeInTheDocument();
     expect(confirmButton()).toBeInTheDocument();
     expect(retryButton()).toBeNull();
   });
@@ -1873,46 +1874,22 @@ describe('SessionView: a session whose reads did not answer', () => {
   });
 });
 
-// N6. The "Last time" hint is read after the sets and pushed every row down
-// when it arrived. The page tells the cards when it is on its way, and only
-// then: a read paused without a network, or that failed, keeps no place.
-describe('SessionView: the place of the "Last time" hint', () => {
+// N6. The "Last time" line is read after the sets and pushed everything under
+// it down when it arrived. The page tells the panel when it is on its way, and
+// only then: a read paused without a network, or that failed, keeps no place.
+describe('SessionView: the place of the "Last time" line', () => {
+  // The place kept: an ellipsis, hidden from assistive technology, where the
+  // line will be.
   const placeholder = () => {
-    const label = screen.queryByText('Last time');
-    return label && label.parentElement.getAttribute('aria-hidden') === 'true' ? label.parentElement : null;
+    const mark = within(panel()).queryByText('…');
+    return mark && mark.getAttribute('aria-hidden') === 'true' ? mark : null;
   };
+  const lastTime = () => within(panel()).queryByText(/5 at 60 kg\.$/);
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    mockOnline = true;
-    mockConfirmation = { data: null, isLoading: false };
-    mockFeedback = { data: null };
     mockDeviations = { data: [], isLoading: false, isFetched: true, fetchStatus: 'idle' };
-    mockSessionData = {
-      data: {
-        title: 'Day 1',
-        exercise_slots: [
-          {
-            id: 'slot-1',
-            sets: 1,
-            reps: 5,
-            weight_kg: 50,
-            sort_order: 0,
-            exercise: { id: 'ex-squat', name: 'Squat', type: 'push', difficulty: 1, volume_weight: 1 },
-          },
-        ],
-      },
-      isLoading: false,
-    };
-    mockSetLogsData = {
-      data: [{ id: 'l-1', exercise_slot_id: 'slot-1', set_number: 1, done: false, rpe: null }],
-      isLoading: false,
-    };
-  });
-
-  afterEach(() => {
-    mockLastPerformance = { data: {} };
-    mockDeviations = { data: [], isLoading: false };
+    mockSessionData = loaded([slot('slot-1', 'Squat')]);
+    mockSetLogsData = logsRead([setLog('l-1', 'slot-1', 1)]);
   });
 
   it('is kept while the read is in flight', () => {
@@ -1931,29 +1908,30 @@ describe('SessionView: the place of the "Last time" hint', () => {
   it('is not kept for a read paused without a network — nor for swaps that are', () => {
     mockLastPerformance = { data: undefined, isPending: true, fetchStatus: 'paused' };
     const view = renderSessionView();
-    expect(screen.queryByText('Last time')).toBeNull();
+    expect(placeholder()).toBeNull();
+    expect(within(panel()).queryByText('…')).toBeNull();
     view.unmount();
 
     mockDeviations = { data: undefined, isLoading: false, isFetched: false, fetchStatus: 'paused' };
     mockLastPerformance = { data: undefined, isPending: true, fetchStatus: 'idle' };
     renderSessionView();
-    expect(screen.queryByText('Last time')).toBeNull();
+    expect(within(panel()).queryByText('…')).toBeNull();
   });
 
   it('is not kept for a read that failed', () => {
     mockLastPerformance = { data: undefined, isPending: false, isError: true, fetchStatus: 'idle' };
     renderSessionView();
-    expect(screen.queryByText('Last time')).toBeNull();
+    expect(within(panel()).queryByText('…')).toBeNull();
   });
 
-  it('gives way to the hint', () => {
+  it('gives way to the line', () => {
     mockLastPerformance = {
-      data: { 'ex-squat': { performedAt: '2026-10-08T18:00:00Z', scheduledDate: null, sets: [{ weight: 60, reps: 5 }] } },
+      data: { 'ex-slot-1': { performedAt: '2026-10-08T18:00:00Z', scheduledDate: null, sets: [{ weight: 60, reps: 5 }] } },
       isPending: false,
       fetchStatus: 'idle',
     };
     renderSessionView();
-    expect(screen.getByText('Last time')).toBeInTheDocument();
+    expect(lastTime()).toBeInTheDocument();
     expect(placeholder()).toBeNull();
   });
 });
@@ -1981,18 +1959,7 @@ describe('SessionView: the way back', () => {
   }
 
   const where = () => screen.getByTestId('where').textContent;
-  const back = () => fireEvent.click(screen.getByRole('button', { name: /go back/i }));
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    resetRestTimer();
-    mockOnline = true;
-    mockConfirmation = { data: null, isLoading: false };
-    mockFeedback = { data: null };
-    mockDeviations = { data: [], isLoading: false };
-    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false, fetchStatus: 'idle' };
-    mockSetLogsData = { data: [], isLoading: false, fetchStatus: 'idle' };
-  });
+  const back = () => fireEvent.click(screen.getByRole('button', { name: 'Back to training' }));
 
   it('goes to the list from a session opened on the first entry of the tab', () => {
     renderAt(['/student/session/sess-1']);

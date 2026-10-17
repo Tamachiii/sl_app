@@ -7,6 +7,7 @@ const DOT = {
   failed: 'pk-set-dot-failed',
   current: 'pk-set-dot-current',
   pending: 'pk-set-dot-pending',
+  skipped: 'pk-set-dot-pending',
 };
 
 // A failed set and a set off the plan colour the whole row, edge to edge of
@@ -24,6 +25,8 @@ function Dot({ state, number }) {
         <Icon name="check" size={16} strokeWidth={3} />
       ) : state === 'failed' ? (
         <Icon name="close" size={14} strokeWidth={3} />
+      ) : state === 'skipped' ? (
+        <Icon name="skip" size={16} />
       ) : (
         number
       )}
@@ -43,7 +46,8 @@ function Dot({ state, number }) {
  * - `current`: a ring with the number; `trailing` is « En cours » in blue;
  * - `pending`: the number on `fill`;
  * - `offplan`: the row on `amber-soft`, the caption in `amber` starting with
- *   « Hors plan ».
+ *   « Hors plan »;
+ * - `skipped`: the skip arrows on `fill` (« Série 5, sautée »).
  *
  * `title` says the state in words too (« Série 1, faite »): the indicator is
  * never the only carrier. With `onPress` and/or `onLongPress` the row is a
@@ -73,11 +77,23 @@ export default function SetRow({
   const body = (
     <>
       <Dot state={state} number={number} />
+      {/* The commas are for a screen reader, which reads the row as one name:
+          « Série 3, 5 répétitions, 20 kg, En cours ». */}
       <span className="flex min-w-0 flex-1 flex-col">
         <span className={titleClass}>{title}</span>
-        {caption && <span className={captionClass}>{caption}</span>}
+        {caption && (
+          <span className={captionClass}>
+            <span className="sr-only">,</span>{' '}
+            {caption}
+          </span>
+        )}
       </span>
-      {trailing != null && trailing !== '' && <span className={trailingClass}>{trailing}</span>}
+      {trailing != null && trailing !== '' && (
+        <span className={trailingClass}>
+          <span className="sr-only">,</span>{' '}
+          {trailing}
+        </span>
+      )}
     </>
   );
 

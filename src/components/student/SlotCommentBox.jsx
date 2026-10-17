@@ -1,52 +1,27 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useSaveSlotComment } from '../../hooks/useSlotComments';
 import { useI18n } from '../../hooks/useI18n';
-
-// The chat bubble of the note, in both forms of the control.
-function NoteIcon({ className }) {
-  return (
-    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-      />
-    </svg>
-  );
-}
+import { Button, CoachNote } from '../parc';
 
 /**
- * Compact per-slot comment affordance for the student.
+ * The athlete's note for the coach on one exercise.
  *
- * Collapsed: a single chat-bubble button; shows a dot when a comment exists.
- * Expanded: a small textarea that saves when it is left (or cancels if
- * unchanged) and closes at once.
- * Locked: read-only text when the session is archived.
- *
- * Compact (B29): the form an exercise's card shows while it is collapsed — a
- * 44 px bubble beside the card's header, named after the exercise, accent
- * when the exercise has a note. Its field opens on a line of its own under
- * the header (`fieldClassName` places it), and saves and closes the same way.
- * Locked, it renders nothing: the card's header shows a passive badge. A card
- * shows one form or the other, never both.
+ * - No note: « Ajouter une note pour le coach », a text button.
+ * - A note: the note itself, signed « Ta note pour le coach », and « Modifier
+ *   la note ».
+ * - Writing: a field that saves when it is left (or does nothing if unchanged)
+ *   and closes at once.
+ * - Locked (the session is read-only): the note, and no way to change it.
  *
  * The field closes when it is left, not when the save is answered. The hook
- * writes the note into the cache at that moment, so the pill shows it; and the
- * answer can be hours away — a note written without a network is parked,
- * which is neither a success nor a failure, and the field used to stay open on
- * it as if nothing had happened.
+ * writes the note into the cache at that moment, so the note shows it; and the
+ * answer can be hours away — a note written without a network is parked, which
+ * is neither a success nor a failure, and the field used to stay open on it as
+ * if nothing had happened.
  */
-export default function SlotCommentBox({
-  sessionId,
-  slotId,
-  comment,
-  locked = false,
-  compact = false,
-  exerciseName = '',
-  fieldClassName = '',
-}) {
+export default function SlotCommentBox({ sessionId, slotId, comment, locked = false }) {
   const { t } = useI18n();
+  const fieldId = useId();
   const body = comment?.body || '';
   const [open, setOpen] = useState(false);
   // What is being typed. Filled when the field opens — not kept equal to the
@@ -73,68 +48,50 @@ export default function SlotCommentBox({
   }
 
   if (locked) {
-    if (compact || !body) return null;
+    if (!body) return null;
     return (
-      <div className="mt-1 text-xs text-gray-600 bg-gray-50 rounded-lg px-2 py-1.5 whitespace-pre-wrap">
-        <span className="font-medium text-gray-500">Your note:</span> {body}
+      <CoachNote title={t('parcSession.yourNote')} from="athlete">
+        {body}
+      </CoachNote>
+    );
+  }
+
+  if (open) {
+    return (
+      <div className="grid gap-1.5">
+        <label htmlFor={fieldId} className="pk-small">
+          {t('parcSession.noteField')}
+        </label>
+        <textarea
+          id={fieldId}
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={handleBlur}
+          rows={3}
+          placeholder={t('parcSession.notePlaceholder')}
+          className="pk-field py-2.5"
+        />
       </div>
     );
   }
 
-  if (!open && compact) {
-    const label = t(body ? 'sessionRestControls.editNoteOn' : 'sessionRestControls.addNoteOn', {
-      name: exerciseName,
-    });
+  if (body) {
     return (
-      <button
-        type="button"
-        onClick={openEditor}
-        aria-label={label}
-        title={label}
-        className={`sl-pill sl-pill-btn px-0 mr-2 shrink-0 hover:bg-ink-100 ${
-          body ? 'text-accent' : 'text-ink-400'
-        }`}
-      >
-        <NoteIcon className="w-4 h-4" />
-      </button>
+      <CoachNote title={t('parcSession.yourNote')} from="athlete">
+        {body}
+        <div>
+          <Button variant="text" className="-ml-1 mt-1" onClick={openEditor}>
+            {t('parcSession.editNote')}
+          </Button>
+        </div>
+      </CoachNote>
     );
   }
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={openEditor}
-        aria-label={body ? 'Edit note for coach' : 'Add note for coach'}
-        // align-top pairs with the sibling "+ Add set" pill in SlotBody so the
-        // two inline-flex pills sit level; the leading icon here throws off
-        // baseline/middle alignment, and both must share the same value.
-        className="sl-pill sl-pill-btn bg-ink-100 text-ink-600 hover:bg-ink-200 max-w-full align-top"
-      >
-        {/* Nudge the bubble down ~1px: its tail hangs below the body, so the
-            SVG's box-center sits lower than the bubble's visual center and the
-            icon otherwise reads as floating high next to the text. */}
-        <NoteIcon className="w-3.5 h-3.5 shrink-0 translate-y-px" />
-        {body ? (
-          <span className="truncate max-w-[14rem] normal-case tracking-normal">{body}</span>
-        ) : (
-          <span className="leading-none">Add note</span>
-        )}
-      </button>
-    );
-  }
-
-  const field = (
-    <textarea
-      autoFocus
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={handleBlur}
-      rows={2}
-      placeholder="Note for your coach…"
-      className="w-full mt-1 rounded-lg border border-gray-300 px-2 py-1.5 text-[16px] focus:outline-none focus:ring-2 focus:ring-primary"
-    />
+  return (
+    <Button variant="text" className="self-start" onClick={openEditor}>
+      {t('parcSession.addNote')}
+    </Button>
   );
-  // Compact: a line of its own under the card's header (the header row wraps).
-  return compact ? <div className={`basis-full ${fieldClassName}`}>{field}</div> : field;
 }

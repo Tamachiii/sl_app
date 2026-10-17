@@ -64,11 +64,26 @@ export function Row({
         {children ?? (
           <>
             {title != null && <span className="pk-headline">{title}</span>}
-            {subtitle != null && <span className="pk-caption">{subtitle}</span>}
+            {/* The comma is for a screen reader, which reads a row that is a
+                link or a button as one name. */}
+            {subtitle != null && (
+              <span className="pk-caption">
+                {title != null && (
+                  <>
+                    <span className="sr-only">,</span>{' '}
+                  </>
+                )}
+                {subtitle}
+              </span>
+            )}
           </>
         )}
       </span>
-      {trailing}
+      {trailing != null && trailing !== false && (
+        <>
+          <span className="sr-only">,</span> {trailing}
+        </>
+      )}
       {showChevron && <Icon name="chevron-right" size={18} className="shrink-0 text-ink-2" />}
     </>
   );

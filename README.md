@@ -80,10 +80,13 @@ src/
     messaging/         MessageThread, MessageComposer, ConversationList,
                        UnreadMessagesBadge
     notifications/     NotificationBell
-    student/           StudentTraining, SessionCard, SessionView, SetRow,
-                       RpeInput, StudentDashboard (Stats), SessionCalendar,
+    student/           StudentTraining, SessionCard, SessionView (SessionExercise,
+                       SetSheet, RpeSheet, useSetActions, sessionModel),
+                       StudentDashboard (Stats), SessionCalendar,
                        ExerciseProgressChart, MyGoals, VideoUploadButton, StudentMessages,
                        StudentProfile
+    parc/              the Parc primitives (design/parc/): Button, ActionBar, LargeTitle,
+                       SetPanel, SetRow, ListGroup, Sheet, Toast, TabBar, SideNav…
     ui/                EditableText, LanguageSelect, UserMenu, Dialog,
                        VideoPlayer, Spinner, EmptyState, CopyDialog, ConfirmDialog,
                        ErrorBoundary
@@ -222,7 +225,7 @@ To see an update arrive locally: with `npm run preview` running and the app open
 
 ## Rest Timer (in-app + Web Push)
 
-The student rest timer is an app-wide singleton ([hooks/useRestTimer.js](src/hooks/useRestTimer.js)). The session page draws it ([RestTimerBanner.jsx](src/components/student/RestTimerBanner.jsx)): the countdown, "+30 s" and Skip. [RestTimerHost.jsx](src/components/student/RestTimerHost.jsx), which the student shell mounts on every page, runs the two effect hooks below and the hidden status region a screen reader hears — "Rest 1:30" when a rest starts, "Rest done" when it ends, nothing in between — so a change of tab in the middle of a rest keeps the beep, the wake lock and the push.
+The student rest timer is an app-wide singleton ([hooks/useRestTimer.js](src/hooks/useRestTimer.js)). The session page draws it in its ActionBar ([SessionView.jsx](src/components/student/SessionView.jsx), `RestControls`): the countdown and « +30 s ». [RestTimerHost.jsx](src/components/student/RestTimerHost.jsx), which the student shell mounts on every page, runs the two effect hooks below and the hidden status region a screen reader hears — "Rest 1:30" when a rest starts, "Rest done" when it ends, nothing in between — so a change of tab in the middle of a rest keeps the beep, the wake lock and the push.
 
 A rest that is running is also written to `localStorage` (key `sl_rest_timer`). iOS kills a PWA in the background — opening the Camera app to film a set is enough — and when the athlete opens the app again the rest is still running, with the time it really has left. A rest that ended in the meantime is dropped.
 
@@ -368,14 +371,14 @@ Nothing here applies SQL to production. That happens one checkpoint at a time, f
 
 ## Performance & Accessibility (Lighthouse)
 
-- `React.memo` + `useMemo` on high-frequency components (SetRow, VolumeBar, RpeInput).
+- `React.memo` + `useMemo` on high-frequency components (VolumeBar, the derived lists of the session screen).
 - Optimistic updates on mutations (e.g. toggling sets complete) via TanStack Query manipulation for instant feedback.
 - Scoped query invalidation to prevent over-fetching on related views.
 - Route-level code splitting via `React.lazy` + `Suspense` (`src/routes.jsx`).
 - Vite manual chunks for `router`, `query`, `supabase` (`vite.config.js`) — vendor caching survives deploys.
 - `index.html`: meta description, theme-color, manifest, favicon, Supabase `preconnect`.
 - PWA installability: `vite-plugin-pwa`-generated `manifest.webmanifest` references SVG + PNG (192, 512, 512-maskable) icons; `index.html` declares an `apple-touch-icon` for iOS home-screen installs (iOS does not honor SVG manifest icons).
-- A11y: `aria-label` / `aria-pressed` / `aria-modal` / `role="status"` on Spinner, Dialog, SetRow, RpeInput, ExerciseSlotRow, ProgramSheet, ExerciseLibrary, BottomNav, LoginPage.
+- A11y: `aria-label` / `aria-pressed` / `aria-modal` / `role="status"` on Spinner, Dialog, the Parc primitives (`src/components/parc`: Sheet, SetRow, Toast…), ExerciseSlotRow, ProgramSheet, ExerciseLibrary, BottomNav, LoginPage.
 
 ---
 
