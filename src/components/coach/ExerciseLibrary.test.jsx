@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
 let mockExercises = { data: [], isLoading: false };
-const mockCreate = { mutate: vi.fn() };
+let mockCreate = { mutate: vi.fn(), isPending: false };
 const mockUpdate = { mutate: vi.fn() };
 const mockDelete = { mutate: vi.fn() };
 let mockArchive = { mutate: vi.fn(), isPending: false, variables: undefined };
@@ -48,6 +48,37 @@ function renderLibrary() {
   );
 }
 
+// The page's controls: the round "+" of its LargeTitle, the SearchField and
+// the type chips above the list, the grouped list itself.
+const addButton = () => screen.getByRole('button', { name: 'Add an exercise' });
+const searchBox = () => screen.getByRole('searchbox', { name: 'Search an exercise' });
+const filters = () => within(screen.getByRole('group', { name: 'Filter by type' }));
+const exerciseList = () => screen.getByRole('list', { name: 'Exercises' });
+// The row of an exercise on offer, and the coloured mark of its caption.
+const rowOf = (name) => within(exerciseList()).getByText(name).closest('li');
+const markOf = (name) => rowOf(name).querySelector('.pk-caption [aria-hidden="true"]');
+
+// An exercise's ⋯ opens a sheet named by the exercise, which holds what can be
+// done to it: edit, archive, delete.
+async function openOptions(user, name) {
+  await user.click(screen.getByRole('button', { name: `Options for ${name}` }));
+  return screen.getByRole('dialog', { name });
+}
+
+// ⋯ → "Delete {name}": the options give way to the delete dialog.
+async function askToDelete(user, name) {
+  const options = await openOptions(user, name);
+  await user.click(within(options).getByRole('button', { name: `Delete ${name}` }));
+  return screen.getByRole('dialog', { name: `Delete ${name}?` });
+}
+
+const newSheet = () => screen.getByRole('dialog', { name: 'New exercise' });
+const editSheet = () => screen.getByRole('dialog', { name: 'Edit the exercise' });
+
+// The "Close" written at the foot of the delete dialog — the sheet's round
+// close button has the same name and no text.
+const footClose = (sheet) => within(sheet).getByText('Keep the exercise', { selector: 'button' });
+
 describe('ExerciseLibrary', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -58,84 +89,139 @@ describe('ExerciseLibrary', () => {
       ],
       isLoading: false,
     };
+    mockCreate = { mutate: vi.fn(), isPending: false };
     mockUsage = usageQuery(UNUSED);
     mockArchive = { mutate: vi.fn(), isPending: false, variables: undefined };
   });
 
-  it('renders loading spinner', () => {
+  it('renders loading spinner, and counts nothing it has not read', () => {
     mockExercises = { data: undefined, isLoading: true };
     renderLibrary();
     expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Library' })).toBeInTheDocument();
+    expect(screen.queryByText(/^\d+ exercises?/)).toBeNull();
+    expect(screen.queryByRole('searchbox')).toBeNull();
   });
 
   it('renders empty state', () => {
     mockExercises = { data: [], isLoading: false };
     renderLibrary();
-    expect(screen.getByText('No exercises yet')).toBeInTheDocument();
+    expect(screen.getByText('No exercise yet. Create the first one with the plus button.')).toBeInTheDocument();
+    expect(screen.getByText('0 exercises')).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Exercises' })).toBeNull();
   });
 
-  it('renders exercise list', () => {
+  it('renders exercise list, counted under the title', () => {
     renderLibrary();
-    expect(screen.getByText('Pull Up')).toBeInTheDocument();
-    expect(screen.getByText('Dip')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Library' })).toBeInTheDocument();
+    expect(screen.getByText('2 exercises')).toBeInTheDocument();
+    const names = within(exerciseList())
+      .getAllByRole('listitem')
+      .map((row) => row.querySelector('.pk-headline').textContent);
+    expect(names).toEqual(['Pull Up', 'Dip']);
   });
 
-  it('clicking "+ Add" shows the form', async () => {
+  it('clicking "Add an exercise" opens the form in a sheet', async () => {
     const user = userEvent.setup();
     renderLibrary();
 
-    await user.click(screen.getByText('+ ADD'));
-    expect(screen.getByPlaceholderText('Exercise name')).toBeInTheDocument();
-    expect(screen.getByText('Create')).toBeInTheDocument();
-    expect(screen.getByText('Cancel')).toBeInTheDocument();
+    await user.click(addButton());
+    const sheet = within(newSheet());
+    expect(sheet.getByRole('textbox', { name: 'Name of the exercise' })).toHaveValue('');
+    expect(sheet.getByRole('button', { name: 'Create the exercise' })).toHaveAttribute('type', 'submit');
+    expect(sheet.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    // What a new exercise starts as: pull, difficulty 1, its load not set.
+    const pressed = (group) =>
+      within(sheet.getByRole('group', { name: group }))
+        .getAllByRole('button')
+        .filter((b) => b.getAttribute('aria-pressed') === 'true')
+        .map((b) => b.textContent);
+    expect(pressed('Type')).toEqual(['Pull']);
+    expect(pressed('Difficulty')).toEqual(['1']);
+    expect(pressed('Load')).toEqual(['Not set']);
+    expect(sheet.getByText('How a logged weight counts toward the strength relative to bodyweight.')).toBeInTheDocument();
   });
 
-  it('submitting the add form calls createExercise', async () => {
+  it('submitting the add form calls createExercise, and closes once it is made', async () => {
     const user = userEvent.setup();
     mockCreate.mutate.mockImplementation((vals, opts) => opts?.onSuccess?.());
     renderLibrary();
 
-    await user.click(screen.getByText('+ ADD'));
-    await user.type(screen.getByPlaceholderText('Exercise name'), 'Muscle Up');
-    await user.click(screen.getByText('Create'));
+    await user.click(addButton());
+    const sheet = newSheet();
+    await user.type(within(sheet).getByLabelText('Name of the exercise'), 'Muscle Up');
+    await user.click(within(sheet).getByRole('button', { name: 'Create the exercise' }));
 
     expect(mockCreate.mutate).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Muscle Up' }),
       expect.any(Object)
     );
+    expect(sheet.open).toBe(false);
+  });
+
+  it('says it is creating, and takes no second press, while the write is out', async () => {
+    const user = userEvent.setup();
+    mockCreate = { mutate: vi.fn(), isPending: true };
+    renderLibrary();
+    await user.click(addButton());
+    const sheet = within(newSheet());
+    expect(sheet.queryByRole('button', { name: 'Create the exercise' })).toBeNull();
+    expect(sheet.getByRole('button', { name: 'Creating…' })).toBeDisabled();
   });
 
   it('clicking Cancel hides the add form', async () => {
     const user = userEvent.setup();
     renderLibrary();
 
-    await user.click(screen.getByText('+ ADD'));
-    await user.click(screen.getByText('Cancel'));
-    expect(screen.queryByPlaceholderText('Exercise name')).not.toBeInTheDocument();
+    await user.click(addButton());
+    const sheet = newSheet();
+    await user.click(within(sheet).getByRole('button', { name: 'Cancel' }));
+    expect(sheet.open).toBe(false);
+    expect(screen.queryByLabelText('Name of the exercise')).not.toBeInTheDocument();
+    expect(mockCreate.mutate).not.toHaveBeenCalled();
   });
 
-  it('clicking Edit on an exercise shows edit form', async () => {
+  it('"Edit the exercise" in its options opens the form on that exercise', async () => {
     const user = userEvent.setup();
     renderLibrary();
 
-    const editButtons = screen.getAllByRole('button', { name: /edit/i });
-    await user.click(editButtons[0]);
-    expect(screen.getByText('Save')).toBeInTheDocument();
+    const options = await openOptions(user, 'Pull Up');
+    await user.click(within(options).getByRole('button', { name: 'Edit the exercise' }));
+    // The options give way to the form.
+    expect(options.open).toBe(false);
+    const sheet = within(editSheet());
+    expect(sheet.getByLabelText('Name of the exercise')).toHaveValue('Pull Up');
+    expect(within(sheet.getByRole('group', { name: 'Difficulty' })).getByRole('button', { name: '2' }))
+      .toHaveAttribute('aria-pressed', 'true');
+    expect(sheet.getByRole('button', { name: 'Save' })).toBeInTheDocument();
+  });
+
+  // The ⋯ sheet says what the exercise is, under its name.
+  it('names the options after the exercise and describes it', async () => {
+    const user = userEvent.setup();
+    renderLibrary();
+    const options = await openOptions(user, 'Dip');
+    expect(options).toHaveAccessibleDescription('Push, difficulty 1');
+    expect(within(options).getAllByRole('button').map((b) => b.getAttribute('aria-label') || b.textContent))
+      .toEqual(['Close', 'Edit the exercise', 'Archive Dip', 'Delete Dip']);
   });
 
   describe('deleting an exercise', () => {
-    const dialog = () => screen.getByRole('dialog');
-
     it('opens the app’s dialog for that exercise instead of the browser’s confirm', async () => {
       const user = userEvent.setup();
       const nativeConfirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
       renderLibrary();
 
-      // Nothing is asked about any exercise until one is picked.
+      // Nothing is asked about any exercise until one is picked — opening its
+      // options is not picking it.
+      expect(mockUseExerciseUsage).not.toHaveBeenCalled();
+      const options = await openOptions(user, 'Dip');
       expect(mockUseExerciseUsage).not.toHaveBeenCalled();
 
-      await user.click(screen.getByRole('button', { name: 'Delete Dip' }));
-      expect(within(dialog()).getByRole('heading', { name: 'Delete "Dip"?' })).toBeInTheDocument();
+      await user.click(within(options).getByRole('button', { name: 'Delete Dip' }));
+      expect(options.open).toBe(false);
+      const dialog = screen.getByRole('dialog', { name: 'Delete Dip?' });
+      expect(within(dialog).getByRole('heading', { name: 'Delete Dip?' })).toBeInTheDocument();
       expect(mockUseExerciseUsage).toHaveBeenCalledWith('ex-2');
       // Opening is not deleting.
       expect(mockDelete.mutate).not.toHaveBeenCalled();
@@ -147,21 +233,23 @@ describe('ExerciseLibrary', () => {
       const user = userEvent.setup();
       renderLibrary();
 
-      await user.click(screen.getByRole('button', { name: 'Delete Pull Up' }));
-      await user.click(within(dialog()).getByRole('button', { name: 'Delete' }));
+      const dialog = await askToDelete(user, 'Pull Up');
+      await user.click(within(dialog).getByRole('button', { name: 'Delete the exercise' }));
       expect(mockDelete.mutate).toHaveBeenCalledTimes(1);
       expect(mockDelete.mutate).toHaveBeenCalledWith('ex-1');
-      expect(screen.queryByRole('heading', { name: 'Delete "Pull Up"?' })).not.toBeInTheDocument();
+      expect(dialog.open).toBe(false);
+      expect(screen.queryByRole('heading', { name: 'Delete Pull Up?' })).not.toBeInTheDocument();
     });
 
-    it('Cancel deletes nothing', async () => {
+    it('"Keep the exercise" deletes nothing', async () => {
       const user = userEvent.setup();
       renderLibrary();
 
-      await user.click(screen.getByRole('button', { name: 'Delete Pull Up' }));
-      await user.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
+      const dialog = await askToDelete(user, 'Pull Up');
+      await user.click(within(dialog).getByRole('button', { name: 'Keep the exercise' }));
       expect(mockDelete.mutate).not.toHaveBeenCalled();
-      expect(screen.queryByRole('heading', { name: 'Delete "Pull Up"?' })).not.toBeInTheDocument();
+      expect(dialog.open).toBe(false);
+      expect(screen.queryByRole('heading', { name: 'Delete Pull Up?' })).not.toBeInTheDocument();
     });
 
     // Finding L7: the old confirm() said nothing about the goals a delete
@@ -171,31 +259,32 @@ describe('ExerciseLibrary', () => {
       mockUsage = usageQuery({ slots: 12, goals: 2, swaps: 0 });
       renderLibrary();
 
-      await user.click(screen.getByRole('button', { name: 'Delete Pull Up' }));
-      const open = within(dialog());
+      const dialog = await askToDelete(user, 'Pull Up');
+      const open = within(dialog);
       expect(open.getByRole('status')).toHaveTextContent('It is in use, so it cannot be deleted.');
       expect(open.getByText('Prescribed in sessions').nextSibling).toHaveTextContent('12');
       expect(open.getByText('Goals set on it').nextSibling).toHaveTextContent('2');
-      expect(open.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
+      expect(open.queryByRole('button', { name: 'Delete the exercise' })).not.toBeInTheDocument();
 
-      await user.click(open.getByRole('button', { name: 'OK' }));
+      await user.click(footClose(dialog));
       expect(mockDelete.mutate).not.toHaveBeenCalled();
+      expect(dialog.open).toBe(false);
     });
   });
 
-  it('shows search bar and type filter pills when exercises exist', () => {
+  it('shows search bar and type filter chips when exercises exist', () => {
     renderLibrary();
-    expect(screen.getByRole('searchbox', { name: /search exercises/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^all$/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^pull$/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^push$/i })).toBeInTheDocument();
+    expect(searchBox()).toBeInTheDocument();
+    expect(filters().getAllByRole('button').map((b) => b.textContent)).toEqual(['All', 'Pull', 'Push']);
+    // "All" until another is chosen.
+    expect(filters().getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('search filters the list by name', async () => {
     const user = userEvent.setup();
     renderLibrary();
 
-    await user.type(screen.getByRole('searchbox', { name: /search exercises/i }), 'pull');
+    await user.type(searchBox(), 'pull');
     expect(screen.getByText('Pull Up')).toBeInTheDocument();
     expect(screen.queryByText('Dip')).not.toBeInTheDocument();
   });
@@ -204,48 +293,58 @@ describe('ExerciseLibrary', () => {
     const user = userEvent.setup();
     renderLibrary();
 
-    await user.type(screen.getByRole('searchbox', { name: /search exercises/i }), 'zzz');
-    expect(screen.getByText(/no exercises match/i)).toBeInTheDocument();
+    await user.type(searchBox(), 'zzz');
+    expect(screen.getByText('No exercise matches')).toBeInTheDocument();
+    expect(
+      screen.getByText('Change the search or the filter, or create the exercise with the plus button.')
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Exercises' })).toBeNull();
   });
 
-  it('type filter pill filters the list', async () => {
+  it('type filter chip filters the list', async () => {
     const user = userEvent.setup();
     renderLibrary();
 
-    await user.click(screen.getByRole('button', { name: /^push$/i }));
+    await user.click(filters().getByRole('button', { name: 'Push' }));
     expect(screen.queryByText('Pull Up')).not.toBeInTheDocument();
     expect(screen.getByText('Dip')).toBeInTheDocument();
   });
 
-  it('active filter pill has aria-pressed=true', async () => {
+  it('active filter chip has aria-pressed=true', async () => {
     const user = userEvent.setup();
     renderLibrary();
 
-    const pullBtn = screen.getByRole('button', { name: /^pull$/i });
+    const pullBtn = filters().getByRole('button', { name: 'Pull' });
     await user.click(pullBtn);
     expect(pullBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(filters().getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('does not show search bar when library is empty', () => {
     mockExercises = { data: [], isLoading: false };
     renderLibrary();
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Filter by type' })).not.toBeInTheDocument();
   });
 
-  it('add form threads a chosen load_mode into createExercise', async () => {
+  it('add form threads a chosen type, difficulty and load_mode into createExercise', async () => {
     const user = userEvent.setup();
     mockCreate.mutate.mockImplementation((vals, opts) => opts?.onSuccess?.());
     renderLibrary();
 
-    await user.click(screen.getByText('+ ADD'));
-    await user.type(screen.getByPlaceholderText('Exercise name'), 'Weighted Pull-up');
-    // Selects in order: type, difficulty, loading mode.
-    const selects = screen.getAllByRole('combobox');
-    await user.selectOptions(selects[2], 'added');
-    await user.click(screen.getByText('Create'));
+    await user.click(addButton());
+    const sheet = within(newSheet());
+    await user.type(sheet.getByLabelText('Name of the exercise'), 'Weighted Pull-up');
+    const segment = (group, name) => within(sheet.getByRole('group', { name: group })).getByRole('button', { name });
+    await user.click(segment('Type', 'Push'));
+    await user.click(segment('Difficulty', '3'));
+    await user.click(segment('Load', 'Added'));
+    expect(segment('Load', 'Added')).toHaveAttribute('aria-pressed', 'true');
+    expect(segment('Load', 'Not set')).toHaveAttribute('aria-pressed', 'false');
+    await user.click(sheet.getByRole('button', { name: 'Create the exercise' }));
 
     expect(mockCreate.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'Weighted Pull-up', load_mode: 'added' }),
+      expect.objectContaining({ name: 'Weighted Pull-up', type: 'push', difficulty: 3, load_mode: 'added' }),
       expect.any(Object),
     );
   });
@@ -254,37 +353,57 @@ describe('ExerciseLibrary', () => {
     const user = userEvent.setup();
     mockCreate.mutate.mockImplementation((vals, opts) => opts?.onSuccess?.());
     renderLibrary();
-    await user.click(screen.getByText('+ ADD'));
-    await user.type(screen.getByPlaceholderText('Exercise name'), 'Row');
-    await user.click(screen.getByText('Create'));
+    await user.click(addButton());
+    const sheet = within(newSheet());
+    await user.type(sheet.getByLabelText('Name of the exercise'), 'Row');
+    await user.click(sheet.getByRole('button', { name: 'Create the exercise' }));
     expect(mockCreate.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ load_mode: null }),
+      { name: 'Row', type: 'pull', difficulty: 1, volume_weight: 1, load_mode: null },
       expect.any(Object),
     );
   });
 
-  it('tags a classified exercise on its meta row', () => {
-    mockExercises = {
-      data: [{ id: 'ex-3', name: 'Weighted Dip', type: 'push', difficulty: 2, volume_weight: 1, load_mode: 'added' }],
-      isLoading: false,
-    };
-    renderLibrary();
-    expect(screen.getByText(/\+BW/)).toBeInTheDocument();
+  // What was "D2 · VW1 · +BW" in mono capitals is a sentence under the name.
+  describe('the caption of an exercise', () => {
+    it('tags a classified exercise with its load', () => {
+      mockExercises = {
+        data: [
+          { id: 'ex-3', name: 'Weighted Dip', type: 'push', difficulty: 2, volume_weight: 1, load_mode: 'added' },
+          { id: 'ex-4', name: 'Front Lever', type: 'pull', difficulty: 3, volume_weight: 1, load_mode: 'full' },
+        ],
+        isLoading: false,
+      };
+      renderLibrary();
+      expect(rowOf('Weighted Dip').querySelector('.pk-caption')).toHaveTextContent('Push, difficulty 2, added load');
+      expect(rowOf('Front Lever').querySelector('.pk-caption')).toHaveTextContent('Pull, difficulty 3, full load');
+    });
+
+    it('gives the volume weight only when it is not 1', () => {
+      mockExercises = {
+        data: [
+          { id: 'ex-1', name: 'Pull Up', type: 'pull', difficulty: 2, volume_weight: '1.50' },
+          { id: 'ex-2', name: 'Dip', type: 'push', difficulty: 1, volume_weight: '1.00' },
+        ],
+        isLoading: false,
+      };
+      renderLibrary();
+      expect(rowOf('Pull Up').querySelector('.pk-caption')).toHaveTextContent('Pull, difficulty 2, volume ×1.5');
+      expect(rowOf('Dip').querySelector('.pk-caption').textContent).not.toMatch(/volume/);
+    });
   });
 
-  // Review item L15 and live finding N18: the filter pills were 23px tall,
-  // "+ Add" 32px, and "edit" and "del" two words 4px apart, "del" 29×16. jsdom
-  // lays nothing out (src/test/hitTargets.test.js holds the classes to 44px).
   // Review finding L9 (P31): the volume weight was a `type="number"` field read
   // with Number(). "0,5" was 5 in an English Chromium and "" in WebKit, and
   // Number("") sent 0. It is a text field read by parseDecimalInput now; the
-  // form is submitted by clicking Create or Save, so its validation runs.
+  // form is submitted by clicking "Create the exercise" or Save, so its
+  // validation runs.
   describe('the volume weight', () => {
     async function openAddForm(user) {
-      await user.click(screen.getByText('+ ADD'));
-      await user.type(screen.getByPlaceholderText('Exercise name'), 'Muscle Up');
-      return screen.getByLabelText('Volume weight');
+      await user.click(addButton());
+      await user.type(within(newSheet()).getByLabelText('Name of the exercise'), 'Muscle Up');
+      return within(newSheet()).getByLabelText('Volume weight');
     }
+    const create = () => within(newSheet()).getByRole('button', { name: 'Create the exercise' });
 
     it('is a text field with the decimal keypad, starting at 1', async () => {
       const user = userEvent.setup();
@@ -301,7 +420,7 @@ describe('ExerciseLibrary', () => {
       const field = await openAddForm(user);
       await user.clear(field);
       await user.type(field, text);
-      await user.click(screen.getByRole('button', { name: 'Create' }));
+      await user.click(create());
       expect(mockCreate.mutate).toHaveBeenCalledWith(
         expect.objectContaining({ name: 'Muscle Up', volume_weight: 0.5 }),
         expect.any(Object),
@@ -315,9 +434,9 @@ describe('ExerciseLibrary', () => {
       const field = await openAddForm(user);
       await user.clear(field);
       if (text) await user.type(field, text);
-      await user.click(screen.getByRole('button', { name: 'Create' }));
+      await user.click(create());
       expect(mockCreate.mutate).not.toHaveBeenCalled();
-      expect(screen.getByPlaceholderText('Exercise name')).toBeInTheDocument();
+      expect(within(newSheet()).getByLabelText('Name of the exercise')).toBeInTheDocument();
     });
 
     // A number, out of the range: refused by the form, which says why.
@@ -327,7 +446,7 @@ describe('ExerciseLibrary', () => {
       const field = await openAddForm(user);
       await user.clear(field);
       await user.type(field, text);
-      await user.click(screen.getByRole('button', { name: 'Create' }));
+      await user.click(create());
       expect(mockCreate.mutate).not.toHaveBeenCalled();
       const alert = screen.getByRole('alert');
       expect(alert).toHaveTextContent('Enter a number from 0.1 to 99.99');
@@ -338,7 +457,7 @@ describe('ExerciseLibrary', () => {
       await user.clear(field);
       await user.type(field, '1,5');
       expect(screen.queryByRole('alert')).toBeNull();
-      await user.click(screen.getByRole('button', { name: 'Create' }));
+      await user.click(create());
       expect(mockCreate.mutate).toHaveBeenCalledWith(
         expect.objectContaining({ volume_weight: 1.5 }),
         expect.any(Object),
@@ -347,44 +466,52 @@ describe('ExerciseLibrary', () => {
 
     it('the edit form starts from the stored value as text, and saves what is typed', async () => {
       const user = userEvent.setup();
+      mockUpdate.mutate.mockImplementation((vals, opts) => opts?.onSuccess?.());
       mockExercises = {
         data: [{ id: 'ex-1', name: 'Pull Up', type: 'pull', difficulty: 2, volume_weight: '1.50' }],
         isLoading: false,
       };
       renderLibrary();
-      await user.click(screen.getByRole('button', { name: /edit/i }));
-      const field = screen.getByLabelText('Volume weight');
+      const options = await openOptions(user, 'Pull Up');
+      await user.click(within(options).getByRole('button', { name: 'Edit the exercise' }));
+      const sheet = editSheet();
+      const field = within(sheet).getByLabelText('Volume weight');
       expect(field).toHaveValue('1.5');
       await user.clear(field);
       await user.type(field, '0,75');
-      await user.click(screen.getByRole('button', { name: 'Save' }));
+      await user.click(within(sheet).getByRole('button', { name: 'Save' }));
       expect(mockUpdate.mutate).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 'ex-1', volume_weight: 0.75 }),
+        expect.objectContaining({ id: 'ex-1', name: 'Pull Up', volume_weight: 0.75 }),
         expect.any(Object),
       );
+      expect(sheet.open).toBe(false);
     });
   });
 
   // The type was a hand-made pill showing the raw value ("pull"), coloured
-  // push for anything that was not pull.
+  // push for anything that was not pull. It is now named at the head of the
+  // caption, after a mark in the type's chart colour.
   describe('the type of an exercise', () => {
-    const cardOf = (name) => screen.getByText(name).closest('.sl-card');
-
-    it('is the app’s TypeBadge: the type’s name and colour', () => {
+    it('is the type’s name and colour', () => {
       renderLibrary();
-      expect(within(cardOf('Pull Up')).getByText('Pull')).toHaveClass('sl-pill', 'bg-pull/15', 'text-pull');
-      expect(within(cardOf('Dip')).getByText('Push')).toHaveClass('sl-pill', 'bg-push/15', 'text-push');
+      expect(rowOf('Pull Up').querySelector('.pk-caption')).toHaveTextContent('Pull, difficulty 2');
+      expect(markOf('Pull Up')).toHaveClass('bg-chart-pull');
+      expect(rowOf('Dip').querySelector('.pk-caption')).toHaveTextContent('Push, difficulty 1');
+      expect(markOf('Dip')).toHaveClass('bg-chart-push');
     });
 
-    it('draws a type the app does not know as a neutral pill, never as a push', () => {
+    // lib/exerciseTypes.js: a type the list does not have "must not borrow
+    // the colour of another type".
+    it('draws a type the app does not know under its own name, in neither type’s colour', () => {
       mockExercises = {
         data: [{ id: 'ex-9', name: 'Pistol', type: 'legs', difficulty: 2, volume_weight: 1 }],
         isLoading: false,
       };
       renderLibrary();
-      const badge = within(cardOf('Pistol')).getByText('legs');
-      expect(badge).toHaveClass('sl-pill', 'bg-ink-100', 'text-ink-500');
-      expect(badge).not.toHaveClass('bg-push/15');
+      expect(rowOf('Pistol').querySelector('.pk-caption')).toHaveTextContent('legs, difficulty 2');
+      expect(markOf('Pistol')).not.toBeNull();
+      expect(markOf('Pistol')).not.toHaveClass('bg-chart-push');
+      expect(markOf('Pistol')).not.toHaveClass('bg-chart-pull');
     });
   });
 
@@ -401,35 +528,61 @@ describe('ExerciseLibrary', () => {
         isLoading: false,
       };
     };
-    const drawerToggle = () => screen.getByRole('button', { name: /^Archived · / });
+    const archivedSection = () => screen.getByRole('region', { name: 'Archived exercises' });
+    const drawerToggle = () => within(archivedSection()).getByRole('button', { name: /^\d+ archived$/ });
 
-    it('archives an exercise from its row', async () => {
+    it('archives an exercise from its options, and closes them', async () => {
       const user = userEvent.setup();
       renderLibrary();
-      await user.click(screen.getByRole('button', { name: 'Archive Dip' }));
+      const options = await openOptions(user, 'Dip');
+      await user.click(within(options).getByRole('button', { name: 'Archive Dip' }));
       expect(mockArchive.mutate).toHaveBeenCalledTimes(1);
       expect(mockArchive.mutate).toHaveBeenCalledWith({ id: 'ex-2', archived: true });
       expect(mockDelete.mutate).not.toHaveBeenCalled();
+      expect(options.open).toBe(false);
     });
 
-    it('does not take a second press while that exercise’s write is out', () => {
+    it('does not take a second press while that exercise’s write is out', async () => {
+      const user = userEvent.setup();
       mockArchive = { mutate: vi.fn(), isPending: true, variables: { id: 'ex-1', archived: true } };
       renderLibrary();
-      expect(screen.getByRole('button', { name: 'Archive Pull Up' })).toBeDisabled();
-      expect(screen.getByRole('button', { name: 'Archive Dip' })).toBeEnabled();
+      let options = await openOptions(user, 'Pull Up');
+      expect(within(options).getByRole('button', { name: 'Archive Pull Up' })).toBeDisabled();
+      await user.click(within(options).getByRole('button', { name: 'Close' }));
+      options = await openOptions(user, 'Dip');
+      expect(within(options).getByRole('button', { name: 'Archive Dip' })).toBeEnabled();
+    });
+
+    it('nor a second restore while that exercise’s write is out', async () => {
+      const user = userEvent.setup();
+      mockExercises = {
+        data: [
+          { id: 'ex-1', name: 'Pull Up', type: 'pull', difficulty: 2, volume_weight: 1, archived_at: ARCHIVED_AT },
+          { id: 'ex-2', name: 'Dip', type: 'push', difficulty: 1, volume_weight: 1, archived_at: ARCHIVED_AT },
+        ],
+        isLoading: false,
+      };
+      mockArchive = { mutate: vi.fn(), isPending: true, variables: { id: 'ex-2', archived: false } };
+      renderLibrary();
+      await user.click(drawerToggle());
+      expect(screen.getByRole('button', { name: 'Restore Dip' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Restore Pull Up' })).toBeEnabled();
     });
 
     it('shows no drawer while nothing is archived', () => {
       renderLibrary();
-      expect(screen.queryByRole('button', { name: /^Archived/ })).toBeNull();
+      expect(screen.queryByRole('region', { name: 'Archived exercises' })).toBeNull();
+      expect(screen.queryByRole('button', { name: /archived$/ })).toBeNull();
+      expect(screen.getByText('2 exercises')).toBeInTheDocument();
     });
 
-    it('moves an archived exercise out of the list, into a closed "Archived · N" drawer', () => {
+    it('moves an archived exercise out of the list, into a closed "N archived" drawer', () => {
       withDipArchived();
       renderLibrary();
-      expect(screen.getByText('Pull Up')).toBeInTheDocument();
+      expect(within(exerciseList()).getByText('Pull Up')).toBeInTheDocument();
       expect(screen.queryByText('Dip')).toBeNull();
-      expect(drawerToggle()).toHaveTextContent('Archived · 1');
+      expect(screen.getByText('1 exercise, 1 archived')).toBeInTheDocument();
+      expect(drawerToggle()).toHaveTextContent('1 archived');
       expect(drawerToggle()).toHaveAttribute('aria-expanded', 'false');
     });
 
@@ -439,25 +592,29 @@ describe('ExerciseLibrary', () => {
       renderLibrary();
       await user.click(drawerToggle());
       expect(drawerToggle()).toHaveAttribute('aria-expanded', 'true');
-      expect(screen.getByText('Dip')).toBeInTheDocument();
+      expect(within(archivedSection()).getByText('Dip')).toBeInTheDocument();
       expect(screen.getByText(/Not offered for new sessions or goals/)).toBeInTheDocument();
+      // No options on an archived exercise: it is neither edited nor archived
+      // again from here.
+      expect(screen.queryByRole('button', { name: 'Options for Dip' })).toBeNull();
       expect(screen.queryByRole('button', { name: 'Archive Dip' })).toBeNull();
-      expect(screen.queryByRole('button', { name: 'Edit Dip' })).toBeNull();
 
       await user.click(screen.getByRole('button', { name: 'Restore Dip' }));
       expect(mockArchive.mutate).toHaveBeenCalledWith({ id: 'ex-2', archived: false });
 
       await user.click(drawerToggle());
       expect(screen.queryByText('Dip')).toBeNull();
+      expect(screen.queryByText(/Not offered for new sessions or goals/)).toBeNull();
     });
 
-    it('counts every archived exercise, whatever the search and the type pill say', async () => {
+    it('counts every archived exercise, whatever the search and the type chip say', async () => {
       const user = userEvent.setup();
       withDipArchived();
       renderLibrary();
-      await user.type(screen.getByRole('searchbox', { name: /search exercises/i }), 'zzz');
-      expect(screen.getByText(/no exercises match/i)).toBeInTheDocument();
-      expect(drawerToggle()).toHaveTextContent('Archived · 1');
+      await user.type(searchBox(), 'zzz');
+      expect(screen.getByText('No exercise matches')).toBeInTheDocument();
+      expect(drawerToggle()).toHaveTextContent('1 archived');
+      expect(screen.getByText('1 exercise, 1 archived')).toBeInTheDocument();
     });
 
     it('searches and filters the exercises on offer only', async () => {
@@ -465,8 +622,8 @@ describe('ExerciseLibrary', () => {
       withDipArchived();
       renderLibrary();
       // Dip is the only push, and it is archived.
-      await user.click(screen.getByRole('button', { name: /^push$/i }));
-      expect(screen.getByText(/no exercises match/i)).toBeInTheDocument();
+      await user.click(filters().getByRole('button', { name: 'Push' }));
+      expect(screen.getByText('No exercise matches')).toBeInTheDocument();
       expect(screen.queryByText('Dip')).toBeNull();
     });
 
@@ -476,23 +633,25 @@ describe('ExerciseLibrary', () => {
         isLoading: false,
       };
       renderLibrary();
-      expect(screen.getByText('Every exercise is archived')).toBeInTheDocument();
-      expect(screen.queryByText('No exercises yet')).toBeNull();
+      expect(screen.getByText('Every exercise is archived.')).toBeInTheDocument();
+      expect(screen.queryByText(/No exercise yet/)).toBeNull();
       expect(screen.queryByRole('searchbox')).toBeNull();
-      expect(drawerToggle()).toHaveTextContent('Archived · 1');
+      expect(screen.getByText('0 exercises, 1 archived')).toBeInTheDocument();
+      expect(drawerToggle()).toHaveTextContent('1 archived');
     });
 
     it('offers to archive an exercise in use from the delete dialog, and closes', async () => {
       const user = userEvent.setup();
       mockUsage = usageQuery({ slots: 3, goals: 1, swaps: 0 });
       renderLibrary();
-      await user.click(screen.getByRole('button', { name: 'Delete Pull Up' }));
-      const open = within(screen.getByRole('dialog'));
-      expect(open.queryByRole('button', { name: 'Delete' })).toBeNull();
+      const dialog = await askToDelete(user, 'Pull Up');
+      const open = within(dialog);
+      expect(open.queryByRole('button', { name: 'Delete the exercise' })).toBeNull();
       await user.click(open.getByRole('button', { name: 'Archive instead' }));
       expect(mockArchive.mutate).toHaveBeenCalledWith({ id: 'ex-1', archived: true });
       expect(mockDelete.mutate).not.toHaveBeenCalled();
-      expect(screen.queryByRole('heading', { name: 'Delete "Pull Up"?' })).toBeNull();
+      expect(dialog.open).toBe(false);
+      expect(screen.queryByRole('heading', { name: 'Delete Pull Up?' })).toBeNull();
     });
 
     it('still deletes an archived exercise nothing uses, through the same dialog', async () => {
@@ -501,9 +660,9 @@ describe('ExerciseLibrary', () => {
       renderLibrary();
       await user.click(drawerToggle());
       await user.click(screen.getByRole('button', { name: 'Delete Dip' }));
-      const open = within(screen.getByRole('dialog'));
+      const open = within(screen.getByRole('dialog', { name: 'Delete Dip?' }));
       expect(mockUseExerciseUsage).toHaveBeenCalledWith('ex-2');
-      await user.click(open.getByRole('button', { name: 'Delete' }));
+      await user.click(open.getByRole('button', { name: 'Delete the exercise' }));
       expect(mockDelete.mutate).toHaveBeenCalledWith('ex-2');
     });
 
@@ -514,31 +673,40 @@ describe('ExerciseLibrary', () => {
       renderLibrary();
       await user.click(drawerToggle());
       await user.click(screen.getByRole('button', { name: 'Delete Dip' }));
-      const open = within(screen.getByRole('dialog'));
+      const dialog = screen.getByRole('dialog', { name: 'Delete Dip?' });
+      const open = within(dialog);
       expect(open.getByRole('status')).toHaveTextContent('It is in use, so it cannot be deleted.');
       expect(open.queryByRole('button', { name: 'Archive instead' })).toBeNull();
-      expect(open.queryByRole('button', { name: 'Delete' })).toBeNull();
+      expect(open.queryByRole('button', { name: 'Delete the exercise' })).toBeNull();
+      expect(footClose(dialog)).toBeInTheDocument();
     });
   });
 
+  // Review item L15 and live finding N18: the filter pills were 23px tall,
+  // "+ Add" 32px, and "edit" and "del" two words 4px apart, "del" 29×16. jsdom
+  // lays nothing out (src/test/hitTargets.test.js holds the pk-* classes to
+  // 44px — a row to 60px, a large button to 56px).
   describe('44px targets', () => {
-    it('filter pills are pill buttons', () => {
+    it('filter chips are Parc chips', () => {
       renderLibrary();
-      for (const name of [/^all$/i, /^pull$/i, /^push$/i]) {
-        expect(screen.getByRole('button', { name })).toHaveClass('sl-pill', 'sl-pill-btn');
+      for (const name of ['All', 'Pull', 'Push']) {
+        expect(filters().getByRole('button', { name })).toHaveClass('pk-chip');
       }
     });
 
-    it('edit and delete are two 44px boxes on every exercise', () => {
+    it('every exercise has one round 44px button, and its options are rows', async () => {
+      const user = userEvent.setup();
       renderLibrary();
-      for (const name of ['Edit Pull Up', 'Delete Pull Up', 'Edit Dip', 'Delete Dip']) {
-        const button = screen.getByRole('button', { name });
-        expect(button).toHaveClass('min-h-11', 'min-w-11');
-        expect(button).not.toHaveClass('px-1');
+      for (const name of ['Options for Pull Up', 'Options for Dip']) {
+        expect(screen.getByRole('button', { name })).toHaveClass('pk-icon-btn');
+      }
+      const options = within(await openOptions(user, 'Pull Up'));
+      for (const name of ['Edit the exercise', 'Archive Pull Up', 'Delete Pull Up']) {
+        expect(options.getByRole('button', { name })).toHaveClass('pk-row');
       }
     });
 
-    it('archive, the drawer, and restore and delete in it are 44px', async () => {
+    it('the drawer, and restore and delete in it, are 44px', async () => {
       const user = userEvent.setup();
       mockExercises = {
         data: [
@@ -548,23 +716,29 @@ describe('ExerciseLibrary', () => {
         isLoading: false,
       };
       renderLibrary();
-      expect(screen.getByRole('button', { name: 'Archive Pull Up' })).toHaveClass('min-h-11', 'min-w-11');
-      const toggle = screen.getByRole('button', { name: /^Archived · / });
-      expect(toggle).toHaveClass('min-h-11');
+      const toggle = screen.getByRole('button', { name: '1 archived' });
+      expect(toggle).toHaveClass('pk-row');
       await user.click(toggle);
       for (const name of ['Restore Dip', 'Delete Dip']) {
-        expect(screen.getByRole('button', { name })).toHaveClass('min-h-11', 'min-w-11');
+        expect(screen.getByRole('button', { name })).toHaveClass('pk-btn');
       }
     });
 
-    it('+ Add, and the two buttons of its form, are 44px tall', async () => {
+    it('"Add an exercise", and the controls of its form, are 44px', async () => {
       const user = userEvent.setup();
       renderLibrary();
-      const add = screen.getByRole('button', { name: '+ ADD' });
-      expect(add).toHaveClass('min-h-11');
-      await user.click(add);
-      expect(screen.getByRole('button', { name: 'Create' })).toHaveClass('min-h-11');
-      expect(screen.getByRole('button', { name: 'Cancel' })).toHaveClass('min-h-11');
+      expect(addButton()).toHaveClass('pk-icon-btn');
+      await user.click(addButton());
+      const sheet = within(newSheet());
+      expect(sheet.getByRole('button', { name: 'Create the exercise' })).toHaveClass('pk-btn', 'pk-btn-primary', 'pk-btn-lg');
+      expect(sheet.getByRole('button', { name: 'Cancel' })).toHaveClass('pk-btn');
+      for (const group of ['Type', 'Difficulty', 'Load']) {
+        for (const segment of within(sheet.getByRole('group', { name: group })).getAllByRole('button')) {
+          expect(segment).toHaveClass('pk-btn');
+        }
+      }
+      expect(sheet.getByLabelText('Name of the exercise')).toHaveClass('pk-field');
+      expect(sheet.getByLabelText('Volume weight')).toHaveClass('pk-field');
     });
   });
 });

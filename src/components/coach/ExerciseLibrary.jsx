@@ -8,14 +8,14 @@ import {
   isActiveExercise,
 } from '../../hooks/useExerciseLibrary';
 import Spinner from '../ui/Spinner';
-import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
-import DecimalInput from '../ui/DecimalInput';
-import TypeBadge from '../ui/TypeBadge';
 import ExerciseDeleteDialog from './ExerciseDeleteDialog';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { decimalText, parseDecimalInput } from '../../lib/number';
+import { exerciseType, exerciseTypeLabel } from '../../lib/exerciseTypes';
+import { formatNumber, pluralKey } from '../../lib/i18n/format';
+import { Button, IconButton, LargeTitle, ListGroup, NumberField, Row, SearchField, SegmentedControl, Sheet } from '../parc';
 
 const TYPE_FILTERS = ['all', 'pull', 'push'];
 
@@ -24,41 +24,31 @@ const TYPE_FILTERS = ['all', 'pull', 'push'];
 // count for nothing in the volume. Never empty: the column is NOT NULL.
 const VOLUME_WEIGHT_RULES = { min: 0.1, max: 99.99, allowEmpty: false };
 
-const inputCls =
-  'w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
-
-function FilterPill({ label, active, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      aria-pressed={active}
-      className="sl-pill sl-pill-btn transition-colors"
-      style={
-        active
-          ? {
-              background: 'var(--color-accent)',
-              color: 'var(--color-ink-900)',
-            }
-          : undefined
-      }
-    >
-      {!active ? <span className="text-ink-500">{label}</span> : label}
-    </button>
-  );
+// « Tirer, difficulté 2, volume ×1,5, lest ajouté » — what an exercise is,
+// under its name; its type is also a mark of its chart colour.
+function exerciseFacts(ex, { t, lang }) {
+  const parts = [
+    exerciseTypeLabel(ex.type, t),
+    t('parcLibrary.difficulty', { n: formatNumber(lang, ex.difficulty) }),
+  ];
+  if (ex.volume_weight != null && Number(ex.volume_weight) !== 1) {
+    parts.push(t('parcLibrary.volume', { n: formatNumber(lang, Number(ex.volume_weight)) }));
+  }
+  if (ex.load_mode === 'added') parts.push(t('parcLibrary.loadAdded'));
+  if (ex.load_mode === 'full') parts.push(t('parcLibrary.loadFull'));
+  return parts.join(', ');
 }
 
-// Delete is offered on every exercise, archived ones included: the dialog it
-// opens reads where the exercise is used, and deletes only one nothing uses.
-function DeleteButton({ exercise, onClick }) {
-  const { t } = useI18n();
+// The colour of a type's columns in the charts; a type the app does not know
+// is grey, never the colour of another one (lib/exerciseTypes).
+const MARK = { pull: 'bg-chart-pull', push: 'bg-chart-push' };
+
+function TypeMark({ type }) {
   return (
-    <button
-      onClick={onClick}
-      aria-label={`Delete ${exercise.name}`}
-      className="min-h-11 min-w-11 px-2 sl-mono text-[11px] text-ink-400 hover:text-danger"
-    >
-      {t('coach.library.del')}
-    </button>
+    <span
+      aria-hidden="true"
+      className={`mr-1.5 inline-block h-2.5 w-2.5 rounded-full align-[1px] ${MARK[exerciseType(type).id] ?? 'bg-ink-3'}`}
+    />
   );
 }
 
@@ -69,8 +59,7 @@ function ExerciseForm({ initial, onSubmit, onCancel, submitLabel, pending, pendi
   const [difficulty, setDifficulty] = useState(initial?.difficulty || 1);
   const [volumeWeight, setVolumeWeight] = useState(decimalText(initial?.volume_weight ?? 1));
   const [volumeRefused, setVolumeRefused] = useState(false);
-  const volumeId = useId();
-  const volumeErrId = useId();
+  const nameId = useId();
   // Loading mode is opt-in: '' (unclassified) leaves records exactly as today.
   const [loadMode, setLoadMode] = useState(initial?.load_mode ?? '');
 
@@ -89,81 +78,66 @@ function ExerciseForm({ initial, onSubmit, onCancel, submitLabel, pending, pendi
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
-      <input
-        type="text"
-        placeholder={t('coach.library.name')}
-        required
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        className={inputCls}
-      />
-      <div className="flex gap-3">
-        <select
-          value={type}
-          onChange={(e) => setType(e.target.value)}
-          className={`${inputCls} flex-1`}
-        >
-          <option value="pull">{t('coach.library.typePull')}</option>
-          <option value="push">{t('coach.library.typePush')}</option>
-        </select>
-        <select
-          value={difficulty}
-          onChange={(e) => setDifficulty(Number(e.target.value))}
-          className={`${inputCls} flex-1`}
-        >
-          <option value={1}>{t('coach.library.difficulty', { n: 1 })}</option>
-          <option value={2}>{t('coach.library.difficulty', { n: 2 })}</option>
-          <option value={3}>{t('coach.library.difficulty', { n: 3 })}</option>
-        </select>
-      </div>
-      <div>
-        <label htmlFor={volumeId} className="sl-label text-ink-400 block mb-1">{t('coach.library.volumeWeight')}</label>
-        <DecimalInput
-          id={volumeId}
-          {...VOLUME_WEIGHT_RULES}
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <label htmlFor={nameId} className="flex flex-col gap-1.5">
+        <span className="pk-small">{t('parcLibrary.name')}</span>
+        <input
+          id={nameId}
+          type="text"
+          placeholder={t('parcLibrary.namePlaceholder')}
           required
-          value={volumeWeight}
-          onChange={(e) => {
-            setVolumeWeight(e.target.value);
-            setVolumeRefused(false);
-          }}
-          invalid={volumeRefused}
-          aria-describedby={volumeRefused ? volumeErrId : undefined}
-          className={inputCls}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="pk-field"
         />
-        {volumeRefused && (
-          <p id={volumeErrId} role="alert" className="sl-mono text-[11px] text-danger mt-1">
-            {t('coachDecimalInputs.volumeWeightRange')}
-          </p>
-        )}
+      </label>
+      <SegmentedControl
+        label={t('parcLibrary.type')}
+        value={type}
+        onChange={setType}
+        options={[
+          { value: 'pull', label: exerciseTypeLabel('pull', t) },
+          { value: 'push', label: exerciseTypeLabel('push', t) },
+        ]}
+      />
+      <SegmentedControl
+        label={t('parcLibrary.difficultyLabel')}
+        value={difficulty}
+        onChange={setDifficulty}
+        options={[1, 2, 3].map((n) => ({ value: n, label: String(n) }))}
+      />
+      <NumberField
+        {...VOLUME_WEIGHT_RULES}
+        required
+        label={t('parcLibrary.volumeWeight')}
+        value={volumeWeight}
+        onChange={(e) => {
+          setVolumeWeight(e.target.value);
+          setVolumeRefused(false);
+        }}
+        error={volumeRefused ? t('coachDecimalInputs.volumeWeightRange') : undefined}
+      />
+      <div className="flex flex-col gap-1.5">
+        <SegmentedControl
+          label={t('parcLibrary.loadMode')}
+          value={loadMode}
+          onChange={setLoadMode}
+          options={[
+            { value: '', label: t('parcLibrary.loadUnset') },
+            { value: 'added', label: t('parcLibrary.loadAddedOption') },
+            { value: 'full', label: t('parcLibrary.loadFullOption') },
+          ]}
+        />
+        <p className="pk-small">{t('parcLibrary.loadHelp')}</p>
       </div>
-      <div>
-        <label className="sl-label text-ink-400 block mb-1">{t('coach.library.loadMode')}</label>
-        <select value={loadMode} onChange={(e) => setLoadMode(e.target.value)} className={inputCls}>
-          <option value="">{t('coach.library.loadModeUnset')}</option>
-          <option value="added">{t('coach.library.loadModeAdded')}</option>
-          <option value="full">{t('coach.library.loadModeFull')}</option>
-        </select>
-        <p className="sl-mono text-[10px] text-ink-400 mt-1">{t('coach.library.loadModeHelp')}</p>
-      </div>
-      <div className="flex gap-2">
-        <button
-          type="submit"
-          disabled={pending}
-          className="flex-1 min-h-11 sl-btn-primary text-[13px] disabled:opacity-50"
-          style={{ padding: '10px 16px' }}
-        >
+      <div className="flex flex-col gap-1">
+        <Button type="submit" variant="primary" size="lg" disabled={pending}>
           {pending && pendingLabel ? pendingLabel : submitLabel}
-        </button>
+        </Button>
         {onCancel && (
-          <button
-            type="button"
-            onClick={onCancel}
-            className="flex-1 min-h-11 rounded-lg bg-ink-100 text-ink-700 hover:bg-ink-200 py-2 sl-mono text-[12px]"
-          >
+          <Button variant="text" onClick={onCancel}>
             {t('common.cancel')}
-          </button>
+          </Button>
         )}
       </div>
     </form>
@@ -171,7 +145,7 @@ function ExerciseForm({ initial, onSubmit, onCancel, submitLabel, pending, pendi
 }
 
 export default function ExerciseLibrary() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { profile, signOut } = useAuth();
   const { data: exercises, isLoading } = useExerciseLibrary();
   const createExercise = useCreateExercise();
@@ -186,6 +160,8 @@ export default function ExerciseLibrary() {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [showArchived, setShowArchived] = useState(false);
+  // The exercise whose ⋯ sheet is open, or null.
+  const [actionsFor, setActionsFor] = useState(null);
 
   // An exercise that is in use cannot be deleted, so it is archived: it leaves
   // this list — and the pickers, which filter with the same predicate — for
@@ -226,205 +202,191 @@ export default function ExerciseLibrary() {
 
   const hasExercises = active.length > 0;
 
+  const ctx = { t, lang };
+  const counts = [
+    t(pluralKey(lang, active.length, 'parcLibrary.exercises'), { n: formatNumber(lang, active.length) }),
+    archived.length > 0
+      ? t(pluralKey(lang, archived.length, 'parcLibrary.archived'), { n: formatNumber(lang, archived.length) })
+      : null,
+  ].filter(Boolean).join(', ');
+  const target = actionsFor ? (exercises || []).find((ex) => ex.id === actionsFor) || null : null;
+  const editing = editingId ? (exercises || []).find((ex) => ex.id === editingId) || null : null;
+
   return (
-    <div className="p-4 pb-6 md:p-8 space-y-5">
-      <div className="pt-3 pb-1 flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="sl-label text-ink-400">{t('coach.library.kicker')}</div>
-          <h1 className="sl-display text-[28px] md:text-[40px] text-gray-900 leading-none mt-1">
-            {t('coach.library.title')}
-          </h1>
-        </div>
-        <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
-      </div>
+    <div className="flex flex-col gap-6 px-4 pt-3 pb-6 md:px-8">
+      <header className="flex flex-col gap-4">
+        <LargeTitle
+          title={t('parcLibrary.title')}
+          subtitle={isLoading ? null : counts}
+          trailing={
+            <div className="flex shrink-0 items-center gap-2">
+              <IconButton icon="plus" label={t('parcLibrary.add')} onClick={() => setShowAdd(true)} />
+              <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
+            </div>
+          }
+        />
+        {!isLoading && hasExercises && (
+          <>
+            <SearchField label={t('parcLibrary.search')} value={search} onChange={(e) => setSearch(e.target.value)} />
+            <div className="flex gap-2" role="group" aria-label={t('parcLibrary.filterLabel')}>
+              {TYPE_FILTERS.map((filter) => (
+                <button
+                  key={filter}
+                  type="button"
+                  aria-pressed={typeFilter === filter}
+                  onClick={() => setTypeFilter(filter)}
+                  className="pk-chip"
+                >
+                  {filter === 'all' ? t('parcLibrary.filterAll') : exerciseTypeLabel(filter, t)}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </header>
 
       {isLoading && (
         <div className="flex justify-center py-12"><Spinner /></div>
       )}
 
-      {showAdd && (
-        <div className="sl-card p-4">
-          <ExerciseForm
-            onSubmit={handleCreate}
-            onCancel={() => setShowAdd(false)}
-            submitLabel={t('coach.library.create')}
-            pending={createExercise.isPending}
-            pendingLabel={t('coach.library.creating')}
-          />
-        </div>
-      )}
-
-      {!isLoading && !showAdd && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            {hasExercises && (
-              <div className="relative flex-1">
-                <svg
-                  className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400 pointer-events-none"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z" />
-                </svg>
-                <input
-                  type="search"
-                  aria-label={t('coach.library.search')}
-                  placeholder={t('coach.library.search')}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full rounded-lg border border-ink-200 bg-white pl-9 pr-3 py-2 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-                />
-              </div>
-            )}
-            <button
-              onClick={() => setShowAdd(true)}
-              className={`sl-btn-primary min-h-11 text-[12px] px-3 py-2 shrink-0${hasExercises ? '' : ' ml-auto'}`}
-            >
-              {t('coach.library.add')}
-            </button>
-          </div>
-
-          {hasExercises && (
-            <div className="flex gap-2" role="group" aria-label="Filter by type">
-              {TYPE_FILTERS.map((filter) => {
-                const label =
-                  filter === 'all'
-                    ? t('coach.library.filterAll')
-                    : filter === 'pull'
-                    ? t('coach.library.filterPull')
-                    : t('coach.library.filterPush');
-                return (
-                  <FilterPill
-                    key={filter}
-                    label={label}
-                    active={typeFilter === filter}
-                    onClick={() => setTypeFilter(filter)}
-                  />
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {!isLoading && !hasExercises && !showAdd && (
-        <EmptyState
-          message={archived.length > 0 ? t('coachLibraryArchive.allArchived') : t('coach.library.noneYet')}
-        />
+      {!isLoading && !hasExercises && (
+        <p className="rounded-group bg-surface p-4 pk-body">
+          {archived.length > 0 ? t('parcLibrary.allArchived') : t('parcLibrary.noneYet')}
+        </p>
       )}
 
       {!isLoading && hasExercises && filtered.length === 0 && (
-        <EmptyState message={t('coach.library.noneMatch')} />
+        <div className="rounded-group bg-surface p-4">
+          <p className="pk-headline">{t('parcLibrary.noneMatch')}</p>
+          <p className="pk-caption mt-1">{t('parcLibrary.noneMatchHelp')}</p>
+        </div>
       )}
 
-      <div className="space-y-2 md:grid md:grid-cols-2 md:gap-2 md:space-y-0">
-        {filtered.map((ex) => (
-          <div key={ex.id} className="sl-card p-4">
-            {editingId === ex.id ? (
-              <ExerciseForm
-                initial={ex}
-                onSubmit={(vals) => handleUpdate(ex.id, vals)}
-                onCancel={() => setEditingId(null)}
-                submitLabel={t('common.save')}
-                pending={updateExercise.isPending}
-                pendingLabel={t('common.saving')}
-              />
-            ) : (
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 flex-wrap min-w-0">
-                  <span className="sl-display text-[15px] text-gray-900 truncate">
-                    {ex.name}
-                  </span>
-                  <TypeBadge type={ex.type} />
-                  <span className="sl-mono text-[10px] text-ink-400">
-                    D{ex.difficulty} · VW{ex.volume_weight}
-                    {ex.load_mode === 'added' ? ' · +BW' : ex.load_mode === 'full' ? ' · FULL' : ''}
-                  </span>
-                </div>
-                {/* 44px boxes side by side, not words 4px apart: "del" was
-                    29×16 (live review N18). `-my-3` keeps the card as tall as
-                    its name. */}
-                <div className="flex gap-1 shrink-0 -my-3 -mr-2">
-                  <button
-                    onClick={() => setEditingId(ex.id)}
-                    aria-label={`Edit ${ex.name}`}
-                    className="min-h-11 min-w-11 px-2 sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)]"
-                  >
-                    {t('coach.library.edit')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setArchived(ex.id, true)}
-                    disabled={movingId === ex.id}
-                    aria-label={t('coachLibraryArchive.archiveLabel', { name: ex.name })}
-                    className="min-h-11 min-w-11 px-2 sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)] disabled:opacity-50"
-                  >
-                    {t('coachLibraryArchive.archive')}
-                  </button>
-                  <DeleteButton exercise={ex} onClick={() => setDeleting(ex)} />
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+      {filtered.length > 0 && (
+        <ListGroup label={t('parcLibrary.listLabel')}>
+          {filtered.map((ex) => (
+            <Row
+              key={ex.id}
+              title={ex.name}
+              subtitle={
+                <>
+                  <TypeMark type={ex.type} />
+                  {exerciseFacts(ex, ctx)}
+                </>
+              }
+              trailing={
+                <IconButton
+                  icon="more"
+                  tone="none"
+                  label={t('parcLibrary.options', { name: ex.name })}
+                  onClick={() => setActionsFor(ex.id)}
+                />
+              }
+            />
+          ))}
+        </ListGroup>
+      )}
 
       {!isLoading && archived.length > 0 && (
-        <section className="space-y-2">
-          <button
-            type="button"
-            onClick={() => setShowArchived((v) => !v)}
-            aria-expanded={showArchived}
-            className="w-full min-h-11 flex items-center gap-3 border-b border-ink-100 text-left"
-          >
-            <span className="sl-label text-ink-400 flex-1">
-              {t('coachLibraryArchive.drawer', { n: archived.length })}
-            </span>
-            <svg
-              className={`w-4 h-4 text-ink-400 shrink-0 transition-transform ${showArchived ? 'rotate-180' : ''}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-          {showArchived && (
-            <>
-              <p className="sl-mono text-[11px] text-ink-400 leading-relaxed">
-                {t('coachLibraryArchive.drawerHint')}
-              </p>
-              <ul className="space-y-2 md:grid md:grid-cols-2 md:gap-2 md:space-y-0">
-                {archived.map((ex) => (
-                  <li key={ex.id} className="sl-card p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2 flex-wrap min-w-0">
-                        <span className="sl-display text-[15px] text-ink-600 truncate">{ex.name}</span>
-                        <TypeBadge type={ex.type} />
-                      </div>
-                      <div className="flex gap-1 shrink-0 -my-3 -mr-2">
-                        <button
-                          type="button"
-                          onClick={() => setArchived(ex.id, false)}
-                          disabled={movingId === ex.id}
-                          aria-label={t('coachLibraryArchive.restoreLabel', { name: ex.name })}
-                          className="min-h-11 min-w-11 px-2 sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)] disabled:opacity-50"
-                        >
-                          {t('coachLibraryArchive.restore')}
-                        </button>
-                        <DeleteButton exercise={ex} onClick={() => setDeleting(ex)} />
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
+        <section aria-label={t('parcLibrary.archivedListLabel')} className="flex flex-col gap-2.5">
+          <ul className="pk-group">
+            <Row
+              onClick={() => setShowArchived((v) => !v)}
+              aria-expanded={showArchived}
+              chevron={showArchived ? 'chevron-up' : 'chevron-down'}
+              title={t(pluralKey(lang, archived.length, 'parcLibrary.drawer'), { n: formatNumber(lang, archived.length) })}
+            />
+            {showArchived &&
+              archived.map((ex) => (
+                <li key={ex.id} className="pk-row">
+                  <span className="pk-body min-w-0 flex-1 truncate">{ex.name}</span>
+                  <Button
+                    variant="text"
+                    onClick={() => setArchived(ex.id, false)}
+                    disabled={movingId === ex.id}
+                    aria-label={t('coachLibraryArchive.restoreLabel', { name: ex.name })}
+                  >
+                    {t('parcLibrary.restore')}
+                  </Button>
+                  <Button
+                    variant="text"
+                    className="text-red"
+                    onClick={() => setDeleting(ex)}
+                    aria-label={t('parcLibrary.deleteLabel', { name: ex.name })}
+                  >
+                    {t('parcLibrary.delete')}
+                  </Button>
+                </li>
+              ))}
+          </ul>
+          {showArchived && <p className="pk-caption">{t('coachLibraryArchive.drawerHint')}</p>}
         </section>
       )}
+
+      {/* What can be done to an exercise, from its ⋯: edit it, archive it,
+          delete it — which first reads where it is used. */}
+      <Sheet
+        open={!!target}
+        onClose={() => setActionsFor(null)}
+        title={target?.name}
+        description={target ? exerciseFacts(target, ctx) : undefined}
+      >
+        {target && (
+          <ul className="pk-group">
+            <Row
+              title={t('parcLibrary.edit')}
+              chevron={false}
+              onClick={() => {
+                setActionsFor(null);
+                setEditingId(target.id);
+              }}
+            />
+            <Row
+              title={t('parcLibrary.archive')}
+              chevron={false}
+              disabled={movingId === target.id}
+              aria-label={t('coachLibraryArchive.archiveLabel', { name: target.name })}
+              onClick={() => {
+                setActionsFor(null);
+                setArchived(target.id, true);
+              }}
+            />
+            <Row
+              title={<span className="text-red">{t('parcLibrary.delete')}</span>}
+              chevron={false}
+              aria-label={t('parcLibrary.deleteLabel', { name: target.name })}
+              onClick={() => {
+                setActionsFor(null);
+                setDeleting(target);
+              }}
+            />
+          </ul>
+        )}
+      </Sheet>
+
+      <Sheet open={showAdd} onClose={() => setShowAdd(false)} title={t('parcLibrary.newTitle')}>
+        <ExerciseForm
+          onSubmit={handleCreate}
+          onCancel={() => setShowAdd(false)}
+          submitLabel={t('parcLibrary.create')}
+          pending={createExercise.isPending}
+          pendingLabel={t('parcLibrary.creating')}
+        />
+      </Sheet>
+
+      <Sheet open={!!editing} onClose={() => setEditingId(null)} title={t('parcLibrary.editTitle')}>
+        {editing && (
+          <ExerciseForm
+            key={editing.id}
+            initial={editing}
+            onSubmit={(vals) => handleUpdate(editing.id, vals)}
+            onCancel={() => setEditingId(null)}
+            submitLabel={t('parcLibrary.save')}
+            pending={updateExercise.isPending}
+            pendingLabel={t('common.saving')}
+          />
+        )}
+      </Sheet>
 
       <ExerciseDeleteDialog
         exercise={deleting}

@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import Dialog from '../ui/Dialog';
 import { useExerciseUsage, isActiveExercise } from '../../hooks/useExerciseLibrary';
 import { useI18n } from '../../hooks/useI18n';
+import { formatNumber } from '../../lib/i18n/format';
+import { Button, Sheet } from '../parc';
 
 /**
  * Stands in front of deleting a library exercise. It first reads where the
@@ -18,18 +19,18 @@ import { useI18n } from '../../hooks/useI18n';
  * page passes `onArchive(id)` and the exercise is not archived already: it
  * leaves the pickers and stays on everything that uses it.
  *
- * `exercise` is the row to delete, or null while the dialog is closed. The
- * dialog itself stays mounted, like the app's other dialogs, so that closing
- * goes through `<dialog>.close()` and focus returns to the row's button. Its
- * body (`UsageCheck`) is mounted by each open.
+ * `exercise` is the row to delete, or null while the sheet is closed. The
+ * sheet itself stays mounted, so that closing goes through `<dialog>.close()`
+ * and focus returns to the button that opened it. Its body (`UsageCheck`) is
+ * mounted by each open.
  */
 export default function ExerciseDeleteDialog({ exercise, onClose, onDelete, onArchive }) {
   const { t } = useI18n();
   return (
-    <Dialog
+    <Sheet
       open={!!exercise}
       onClose={onClose}
-      title={exercise ? t('coach.library.confirmDelete', { name: exercise.name }) : undefined}
+      title={exercise ? t('parcLibrary.deleteTitle', { name: exercise.name }) : undefined}
     >
       {exercise && (
         <UsageCheck
@@ -40,7 +41,7 @@ export default function ExerciseDeleteDialog({ exercise, onClose, onDelete, onAr
           onArchive={onArchive}
         />
       )}
-    </Dialog>
+    </Sheet>
   );
 }
 
@@ -95,82 +96,56 @@ function UsageCheck({ exercise, onClose, onDelete, onArchive }) {
   else if (failed) status = t('coachLibraryDelete.failed');
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       {/* One live region for every state, so each change is announced. */}
-      <p role="status" className="sl-mono text-[12px] text-ink-400 leading-relaxed">
+      <p role="status" className="pk-body">
         {status}
       </p>
 
       {inUse && (
         <>
-          <dl className="rounded-lg bg-ink-100 px-3 py-2 space-y-1">
+          <dl className="pk-group">
             <UsageRow label={t('coachLibraryDelete.slots')} count={counts.slots} />
             <UsageRow label={t('coachLibraryDelete.goals')} count={counts.goals} />
             {counts.swaps > 0 && (
               <UsageRow label={t('coachLibraryDelete.swaps')} count={counts.swaps} />
             )}
           </dl>
-          <p className="sl-mono text-[12px] text-ink-400 leading-relaxed">
-            {t('coachLibraryDelete.inUseHelp')}
-          </p>
-          {archiveInstead && (
-            <p className="sl-mono text-[12px] text-ink-400 leading-relaxed">
-              {t('coachLibraryArchive.archiveInsteadHelp')}
-            </p>
-          )}
+          <p className="pk-caption">{t('coachLibraryDelete.inUseHelp')}</p>
+          {archiveInstead && <p className="pk-caption">{t('coachLibraryArchive.archiveInsteadHelp')}</p>}
         </>
       )}
 
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-1">
         {archiveInstead && (
-          <button
-            type="button"
-            onClick={handleArchive}
-            className="flex-1 min-h-11 sl-btn-primary text-[13px]"
-            style={{ padding: '10px 16px' }}
-          >
+          <Button variant="primary" size="lg" onClick={handleArchive}>
             {t('coachLibraryArchive.archiveInstead')}
-          </button>
+          </Button>
         )}
         {failed && (
-          <button
-            type="button"
-            onClick={() => usage.refetch()}
-            disabled={usage.isFetching}
-            className="flex-1 sl-btn-primary text-[13px] disabled:opacity-50"
-            style={{ padding: '10px 16px' }}
-          >
+          <Button variant="primary" size="lg" onClick={() => usage.refetch()} disabled={usage.isFetching}>
             {usage.isFetching ? t('coachLibraryDelete.retrying') : t('coachLibraryDelete.retry')}
-          </button>
+          </Button>
         )}
         {!failed && !inUse && (
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={!unused}
-            className="flex-1 rounded-lg py-2.5 sl-display text-[13px] text-white disabled:opacity-50"
-            style={{ background: 'var(--color-danger)' }}
-          >
-            {t('common.delete')}
-          </button>
+          <Button variant="danger" size="lg" onClick={handleDelete} disabled={!unused}>
+            {t('parcLibrary.deleteAction')}
+          </Button>
         )}
-        <button
-          type="button"
-          onClick={onClose}
-          className="flex-1 bg-ink-100 text-ink-700 rounded-lg py-2.5 sl-display text-[13px] hover:bg-ink-200"
-        >
-          {inUse ? t('coachLibraryDelete.ok') : t('common.cancel')}
-        </button>
+        <Button variant="text" onClick={onClose}>
+          {t('parcLibrary.keep')}
+        </Button>
       </div>
     </div>
   );
 }
 
 function UsageRow({ label, count }) {
+  const { lang } = useI18n();
   return (
-    <div className="flex items-baseline justify-between gap-3">
-      <dt className="sl-mono text-[12px] text-ink-600">{label}</dt>
-      <dd className="sl-display text-[15px] text-gray-900">{count}</dd>
+    <div className="pk-row">
+      <dt className="pk-body min-w-0 flex-1">{label}</dt>
+      <dd className="pk-condensed pk-tnum m-0 text-[24px] font-extrabold">{formatNumber(lang, count)}</dd>
     </div>
   );
 }
