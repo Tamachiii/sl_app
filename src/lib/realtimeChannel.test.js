@@ -6,7 +6,7 @@ const { realtime } = await vi.hoisted(async () => {
 });
 vi.mock('./supabase', () => ({ supabase: realtime }));
 
-import { goOnline, setVisibility } from '../test/fakeRealtime';
+import { goOnline, setVisibility, USER_TOKEN } from '../test/fakeRealtime';
 import {
   watchPostgresChanges,
   resyncRefetchOptions,
@@ -362,5 +362,55 @@ describe('watchPostgresChanges — events and ending', () => {
     vi.advanceTimersByTime(REOPEN_AFTER_MS);
     expect(realtime.channel).toHaveBeenCalledTimes(1);
     expect(realtime.live()).toEqual([]);
+  });
+});
+
+describe('watchPostgresChanges — the token a join carries', () => {
+  it('joins at once when the client holds a token, and asks for none', () => {
+    const { onChange, channel } = watch();
+    expect(channel().token).toBe(USER_TOKEN);
+    expect(realtime.realtime.setAuth).not.toHaveBeenCalled();
+    channel().status('SUBSCRIBED');
+    channel().emit('INSERT', { id: 'm1' });
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('opened before auth-js has read the session, joins with its token once it has', async () => {
+    realtime.launchBeforeSession();
+    const { onChange, onResync, channel } = watch();
+    // The token is asked for; nothing is joined without it.
+    expect(realtime.realtime.setAuth).toHaveBeenCalledWith();
+    expect(channel().onStatus).toBeNull();
+
+    await realtime.readSession();
+    expect(channel().token).toBe(USER_TOKEN);
+    channel().status('SUBSCRIBED');
+    expect(onResync).toHaveBeenCalledWith(RESYNC.SUBSCRIBED);
+    channel().emit('INSERT', { id: 'm1' });
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('stopped while it waits for the token, joins nothing', async () => {
+    realtime.launchBeforeSession();
+    const { stop, channel } = watch();
+    const ch = channel();
+    stop();
+    await realtime.readSession();
+    expect(ch.onStatus).toBeNull();
+    expect(realtime.removeChannel).toHaveBeenCalledWith(ch);
+    expect(realtime.live()).toEqual([]);
+  });
+
+  it('a channel reopened later joins at once with the token the client holds', async () => {
+    realtime.launchBeforeSession();
+    const { channel } = watch();
+    await realtime.readSession();
+    realtime.realtime.setAuth.mockClear();
+    channel().status('SUBSCRIBED');
+    channel().status('CLOSED');
+    vi.advanceTimersByTime(REOPEN_AFTER_MS);
+    expect(realtime.live()).toHaveLength(1);
+    expect(channel().token).toBe(USER_TOKEN);
+    expect(realtime.realtime.setAuth).not.toHaveBeenCalled();
   });
 });

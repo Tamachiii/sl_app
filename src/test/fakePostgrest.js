@@ -28,7 +28,8 @@
 //     row when there is exactly one, and to a PGRST116 error otherwise;
 //   - `select(…, { head: true })` resolves to `{ count }` with no rows, the
 //     count being the response's `count`, or the number of rows — never cut,
-//     as a server-side count is not.
+//     as a server-side count is not;
+//   - `.abortSignal(signal)` is accepted and changes nothing.
 //
 // Each awaited request is pushed to `requests` as
 //   { table, select, options, filters: [[op, column, value], …], order, limit }
@@ -96,6 +97,10 @@ export function fakePostgrest(tables, { maxRows = 1000 } = {}) {
       },
       limit(n) {
         request.limit = n;
+        return builder;
+      },
+      // The client's own way to drop a request: the answer is the same.
+      abortSignal() {
         return builder;
       },
       maybeSingle: () => settle().then((res) => ({ ...res, data: res.data ? res.data[0] ?? null : null })),

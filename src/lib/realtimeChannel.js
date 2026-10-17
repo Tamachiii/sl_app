@@ -72,6 +72,27 @@ export function resyncRefetchOptions(reason) {
 let openings = 0;
 
 /**
+ * Null when the Realtime client holds a token to join with; otherwise the
+ * promise of `setAuth()`, which asks supabase-js for the session's token.
+ *
+ * realtime-js puts in a join the token it holds when `subscribe()` is called,
+ * and a token that arrives while that join is on its way is never sent to the
+ * channel. The server answers a join without a user token with ok — the status
+ * is SUBSCRIBED — and refuses its postgres_changes (`anon` reads no table:
+ * "invalid column for filter"), so the channel hears nothing for as long as
+ * the page lives. The app draws its pages before auth-js has read the stored
+ * session (hooks/useAuth.jsx), and the first channels of a launch are opened
+ * while the client holds no token: the coach's badge, list and receipts stayed
+ * as they were on every launch that lost that race.
+ */
+function untilAuthorized() {
+  const client = supabase.realtime;
+  if (client.accessTokenValue) return null;
+  // A failure leaves the join as it was: with the token the client holds.
+  return client.setAuth().catch(() => {});
+}
+
+/**
  * Keeps one Realtime channel on `postgres_changes` alive for as long as the
  * caller wants it, and says when the cache may have missed something.
  *
@@ -86,6 +107,9 @@ let openings = 0;
  *   died).
  *
  * Returns the function that ends it.
+ *
+ * A channel is joined once the client holds a token (`untilAuthorized`): one
+ * opened before auth-js has read the session waits for it.
  *
  * CHANNEL_ERROR and TIMED_OUT leave the channel where it is: the client joins
  * it again by itself, and a channel removed on its first error is never
@@ -133,6 +157,13 @@ export function watchPostgresChanges({ topic, filters, onChange, onResync }) {
     joined = false;
     openedAt = Date.now();
     failures = 0;
+    const waiting = untilAuthorized();
+    if (waiting) waiting.then(() => join(opened));
+    else join(opened);
+  }
+
+  function join(opened) {
+    if (stopped || channel !== opened) return;
     opened.subscribe((status) => {
       // A channel that was let go still reports its own CLOSED.
       if (stopped || channel !== opened) return;

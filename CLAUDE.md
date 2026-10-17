@@ -119,7 +119,8 @@ src/
                  fakePostgrest.js (supabase.from() double that cuts at 1000 rows; applies `.range()` and
                  several `.order()`, records every argument of a filter)
                  fakeRealtime.js (supabase.channel()/removeChannel() double:
-                 statuses, filtered bindings, events as realtime-js hands them over)
+                 statuses, filtered bindings, events as realtime-js hands them over;
+                 `realtime` — the token a join carries, launchBeforeSession/readSession)
                  fakeServiceWorker.js (fakeBrowser — a container, a registration and workers
                  that are found, install, wait and take over in two steps, activating then
                  activated; memoryStorage)
