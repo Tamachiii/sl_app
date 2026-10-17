@@ -312,7 +312,7 @@ const renderList = (client) => render(under(client, <StudentTraining />));
 async function atHome() {
   const client = makeClient();
   const view = renderList(client);
-  expect(await screen.findByText('Session 2 of 3')).toBeInTheDocument();
+  expect(await screen.findByText('Bloc 3, session 2 of 3')).toBeInTheDocument();
   await waitFor(() => expect(db.requestsTo('set_logs')).toHaveLength(1));
   view.unmount();
   return client;
@@ -364,25 +364,27 @@ async function undoConfirmation(user) {
 
 // The list after the confirmation of "Pull A": the block has moved on.
 async function expectListMovedOn(user) {
-  expect(screen.getByText('Session 3 of 3')).toBeInTheDocument();
-  const nextCard = screen.getByText('Next').closest('.rounded-2xl');
-  expect(within(nextCard).getByText('Legs A')).toBeInTheDocument();
-  expect(within(nextCard).queryByText('Pull A')).toBeNull();
+  expect(screen.getByText('Bloc 3, session 3 of 3')).toBeInTheDocument();
+  // The next session: the panel that holds « Start the session ».
+  const next = screen.getByRole('link', { name: 'Start the session' }).closest('section');
+  expect(within(next).getByRole('heading', { name: 'Legs A' })).toBeInTheDocument();
+  expect(within(next).queryByText('Pull A')).toBeNull();
 
-  // The drawer of finished sessions holds it, first — it is the one trained
+  // The row of finished sessions holds it, first — it is the one trained
   // last — and with its day.
-  const drawer = screen.getByRole('button', { name: /done/i });
-  expect(drawer).toHaveTextContent('2 sessions');
+  const history = screen.getByRole('region', { name: 'History' });
+  const drawer = within(history).getByRole('button', { name: /sessions? done/ });
+  expect(drawer).toHaveAccessibleName(/^2 sessions done,/);
   await user.click(drawer);
-  const section = drawer.closest('section');
-  const titles = within(section)
+  const titles = within(history)
     .getAllByText(/^(Pull A|Push A)$/)
     .map((el) => el.textContent);
   expect(titles).toEqual(['Pull A', 'Push A']);
-  // "Tue, Oct 13 · 2 EX": without its day the card says "2 EX" alone, and
+  // "Pull A, Tue, Oct 13": without its day the row says its title alone, and
   // sinks below the sessions that have one.
-  const pullCard = within(section).getByText('Pull A').closest('.min-w-0');
-  expect(pullCard).toHaveTextContent(/[A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2}\s*·\s*2 EX/);
+  expect(within(history).getByRole('link', { name: /^Pull A/ })).toHaveAccessibleName(
+    /^Pull A, [A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2}$/,
+  );
 }
 
 beforeEach(() => {

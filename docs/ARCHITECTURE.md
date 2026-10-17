@@ -365,7 +365,7 @@ For coach tabs, **Students** and **Sessions** both live under the shared `/coach
 - **Students** matches `/coach/students*` OR `/coach/student/:sid/week/…`
 - **Sessions** matches `/coach/sessions*` OR `/coach/student/:sid/session/…/review`
 
-`BottomNav` / `SideNav` call `useLocation()` and use `customActive ?? navLinkIsActive`.
+`BottomNav` (the Parc `TabBar`, under 1024px) and `SideNav` (the Parc `SideNav`, from 1024px) call `useLocation()`: a tab with `matches` passes `active` to the Parc `Tab` / `SideNavItem`, the others follow `NavLink`; the open tab carries `aria-current="page"`.
 
 The same `matches(pathname)` decides a tap on the open tab: an item may carry `onReselect`, which the navs call from the `NavLink`'s `onClick` — before its navigation — when the item is active and the click is a plain primary one (`reselectOnClick` in `layout/navItems`). Athletes and Sessions use it to forget the place their root would bounce back to. An item may also carry `badge`: `'unread-messages'` draws `messaging/UnreadMessagesBadge` (Messages), `'to-review'` draws `layout/ReviewCountBadge` (Sessions, coach only — the hook behind it is never mounted in the athlete's nav).
 
@@ -418,7 +418,7 @@ The script is a command line over [scripts/lib/published-builds.mjs](../scripts/
 ## Session & UI behavior patterns
 
 - **`SessionView` exercise cards** auto-open only the first incomplete group. Every other group (complete or still pending) starts collapsed, so the student always sees exactly one "current exercise". As the last set of group N is marked done, group N collapses and group N+1 opens. Manual taps still win per-group via `manualOpen[groupKey]`. Supersets collapse as a single unit (grouping from `groupSlotsBySuperset`) since sets alternate across slots.
-- **`SessionCard`** supports controlled and uncontrolled open state. Pass `open` + `onToggle` to control from the parent (this is how `StudentTraining` enforces single-open accordion behavior). Omit them and the card falls back to its own `useState(defaultOpen)`. `collapsible={false}` pins it open — used for the next-up card. `locked` drops the start affordance for a past block's read-only sessions; `hasLoggedSets` gives such a session the Review CTA when it is neither confirmed nor archived and one of its sets was logged.
+- **The training list** (`StudentTraining`) shows the next session as an open panel and every other session as a Parc `Row`; there is no collapsible card any more. Its history rows (`HistoryRow`) build their content only when they are open.
 - **Exercise Library filtering is client-side.** Search and type-filter state live in `ExerciseLibrary` and are applied with `useMemo` over the already-fetched list — no extra Supabase queries. They apply to the exercises on offer (`isActiveExercise`); the "Archived · N" drawer counts and lists every archived exercise. Search bar + pills are hidden when no exercise is on offer, to keep the add-first flow clean; a library whose every exercise is archived says so (`coachLibraryArchive.allArchived`) above the drawer.
 
 ## i18n: dictionaries and fragments

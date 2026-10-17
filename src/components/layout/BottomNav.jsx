@@ -1,70 +1,50 @@
-import { NavLink, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
+import { Tab, TabBar } from '../parc';
 import { getNavItems, reselectOnClick } from './navItems';
 import UnreadMessagesBadge from '../messaging/UnreadMessagesBadge';
 import ReviewCountBadge from './ReviewCountBadge';
 
-function NavItem({ to, label, icon, end = false, matches, badge, onReselect }) {
+function NavTab({ to, label, icon, end = false, matches, badge, onReselect }) {
   const { pathname } = useLocation();
-  const customActive = matches ? matches(pathname) : null;
+  // A tab whose pages are not all under its own path says when it is open
+  // (navItems `matches`); the others follow the router.
+  const active = matches ? matches(pathname) : undefined;
   return (
-    <NavLink
+    <Tab
       to={to}
       end={end}
-      onClick={(event) => reselectOnClick(event, customActive, onReselect)}
-      className={({ isActive }) => {
-        const active = customActive ?? isActive;
-        return `relative flex-1 flex flex-col items-center justify-center gap-1 py-2.5 transition-colors ${
-          active ? 'text-[var(--color-accent)]' : 'text-ink-400 hover:text-ink-700'
-        }`;
-      }}
-    >
-      {({ isActive }) => {
-        const active = customActive ?? isActive;
-        return (
-          <>
-            {active && (
-              <span
-                aria-hidden="true"
-                className="absolute top-0 left-1/2 -translate-x-1/2 h-[2px] w-8 rounded-full"
-                style={{ background: 'var(--color-accent)' }}
-              />
-            )}
-            {icon}
-            {badge === 'unread-messages' && <UnreadMessagesBadge variant="dot" />}
-            <span className="sl-label text-[10px]">{label}</span>
-            {/* After the label in the DOM, so the tab reads "Sessions, 3
-                sessions to review"; drawn over the icon all the same. */}
-            {badge === 'to-review' && <ReviewCountBadge variant="icon" />}
-          </>
-        );
-      }}
-    </NavLink>
+      active={active}
+      icon={icon}
+      label={label}
+      onClick={(event) => reselectOnClick(event, active, onReselect)}
+      badge={
+        badge === 'unread-messages' ? (
+          <UnreadMessagesBadge variant="dot" />
+        ) : badge === 'to-review' ? (
+          <ReviewCountBadge variant="icon" />
+        ) : null
+      }
+    />
   );
 }
 
+/**
+ * The tab bar at the bottom of a top-level screen, under 1024px
+ * (design/parc/components/TabBar): the tabs of the role, the open one in blue,
+ * a count on Séances and Messages. From 1024px the SideNav carries the same
+ * tabs.
+ */
 export default function BottomNav() {
   const { role } = useAuth();
   const { t } = useI18n();
   const items = getNavItems(role, t);
-
-  const navClass =
-    'sticky bottom-0 flex justify-around backdrop-blur supports-[backdrop-filter]:bg-white/80 bg-white border-t border-ink-100 md:hidden';
-
-  // Honor the home-indicator / gesture-bar safe area on iOS + Samsung edge devices.
-  // On non-notched devices env(...) returns 0, so this is a no-op visually.
-  const navStyle = {
-    paddingBottom: 'env(safe-area-inset-bottom)',
-    paddingLeft: 'env(safe-area-inset-left)',
-    paddingRight: 'env(safe-area-inset-right)',
-  };
-
   return (
-    <nav aria-label="Main navigation" className={navClass} style={navStyle}>
+    <TabBar label={t('parcShell.navLabel')} className="sticky bottom-0 z-10 lg:hidden">
       {items.map((item) => (
-        <NavItem key={item.to} {...item} />
+        <NavTab key={item.to} {...item} />
       ))}
-    </nav>
+    </TabBar>
   );
 }

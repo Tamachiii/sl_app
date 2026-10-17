@@ -2,7 +2,7 @@
 // set comes next, which exercise to show, what the editor of a set opens with,
 // and how a set, a load and last time are written. No hook, no rendering;
 // SessionView and its parts call these.
-import { formatNumber, formatRelativeDays } from '../../lib/i18n/format';
+import { formatNumber, formatRelativeDays, pluralKey } from '../../lib/i18n/format';
 import { formatRestClock } from '../parc/ActionBar';
 import { daysSince } from '../../lib/lastPerformance';
 
@@ -166,7 +166,7 @@ export function loadText(weightKg, { t, lang }) {
 }
 
 function repsText(reps, { t, lang }) {
-  return t(reps === 1 ? 'parcSession.repsOne' : 'parcSession.repsMany', { n: formatNumber(lang, reps) });
+  return t(pluralKey(lang, reps, 'parcSession.reps'), { n: formatNumber(lang, reps) });
 }
 
 // What a set asks for, or what was done: « 5 répétitions, 20 kg », « Tenue de

@@ -69,7 +69,7 @@ src/
                        students · set-logs · set-video · confirmations · slot-comments · stats
   components/
     auth/              LoginPage, ProtectedRoute, RoleGate
-    layout/            AppShell, BottomNav, SideNav, navItems
+    layout/            AppShell, BottomNav (Parc TabBar), SideNav (Parc SideNav), navItems
     coach/             CoachHome (Athletes roster + single-student tabs), StudentWeekStrip,
                        StudentOverview, PreviousSessionPanel,
                        StudentProgrammingSection, StudentGoalsSection, StudentStatsSection,
@@ -80,7 +80,7 @@ src/
     messaging/         MessageThread, MessageComposer, ConversationList,
                        UnreadMessagesBadge
     notifications/     NotificationBell
-    student/           StudentTraining, SessionCard, SessionView (SessionExercise,
+    student/           StudentTraining, SessionView (SessionExercise,
                        SetSheet, RpeSheet, useSetActions, sessionModel),
                        StudentDashboard (Stats), SessionCalendar,
                        ExerciseProgressChart, MyGoals, VideoUploadButton, StudentMessages,
@@ -177,7 +177,7 @@ Quick summary:
 - **Toggles**: the app is **dark-only** — there is no theme toggle. `LanguageSelect` lives next to the `LoginPage` kicker and inside `ui/UserMenu`'s coach-side popover. On the student side the popover has been retired — the language selector lives on the dedicated `StudentProfile` page (the avatar `<Link>`s to it directly when `profileHref` is passed).
 - **Notifications**: a `NotificationBell` lives next to the avatar in `ui/UserMenu` so every top-level page surfaces them. Two event kinds today: `session_completed` fires when a student inserts a `session_confirmations` row (notifies the coach); `session_feedback` fires when the coach submits a feedback message at the end of `SessionReview` — i.e. inserts a `messages` row with `session_id` set — and notifies the student with a deep link to the session view. Both use SECURITY DEFINER triggers writing to the `notifications` table (no client INSERT policy). Realtime via the same Supabase channel pattern as messages. Adding a new event type = new trigger + new `describeNotification` case + new i18n key.
 - **Coach feedback flow**: `SessionReview` ends with `SessionFeedbackComposer` — an optional textarea + "Send feedback" / "Finish without feedback" pair — once the athlete has confirmed the session. For a session that is not confirmed (still in progress, or confirmed and then undone) the page says so and offers no form: a review needs a confirmation. On send, it inserts a normal `messages` row with `session_id` attached; the DB trigger fires the notification, and the message renders in the existing coach↔student thread with a "Re: <session>" reference card above the bubble. Tapping the card deep-links to the session (coach → review screen, student → session view). The card is rendered by `messaging/SessionReferenceCard` and metadata for visible refs is fetched in one batch by `useSessionRefsForMessages`.
-- **Student-side feedback surface**: feedback shows up in two places on the student side. `SessionView` reads `useSessionFeedback(sessionId)` and renders a "Coach's feedback" card between the progress bar and the slot groups when a feedback row exists — this is what the deep-link from a feedback message lands on. `SessionCard` shows a small "feedback" pill in its trailing block when `hasFeedback` is true; `StudentTraining` sources that flag from `useMyFeedbackSessionIds()` (a single batched query for the student's feedback rows), so a student can tell at a glance which sessions have a follow-up to read. Once the coach has reviewed a session — with feedback or without — `SessionView` shows it read-only: the sets, notes and videos stay as the coach read them, and where "Undo confirmation" was the page says that the coach has reviewed the session and links to Messages, the way to ask for a correction.
+- **Student-side feedback surface**: feedback shows up in two places on the student side. `SessionView` reads `useSessionFeedback(sessionId)` and renders a "Coach's feedback" card between the progress bar and the slot groups when a feedback row exists — this is what the deep-link from a feedback message lands on. The training list says « Coach’s feedback » on the row of a session that has feedback; `StudentTraining` sources that flag from `useMyFeedbackSessionIds()` (a single batched query for the student's feedback rows), so a student can tell at a glance which sessions have a follow-up to read. Once the coach has reviewed a session — with feedback or without — `SessionView` shows it read-only: the sets, notes and videos stay as the coach read them, and where "Undo confirmation" was the page says that the coach has reviewed the session and links to Messages, the way to ask for a correction.
 
 ---
 

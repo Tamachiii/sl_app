@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import { useI18n } from '../../hooks/useI18n';
-import { formatNumber } from '../../lib/i18n/format';
+import { formatNumber, pluralKey } from '../../lib/i18n/format';
 import { formatRpe } from '../../lib/rpe';
 import { Button, CoachNote, SetPanel, SetRow } from '../parc';
 import SlotCommentBox from './SlotCommentBox';
@@ -35,13 +35,13 @@ function panelFigures(log, seed, { durationBased, loadMode, t, lang }) {
     const seconds = log.target_duration_seconds;
     primary = {
       value: seconds == null ? '–' : formatNumber(lang, seconds),
-      unit: t(seconds === 1 ? 'parcSession.unitSecondOne' : 'parcSession.unitSecondMany'),
+      unit: t(pluralKey(lang, seconds ?? 0, 'parcSession.unitSecond')),
     };
   } else {
     const reps = seed?.reps ?? log.target_reps ?? null;
     primary = {
       value: reps == null ? '–' : formatNumber(lang, reps),
-      unit: t(reps === 1 ? 'parcSession.unitRepOne' : 'parcSession.unitRepMany'),
+      unit: t(pluralKey(lang, reps ?? 0, 'parcSession.unitRep')),
     };
   }
   const weight = seed?.weightKg ?? log.target_weight_kg ?? null;

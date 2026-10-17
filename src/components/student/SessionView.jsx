@@ -22,7 +22,7 @@ import { useRestTimer, extendRestTimer } from '../../hooks/useRestTimer';
 import { readState } from '../../lib/readState';
 import { groupSlotsBySuperset } from '../../lib/volume';
 import { performedOnFromLogs } from '../../lib/day';
-import { dayName, formatDateTime, formatNumber } from '../../lib/i18n/format';
+import { dayName, formatDateTime, formatNumber, pluralKey } from '../../lib/i18n/format';
 import Spinner from '../ui/Spinner';
 import {
   ActionBar,
@@ -501,7 +501,7 @@ export default function SessionView() {
   }
   if (slots.length > 0) {
     facts.push(
-      t(slots.length === 1 ? 'parcSession.exercisesOne' : 'parcSession.exercisesMany', {
+      t(pluralKey(lang, slots.length, 'parcSession.exercises'), {
         n: formatNumber(lang, slots.length),
       }),
     );

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useIsMutating, useIsRestoring, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
@@ -12,84 +12,47 @@ import { sessionQueryOptions } from '../../hooks/useSession';
 import { setLogsQueryOptions } from '../../hooks/useSetLogs';
 import { useMyConfirmedSessionIds } from '../../hooks/useSessionConfirmation';
 import { useMyFeedbackSessionIds } from '../../hooks/useMessages';
-import { DAY_FULL_LONG, parseISODate, performedDate } from '../../lib/day';
 import { buildQueue, flattenSessions } from '../../lib/sessionQueue';
 import { readState } from '../../lib/readState';
 import { isLoggedSet } from '../../lib/loggedSets';
+import { formatNumber, formatRelativeDays, pluralKey } from '../../lib/i18n/format';
+import { prescriptionText } from '../../lib/prescriptionText';
 import Spinner from '../ui/Spinner';
-import EmptyState from '../ui/EmptyState';
 import UserMenu from '../ui/UserMenu';
-import SessionCard from './SessionCard';
+import { Button, Icon, LargeTitle, ListGroup, Row, StatusText, WeekDots } from '../parc';
 import Unavailable from './Unavailable';
-
-const LOCALE = { en: 'en-US', fr: 'fr-FR', de: 'de-DE' };
+import {
+  newestTrainedFirst,
+  placesOf,
+  positionsOf,
+  trainedOnText,
+  weekOf,
+  weekSentence,
+  whenText,
+} from './trainingModel';
 
 // Stable stand-ins for "not read yet", so a memo that depends on them does not
 // run again on every render.
 const NO_WEEKS = [];
 const NO_IDS = new Set();
 
-/**
- * The student's ONE training surface: the block as a single ordered list.
- *
- * This replaces a Home page and a Sessions page that both listed sessions and
- * both offered "start the next one". Two screens for one question — "what do I
- * do now?" — is the redundancy this merge removes. It also drops the Mon–Sun
- * day strip: a seven-column grid with week arrows IS the calendar week, which
- * is the exact framing the block was rewritten to stop imposing.
- *
- * Reading order is the model, stated once: the next session sits at the top,
- * expanded, with the athlete's place in the block beside the program name.
- * Sessions still to do follow it in program order. Finished sessions sit below
- * under one heading, ordered by the day they were ACTUALLY trained — which is
- * the only order that means anything once the athlete stops following a
- * calendar (the old list sorted them by recommended weekday, so a session done
- * on the 18th could sit above one done on the 21st).
- */
-
-/** "Fri, 21 Aug" — the day a session was really trained. */
-function formatDoneDate(session, lang) {
-  const d = performedDate(session);
-  if (!d) return null;
-  return d.toLocaleDateString(LOCALE[lang] || LOCALE.en, {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-  });
-}
+// How many of the sessions after the next one « Ensuite » shows before
+// « Voir les n autres séances ».
+const THEN_SHOWN = 3;
 
 /**
- * What to say under an unfinished session's title. A real date when the coach
- * set one, otherwise the recommended weekday spelled out as advice — never a
- * pill on a grid, which is what made a suggestion read as a deadline.
+ * The athlete's ONE training surface (design/parc/screens/Entrainement.dc.html):
+ * the next session in a panel with its exercises and « Commencer la séance »,
+ * the sessions after it in program order, and the history in closed rows.
+ *
+ * This replaced a Home page and a Sessions page that both listed sessions and
+ * both offered "start the next one". It shows no Mon–Sun grid with arrows —
+ * that framing is what the block was rewritten to stop imposing — only the
+ * seven dots of the week the athlete is in.
+ *
+ * Finished sessions are ordered by the day they were ACTUALLY trained — the
+ * only order that means anything once the athlete stops following a calendar.
  */
-function upcomingSubtitle(session, lang, t) {
-  const d = session.scheduled_date ? parseISODate(session.scheduled_date) : null;
-  if (d) {
-    return d.toLocaleDateString(LOCALE[lang] || LOCALE.en, {
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short',
-    });
-  }
-  const dn = session.day_number;
-  if (dn >= 1 && dn <= 7) {
-    return t('student.training.recommendedDay', { day: DAY_FULL_LONG[dn - 1] });
-  }
-  return null;
-}
-
-// Finished work reads newest-first, by the day it was really trained. Sessions
-// with no recorded date (confirmed before the column existed) sink below the
-// dated ones rather than jumping to the top.
-function newestTrainedFirst(a, b) {
-  const da = performedDate(a);
-  const db = performedDate(b);
-  if (da && db) return db - da;
-  if (da) return -1;
-  if (db) return 1;
-  return 0;
-}
 
 /**
  * Read a session and its sets into the cache, under the keys and in the shapes
@@ -121,109 +84,149 @@ function holdsLoggedSet(session) {
   return (session.exercise_slots || []).some((slot) => (slot.set_logs || []).some(isLoggedSet));
 }
 
-// Name plus at most ONE short line, and only when it says something. "Trained
-// today" told the athlete what they already knew; staleness and recent rhythm
-// are the two facts worth a line, and never both at once.
-//
-// `neverTrained`: no confirmation in any block. The queue knows the block being
-// trained only, so "No sessions logged yet" went to an athlete with 24
-// confirmed sessions in the blocks before it (live N7). It is said when it is
-// true, and only then.
-function Greeting({ fullName, queue, neverTrained, onSignOut }) {
+function exercisesText(n, { t, lang }) {
+  return t(pluralKey(lang, n, 'parcTraining.exercises'), { n: formatNumber(lang, n) });
+}
+
+/**
+ * The page's title, the place in the block, and the week in seven dots with
+ * one line beside them: how many sessions were done this week — or, in a
+ * week with none, when the last one was, or that there was never one.
+ *
+ * `neverTrained`: no confirmation in any block. The queue knows the block
+ * being trained only, so "No sessions logged yet" went to an athlete with 24
+ * confirmed sessions in the blocks before it (live N7). It is said when it is
+ * true, and only then.
+ */
+function Header({ fullName, onSignOut, subtitle, week, queue, neverTrained }) {
   const { t, lang } = useI18n();
-  const firstName = (fullName || '').split(' ')[0] || 'there';
-
   let line = null;
-  if (queue.daysSinceLast == null) {
-    line = queue.total > 0 && neverTrained ? t('student.training.neverTrained') : null;
-  } else if (queue.daysSinceLast === 0) {
-    line = queue.doneLast7 > 0
-      ? t(queue.doneLast7 === 1 ? 'student.training.last7One' : 'student.training.last7Many', {
-          n: queue.doneLast7,
-        })
-      : null;
-  } else {
-    let when = '';
-    try {
-      when = new Intl.RelativeTimeFormat(lang, { numeric: 'auto' }).format(
-        -queue.daysSinceLast,
-        'day'
-      );
-    } catch {
-      when = '';
-    }
-    line = when ? t('student.training.lastTrained', { when }) : null;
+  if (week?.doneCount > 0) {
+    line = t(pluralKey(lang, week.doneCount, 'parcTraining.weekCount'), {
+      n: formatNumber(lang, week.doneCount),
+    });
+  } else if (queue?.daysSinceLast != null) {
+    line = t('parcTraining.lastTrained', { when: formatRelativeDays(lang, -queue.daysSinceLast) });
+  } else if (neverTrained && queue?.total > 0) {
+    line = t('parcTraining.neverTrained');
   }
-
   return (
-    <div className="pt-3 pb-1 flex items-start justify-between gap-4">
-      <div className="min-w-0">
-        <div className="sl-label text-ink-400">{t('student.training.kicker')}</div>
-        <h1 className="sl-display text-[32px] md:text-[44px] text-gray-900 leading-none mt-1 truncate">
-          {t('student.home.hey')}, {firstName}.
-        </h1>
-        {line && <p className="sl-mono text-[11px] text-ink-400 mt-2">{line}</p>}
-      </div>
-      <UserMenu fullName={fullName} onSignOut={onSignOut} profileHref="/student/profile" />
-    </div>
+    <header>
+      <LargeTitle
+        title={t('nav.training')}
+        subtitle={subtitle}
+        trailing={<UserMenu fullName={fullName} onSignOut={onSignOut} profileHref="/student/profile" />}
+      />
+      {week && (
+        <div className="mt-3 flex items-center gap-3">
+          <WeekDots days={week.days} label={weekSentence(week, { t, lang })} />
+          {line && <span className="pk-caption">{line}</span>}
+        </div>
+      )}
+      {!week && line && <p className="pk-caption mt-3">{line}</p>}
+    </header>
   );
 }
 
 /**
- * A closed drawer of finished work — the active block's completed sessions, or
- * a whole past block.
- *
- * History is something the athlete goes looking for, never something the
- * landing page should spend its height on: a month-long block is ~20 cards and
- * a year of coaching is hundreds, every one of them standing between the
- * athlete and the only question this page exists to answer. `renderBody` is a
- * function, not children, so a closed drawer builds NOTHING — the cost stays a
- * single row however long the history gets.
- *
- * Open state is deliberately not persisted: you open a drawer to look one
- * thing up, and coming back to a clean page next visit is the right default.
+ * The next session, open: when it is planned, its name, its place and its
+ * exercises with what each asks for, and « Commencer la séance ».
  */
-function Drawer({ headingId, title, meta, renderBody }) {
-  const [open, setOpen] = useState(false);
+function NextSession({ session, position, hasFeedback }) {
+  const { t, lang } = useI18n();
+  const titleId = useId();
+  const ctx = { t, lang };
+  const slots = session.exercise_slots || [];
+  const when = whenText(session, ctx);
+  const facts = [
+    position ? t('parcTraining.sessionN', { n: formatNumber(lang, position) }) : null,
+    exercisesText(slots.length, ctx),
+    hasFeedback ? t('parcTraining.feedback') : null,
+  ].filter(Boolean);
   return (
-    <section aria-labelledby={headingId} className="space-y-2">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="w-full flex items-center gap-3 border-b border-ink-100 pb-1.5 text-left"
+    <section aria-labelledby={titleId} className="pk-panel">
+      <p className="text-[15px] font-bold leading-[1.4] text-blue">
+        {when ? t('parcTraining.nextWhen', { when }) : t('parcTraining.next')}
+      </p>
+      <h2 id={titleId} className="pk-large-title mt-1.5 break-words">
+        {session.title || t('parcTraining.sessionN', { n: formatNumber(lang, position) })}
+      </h2>
+      <p className="pk-caption mt-1.5">{facts.join(', ')}</p>
+      {slots.length === 0 ? (
+        <p className="pk-caption mt-3">{t('parcTraining.noExercises')}</p>
+      ) : (
+        <ul className="m-0 mt-3 list-none p-0">
+          {slots.map((slot) => (
+            <li key={slot.id} className="flex items-baseline justify-between gap-3 border-t border-line py-3">
+              {/* An exercise whose library row the athlete may not read (a
+                  former coach's library: the embed is null) keeps its row. */}
+              <span className="pk-body min-w-0 font-semibold">
+                {slot.exercise?.name ?? t('sessionNavPastReview.exerciseUnavailable')}
+              </span>
+              <span className="pk-caption shrink-0 text-right">{prescriptionText(slot, ctx)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Button
+        as={Link}
+        to={`/student/session/${session.id}`}
+        variant="primary"
+        size="lg"
+        className="mt-4 flex w-full"
       >
-        <div className="min-w-0 flex-1">
-          <div id={headingId} className="sl-label text-gray-900 truncate">
-            {title}
-          </div>
-          {meta && <div className="sl-mono text-[10px] text-ink-400 mt-0.5">{meta}</div>}
-        </div>
-        <svg
-          className={`w-4 h-4 text-ink-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          aria-hidden="true"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      {open && <div className="space-y-2">{renderBody()}</div>}
+        {t('parcTraining.start')}
+      </Button>
     </section>
   );
 }
 
 /**
- * What an open past-block drawer holds: that block's sessions, read when the
- * drawer opens and not before.
+ * A row of the history that opens in place: this block's finished sessions,
+ * or a whole past block. History is something the athlete goes looking for,
+ * never something the landing page spends its height on: `renderBody` is a
+ * function, so a closed row builds NOTHING, however long the history is.
+ *
+ * Open state is deliberately not kept: one opens a row to look one thing up,
+ * and the page is clean again next visit.
+ */
+function HistoryRow({ title, subtitle, renderBody }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <li>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="pk-row w-full bg-transparent text-left"
+        >
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="pk-headline">{title}</span>
+            {subtitle && (
+              <span className="pk-caption">
+                <span className="sr-only">,</span> {subtitle}
+              </span>
+            )}
+          </span>
+          <Icon name={open ? 'chevron-up' : 'chevron-down'} size={18} className="shrink-0 text-ink-2" />
+        </button>
+      </li>
+      {open && renderBody()}
+    </>
+  );
+}
+
+/**
+ * What an open past-block row holds: that block's sessions, read when the row
+ * opens and not before.
  *
  * The list's own read carries a past block as a name and a count, which is all
- * a closed drawer shows — and is why that read stays small enough to be the
- * one the device keeps. Because the query lives in this component, and a
- * closed drawer builds nothing, a block nobody opens is never asked for.
+ * a closed row shows — and is why that read stays small enough to be the one
+ * the device keeps. Because the query lives in this component, and a closed
+ * row builds nothing, a block nobody opens is never asked for.
  */
-function PastBlockSessions({ userId, programId, showArchived, renderCard }) {
+function PastBlockSessions({ userId, programId, showArchived, renderRow }) {
   const { t } = useI18n();
   const online = useOnlineStatus();
   const restoring = useIsRestoring();
@@ -238,44 +241,36 @@ function PastBlockSessions({ userId, programId, showArchived, renderCard }) {
         .sort(newestTrainedFirst),
     [weeks, showArchived]
   );
+  // The place of each session in THIS block, which names an untitled one.
+  const places = useMemo(() => placesOf(weeks), [weeks]);
 
   const state = readState([block], { online, restoring });
   if (state === 'loading') {
-    return <div className="flex justify-center py-6"><Spinner /></div>;
+    return (
+      <li className="flex justify-center py-4">
+        <Spinner />
+      </li>
+    );
   }
   if (state !== 'ready') {
     return (
-      <Unavailable
-        compact
-        title={t(
-          state === 'offline' ? 'trainingListOffline.blockOffline' : 'trainingListOffline.blockError'
-        )}
-        onRetry={() => refetch({ cancelRefetch: false })}
-      />
+      <li>
+        <Unavailable
+          compact
+          title={t(
+            state === 'offline' ? 'trainingListOffline.blockOffline' : 'trainingListOffline.blockError'
+          )}
+          onRetry={() => refetch({ cancelRefetch: false })}
+        />
+      </li>
     );
   }
-  return sessions.map(renderCard);
-}
-
-function ArchivedToggle({ count, expanded, onToggle, t }) {
-  const label = expanded
-    ? t(count === 1 ? 'student.sessions.hideArchivedOne' : 'student.sessions.hideArchivedMany', { n: count })
-    : t(count === 1 ? 'student.sessions.showArchivedOne' : 'student.sessions.showArchivedMany', { n: count });
-  return (
-    <button
-      onClick={onToggle}
-      aria-pressed={expanded}
-      className="sl-mono text-[11px] text-ink-400 hover:text-gray-700 underline py-1 shrink-0"
-    >
-      {label}
-    </button>
-  );
+  return sessions.map((s) => renderRow(s, places));
 }
 
 export default function StudentTraining() {
   const { user, profile, signOut } = useAuth();
   const { t, lang } = useI18n();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const online = useOnlineStatus();
   const restoring = useIsRestoring();
@@ -290,11 +285,7 @@ export default function StudentTraining() {
   const writesWaiting = useIsMutating() > 0;
 
   const [showArchived, setShowArchived] = useState(false);
-  // `undefined` = the student hasn't chosen yet, so the next session opens by
-  // default; `null` = they deliberately collapsed it. The distinction matters
-  // because the next session's id isn't known until the query resolves, so a
-  // plain initial value can't express "whatever turns out to be next".
-  const [openSessionId, setOpenSessionId] = useState(undefined);
+  const [showAllThen, setShowAllThen] = useState(false);
 
   const listState = readState([details, confirmations], { online, restoring });
   const ready = listState === 'ready';
@@ -309,13 +300,19 @@ export default function StudentTraining() {
   const neverTrained = confirmations.data != null && confirmations.data.size === 0;
 
   const queue = useMemo(() => buildQueue(activeWeeks, confirmedIds), [activeWeeks, confirmedIds]);
+  const positions = useMemo(() => positionsOf(activeWeeks), [activeWeeks]);
+  // The place of every session, archived ones included: what names a session
+  // of the history that has no title (an archived one has no position).
+  const places = useMemo(() => placesOf(activeWeeks), [activeWeeks]);
 
   const activeProgramName = activeWeeks[0]?.program?.name || null;
 
-  const { upcoming, done } = useMemo(() => {
+  const { upcoming, done, allSessions } = useMemo(() => {
     const up = [];
     const dn = [];
+    const all = [];
     for (const { session } of flattenSessions(activeWeeks)) {
+      all.push(session);
       if (session.archived_at && !showArchived) continue;
       if (session.archived_at) {
         dn.push(session);
@@ -326,11 +323,19 @@ export default function StudentTraining() {
       }
     }
     dn.sort(newestTrainedFirst);
-    return { upcoming: up, done: dn };
+    return { upcoming: up, done: dn, allSessions: all };
   }, [activeWeeks, confirmedIds, showArchived]);
 
+  const week = useMemo(
+    () =>
+      activeWeeks.length > 0
+        ? weekOf({ sessions: allSessions, upcoming: upcoming.filter((s) => !s.archived_at), confirmedIds })
+        : null,
+    [activeWeeks, allSessions, upcoming, confirmedIds]
+  );
+
   // Past blocks, newest first, as the rows their closed drawers are: a name
-  // and how many sessions the drawer would show. A block with nothing to show
+  // and how many sessions the row would show. A block with nothing to show
   // (every session archived, the toggle off) gets no row.
   const pastHeaders = details.data?.pastPrograms;
   const pastPrograms = useMemo(
@@ -394,10 +399,12 @@ export default function StudentTraining() {
     readAheadSession(queryClient, nextId);
   }, [queryClient, nextId, listReadAt, online, writesWaiting]);
 
+  const ctx = { t, lang };
+
   if (listState === 'loading') {
     return (
-      <div className="p-4">
-        <h1 className="sr-only">Training</h1>
+      <div className="px-4 pt-3 md:px-8">
+        <h1 className="sr-only">{t('nav.training')}</h1>
         <div className="flex justify-center py-12"><Spinner /></div>
       </div>
     );
@@ -409,13 +416,8 @@ export default function StudentTraining() {
   if (!ready) {
     const offline = listState === 'offline';
     return (
-      <div className="p-4 pb-6 md:p-8 space-y-6">
-        <Greeting
-          fullName={profile?.full_name}
-          queue={queue}
-          neverTrained={neverTrained}
-          onSignOut={signOut}
-        />
+      <div className="flex flex-col gap-6 px-4 pt-3 pb-6 md:px-8">
+        <Header fullName={profile?.full_name} onSignOut={signOut} />
         <Unavailable
           title={t(offline ? 'trainingListOffline.offlineTitle' : 'trainingListOffline.errorTitle')}
           body={t(offline ? 'trainingListOffline.offlineBody' : 'trainingListOffline.errorBody')}
@@ -427,149 +429,179 @@ export default function StudentTraining() {
 
   const next = upcoming[0] ?? null;
   const later = upcoming.slice(1);
-  const openId = openSessionId === undefined ? next?.id ?? null : openSessionId;
+  const laterShown = showAllThen ? later : later.slice(0, THEN_SHOWN);
+  const laterHidden = later.length - laterShown.length;
 
-  // `readOnly` covers sessions from a past block: locked for logging both in
-  // the UI and by RLS. It must NOT block navigation — opening a finished
-  // session to review what you did is the whole point of keeping history on
-  // the page, and SessionView already renders a past block read-only.
-  const cardProps = (session, { readOnly = false } = {}) => ({
-    session,
-    confirmed: confirmedIds.has(session.id),
-    archived: !!session.archived_at,
-    hasFeedback: feedbackIds.has(session.id),
-    locked: readOnly,
-    // A past-block session trained in and never confirmed keeps its Review
-    // entry: what was logged there is history too (L32).
-    hasLoggedSets: readOnly && holdsLoggedSet(session),
-    onStart: () => navigate(`/student/session/${session.id}`),
-    // Compared against the EFFECTIVE open id, not the raw state: while that is
-    // still `undefined` the next card is visually open, and toggling it has to
-    // close it rather than re-open what is already open.
-    open: openId === session.id,
-    onToggle: () => setOpenSessionId(openId === session.id ? null : session.id),
-  });
+  const subtitle =
+    activeProgramName && queue.total > 0
+      ? t('parcTraining.programPosition', {
+          program: activeProgramName,
+          n: formatNumber(lang, queue.position),
+          total: formatNumber(lang, queue.total),
+        })
+      : activeProgramName;
+
+  // The row of a finished session. `readOnly` covers sessions from a past
+  // block: locked for logging both in the UI and by RLS. It must NOT block
+  // opening one — reviewing what was done is the point of keeping history —
+  // but a past-block session never trained has nothing to show and leads
+  // nowhere. A past-block session trained in and never confirmed keeps its
+  // way in: what was logged there is history too (L32).
+  const historyRow = (session, { readOnly = false, blockPlaces = places } = {}) => {
+    const confirmed = confirmedIds.has(session.id);
+    const place = blockPlaces.get(session.id);
+    const archived = !!session.archived_at;
+    const opens = !archived && (confirmed || !readOnly || holdsLoggedSet(session));
+    const trained = trainedOnText(session, lang);
+    const subtitleParts = [trained, archived ? t('parcTraining.archived') : null].filter(Boolean);
+    return (
+      <Row
+        key={session.id}
+        to={opens ? `/student/session/${session.id}` : undefined}
+        chevron={opens}
+        leading={
+          <span className={`pk-set-dot ${confirmed ? 'pk-set-dot-done' : 'pk-set-dot-pending'}`} aria-hidden="true">
+            {confirmed ? <Icon name="check" size={16} strokeWidth={3} /> : place ?? '–'}
+          </span>
+        }
+        title={
+          session.title ||
+          (place ? t('parcTraining.sessionN', { n: formatNumber(lang, place) }) : t('parcTraining.untitledSession'))
+        }
+        subtitle={subtitleParts.length ? subtitleParts.join(', ') : null}
+        trailing={feedbackIds.has(session.id) ? <StatusText tone="review">{t('parcTraining.feedback')}</StatusText> : null}
+      />
+    );
+  };
+
+  const lastDone = done.find((s) => !s.archived_at && trainedOnText(s, lang));
 
   return (
-    <div className="p-4 pb-6 md:p-8 space-y-6">
-      <Greeting
+    <div className="flex flex-col gap-6 px-4 pt-3 pb-6 md:px-8">
+      <Header
         fullName={profile?.full_name}
+        onSignOut={signOut}
+        subtitle={subtitle}
+        week={week}
         queue={queue}
         neverTrained={neverTrained}
-        onSignOut={signOut}
       />
 
       {activeWeeks.length === 0 && pastPrograms.length === 0 && (
-        <EmptyState message={t('student.home.noProgram')} />
+        <p className="rounded-group bg-surface p-4 pk-body">{t('parcTraining.noProgram')}</p>
       )}
 
-      {activeWeeks.length > 0 && (
-        <section aria-labelledby="active-block-heading" className="space-y-3">
-          {/* One "you are here" marker for the whole page: the block's name and
-              the athlete's place in it, on a single line. It replaced a stack of
-              four headings (week range, "Next session", "Session 6 of 7", "Then"). */}
-          <header className="flex items-baseline justify-between gap-3 border-b border-ink-100 pb-1.5">
-            <div id="active-block-heading" className="sl-label text-gray-900 truncate">
-              {activeProgramName}
-            </div>
-            {queue.total > 0 && (
-              <span className="sl-mono text-[11px] text-ink-400 shrink-0">
-                {t('student.home.sessionPosition', { n: queue.position, total: queue.total })}
-              </span>
-            )}
-          </header>
-
-          {next && (
-            <div className="relative overflow-hidden rounded-2xl">
-              <div
-                className="absolute top-0 left-0 bottom-0 w-1 z-10"
-                style={{ background: 'var(--color-accent)' }}
-              />
-              {/* Collapsible like every other card: once the student opens
-                  another one this shrinks out of the way instead of holding a
-                  screenful for a session that is no longer the subject. The
-                  NEXT badge carries the meaning the permanent expansion used
-                  to. */}
-              <SessionCard
-                {...cardProps(next)}
-                badge={t('student.training.nextBadge')}
-                subtitle={upcomingSubtitle(next, lang, t)}
-              />
-            </div>
+      {/* From 1024px the next session and the lists stand side by side
+          (design/parc/README.md, « Espacement et mise en page »). */}
+      <div className="flex flex-col gap-6 lg:grid lg:grid-cols-2 lg:items-start">
+        <div className="flex flex-col gap-6">
+          {activeWeeks.length > 0 && next && (
+            <NextSession session={next} position={positions.get(next.id)} hasFeedback={feedbackIds.has(next.id)} />
           )}
 
-          {!next && <EmptyState message={t('student.home.blockComplete')} />}
-
+          {activeWeeks.length > 0 && !next && (
+            <p className="rounded-group bg-surface p-4 pk-body">{t('parcTraining.blockComplete')}</p>
+          )}
+        </div>
+        <div className="flex flex-col gap-6">
           {later.length > 0 && (
-            <div className="space-y-2">
-              {later.map((s) => (
-                <SessionCard key={s.id} {...cardProps(s)} subtitle={upcomingSubtitle(s, lang, t)} />
-              ))}
-            </div>
-          )}
-
-        </section>
-      )}
-
-      {/* Everything already trained lives in a drawer — the active block's own
-          finished sessions first, then each past block. A month-long block
-          reaches ~20 completed cards, so the active block needs the same
-          treatment as the history; the queue position in the header above
-          already states progress without listing it. */}
-      {done.length > 0 && (
-        <Drawer
-          headingId="done-heading"
-          title={t('student.training.doneHeading')}
-          meta={t(
-            done.length === 1 ? 'student.training.sessionsOne' : 'student.training.sessionsMany',
-            { n: done.length }
-          )}
-          renderBody={() =>
-            done.map((s) => (
-              <SessionCard key={s.id} {...cardProps(s)} subtitle={formatDoneDate(s, lang)} />
-            ))
-          }
-        />
-      )}
-
-      {pastPrograms.map(({ program, count }) => (
-        <Drawer
-          key={program.id}
-          headingId={`program-${program.id}-heading`}
-          title={program.name || ''}
-          meta={`${t('student.sessions.pastProgram')} · ${t(
-            count === 1 ? 'student.training.sessionsOne' : 'student.training.sessionsMany',
-            { n: count }
-          )}`}
-          renderBody={() => (
-            <PastBlockSessions
-              userId={user?.id}
-              programId={program.id}
-              showArchived={showArchived}
-              renderCard={(s) => (
-                <SessionCard
-                  key={s.id}
-                  {...cardProps(s, { readOnly: true })}
-                  subtitle={formatDoneDate(s, lang)}
+            <ListGroup title={t('parcTraining.then')}>
+              {laterShown.map((session) => {
+                const position = positions.get(session.id);
+                const when = whenText(session, ctx);
+                return (
+                  <Row
+                    key={session.id}
+                    to={`/student/session/${session.id}`}
+                    chevron={false}
+                    leading={
+                      <span
+                        className="pk-set-dot pk-set-dot-pending pk-condensed text-[18px] font-extrabold"
+                        aria-hidden="true"
+                      >
+                        {position}
+                      </span>
+                    }
+                    title={session.title || t('parcTraining.sessionN', { n: formatNumber(lang, position) })}
+                    subtitle={[
+                      t('parcTraining.sessionN', { n: formatNumber(lang, position) }),
+                      when ?? exercisesText((session.exercise_slots || []).length, ctx),
+                    ].join(', ')}
+                    trailing={
+                      feedbackIds.has(session.id) ? (
+                        <StatusText tone="review">{t('parcTraining.feedback')}</StatusText>
+                      ) : null
+                    }
+                  />
+                );
+              })}
+              {laterHidden > 0 && (
+                <Row
+                  onClick={() => setShowAllThen(true)}
+                  title={
+                    <span className="text-blue">
+                      {t(pluralKey(lang, laterHidden, 'parcTraining.showMore'), {
+                        n: formatNumber(lang, laterHidden),
+                      })}
+                    </span>
+                  }
                 />
               )}
-            />
+            </ListGroup>
           )}
-        />
-      ))}
 
-      {/* One quiet footer link rather than a control tucked inside a drawer the
-          student would have to open first. Archived work is a rare lookup. */}
-      {archivedCount > 0 && (
-        <div className="flex justify-end">
-          <ArchivedToggle
-            count={archivedCount}
-            expanded={showArchived}
-            onToggle={() => setShowArchived((v) => !v)}
-            t={t}
-          />
+          {(done.length > 0 || pastPrograms.length > 0) && (
+            <ListGroup title={t('parcTraining.history')}>
+              {done.length > 0 && (
+                <HistoryRow
+                  title={t(pluralKey(lang, done.length, 'parcTraining.done'), {
+                    n: formatNumber(lang, done.length),
+                  })}
+                  subtitle={
+                    lastDone && queue.daysSinceLast != null
+                      ? t('parcTraining.doneThisBlockLast', { when: formatRelativeDays(lang, -queue.daysSinceLast) })
+                      : t('parcTraining.doneThisBlock')
+                  }
+                  renderBody={() => done.map((s) => historyRow(s))}
+                />
+              )}
+              {pastPrograms.map(({ program, count }) => (
+                <HistoryRow
+                  key={program.id}
+                  title={program.name || t('parcTraining.untitledBlock')}
+                  subtitle={t(pluralKey(lang, count, 'parcTraining.pastBlock'), {
+                    n: formatNumber(lang, count),
+                  })}
+                  renderBody={() => (
+                    <PastBlockSessions
+                      userId={user?.id}
+                      programId={program.id}
+                      showArchived={showArchived}
+                      renderRow={(s, blockPlaces) => historyRow(s, { readOnly: true, blockPlaces })}
+                    />
+                  )}
+                />
+              ))}
+            </ListGroup>
+          )}
+
+          {/* One quiet line rather than a control tucked inside a row the athlete
+              would have to open first. Archived work is a rare lookup. */}
+          {archivedCount > 0 && (
+            <Button
+              variant="text"
+              className="self-start"
+              aria-pressed={showArchived}
+              onClick={() => setShowArchived((v) => !v)}
+            >
+              {t(
+                pluralKey(lang, archivedCount, showArchived ? 'parcTraining.hideArchived' : 'parcTraining.showArchived'),
+                { n: formatNumber(lang, archivedCount) }
+              )}
+            </Button>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

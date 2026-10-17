@@ -140,7 +140,7 @@ export default function AppShell() {
   useScrollRestoration(mainRef, pathname);
 
   return (
-    <div className="flex flex-col md:flex-row h-full bg-ground">
+    <div className="flex flex-col lg:flex-row h-full bg-ground">
       <SideNav />
       <main
         ref={mainRef}
@@ -157,7 +157,7 @@ export default function AppShell() {
             height budget instead of letting the wrapper grow with their
             content. Pages whose content is naturally taller still scroll
             via main, since main has overflow-y-auto. */}
-        <div className="mx-auto w-full max-w-5xl h-full flex flex-col">
+        <div className="mx-auto w-full max-w-content h-full flex flex-col">
           <Outlet />
         </div>
       </main>
