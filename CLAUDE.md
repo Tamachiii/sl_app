@@ -259,7 +259,7 @@ npm run preview   # serve dist/ (4173)
 npm run lint      # eslint with a warning ceiling (--max-warnings 14): one NEW warning fails the gate
 npm test          # vitest watch
 npm test -- --run # single run (CI)
-npm run test:db   # DB suite on an embedded Postgres 17: RLS as anon/student/coach, baseline + migrations = schema.sql, every migration up/down/up, the RLS matrix, who may execute and reach what (about 2½ minutes: 30 files, 1173 tests at the head of wave 2)
+npm run test:db   # DB suite on an embedded Postgres 17: RLS as anon/student/coach, baseline + migrations = schema.sql, every migration up/down/up, the RLS matrix, who may execute and reach what (about 2 minutes: 34 files, 1320 tests at the head of wave 3)
 npm run test:docs # docs suite (tests under docs/); empty and green — the docs-truth tests are in docs/BACKLOG.md
 node scripts/check-migrations.mjs --print   # the migrations of this checkout, which ones a deploy needs, and the query that reads the ledger; connects to nothing
 node scripts/prune-gh-pages.mjs --site <a copy of the published tree> --dist dist --dry-run   # what a deploy of this build would keep and delete; writes nothing

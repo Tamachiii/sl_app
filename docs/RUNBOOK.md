@@ -29,7 +29,7 @@ It is the index. Whatever needs more than a few lines has a page of its own:
 
 You decide that a checkpoint starts. Who pastes the commands is your choice, and the sequence is the same either way: in the sections below, *you* is whoever runs it.
 
-Checkpoint A0 was run by Claude at your request, A1 to A3 under your standing answer of 2026-10-12 — Claude applies the migrations of the checkpoints for you — when you say that a checkpoint may start, never on its own, and never as part of the work on a package: an agent that writes or tests a migration does not run it. The answer and its conditions are noted in `review-2026-09-30/user-answers.md`, which exists in this checkout only. What Claude holds to when it runs one:
+Checkpoint A0 was run by Claude at your request, A1 to A3 and B under your standing answer of 2026-10-12 — Claude applies the migrations of the checkpoints for you — when you say that a checkpoint may start, never on its own, and never as part of the work on a package: an agent that writes or tests a migration does not run it. The answer and its conditions are noted in `review-2026-09-30/user-answers.md`, which exists in this checkout only. What Claude holds to when it runs one:
 
 - a fresh backup first, taken and checked with the two commands of the checkpoint's first step;
 - the audit before and after each migration, one migration at a time, in the order of `supabase/migrations/manifest.json`;
@@ -41,15 +41,17 @@ Checkpoint A0 was run by Claude at your request, A1 to A3 under your standing an
 
 What that answer does not cover — each of these is asked again, every time:
 
-- an `optional` or a `contract` migration: 19, 31, and 43 to 45;
-- a statement that a page gives beside its migration and that writes or deletes rows of the app: removing a coach–athlete link (05), naming an account (07), taking a review back or adding the sets a reviewed session lacks (08), handing goals over to the coach of today (10), switching off a block in the trash or numbering a phase again (11). The step of its migration says when it comes up. Claude reports what there is — the list that the query of the page's section gives, or the number on the line of the audit where the section has no query — and writes nothing until you have answered. Where the statement comes before its migration (05, 08), the migration waits for your answer, and so does everything after it; where it comes after (07, 10, 11), the sequence goes on and the list is part of what is passed on;
+- an `optional` or a `contract` migration: 19, 26, 31, and 43 to 45;
+- a statement that a page gives beside its migration and that writes or deletes rows of the app: removing a coach–athlete link (05), naming an account (07), taking a review back or adding the sets a reviewed session lacks (08), handing goals over to the coach of today (10), switching off a block in the trash or numbering a phase again (11), removing a video file that no video names (25). The step of its migration says when it comes up. Claude reports what there is — the list that the query of the page's section gives, or the number on the line of the audit where the section has no query — and writes nothing until you have answered. Where the statement comes before its migration (05, 08), the migration waits for your answer, and so does everything after it; where it comes after (07, 10, 11, 25), the sequence goes on and the list is part of what is passed on;
 - a run of `run_retention()` — the first one after migration 18, and each month after it — and every other procedure of [runbook/70-admin-procedures.md](runbook/70-admin-procedures.md): they are done outside a checkpoint, and each deletes or writes rows that do not come back;
 - pushing to `main`, which publishes the app, and pushing the branch at all;
 - deploying an Edge Function;
 - enabling an extension (pg_cron) — and with it the optional migration 19, which from its first night on deletes the old rows without a question: [runbook/50-pg-cron.md](runbook/50-pg-cron.md) is what the answer is given on. Pausing a job, and the rollback of migration 19, are asked the same way;
 - a GitHub secret or variable.
 
-For Checkpoint B, and for it only, you answered on 2026-10-15 for three of these at once: switch pg_cron on and apply migration 19; deploy the two Edge Functions as [runbook/30-edge-functions.md](runbook/30-edge-functions.md) says, with their check after the deploy; and push the head of wave 2 to `main` once everything before it reads clean. Before migration 19 that check is run with the shared secret in the shell, which takes the rotation of section 4 of the same page — it writes a secret of the functions and the vault's copy: the sequence has it in step 9, and it is said with your go when the sitting starts. The statements that write or delete rows of the app are still asked one by one.
+For Checkpoint B, and for it only, you answered on 2026-10-15 for three of these at once: switch pg_cron on and apply migration 19; deploy the two Edge Functions as [runbook/30-edge-functions.md](runbook/30-edge-functions.md) says, with their check after the deploy; and push the head of wave 2 to `main` once everything before it reads clean. Two things were done otherwise than the sequence of B says, and step 9 records both. **pg_cron was switched on by SQL**, as `postgres` (`create extension if not exists pg_cron with schema pg_catalog` — the platform lets `postgres` create it, since pg_cron is in `supautils.privileged_extensions`), not with the dashboard's switch: the effect is the same extension, `pg_cron 1.6.4`. **The version of `send-push` was seen without the rotation**: the bearer was read from the vault (`app_service_role_key`) into the environment of the check only, never printed, and the check's `200` showed that the function's secret and the vault hold one value. The rotation writes a secret of the functions and the vault's copy, and your go had not named it: it was asked, and done on 2026-10-16 at 21:10 UTC under your answer of that day ("pour le secret je t'autorise").
+
+For Checkpoint C1 you answered on 2026-10-17 for two of them: the optional migration 26 (*26 oui*), and the push of the head of wave 3 to `main` once every step before it reads clean (*pousse*) — that commit only, as a fast-forward. The statements that write or delete rows of the app are still asked one by one, those of the end-to-end run of C1 included.
 
 ## How to run a file
 
@@ -83,7 +85,7 @@ Without the CLI: Dashboard → SQL Editor, paste the whole file, run it. Same tr
 
 ## Checkpoints
 
-A checkpoint is one sitting: a list of migrations, sometimes a dashboard step or a function to deploy, and whether the app is published afterwards. A checkpoint marked **done** or **ready** has its sequence on this page: *done* is the record of what was run, *ready* is what can be run now, in the order of the table. The others are the plan: their numbers are fixed, their pages are written by the wave that brings the code.
+A checkpoint is one sitting: a list of migrations, sometimes a dashboard step or a function to deploy, and whether the app is published afterwards. A checkpoint marked **done** or **ready** has its sequence on this page: *done* is the record of what was run, *ready* is what can be run now, in the order of the table. The others are deferred: the review ends with C1, and their numbers are reserved for the work [BACKLOG.md](BACKLOG.md) lists.
 
 | Checkpoint | Due | Migrations | Also by hand | App published after it | Hand-over |
 |---|---|---|---|---|---|
@@ -91,16 +93,16 @@ A checkpoint is one sitting: a list of migrations, sometimes a dashboard step or
 | A1 | after wave 1 | 03 | a smoke check as athlete and as coach, with the app that is deployed | no | **done** on 2026-10-13 |
 | A2 | after A1 and its smoke check | 04–10 | looks in the app that is deployed, on the test athlete; what to tell the coach | no | **done** on 2026-10-13 |
 | A3 | after A2 | 11–14 | just before the push: the two repository secrets — the deploy reads the ledger with `SUPABASE_DB_URL`, and stops without it | yes: the first one, the head of wave 1 — `fc7a552`, published on 2026-10-13 | **done** on 2026-10-13 |
-| **B** | now — wave 2 is finished | 15–18, and 19 if pg_cron is enabled | deploy the two Edge Functions; pg_cron and migration 19 — you said yes on 2026-10-15 | yes: the head of wave 2 | **ready** |
-| C1 | after wave 3 | 20–26 | read the audit list of migration 21 first | yes | with wave 3 |
-| C2 | after wave 4 | 27–30 and 32; 31 is optional | the second end-to-end run on the test athlete | yes | with wave 4 |
-| D | after wave 5 | 33–35 | — | yes | with wave 5 |
-| E | after wave 6 | 36, 37 | deploy the invitation function; e-mail templates and a custom SMTP sender | yes | with wave 6 |
-| F | after wave 7 | 38–40 | deploy the account-deletion function | yes | with wave 7 |
-| G | after wave 8 | 41, 42 | — | yes | with wave 8 |
-| Z | at least 14 days after the last time the app was published | 43–45 | a fresh backup; a day before, `MIN_CLIENT_BUILD` set and the app published again, so that no open app is older than the contract ([40, section 8](runbook/40-deploy.md)) | no | with wave 8 |
+| B | after wave 2 | 15–18, and 19 if pg_cron is enabled | deploy the two Edge Functions; pg_cron and migration 19 — you said yes on 2026-10-15 | yes: the head of wave 2 — `2bb6495`, published on 2026-10-15 | **done** on 2026-10-15 |
+| **C1** | now — wave 3, the last wave of the review, is finished | 20–25, and 26 (optional) | read the list of migration 21 first; the end-to-end run *after* on the test athlete — you said yes to 26 and to the push on 2026-10-17 | yes: the head of wave 3 | **ready** |
+| C2 | — | 27–30 and 32; 31 is optional | — | — | deferred to the redesign project ([BACKLOG.md](BACKLOG.md)) |
+| D | — | 33–35 | — | — | deferred to the redesign project ([BACKLOG.md](BACKLOG.md)) |
+| E | — | 36, 37 | — | — | deferred to the redesign project ([BACKLOG.md](BACKLOG.md)) |
+| F | — | 38–40 | — | — | deferred to the redesign project ([BACKLOG.md](BACKLOG.md)) |
+| G | — | 41, 42 | — | — | deferred to the redesign project ([BACKLOG.md](BACKLOG.md)) |
+| Z | — | 43–45 | — | — | deferred to the redesign project ([BACKLOG.md](BACKLOG.md)) |
 
-`supabase/migrations/manifest.json` is what counts: a migration belongs to the checkpoint its entry names, and `src/test/runbookIndex.test.js` fails when this table says otherwise. Migrations 43 to 45 remove what an old installed app still uses, which is why Checkpoint Z waits.
+`supabase/migrations/manifest.json` is what counts: a migration belongs to the checkpoint its entry names, and `src/test/runbookIndex.test.js` fails when this table says otherwise. The campaign of the review ends with Checkpoint C1 (decision of 2026-10-17): C2 to G and Z belong to work that was not built — the migrations 27 to 45 are reserved numbers, not files — and [BACKLOG.md](BACKLOG.md) says what each was to bring. Migrations 43 to 45 remove what an old installed app still uses, which is why Checkpoint Z was to wait at least 14 days after the last publication.
 
 ## Checkpoint A0 — the ledger, the anonymous RPC hole, public sign-up
 
@@ -126,7 +128,7 @@ What it closes:
 
 For the app that is deployed, nothing changes: no table and no row is touched, a signed-in user sees the same screens, and the app is not published at this checkpoint.
 
-**Already done** — the end-to-end run on the test athlete *before* the fixes (2026-10-03). Its scripts, its three snapshots and its screenshots are in `review-2026-09-30/runs/e2e-before/`, and the run at Checkpoint C2 is compared with them. That folder is ignored by git: it exists in this checkout only, and `git clean -x` would delete it. A copy outside the repository costs one command:
+**Already done** — the end-to-end run on the test athlete *before* the fixes (2026-10-03). Its scripts, its three snapshots and its screenshots are in `review-2026-09-30/runs/e2e-before/`, and the run *after*, at Checkpoint C1, is compared with them. That folder is ignored by git: it exists in this checkout only, and `git clean -x` would delete it. A copy outside the repository costs one command:
 
 ```bash
 tar czf ~/sl_app-e2e-before-2026-10-03.tar.gz -C review-2026-09-30/runs e2e-before
@@ -874,7 +876,24 @@ Not done at this checkpoint: deploying a function is asked each time, and it was
 
 ## Checkpoint B — one way out for every push, the rest push that rings, 72 hours of grace, retention, pg_cron, and the app of wave 2
 
-**Ready.** Wave 2 is finished. Production has migrations 01 to 14 and the app of wave 1 (`fc7a552`, published on 2026-10-13). On 2026-10-15 you said yes to this checkpoint as a whole: Claude applies migrations 15 to 18 under the standing answer and — for this checkpoint only — switches pg_cron on and applies the optional migration 19, deploys the two Edge Functions with their checks, and pushes the head of wave 2 to `main`, as a fast-forward, once everything before it reads clean ([Who runs a checkpoint](#who-runs-a-checkpoint) says what that go covers, and the one step it does not name: the rotation of step 9). The rule of the index holds: the first step that does not read as written stops the sitting, nothing after it is done, and the output is passed on as it is.
+**Done on 2026-10-15**, by Claude under your standing answer and your go of that day; the rotation of the shared secret the next evening, on your word of 2026-10-16. The section stays as it was run.
+
+| Step | What it gave |
+|---|---|
+| 1 — the backup | `sl_app-20261015T214710Z…`, 25 tables and 12,933 rows, every checksum matches, `OK`. Nobody was training: the last set was logged at 17:20 UTC, no rest push in the last 30 minutes |
+| 2 — migration 15 | every audit line as the page's "before", then its "after" column; line 8 `10` devices, line 9 `0`, line 10 `set`, line 11 `app_service_role_key`; a message of the coach to the test athlete pushed through `send_push_event` by the `send-push` of before: `200 {"delivered":4}` |
+| 3 — migration 16 | lines 12 to 17 before: `canceled 667, pending 1137, sent 1481`, `1137` left waiting (976 of them taken back by their athlete), the oldest due on 2026-05-11, `0` running, `3134` older than 7 days — six athletes' rows, listed by role only; after: `canceled 1643, expired 161, sent 1481`, `0` waiting; the check `in place, mode edge`; a rest of 30 s scheduled as the app of wave 1 does, sent 0.8 s after its time by the `dispatch-rest-push` of before |
+| 4 — migration 17 | line 10 `8 being trained, 20 not active, 0 drafts`, line 11 `6` in the trash, lines 12 to 15 `0` |
+| 5 — migration 18 | lines 7 to 15 the same before, after and after the check: rest pushes `3286`, `3134` of them for a run to delete, `0` kept; notifications `388`, `369` read, `153` for a run to delete, `2` unread and older than 90 days, kept; client errors `56`, `9` for a run to delete |
+| 6 — the ledger | eighteen rows; 15 at 21:47:34, 16 at 21:48:21, 17 at 21:49:29, 18 at 21:49:36 UTC |
+| 7 — `send-push` | before: `no bearer: 401 Unauthorized`, the version of 2026-05-12; deployed with `supabase functions deploy send-push --use-api` (CLI 2.109.1); after: `no bearer: 401 send-push: unauthorized` |
+| 8 — `dispatch-rest-push` | `no credentials: 401 dispatch-rest-push: unauthorized`; rests of three and five minutes scheduled as the app of wave 1 does: both sent, 0.8 s after their time — before wave 2 a rest of 150 s or more never rang. Not looked at on a phone |
+| 9 — pg_cron, then migration 19 | the version of `send-push` seen without the rotation, the extension switched on by SQL — both said in the step; `bearer: 200 {"delivered":0}`, `rest push: 400 send-push: schedule_id is not a uuid`; `pg_cron 1.6.4`; audit 19 before: line 11 `none`, lines 14 and 15 `0`, line 17 `4 requests, 0 of them failed`; migration 19 at 21:56:57 UTC, nineteen rows; the four jobs, `schedule_rest_push` answering `mode cron`; a minute later `sl-rest-push: succeeded 5 s ago`; a rest of a minute handed over once by the job, sent 0.9 s after its time, and not sent again by the function |
+| 10 — the publication | `check-migrations.mjs --verify` on `2bb6495`: `OK: production has all 18 required migrations of this commit`; `fc7a552..2bb6495` pushed to `main` at about 21:59 UTC; run 38813898109, the five jobs green: `found 0 vulnerabilities`, lint 16 warnings, 172 files and 3415 tests with none skipped, `30 passed (30)` and `1173 passed (1173)`, `deno check` green, `adopted the 47 files that were published without a record, as the build 00000000000000`, `pruned nothing: 2 builds published, 3 are kept`; `version.json` `{"build":"20261015220232","minBuild":null}`; `SMOKE OK` as the coach and as the test athlete. The nightly backup on GitHub ran green on 2026-10-14 and 2026-10-15 (runs 38531178558 and 38699961225) |
+| 11 — on a phone | not done: the looks need you and the phone. They are carried to Checkpoint C1, step 11. The test notifications of the sitting — three chat messages and five *Rest done*, each *Test technique … — à ignorer* — reached the phone, you said on 2026-10-16 |
+| the morning after | looked at on 2026-10-16 at 21:05 UTC: `sl-retention` and `sl-cron-history` `succeeded 17 h ago`, `sl-push-failures` `succeeded 56 min ago`, `sl-rest-push` every ten seconds; the first night deleted 3,134 rest pushes, 153 notifications and 9 client errors; audit 19 line 17 `13 requests, 0 of them failed`; no `DATABASE` line in the coach's list |
+| the rotation | 2026-10-16 at 21:10 UTC, [30, section 4](runbook/30-edge-functions.md), in one shell, the value never printed: the check of section 3 at the first try, the vault holds the value of the shell; the old value — the project's legacy service-role key — no longer opens `send-push`; afterwards a message and a rest of 30 s were delivered |
+| noted | the look at Realtime missed the live event at its first try after a quiet period, at the sitting and again on 2026-10-16, then got it in under a second — given to [BACKLOG.md](BACKLOG.md) as `realtime-cold-start` |
 
 Four migrations, two functions, one choice, and the publication. What they close:
 
@@ -921,7 +940,7 @@ supabase db query --linked --file supabase/audits/2026_10_13_15_push_plumbing.au
 
 Clean: line 2 reads `no`; line 3 lists the eleven functions — `adopt_skip, adopt_swap, approve_program, decline_promote_request, notify_coach_on_program_submit, notify_coach_on_promote_request, notify_coach_on_session_confirm, notify_coach_on_slot_deviation, notify_recipient_on_chat_message, notify_student_on_session_feedback, send_back_program`; lines 4 and 5 `none`; line 6 `no such function`; line 7 `no`; line 9 `0`; line 10 `set`; line 11 `app_service_role_key`; line 12 `yes`. Line 8 is a number: the devices registered today — 10 at Checkpoint A3.
 
-- **Stops**: line 3 lists another function, or lacks one; line 4 or 5 is not `none`; line 7 reads `yes`; line 12 reads `no` — the migration refuses to run on all of these; line 11 reads `app_internal_bearer, and app_service_role_key with ANOTHER value` — only one of the two values can be the function's secret.
+- **Stops**: line 3 lists another function, or lacks one; line 4 or 5 is not `none`; line 7 reads `yes`; line 12 reads `no` — the migration refuses to run on all of these; line 11 reads `app_internal_bearer, and app_service_role_key with ANOTHER value` — only one of the two values can be the function's secret; line 11 reads `app_internal_bearer, and app_service_role_key with the same value` — the rotation of [30, section 4](runbook/30-edge-functions.md), which step 9 runs, writes `app_service_role_key` only, while `send_push_event` reads `app_internal_bearer` first: after it every push would be refused. The leftover name is deleted by its owner before the sitting goes on.
 - **Line 9 decides.** `0` is clean. Otherwise it gives a number and the hosts of the devices the rule would refuse, and the list of the page's section "Devices whose endpoint is not at a known push service" shows them — read-only, by host, never by address:
 
   ```bash
@@ -1194,13 +1213,15 @@ One row, `true`. Then:
 unset INTERNAL_BEARER
 ```
 
+**At the sitting of 2026-10-15 this was done otherwise**, and it is the record: the commands of the rotation were not run, because your go did not name it. The bearer was read from the vault (`app_service_role_key`) into the environment of the check only — never printed — and the check, run once with it, read the three lines of wave 2: the `200` proves that the function's secret and the vault hold one value. The rotation itself came the next evening, under your answer of 2026-10-16 (the table at the top of this section).
+
 **Then what the first night deletes**, lines 8, 12 and 15 — the numbers to pass on:
 
 ```bash
 supabase db query --linked --file supabase/audits/2026_10_13_18_retention.audit.sql
 ```
 
-**Then the extension.** Dashboard → Database → Extensions, search for `pg_cron`, switch it on ([50, section 1](runbook/50-pg-cron.md#1-switch-the-extension-on)). It asks for nothing else, and by itself it changes nothing.
+**Then the extension.** Dashboard → Database → Extensions, search for `pg_cron`, switch it on ([50, section 1](runbook/50-pg-cron.md#1-switch-the-extension-on)). It asks for nothing else, and by itself it changes nothing. **At the sitting it was switched on by SQL instead**, as `postgres`: `create extension if not exists pg_cron with schema pg_catalog` — pg_cron is in `supautils.privileged_extensions`, so the platform lets `postgres` create it. The next command, and line 2 of the audit, read `pg_cron 1.6.4` either way.
 
 ```bash
 supabase db query --linked "select extname, extversion from pg_extension where extname = 'pg_cron'"
@@ -1292,8 +1313,12 @@ What no test of the repository can show. On the test athlete's phone (an iPhone 
 7. **Chat and bell on hosted Realtime** — three things the unit tests cannot settle: open the app as the coach in two tabs and send a message from one — it shows in the other without a reload (the `sender_id` filter is accepted; were it refused, the chat would refresh only when the page comes back); delete it — say whether the other tab drops it at once; and a message from the coach reaches the test athlete's open app live, as at A3 (760 ms then).
 8. **The offline banner** — airplane mode, open a session and scroll down: the amber banner stays just under the notch.
 9. **The coach's editor on the test athlete**: *Set active* on another block and back, reorder the sessions of a phase that holds an archived session, reorder two phases, drag a session across a divider and back, duplicate a session and delete the copy. Each is one request now; the order on screen after a reload is the order that was dropped.
+10. **The day and the time of an offline workout.** After look 2, in the review of that session the coach sees the day of the taps; in the SQL editor, read-only, each set's `logged_at` is the time of its tap — not of the reconnect — and the confirmation's `performed_on` is the day of the training.
+11. **A quiet *Rest done* with the app in front** (B36). *Rest end notification* on, the app open on the session: a rest of a minute ends with the app's beep, and the *Rest done* the push brings makes no sound and no vibration and leaves the notification centre by itself a few seconds later. With the phone locked, the same rest rings as before.
 
-The update flow itself (a deploy that finds the app in the middle of a rest, or with a field being typed in) needs a deploy after this one: it is the first look of the next publication.
+One count needs no phone: how many requests the app sends when the phone is unlocked during a session — a handful, not the thirteen or so of before wave 2 — is counted by `src/lib/queryClient.cache.test.js`.
+
+The update flow itself (a deploy that finds the app in the middle of a rest, or with a field being typed in) needs a deploy after this one: it is the first look of the next publication — Checkpoint C1, step 11.
 
 ### Step 12 — what to pass on
 
@@ -1304,11 +1329,314 @@ The update flow itself (a deploy that finds the app in the middle of a rest, or 
 - any line that was not what its step calls clean, and the message of any check that did not answer as written;
 - whether the app was published, from which commit, the number of the run, and what step 11 showed.
 
+## Checkpoint C1 — drafts closed to the coach, RPE in half steps, the library a change of coach leaves, indexes, the coach's video files, the coach's two lists, and the app of wave 3
+
+**Ready.** Wave 3 is finished, and it is the last wave of the review: what was to follow is in [BACKLOG.md](BACKLOG.md). Production has migrations 01 to 19 and the app of wave 2 (`2bb6495`, published on 2026-10-15). On 2026-10-17 you said yes to this checkpoint as a whole (*pousse*, and *26 oui* for the optional migration): Claude applies migrations 20 to 25 under the standing answer and 26 under that yes, holds the end-to-end run *after* on the test athlete, and pushes the head of wave 3 to `main`, as a fast-forward from `2bb6495`, once everything before it reads clean ([Who runs a checkpoint](#who-runs-a-checkpoint)). The rule of the index holds: the first step that does not read as written stops the sitting, nothing after it is done, and the output is passed on as it is.
+
+Six migrations, one optional one, and the publication. What they close:
+
+| | Finding | What is true today |
+|---|---|---|
+| 20 | P53 | a coach's change to an athlete's draft is accepted, then lost at the athlete's next save; a higher *Sets* in a draft leaves sets without reps or load after the approval |
+| 21 | L34, B12 | an RPE is a whole number; the weekday of a session may be any number, and the blocks an athlete wrote carry weekdays their builder never offered |
+| 22 | B6, L20 | every coach reads every client error of every account, and an account reports errors without end |
+| 23 | B8 | after a change of coach, the exercises of the blocks written before it have no name for the athlete and for the new coach |
+| 24 | L28, P62, N9 | nine indexes repeat a unique key, eight foreign keys have none, and a deleted session stays named by its feedback message |
+| 25 | B7 | a coach reads every file of an athlete's folder in `set-videos`, the files no video names included |
+| 26, optional | L18, P9 | the coach's counts of sessions to review and the list of conversations are folded from reads the API cuts at 1000 rows |
+
+For the app that is deployed, four things change on a screen, each said on its page: a coach's change to a draft answers *Couldn't save that. Please try again.* (20); the sessions of a block an athlete wrote show no weekday (21); the coach's list of errors at the bottom of the roster loses the lines of an account that is no longer an athlete of theirs (22); after a change of coach the former coach's exercises have their name again (23). **What to tell the coach** once migration 20 is in: a draft is changed by sending it back, or by approving it first.
+
+**The order is fixed**: 20 to 26, each refused (`SLM02`) without the one before it, then the publication, then the looks on a phone and the end-to-end run, which need the app of wave 3.
+
+How each step reads is what it was at B: line 1 of every audit is `running as` and reads `postgres` — anything else stops the checkpoint; clean is the "before" column of the table on the migration's page; the step names the lines that stop the sequence and the ones that are only noted; the check of a page is step 3 of its *After*, one pasted command too long to repeat here, which a test runs from the page. Its answer starts with `check only`: `NOT PROTECTED` or `BROKEN` means roll that migration back and report — but for 25, whose page says otherwise; `NOT THERE` after the migration, `NOT TRIED` (migration 07 is in production, so a check that cannot make a coach is a surprise), or a message that does not start with `check only` means stop and report. When the lines a migration changes already read as its "after" column, it is in the database: read the ledger ([How to run a file](#how-to-run-a-file)) and, if its row is there, go on with the next step.
+
+### Step 1 — the right project, and a backup
+
+```bash
+supabase db query --linked "select current_user, current_database(), version()"
+```
+
+One row, `postgres | postgres | PostgreSQL 17.…`. If the first column is not `postgres`, stop.
+
+```bash
+node --env-file=.env scripts/backup/dump.mjs
+```
+
+```bash
+node --env-file=.env scripts/backup/verify.mjs
+```
+
+`read back … every checksum matches`, then `OK`. A `FAILED:` ends the sitting. This backup also holds the weekdays migration 21 clears and the session ids migration 24 takes off the feedback messages: neither comes back with a rollback.
+
+### Step 2 — migration 20: the draft an athlete is writing is theirs alone
+
+Page: [runbook/migrations/20-drafts-coach-readonly.md](runbook/migrations/20-drafts-coach-readonly.md). Rollback at hand: `supabase/rollbacks/2026_10_16_20_drafts_coach_readonly.down.sql`. **It reopens P53**: a coach's change to a draft is accepted again, and lost at the next save. Run it only when the check answers `NOT PROTECTED` or `BROKEN`. It writes and deletes no row.
+
+```bash
+supabase db query --linked --file supabase/audits/2026_10_16_20_drafts_coach_readonly.audit.sql
+```
+
+Clean: line 2 reads `its author, and the coach of its athlete`; line 3 `none`; line 4 `adds the missing sets, then marks the program approved`; lines 5, 6 and 9 `none`; lines 7 and 8 `approve_program(uuid)`. Line 10 is a sentence, `N being written, M sent in`; lines 11 to 15 are numbers.
+
+- **Stops**: line 2 starts with `PARTLY:`; line 4 starts with `SOMETHING ELSE:` or `NOT THERE:`; line 5, 6 or 9 is not `none`, or line 7 or 8 is not `approve_program(uuid)`; line 2, 3 or 4 already reads its "after" column while the ledger does not have the migration.
+- **Noted**: lines 10 and 11 — the drafts out of the trash and in it; line 12 — a block made a draft again by hand, which nobody who signs in can change afterwards (the page's section "A draft nobody wrote"); lines 13 to 15 — sets a coach wrote in a draft, which the approval keeps or writes again from their exercise (the page's section "The drafts and their sets" lists them by draft). None of them stops the migration, and it writes none of them.
+
+```bash
+supabase db query --linked --file supabase/migrations/2026_10_16_20_drafts_coach_readonly.sql
+```
+
+It holds the four tables of a block for an instant: an athlete who ticks a set in that instant waits for it.
+
+```bash
+supabase db query --linked --file supabase/audits/2026_10_16_20_drafts_coach_readonly.audit.sql
+```
+
+Lines 2, 3, 4 and 8 read as the "after" column: `its author only`; `weeks, sessions, exercise_slots, set_logs`; `marks the program approved, drops the sets without a target, adds the missing sets`; `approve_program(uuid); block_draft_session_write(); block_draft_set_log_write(); block_draft_slot_write(); block_draft_week_write()`. The others are what they were.
+
+The check of the page must fail with `check only, nothing was written: in place: the coach changes nothing in a draft of their athlete and is answered draft_read_only; the athlete writes it as before; the coach renames it and approves it, and every set of the approved block has the reps and load of its exercise`.
+
+### Step 3 — migration 21: an RPE in half steps, and a weekday that is a weekday or none
+
+Page: [runbook/migrations/21-rpe-half-steps-day-check.md](runbook/migrations/21-rpe-half-steps-day-check.md). Rollback at hand: `supabase/rollbacks/2026_10_16_21_rpe_half_steps_day_check.down.sql`. It rounds an RPE in a half step up, and **the weekdays the migration cleared do not come back**: the list below is their only record. Run it only when the check answers `NOT PROTECTED` or `BROKEN`.
+
+```bash
+supabase db query --linked --file supabase/audits/2026_10_16_21_rpe_half_steps_day_check.audit.sql
+```
+
+Clean: line 2 reads `a whole number from 1 to 10`; line 4 `any number`; line 5 `the number`. Line 3 is a list (how many sets were rated with each value), lines 6 to 9 are numbers.
+
+- **Stops**: line 2 or line 5 starts with `SOMETHING ELSE:`, or line 5 with `NOT THERE:`; line 2, 4 or 5 already reads its "after" column while the ledger does not have the migration.
+- **Noted**: line 3; lines 6 to 8 — the weekdays the file clears; line 9 — the weekdays of the coach's own blocks, which it leaves alone.
+
+**Then the list of what it clears — the step the table gives this checkpoint.** Read-only; keep its output, it is passed on whole:
+
+```bash
+supabase db query --linked "select pr.full_name as athlete, p.name as block, p.status as state, coalesce(w.label, 'phase ' || w.week_number) as phase, s.sort_order + 1 as position, s.title, s.day_number as weekday, case when s.day_number not between 1 and 7 then 'not a weekday' when p.status = 'draft' then 'a draft the athlete is writing' else 'a block the athlete wrote' end as why, s.id as session_id from public.sessions s join public.weeks w on w.id = s.week_id join public.programs p on p.id = w.program_id join public.students st on st.id = p.student_id join public.profiles pr on pr.id = st.profile_id where s.day_number is not null and (s.day_number not between 1 and 7 or p.created_by is not null) order by 1, 2, w.week_number, s.sort_order"
+```
+
+Under `why`, `not a weekday` and `a draft the athlete is writing` are cleared whichever way the file is applied. `a block the athlete wrote` is a block you approved: the file as it is clears those too — the default you left standing on 2026-10-03 (B12), since their builder offers no weekday and the values are positions or a Monday the old save wrote. To keep them, say *drafts only* when the sitting starts: the file is then applied with the second command of the page's *Apply* instead of the one below, and line 8 keeps its number.
+
+```bash
+supabase db query --linked --file supabase/migrations/2026_10_16_21_rpe_half_steps_day_check.sql
+```
+
+It holds the sessions and the sets while the sets are written again with the new type — a few seconds at most: a set ticked in that moment waits for it.
+
+```bash
+supabase db query --linked --file supabase/audits/2026_10_16_21_rpe_half_steps_day_check.audit.sql
+```
+
+Lines 2, 4 and 5 read as the "after" column: `from 1 to 10, in steps of 0.5`; `none, or 1 to 7`; `no weekday`. Lines 6 to 8 read `0` — line 8 its number from before, with drafts only. Line 3 is the list it was, line 9 the number it was.
+
+The check of the page must fail with `check only, nothing was written: in place: an RPE is saved in half steps and refused between them; a weekday is 1 to 7 or none; a draft whose session says 9 is saved without one`.
+
+### Step 4 — migration 22: a client error is read by its author and their coach, 30 an hour
+
+Page: [runbook/migrations/22-client-errors-scope.md](runbook/migrations/22-client-errors-scope.md). Rollback at hand: `supabase/rollbacks/2026_10_16_22_client_errors_scope.down.sql`. It gives every coach every line again and takes the cap away. Run it only when the check answers `NOT PROTECTED` or `BROKEN`.
+
+```bash
+supabase db query --linked --file supabase/audits/2026_10_16_22_client_errors_scope.audit.sql
+```
+
+Clean: line 2 reads `every coach, every line`; line 3 `no limit`; line 4 `none`. Lines 5 to 9 are numbers.
+
+- **Stops**: line 2 starts with `SOMETHING ELSE:`, or line 4 is not `none` — a policy made by hand, next to which the migration refuses to run; line 2 or 3 already reads its "after" column while the ledger does not have the migration.
+- **Noted**: line 6 — lines without an author, which every coach still reads; line 7 — lines of a former athlete, which only their author reads afterwards (the page's section "Who reported what" names the accounts, read-only); line 8 above 30 — an account past the cap of an hour; line 9 — what `run_retention()` deletes at its next night.
+
+```bash
+supabase db query --linked --file supabase/migrations/2026_10_16_22_client_errors_scope.sql
+```
+
+```bash
+supabase db query --linked --file supabase/audits/2026_10_16_22_client_errors_scope.audit.sql
+```
+
+Lines 2 and 3 read as the "after" column: `its author and the coach of its author; every coach, a line without an author`; `30 — the next ones are dropped`. The others are what they were.
+
+The check of the page must fail with `check only, nothing was written: in place: a line is read by its author and the coach of its author, a line without an author by every coach; an account keeps 30 lines an hour, dated when they arrive; the owner is not counted`.
+
+### Step 5 — migration 23: an exercise is read by whoever reads what uses it
+
+Page: [runbook/migrations/23-library-read-follows-program.md](runbook/migrations/23-library-read-follows-program.md). Rollback at hand: `supabase/rollbacks/2026_10_16_23_library_read_follows_program.down.sql`. It drops the policy and its function: after a change of coach the exercises of the earlier blocks lose their name again. Run it only when the check answers `NOT PROTECTED` or `BROKEN`.
+
+```bash
+supabase db query --linked --file supabase/audits/2026_10_16_23_library_read_follows_program.audit.sql
+```
+
+Clean: line 2 reads `its coach and that coach's athletes`; lines 3 and 4 `none`. Lines 5 to 8 are numbers — `0` while no athlete with a program has changed coach.
+
+- **Stops**: line 2 starts with `SOMETHING ELSE:`; line 4 is not `none`; line 2 or 3 already reads its "after" column while the ledger does not have the migration.
+- **Noted**: lines 5 to 8 — the exercises the app shows without a name today, which the migration gives back (the page's section "The exercises of a former coach" lists them).
+
+```bash
+supabase db query --linked --file supabase/migrations/2026_10_16_23_library_read_follows_program.sql
+```
+
+```bash
+supabase db query --linked --file supabase/audits/2026_10_16_23_library_read_follows_program.audit.sql
+```
+
+Lines 2 and 3 read as the "after" column: `its coach, that coach's athletes, and whoever reads what uses it`; `exercise_readable_through_use(uuid)`. The others are what they were.
+
+The check of the page must fail with `check only, nothing was written: in place: after a change of coach, the athlete and the new coach read the exercises their sessions, swaps and goals use, and nobody else does; nobody but its coach writes one, and a new session takes an exercise of the library of today`.
+
+### Step 6 — migration 24: indexes, and a deleted session lets go of its feedback
+
+Page: [runbook/migrations/24-indexes-cleanup.md](runbook/migrations/24-indexes-cleanup.md). Rollback at hand: `supabase/rollbacks/2026_10_16_24_indexes_cleanup.down.sql`. It puts the nine indexes back and drops the eight; the session ids it took off messages do not come back. Run it only when the check answers `NOT PROTECTED` or `BROKEN`.
+
+```bash
+supabase db query --linked --file supabase/audits/2026_10_16_24_indexes_cleanup.audit.sql
+```
+
+Clean: line 2 lists the nine names; line 3 `all nine there`; line 4 the eight foreign keys `client_errors.user_id, exercise_slots.exercise_id, goals.coach_id, messages.recipient_id, messages.sender_id, slot_comments.student_id, slot_deviations.student_id, slot_deviations.substitute_exercise_id`; line 5 `none`; line 6 `the message keeps its id`. Lines 7 and 8 are a number and a list.
+
+- **Stops**: line 3 starts with `MISSING:`; line 4 names another foreign key; line 5 is not `none`; line 6 starts with `SOMETHING ELSE:` or `NOT THERE:`; line 2 reads `none`, line 5 the eight names or line 6 `the message loses it` while the ledger does not have the migration.
+- **Noted**: line 2 with fewer than nine names — one was dropped by hand, and the migration drops the others; line 7 — feedback messages whose session was deleted, which lose that id (the page's section "The messages that lose their session" lists them); line 8 — how often the nine were read.
+
+```bash
+supabase db query --linked --file supabase/migrations/2026_10_16_24_indexes_cleanup.sql
+```
+
+It holds the thirteen tables it touches for a second or two while it builds the eight indexes: a request of the app in that moment waits for it.
+
+```bash
+supabase db query --linked --file supabase/audits/2026_10_16_24_indexes_cleanup.audit.sql
+```
+
+Lines 2 and 4 read `none`, line 5 the eight names, line 6 `the message loses it`, line 7 `0`, line 8 `none`; line 3 still reads `all nine there`.
+
+The check of the page must fail with `check only, nothing was written: in place: no index repeats a unique key and every foreign key has one; a deleted session leaves its feedback message without it, and nobody else takes it off`.
+
+### Step 7 — migration 25: a coach reads a video's file through the video that names it
+
+Page: [runbook/migrations/25-storage-video-policies.md](runbook/migrations/25-storage-video-policies.md). Rollback at hand: `supabase/rollbacks/2026_10_16_25_storage_video_policies.down.sql`. It gives the coach every file of an athlete's folder again. Run it only when the check answers `BROKEN` — the coach or the athlete no longer reads a video of theirs. `NOT PROTECTED` is the one answer of this page that a rollback does not cure: run the audit and report line 3 with the full message.
+
+```bash
+supabase db query --linked --file supabase/audits/2026_10_16_25_storage_video_policies.audit.sql
+```
+
+Clean: line 2 reads `every file in the folder of one of their athletes`; line 3 `none`; line 8 `0`. Lines 4 to 7 are numbers, `0` while nobody has uploaded a video.
+
+- **Stops**: line 2 starts with `SOMETHING ELSE:`; line 3 is not `none` — a policy made by hand lets somebody read the files whatever the migration says; line 2 already reads its "after" column while the ledger does not have the migration.
+- **Noted**: line 5 — the files the coach stops reading, which the athlete still reads (the page's section "Files that no video names" lists them; removing one is a delete through the Storage dashboard, asked first, and a file removed is in no backup); line 6 — those of them older than a day; line 7 — a video whose file is gone; line 8 not `0` — go on, and report it.
+
+```bash
+supabase db query --linked --file supabase/migrations/2026_10_16_25_storage_video_policies.sql
+```
+
+`must be owner of table objects` or `permission denied` on `storage.objects` means the project no longer lets the SQL editor write the rules of the files: stop and report.
+
+```bash
+supabase db query --linked --file supabase/audits/2026_10_16_25_storage_video_policies.audit.sql
+```
+
+Line 2 reads `the files a video of one of their athletes names`; the others are what they were.
+
+The check of the page must fail with `check only, nothing was written: in place: a coach reads the file a video of their athlete names, and not the one no video names; the athlete reads both, and another coach neither`. `… NOT TRIED: the two files of the check could not be written into storage.objects (…)` is noted, not a stop: line 2 of the audit then says that the migration is in place.
+
+### Step 8 — the ledger
+
+```bash
+supabase db query --linked "select name, applied_at from app_private.app_migrations order by applied_at, name"
+```
+
+Twenty-five rows, in the order of their numbers, the last one `2026_10_16_25_storage_video_policies`. Production has every `required` migration of wave 3.
+
+### Step 9 — Optional — migration 26: the coach's two lists in one request each
+
+You said yes to it on 2026-10-17. Without it nothing is missing: the app of wave 3 reads the coach's sessions to review and the conversations page by page, the same lists, slower to open; with it each list is one request. The app that is deployed does not call the two functions.
+
+Page: [runbook/migrations/26-coach-list-rpcs.md](runbook/migrations/26-coach-list-rpcs.md). Rollback at hand: `supabase/rollbacks/2026_10_16_26_coach_list_rpcs.down.sql`. It drops the two functions, and the app goes back to its paged reads. Run it when the check answers `NOT PROTECTED` or `BROKEN`.
+
+```bash
+supabase db query --linked --file supabase/audits/2026_10_16_26_coach_list_rpcs.audit.sql
+```
+
+Clean: lines 2 and 3 read `no`; lines 4 to 8 `none`. Lines 9 to 14 are numbers.
+
+- **Stops**: line 2 or 3 reads `yes` while the ledger does not have the migration; line 4, 5, 7 or 8 is not `none`, or line 6 is not `none` before the migration.
+- **Noted**: lines 9 to 14 — line 10 is how many sessions wait for a review; line 11 or 14 above `0` is a coach whose counts, or an account whose conversations, the app that is deployed reads cut.
+
+```bash
+supabase db query --linked --file supabase/migrations/2026_10_16_26_coach_list_rpcs.sql
+```
+
+```bash
+supabase db query --linked --file supabase/audits/2026_10_16_26_coach_list_rpcs.audit.sql
+```
+
+Lines 2 and 3 read `yes`, line 6 `coach_review_counts(); my_conversations()`; the others are what they were.
+
+```bash
+supabase db query --linked "select name, applied_at from app_private.app_migrations order by applied_at, name"
+```
+
+Twenty-six rows, the last one `2026_10_16_26_coach_list_rpcs`.
+
+The check of the page must fail with `check only, nothing was written: in place: a coach reads the sessions to review of each athlete and their conversations in one request each; the athlete reads their own conversation, and another coach nothing`.
+
+### Step 10 — the app of wave 3 may be published
+
+With twenty-five rows in the ledger — twenty-six with migration 26 — the app of wave 3 may replace the one of wave 2. It brings the Stats page that counts what was trained (one definition of a performed session, the dates of an athlete west of Greenwich, a weekly panel of consecutive weeks, a chart on a time axis), records and *Last time* that follow the number shown and the order of training, the session of a gym — a decimal comma read as one, an RPE in half steps, a set marked failed by a hold, Undo on a removed or skipped set, a question before an exercise is skipped, a rest that can be skipped or given 30 s more and that keeps its beep, wake lock and push on every page, a push for this device only that leads back to the session —, a password changed with the current one, the coach's pages that say *not found* or *couldn't be loaded* instead of drawing an empty editor, a draft the coach cannot write, the library's archive, 44 px targets, the feed and the inbox past a thousand confirmations, and a chat that does not send on Enter on a phone.
+
+**Which commit: the head of wave 3, and no later one.** It is the commit this section was written in, found by its whole subject:
+
+```bash
+git log -1 --format='%H %s' --grep='^docs(runbook): Checkpoint C1 as a sequence that can be pasted, and Checkpoint B recorded as done$'
+```
+
+With that commit checked out, ask the question the deploy will ask ([runbook/40-deploy.md](runbook/40-deploy.md), section 2). The script reads the migrations of the checkout it runs in: on a later commit that brings migrations of its own it would report them `MISSING`.
+
+```bash
+node --env-file=.env scripts/check-migrations.mjs --verify
+```
+
+`OK: production has all 24 required migrations of this commit. The deploy can go on.` is the only ending after which it is pushed. Migrations 19 and 26 are `optional` and are listed, not asked for.
+
+Publishing is a push of that commit to `main`, as a fast-forward from `2bb6495`: yours, or Claude's under your go of 2026-10-17, which covers this commit and no other. Since wave 2 an open app takes an update only when nothing would be lost — no write waiting, no rest running, no field in use — so the time of the push matters less than it did; still not in the middle of somebody's session, and not before your phone is ready for the first look of step 11 — the app of wave 2 open on it, a rest running —, because that look is the update itself: the push waits for you to say so.
+
+**Once the run is green**, look at it this once:
+
+- Job `test`: `found 0 vulnerabilities`; lint `14 problems (0 errors, 14 warnings)`, at its ceiling; the unit suite with no test skipped — `Test Files  192 passed (192)`, `Tests  4283 passed (4283)` at the head of wave 3.
+- Job `db`: `Test Files  34 passed (34)`, `Tests  1320 passed (1320)` at the head of wave 3, on `ubuntu-24.04`.
+- Job `functions`: `deno check` green.
+- Job `deploy`, step *This build joins the builds that are published*: `pruned     nothing: 3 builds published, 3 are kept` — the build adopted at B, the build of wave 2 and this one. A fourth publication prunes the oldest.
+- The published `version.json` names the new build and says `"minBuild":null`: nothing to set.
+
+### Step 11 — on a phone, with the app of wave 3
+
+What no test of the repository can show, on the test athlete's phone (an iPhone with iOS 17 or later, the app installed on the Home Screen) and with the coach's account; everything written is undone in the same step, and nobody is signed out of another device. When Claude runs the checkpoint, these are yours: Claude says which look is next and what to watch.
+
+1. **The update itself.** With the app of wave 2 open on the phone during a rest, publish: the new version waits until the rest is over and nothing is being typed, then offers *Update* or *Later*, and never reloads under a finger.
+2. **The looks of Checkpoint B, step 11, one to eleven** — no phone has run them yet. Run them with the app of wave 3.
+3. **A decimal comma**, with an iPhone keyboard in French and the app in English: `82,5` in the athlete's *Actual* weight, in the coach's target weight of a slot and in the bodyweight card is saved as 82.5 — the coach sees 82.5, the athlete does not see *BW*. Put the values back afterwards.
+4. **The session's controls.** An RPE in a half step (7.5) is saved and shows as such; a hold on a set's circle marks it failed, a tap does not; removing an extra set and skipping a set each offer Undo, which gives the set back as it was; skipping an exercise asks first. During a rest, *+30 s* and *Skip*; with Stats opened in the middle of a rest, the beep and the push still come.
+5. **The rest push of wave 3**, *Rest end notification* on, phone locked: a rest of three minutes rings once, on this phone only — a second device of the same account stays silent —, in the app's language, and a tap on it opens the session it was taken in.
+6. **The touch targets**, on a phone, as both accounts: every button of the session, the Program Sheet, the library, the bell and the avatar is pressed at the first try; the bell's panel fits the screen; in the chat, Enter writes a new line and the button sends.
+7. **The phase menu on a last, empty phase**: in the Program Sheet, the ⋯ of the last phase, with no session in it, opens a menu whose *Reorder phases* and *Delete phase* can be pressed. Delete the phase only if you made it for the look.
+
+### Step 12 — the end-to-end run *after*, on the test athlete
+
+The run that was planned for C2, held here because C1 is the last checkpoint. It is the run *before* of 2026-10-03 again, from its scripts in `review-2026-09-30/runs/e2e-before/` — a folder of this checkout only —, now on the app of wave 3: from the main checkout, a preview build of the head served under `/sl_app/` on the machine and pointed at production, in a fresh browser profile, with notifications denied, as the test athlete and its coach thread only. Its write guard is the one of the run before, with these added: the missing sets of the test session (`rpc/ensure_set_logs`), the coach's two read functions, which go out as POST (`rpc/coach_review_counts`, `rpc/my_conversations`), and the coach's one feedback message on the test session — a POST to `messages` with `session_id` the test session, the coach as sender, the test athlete as recipient and a body that starts with `E2E `, which the run before refused (E12) and its self-test in `01_login.mjs` expects refused. With notifications denied, the app asks for no rest push. The scripts were written for the app deployed on 2026-10-03 and point at the live site: before the run, `APP` in `lib.mjs` is the address of the preview, and the steps whose controls changed in wave 3 — the skip that asks first, the RPE in half steps, a set marked failed by a hold, the feedback that is sent — are written again for the app of wave 3.
+
+What should read differently from the run before: opening the session writes nothing and leaves no change waiting (E1, L8); the *Actual* sends `actual_weight_kg: 82.5` (E4, L9); four changes made offline are replayed in order, each `logged_at` the time of its tap (E8, P23); the exercise skip asks first (E9, L12); the review names the phase and *Session n/total* and dates the session by the day it was trained (E10, E11, L14); once the feedback is sent, the session is locked for the athlete and *Undo* is gone (E12, P57); the bell's panel stays inside the screen at 360 and 375 px (E13, L30); an offline reload shows the list and stays signed in (E17, L3, L4), back from a deep link goes to the athlete's home (L31), and the past-block session offers *Review* (L32). What will **not** have changed, because it is in [BACKLOG.md](BACKLOG.md): the coach's review in French (L17), the fonts served from Google, no content security policy.
+
+What the run leaves is taken away in this order, each statement asked first like every statement that writes rows of the app ([Who runs a checkpoint](#who-runs-a-checkpoint)): the feedback message and the review, with the statement of page 09's section "Taking a review back"; a logged extra set, with the recipe of page 04's section "Deleting training history on purpose"; then the undo steps in the app. The unread notification of the skip goes with the skip.
+
+### Step 13 — what to pass on
+
+- the six or seven new ledger rows, with their dates;
+- the numbers that were noted: lines 10 to 15 of the audit of 20, 3 and 6 to 9 of 21 with the whole list of step 3, 5 to 9 of 22, 5 to 8 of 23, 2, 7 and 8 of 24, 4 to 8 of 25, 9 to 14 of 26;
+- any line that was not what its step calls clean, and the message of any check that did not answer as written;
+- whether the app was published, from which commit, the number of the run, and what the looks of step 11 showed;
+- what the end-to-end run showed against the run before, and what it left that was taken away.
+
 ## By hand in the SQL editor, from these checkpoints on
 
-What the migrations of waves 1 and 2 change for the things you do yourself, outside a checkpoint. Each has its statement on a page; none has a screen in the app.
+What the migrations of waves 1 to 3 change for the things you do yourself, outside a checkpoint. Each has its statement on a page; none has a screen in the app.
 
-Since Checkpoint B these statements, and the one routine among them, have a page of their own: [runbook/70-admin-procedures.md](runbook/70-admin-procedures.md) — what you want to do, and where its statement is written.
+Since Checkpoint B these statements, and the one routine among them, have a page of their own: [runbook/70-admin-procedures.md](runbook/70-admin-procedures.md) — what you want to do, and where its statement is written. Of the rows of C1, that page lists 25 only: 20 and 21 are done in the app, and the read of 22 is on its own page, linked in the table.
 
 | From | What | Where |
 |---|---|---|
@@ -1324,6 +1652,10 @@ Since Checkpoint B these statements, and the one routine among them, have a page
 | B (17) | the 72 hours a block stays open for its athlete after *Set active* on another one are closed early, or opened again for an athlete whose phone was offline longer; giving an athlete their block back is *Set active*, in the app | [17](runbook/migrations/17-replay-grace-window.md), "The blocks that are still open", "Closing a window early, or opening one again" |
 | B (18) | once a month — until the nightly job of the optional migration 19 runs, if it ever does — the rows nobody reads any more are deleted with one statement: rest pushes older than 7 days, notifications read more than 90 days ago, client errors older than 90 days. Read-only look before, the run, the look again | [70](runbook/70-admin-procedures.md), "Once a month: delete what nobody reads any more"; [18](runbook/migrations/18-retention.md), "A rest push that is kept" |
 | B (19), only where pg_cron is switched on | the jobs are looked at, switched off for a while and switched on again with the statements of the page; the monthly routine of the row above is no longer needed while `sl-retention` runs | [50](runbook/50-pg-cron.md), "Looking at the jobs", "Pausing a job, and starting it again", "Turning it off" |
+| C1 (20) | a draft is changed by its author only: you send it back, or approve it and then change it; a block made a draft again by hand, with no author, is approved in the app | [20](runbook/migrations/20-drafts-coach-readonly.md), "Changing a draft for your athlete", "A draft nobody wrote" |
+| C1 (21) | a weekday cleared by the migration is set again in the Program Sheet, from the list kept at the checkpoint | [21](runbook/migrations/21-rpe-half-steps-day-check.md), "The sessions that lose their weekday" |
+| C1 (22) | the client errors of a former athlete are read in the SQL editor, not in the app | [22](runbook/migrations/22-client-errors-scope.md), "Who reported what" |
+| C1 (25) | a video file that no video names is removed through the Storage dashboard — never with `delete from storage.objects`, which leaves the bytes behind — and is in no backup | [25](runbook/migrations/25-storage-video-policies.md), "Files that no video names" |
 
 ## First-push checklist
 
