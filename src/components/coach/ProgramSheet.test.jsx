@@ -553,27 +553,23 @@ describe('ProgramSheet', () => {
       expect(screen.queryByRole('button', { name: 'Choose' })).toBeNull();
     });
 
-    it('says how to move a session within its phase', async () => {
-      const user = userEvent.setup();
-      renderSheet(oneWeek);
-      await user.click(screen.getByRole('button', { name: 'Reorder' }));
-      expect(screen.getByText('Drag the handles to change the order.')).toBeInTheDocument();
-    });
-
-    // Dragging across a divider is the gesture that used to be impossible —
-    // the editor's "copy to" duplicated the session and left the original.
-    it('says so when there is a divider to drag across', async () => {
+    // A mode adds no line above the list: its way out stands where the first
+    // phase's ⋯ stood, and the other phases' menus, which have nothing to
+    // offer while sessions are moved, step aside.
+    it('puts Done where the first phase’s menu was, and no menu on the others', async () => {
       const user = userEvent.setup();
       renderSheet();
       await user.click(screen.getByRole('button', { name: 'Reorder' }));
-      expect(screen.getByText('Drag a session onto the name of a phase to move it there.')).toBeInTheDocument();
+      expect(within(phase('Intro')).getByRole('button', { name: 'Done' })).toHaveClass('pk-btn');
+      expect(screen.getAllByRole('button', { name: 'Done' })).toHaveLength(1);
+      expect(screen.queryAllByRole('button', { name: 'Phase options' })).toHaveLength(0);
     });
 
-    it('keeps that hint out of a single-phase block', async () => {
+    it('writes no hint above the list', async () => {
       const user = userEvent.setup();
-      renderSheet(oneWeek);
+      renderSheet();
       await user.click(screen.getByRole('button', { name: 'Reorder' }));
-      expect(screen.queryByText(/onto the name of a phase/i)).toBeNull();
+      expect(screen.queryByText(/drag the handles|onto the name of a phase/i)).toBeNull();
     });
 
     it('leaves the mode on Done', async () => {
@@ -583,7 +579,9 @@ describe('ProgramSheet', () => {
       await user.click(screen.getByRole('button', { name: 'Done' }));
       expect(rowMenuButton('Pull')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Move Pull' })).toBeNull();
-      expect(screen.queryByText(/onto the name of a phase/)).toBeNull();
+      // Every phase has its menu again, and Done is gone.
+      expect(phaseMenuButtons()).toHaveLength(2);
+      expect(screen.queryByRole('button', { name: 'Done' })).toBeNull();
     });
   });
 
@@ -610,7 +608,11 @@ describe('ProgramSheet', () => {
       await user.click(within(phaseMenu()).getByRole('button', { name: 'Reorder the phases' }));
 
       expect(screen.queryByText('Pull')).toBeNull();
-      expect(screen.getByText('Drag the handles to change the order.')).toBeInTheDocument();
+      // The heads are rows to drag here: Done stands alone above them.
+      const done = screen.getByRole('button', { name: 'Done' });
+      const list = screen.getByRole('list', { name: 'Reorder the phases' });
+      expect(done.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(done.parentElement).toHaveTextContent(/^Done$/);
       // A phase is a row: its name, how many sessions it holds, its handle.
       const intro = screen.getByRole('button', { name: 'Move Intro' }).closest('li');
       expect(intro).toHaveTextContent('Intro');
@@ -712,7 +714,8 @@ describe('ProgramSheet', () => {
       renderSheet();
       await enterSelect(user);
 
-      expect(screen.getByText('Tap a session to choose it.')).toBeInTheDocument();
+      expect(within(phase('Intro')).getByRole('button', { name: 'Done' })).toBeInTheDocument();
+      expect(screen.queryAllByRole('button', { name: 'Phase options' })).toHaveLength(0);
       expect(rowButton('Pull')).toHaveAttribute('aria-pressed', 'false');
       expect(count()).toHaveTextContent('None chosen');
       await user.click(rowButton('Pull'));

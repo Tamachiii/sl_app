@@ -409,7 +409,7 @@ export function useSetActiveProgram() {
  * given at `blockOrderScope` in `useWeek.js`: a re-rendered hook re-points the
  * write it has pending at the new scope, where it is never given its turn.
  * `ProgramSwitcher` is mounted once per athlete (`key={studentId}` in
- * `StudentProgrammingSection`).
+ * `StudentOverview`).
  */
 export function useReorderPrograms(studentRowId) {
   const qc = useQueryClient();

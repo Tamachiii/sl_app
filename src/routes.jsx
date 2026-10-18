@@ -65,6 +65,8 @@ import Spinner from './components/ui/Spinner';
 const LoginPage = lazy(() => import('./components/auth/LoginPage'));
 const CoachHome = lazy(() => import('./components/coach/CoachHome'));
 const StudentOverview = lazy(() => import('./components/coach/StudentOverview'));
+const StudentGoalsPage = lazy(() => import('./components/coach/StudentGoalsPage'));
+const StudentStatsPage = lazy(() => import('./components/coach/StudentStatsPage'));
 const SessionsFeed = lazy(() => import('./components/coach/SessionsFeed'));
 const SessionEditor = lazy(() => import('./components/coach/SessionEditor'));
 const ExerciseLibrary = lazy(() => import('./components/coach/ExerciseLibrary'));
@@ -115,18 +117,19 @@ export const routes = [
                 path: '/coach/students/:studentId',
                 element: <Lazy><CoachHome /></Lazy>,
                 children: [
-                  // The athlete IS one page — no tabs, just collapsible
-                  // sections. Session editing is the only child destination.
+                  // The athlete page IS the athlete's block; Goals, Stats and
+                  // the session editor are pages under it, each with its own
+                  // title and a way back to it.
                   { index: true, element: <Lazy><StudentOverview /></Lazy> },
                   { path: 's/:sessionId', element: <Lazy><SessionEditor /></Lazy> },
-                  // Every surface that used to be its own tab now lives in a
-                  // section of the index page; old bookmarks and deep links
-                  // land there rather than 404ing.
+                  { path: 'goals', element: <Lazy><StudentGoalsPage /></Lazy> },
+                  { path: 'stats', element: <Lazy><StudentStatsPage /></Lazy> },
+                  // The other tabs of an earlier version live on the athlete
+                  // page now; old bookmarks and deep links land there rather
+                  // than 404ing.
                   { path: 'programming', element: <Navigate to=".." replace relative="path" /> },
                   { path: 'progress', element: <Navigate to=".." replace relative="path" /> },
                   { path: 'profile', element: <Navigate to=".." replace relative="path" /> },
-                  { path: 'goals', element: <Navigate to=".." replace relative="path" /> },
-                  { path: 'stats', element: <Navigate to=".." replace relative="path" /> },
                   { path: 'messaging', element: <Navigate to=".." replace relative="path" /> },
                   { path: 'programming/s/:sessionId', element: <RedirectToSessionEditor /> },
                 ],

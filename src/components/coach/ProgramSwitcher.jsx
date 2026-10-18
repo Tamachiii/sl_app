@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import {
   DndContext,
   PointerSensor,
@@ -23,8 +23,8 @@ import {
 } from '../../hooks/useProgram';
 import { useI18n } from '../../hooks/useI18n';
 import { formatNumber } from '../../lib/i18n/format';
-import { Button, Icon, IconButton } from '../parc';
-import { ActiveBadge, ActiveDot, DraftBadge } from './ProgramBadges';
+import { Button, Icon, IconButton, LargeTitle, Sheet } from '../parc';
+import { ActiveBadge, DraftBadge } from './ProgramBadges';
 import ManageProgramDialog from './ProgramManageDialog';
 import TrashDialog from './ProgramTrashDialog';
 
@@ -74,8 +74,29 @@ function SortableProgramRow({ program, isSelected, t, onSelect }) {
   );
 }
 
-export default function ProgramSwitcher({ studentId, programs, selectedId, onSelect, onProgramDeleted }) {
+/**
+ * The athlete page's title, which is the block on screen
+ * (design/parc/screens/Programme.dc.html): the block's name is the page's h1,
+ * a tap on it opens the sheet of the athlete's blocks, and the round ⋯ at its
+ * right opens the block's options.
+ *
+ * `titleProps` is the frame `CoachHome` hands its athlete pages — the way back
+ * to the roster and the account menu — and `subtitle` the line under the name,
+ * which the page writes: the athlete, then what the block is. `athleteName`
+ * names the sheet.
+ */
+export default function ProgramSwitcher({
+  studentId,
+  programs,
+  selectedId,
+  onSelect,
+  onProgramDeleted,
+  athleteName,
+  titleProps,
+  subtitle,
+}) {
   const { t, lang } = useI18n();
+  const hintId = useId();
   // Mirrors the `programs` prop so a drag reorders the list on the frame the
   // pointer moves. useReorderPrograms does write the same order optimistically,
   // but only after an awaited cancelQueries, which is a tick too late — without
@@ -85,10 +106,9 @@ export default function ProgramSwitcher({ studentId, programs, selectedId, onSel
   const [manageOpen, setManageOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
   // Trash is a rarely-used corner: only fetch the trashed list once the coach
-  // actually opens the program dropdown (where the entry point lives), not on
-  // every Programming-tab visit. TrashDialog fetches for itself when it mounts.
+  // actually opens the sheet of blocks (where the entry point lives), not on
+  // every visit of the athlete. TrashDialog fetches for itself when it mounts.
   const { data: trashedPrograms = [] } = useTrashedPrograms(studentId, { enabled: isOpen });
-  const wrapperRef = useRef(null);
   const createProgram = useCreateProgram();
   // One athlete for as long as the switcher is mounted (`key={studentId}` in
   // its parent): the hook's reorders wait in a queue named after the athlete,
@@ -99,24 +119,6 @@ export default function ProgramSwitcher({ studentId, programs, selectedId, onSel
   useEffect(() => {
     setLocalPrograms(programs || []);
   }, [programs]);
-
-  useEffect(() => {
-    if (!isOpen) return undefined;
-    function handleDocDown(e) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
-        setIsOpen(false);
-      }
-    }
-    function handleKey(e) {
-      if (e.key === 'Escape') setIsOpen(false);
-    }
-    document.addEventListener('mousedown', handleDocDown);
-    document.addEventListener('keydown', handleKey);
-    return () => {
-      document.removeEventListener('mousedown', handleDocDown);
-      document.removeEventListener('keydown', handleKey);
-    };
-  }, [isOpen]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -165,88 +167,93 @@ export default function ProgramSwitcher({ studentId, programs, selectedId, onSel
 
   return (
     <>
-      <div ref={wrapperRef} className="relative">
-        {/* The block's name is the headline of everything below it, so it
-            gets the row; being in progress is a dot, and the actions on the
-            list of blocks — a new one, the trash — live in the list. */}
-        <div className="flex items-center gap-2">
+      {/* The block's name is the headline of everything below it, so it is
+          the page's title; what the block is (in progress, a draft) is said by
+          the line under it, and the actions on the list of blocks — a new one,
+          the trash — live in the sheet. The button is named by the block, so
+          the h1 stays the block; what a tap does is its description. */}
+      <LargeTitle
+        {...titleProps}
+        title={
           <button
             type="button"
-            onClick={() => setIsOpen((v) => !v)}
-            aria-haspopup="listbox"
+            onClick={() => setIsOpen(true)}
+            aria-haspopup="dialog"
             aria-expanded={isOpen}
-            aria-label={t('parcProgram.blockPicker')}
-            className="flex min-h-11 min-w-0 flex-1 items-center gap-2 bg-transparent text-left"
+            aria-describedby={hintId}
+            className="flex min-h-11 max-w-full items-center gap-2 bg-transparent text-left"
           >
-            <span className="pk-title truncate">{selected?.name ?? '–'}</span>
-            {selected?.is_active && <ActiveDot t={t} />}
-            {selected?.status === 'draft' && <DraftBadge submitted={!!selected.submitted_at} t={t} />}
-            <Icon
-              name="chevron-down"
-              size={18}
-              className={`shrink-0 text-ink-2 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-            />
+            <span className="min-w-0 break-words">{selected?.name ?? '–'}</span>
+            <Icon name="chevron-down" size={24} className="shrink-0 text-ink-2" />
           </button>
-
+        }
+        trailing={
           <IconButton
             icon="more"
             label={t('parcProgram.blockOptions')}
             onClick={() => setManageOpen(true)}
             disabled={!selected}
+            className="shrink-0"
           />
-        </div>
+        }
+        subtitle={subtitle}
+      />
+      <span id={hintId} hidden>
+        {t('parcProgram.blockPicker')}
+      </span>
 
-        {isOpen && (
+      <Sheet
+        open={isOpen}
+        onClose={() => setIsOpen(false)}
+        title={athleteName ? t('coachAthleteBlock.blocksOf', { name: athleteName }) : t('parcProgram.blockPicker')}
+      >
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <div
             role="listbox"
             aria-label={t('parcProgram.blockPicker')}
-            className="absolute top-full right-0 left-0 z-20 mt-1 overflow-hidden rounded-group border border-line bg-surface p-1 shadow-lg"
+            className="flex max-h-[50vh] flex-col gap-0.5 overflow-y-auto"
           >
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              <div className="flex max-h-[60vh] flex-col gap-0.5 overflow-y-auto">
-                <SortableContext
-                  items={localPrograms.map((p) => p.id)}
-                  strategy={verticalListSortingStrategy}
-                >
-                  {localPrograms.map((p) => (
-                    <SortableProgramRow
-                      key={p.id}
-                      program={p}
-                      isSelected={p.id === (selected?.id ?? null)}
-                      t={t}
-                      onSelect={() => pickProgram(p.id)}
-                    />
-                  ))}
-                </SortableContext>
-              </div>
-            </DndContext>
-            <div className="mt-1 flex flex-wrap items-center gap-x-2 border-t border-line pt-1">
-              <Button
-                variant="text"
-                onClick={() => {
-                  setIsOpen(false);
-                  handleAdd();
-                }}
-                disabled={createProgram.isPending}
-              >
-                <Icon name="plus" size={18} />
-                {t('parcProgram.newBlock')}
-              </Button>
-              {trashedPrograms.length > 0 && (
-                <Button
-                  variant="text"
-                  onClick={() => {
-                    setIsOpen(false);
-                    setTrashOpen(true);
-                  }}
-                >
-                  {t('parcProgram.trashCount', { n: formatNumber(lang, trashedPrograms.length) })}
-                </Button>
-              )}
-            </div>
+            <SortableContext
+              items={localPrograms.map((p) => p.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {localPrograms.map((p) => (
+                <SortableProgramRow
+                  key={p.id}
+                  program={p}
+                  isSelected={p.id === (selected?.id ?? null)}
+                  t={t}
+                  onSelect={() => pickProgram(p.id)}
+                />
+              ))}
+            </SortableContext>
           </div>
-        )}
-      </div>
+        </DndContext>
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 border-t border-line pt-2">
+          <Button
+            variant="text"
+            onClick={() => {
+              setIsOpen(false);
+              handleAdd();
+            }}
+            disabled={createProgram.isPending}
+          >
+            <Icon name="plus" size={18} />
+            {t('parcProgram.newBlock')}
+          </Button>
+          {trashedPrograms.length > 0 && (
+            <Button
+              variant="text"
+              onClick={() => {
+                setIsOpen(false);
+                setTrashOpen(true);
+              }}
+            >
+              {t('parcProgram.trashCount', { n: formatNumber(lang, trashedPrograms.length) })}
+            </Button>
+          )}
+        </div>
+      </Sheet>
 
       {trashOpen && (
         <TrashDialog studentId={studentId} t={t} onClose={() => setTrashOpen(false)} />

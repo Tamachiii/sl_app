@@ -280,30 +280,27 @@ export default function ProgramSheet({ studentId, program }) {
       ? t('parcProgram.selectedNone')
       : t(pluralKey(lang, selectedCount, 'parcProgram.selected'), { n: n(selectedCount) });
 
+  // The way out of a mode. It stands where the first phase's ⋯ stands —
+  // the phases' menus have nothing to offer while sessions are chosen or
+  // moved — so a mode adds no line above the list; reordering the phases,
+  // where the heads are rows to drag, puts it alone above them.
+  const done = (
+    <Button
+      variant="on-ground"
+      className="shrink-0"
+      onClick={() => {
+        setReorderingPhases(false);
+        setReorderingSessions(false);
+        exitSelect();
+      }}
+    >
+      {t('parcProgram.finish')}
+    </Button>
+  );
+
   return (
     <div className="flex flex-col gap-6">
-      {(reorderingPhases || reorderingSessions || selecting) && (
-        <div className="flex items-center justify-between gap-3">
-          <p className="pk-caption">
-            {selecting
-              ? t('parcProgram.selectHint')
-              : reorderingSessions && phaseCount > 1
-                ? t('parcProgram.reorderSessionsHint')
-                : t('parcProgram.reorderHint')}
-          </p>
-          <Button
-            variant="on-ground"
-            className="shrink-0"
-            onClick={() => {
-              setReorderingPhases(false);
-              setReorderingSessions(false);
-              exitSelect();
-            }}
-          >
-            {t('parcProgram.finish')}
-          </Button>
-        </div>
-      )}
+      {reorderingPhases && <div className="flex justify-end">{done}</div>}
 
       {phaseCount === 0 && readOnly ? (
         <p className="rounded-group bg-surface p-4 pk-body">{t('coachSheetUx.draftEmpty')}</p>
@@ -334,7 +331,7 @@ export default function ProgramSheet({ studentId, program }) {
               items={model.phases.flatMap((p) => p.sessions.map((s) => s.id))}
               strategy={verticalListSortingStrategy}
             >
-              {model.phases.map(({ week, sessions, positions }) => {
+              {model.phases.map(({ week, sessions, positions }, phaseIndex) => {
                 // The run of done sessions the phase opens with, folded while
                 // nothing is being chosen or moved.
                 let run = 0;
@@ -363,6 +360,7 @@ export default function ProgramSheet({ studentId, program }) {
                             setReorderingPhases(true);
                           }}
                           readOnly={readOnly}
+                          action={idle ? undefined : phaseIndex === 0 ? done : null}
                         />
                         {sessions.length > 0 && (
                           <ul className="pk-group">

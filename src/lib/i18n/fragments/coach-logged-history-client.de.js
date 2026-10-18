@@ -13,8 +13,5 @@ export default {
       setLogged: 'Satz {n} ist eingetragen',
       removeBlocked: 'Diese Übung enthält eingetragene Sätze und kann nicht entfernt werden',
     },
-    athlete: {
-      actionsLabel: 'Zu den Nachrichten oder Einheiten von {name}',
-    },
   },
 };

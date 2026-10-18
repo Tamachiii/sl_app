@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { Link, MemoryRouter } from 'react-router-dom';
 
 const mockCreate = { mutate: vi.fn(), isPending: false };
 const mockRename = { mutate: vi.fn(), isPending: false };
@@ -59,6 +59,7 @@ function renderSwitcher(overrides = {}) {
         programs={programs}
         selectedId="p-1"
         onSelect={onSelect}
+        athleteName="Alice"
         {...overrides}
       />
     </MemoryRouter>,
@@ -66,9 +67,12 @@ function renderSwitcher(overrides = {}) {
   return { onSelect };
 }
 
-const trigger = () => screen.getByRole('button', { name: 'Choose the block' });
+// The page's title: a button named by the block, which says what a tap does
+// in its description.
+const trigger = () => screen.getByRole('button', { description: 'Choose the block' });
 const options = () => screen.getByRole('button', { name: 'Block options' });
 const manageSheet = () => screen.getByRole('dialog', { name: 'Manage the block' });
+const blocksSheet = () => screen.getByRole('dialog', { name: 'Alice’s blocks' });
 
 describe('ProgramSwitcher', () => {
   beforeEach(() => {
@@ -83,23 +87,46 @@ describe('ProgramSwitcher', () => {
     expect(reorderHookArgs).toEqual(['s-1']);
   });
 
-  // Parc: the block's name is the page's title, and being in progress is a
-  // dot — said in words to a screen reader, never by colour alone.
-  it('shows the selected program in the trigger', () => {
+  // Parc (design/parc/screens/Programme.dc.html): the block's name is the
+  // page's title. The h1 is the block, and the button inside it is named by
+  // the block too: what a tap does is its description, not its name.
+  it('makes the selected block the page title, a button that opens the list', () => {
     renderSwitcher();
-    expect(trigger()).toHaveAttribute('aria-haspopup', 'listbox');
+    const title = screen.getByRole('heading', { level: 1, name: 'Block 1 — Hypertrophy' });
+    expect(title).toHaveClass('pk-large-title');
+    expect(title).toContainElement(trigger());
+    expect(trigger()).toHaveAccessibleName('Block 1 — Hypertrophy');
+    expect(trigger()).toHaveAttribute('aria-haspopup', 'dialog');
     expect(trigger()).toHaveAttribute('aria-expanded', 'false');
-    expect(within(trigger()).getByText('Block 1 — Hypertrophy')).toHaveClass('pk-title');
-    expect(within(trigger()).getByText('In progress')).toHaveClass('sr-only');
+    expect(trigger()).toHaveClass('min-h-11');
   });
 
-  it('says nothing of being in progress for a block that is not', () => {
-    renderSwitcher({ selectedId: 'p-2' });
-    expect(trigger()).toHaveTextContent('Block 2 — Strength');
+  // What the block is — in progress, a draft — is the line under the title,
+  // which the page writes: the title is the name alone.
+  it('leaves what the block is to the line under the title', () => {
+    renderSwitcher({ subtitle: 'Alice, in progress, session 3 of 12' });
     expect(trigger()).not.toHaveTextContent('In progress');
+    expect(screen.getByText('Alice, in progress, session 3 of 12')).toHaveClass('pk-subhead');
+
+    renderSwitcher({ selectedId: 'p-2' });
+    expect(screen.getByRole('heading', { level: 1, name: 'Block 2 — Strength' })).toBeInTheDocument();
   });
 
-  it('opens a listbox of all programs when the trigger is clicked', async () => {
+  // The frame of the title is the page's: the way back to the roster at the
+  // left, the account menu at the right; the block's ⋯ beside its name.
+  it('draws the way back and the actions it is handed', () => {
+    renderSwitcher({
+      titleProps: {
+        back: { label: 'All athletes', as: Link, to: '/coach/students' },
+        actions: <button type="button">Account</button>,
+      },
+    });
+    expect(screen.getByRole('link', { name: 'All athletes' })).toHaveAttribute('href', '/coach/students');
+    expect(screen.getByRole('button', { name: 'Account' })).toBeInTheDocument();
+    expect(options()).toBeInTheDocument();
+  });
+
+  it('opens the athlete’s blocks in a sheet when the title is tapped', async () => {
     const user = userEvent.setup();
     renderSwitcher();
 
@@ -107,7 +134,8 @@ describe('ProgramSwitcher', () => {
     await user.click(trigger());
 
     expect(trigger()).toHaveAttribute('aria-expanded', 'true');
-    const listbox = screen.getByRole('listbox', { name: 'Choose the block' });
+    expect(blocksSheet()).toBeInTheDocument();
+    const listbox = within(blocksSheet()).getByRole('listbox', { name: 'Choose the block' });
     expect(listbox).toHaveTextContent('Block 1 — Hypertrophy');
     expect(listbox).toHaveTextContent('Block 2 — Strength');
     // One option per block, the one on screen selected, the one in progress
@@ -143,7 +171,7 @@ describe('ProgramSwitcher', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it('keeps New block inside the dropdown, not beside the name', async () => {
+  it('keeps New block in the sheet, not beside the name', async () => {
     const user = userEvent.setup();
     const { onSelect } = renderSwitcher();
 
@@ -152,7 +180,9 @@ describe('ProgramSwitcher', () => {
     expect(screen.queryByRole('button', { name: 'New block' })).not.toBeInTheDocument();
 
     await user.click(trigger());
-    await user.click(within(screen.getByRole('listbox')).getByRole('button', { name: 'New block' }));
+    // In the sheet, under the list: a listbox holds options and nothing else.
+    expect(within(screen.getByRole('listbox')).queryByRole('button', { name: 'New block' })).toBeNull();
+    await user.click(within(blocksSheet()).getByRole('button', { name: 'New block' }));
 
     expect(mockCreate.mutate).toHaveBeenCalledWith(
       { studentId: 's-1', name: 'Program 3', setActive: false },
@@ -330,9 +360,12 @@ describe('ProgramSwitcher', () => {
         <ProgramSwitcher studentId="s-1" programs={draftPrograms} selectedId="d-1" onSelect={vi.fn()} />
       </MemoryRouter>,
     );
-    // The status on the trigger, in words.
-    expect(trigger()).toHaveTextContent('Submitted');
-    expect(trigger()).not.toHaveTextContent('Draft');
+    // The status in the list of blocks, in words (the page says it under the
+    // title).
+    await user.click(trigger());
+    expect(screen.getByRole('option', { name: /Student Block/ })).toHaveTextContent('Submitted');
+    expect(screen.getByRole('option', { name: /Student Block/ })).not.toHaveTextContent('Draft');
+    await user.keyboard('{Escape}');
 
     await user.click(options());
     expect(within(manageSheet()).getByRole('heading', { name: 'Submitted for approval' })).toBeInTheDocument();
@@ -359,7 +392,6 @@ describe('ProgramSwitcher', () => {
         <ProgramSwitcher studentId="s-1" programs={draftPrograms} selectedId="d-2" onSelect={vi.fn()} />
       </MemoryRouter>,
     );
-    expect(trigger()).toHaveTextContent('Draft');
     await user.click(trigger());
     expect(screen.getByRole('option', { name: /WIP Block/ })).toHaveTextContent('Draft');
     await user.keyboard('{Escape}');

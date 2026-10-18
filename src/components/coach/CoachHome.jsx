@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, Outlet, useMatch, useNavigate, useParams } from 'react-router-dom';
+import { Link, Outlet, useNavigate, useParams } from 'react-router-dom';
 import { useIsRestoring } from '@tanstack/react-query';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
@@ -327,34 +327,31 @@ export default function CoachHome() {
   if (students) facts.push(t(pluralKey(lang, students.length, 'parcRoster.athletesCount'), { n: formatNumber(lang, students.length) }));
   if (reviewTotal) facts.push(t(pluralKey(lang, reviewTotal, 'parcRoster.sessionsToReview'), { n: formatNumber(lang, reviewTotal) }));
 
-  // ONE header, not two. On an athlete the page header *is* the athlete: the
-  // back button to the roster and the athlete's name as the h1. Stacking a
-  // roster title, a back link and a separate identity row put the biggest type
-  // on the page you just left and pushed the actual subject down at half the
-  // size.
+  // ONE header, not two. On an athlete, the page belongs to the child route:
+  // the athlete page — whose title is the athlete's block
+  // (design/parc/screens/Programme.dc.html) —, Goals, Stats and the session
+  // editor each draw their own title, and this page draws none over them.
+  // What they share is handed down through the outlet: the athlete, their
+  // name, and the frame of the title — the way back to the roster and the
+  // account menu. While the athlete is not known yet, or not found, the page
+  // keeps its own header and its way back.
   const menu = <UserMenu fullName={profile?.full_name} onSignOut={signOut} />;
-  // The session editor is a page of its own (design/parc/screens/
-  // Editeur.dc.html): its title is the session, and the athlete's header
-  // stands aside while it is shown. While the athlete is not known yet, or
-  // not found, the page keeps its own header and its way back.
-  const inEditor = !!useMatch('/coach/students/:studentId/s/:sessionId');
+  const athleteName = selected ? (selected.profile?.full_name || '').trim() || t('parcRoster.unnamed') : '';
+  const titleProps = {
+    back: {
+      label: t('parcRoster.allAthletes'),
+      as: Link,
+      to: '/coach/students',
+      // The coach's explicit "I want the roster" signal — forget the
+      // remembered path, or the restore effect above would bounce them
+      // straight back into the athlete they just left.
+      onClick: clearLastCoachStudentsPath,
+    },
+    actions: menu,
+  };
   return (
     <div className="flex flex-col gap-6 px-4 pt-3 pb-6 md:px-8">
-      {inEditor && selected && rosterState === 'ready' ? null : selected ? (
-        <LargeTitle
-          title={(selected.profile?.full_name || '').trim() || t('parcRoster.unnamed')}
-          back={{
-            label: t('parcRoster.allAthletes'),
-            as: Link,
-            to: '/coach/students',
-            // The coach's explicit "I want the roster" signal — forget the
-            // remembered path, or the restore effect above would bounce them
-            // straight back into the athlete they just left.
-            onClick: clearLastCoachStudentsPath,
-          }}
-          actions={menu}
-        />
-      ) : (
+      {selected && rosterState === 'ready' ? null : (
         <LargeTitle
           title={t('nav.athletes')}
           subtitle={facts.length > 0 ? facts.join(', ') : null}
@@ -390,9 +387,9 @@ export default function CoachHome() {
 
       {rosterState === 'ready' && (
         studentId
-          // No tab strip and no identity block: the athlete is ONE page
-          // (StudentOverview) under a header that already names them.
-          ? selected && <Outlet context={{ student: selected }} />
+          // No tab strip and no identity block: each page of the athlete
+          // draws its own title, in the frame handed down here.
+          ? selected && <Outlet context={{ student: selected, athleteName, titleProps }} />
           : students.length > 0 && <RosterView students={students} online={online} restoring={restoring} />
       )}
     </div>

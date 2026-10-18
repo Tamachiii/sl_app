@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, Outlet, useLocation } from 'react-router-dom';
 
-// What the Programming section shows when its reads have not produced a block
+// What the athlete page shows when its reads have not produced a block
 // (review item P49): it used to be a spinner for ever. The sheet and the
-// switcher are stand-ins — this file is about the section around them.
+// switcher are stand-ins — this file is about the page around them.
 
 const refetchPrograms = vi.fn();
 const refetchProgram = vi.fn();
@@ -20,11 +20,14 @@ vi.mock('../../hooks/useProgram', () => ({
 vi.mock('./ProgramSheet', () => ({
   default: ({ program }) => <div data-testid="sheet">sheet:{program.id}</div>,
 }));
+vi.mock('../../hooks/useSessionConfirmation', () => ({
+  useReviewCounts: () => ({ data: {} }),
+}));
 vi.mock('./ProgramSwitcher', () => ({
   default: ({ selectedId }) => <div data-testid="switcher">switcher:{selectedId}</div>,
 }));
 
-import StudentProgrammingSection from './StudentProgrammingSection';
+import StudentOverview from './StudentOverview';
 
 const BLOCKS = [
   { id: 'p-1', name: 'Block one', is_active: true, status: 'approved' },
@@ -54,7 +57,7 @@ function renderSection(entry = '/coach/students/s-1') {
     <MemoryRouter initialEntries={[entry]}>
       <Routes>
         <Route path="/coach/students/:studentId" element={<Outlet context={{ student: { id: 's-1' } }} />}>
-          <Route index element={<StudentProgrammingSection />} />
+          <Route index element={<StudentOverview />} />
         </Route>
       </Routes>
       <Where />
@@ -71,7 +74,7 @@ beforeEach(() => {
   programRead = read({ data: { id: 'p-1', status: 'approved', weeks: [] }, isSuccess: true, refetch: refetchProgram });
 });
 
-describe('StudentProgrammingSection without a block to show', () => {
+describe('StudentOverview without a block to show', () => {
   it('shows the sheet when both reads answered', () => {
     renderSection();
     expect(screen.getByTestId('sheet')).toHaveTextContent('sheet:p-1');
@@ -132,7 +135,7 @@ describe('StudentProgrammingSection without a block to show', () => {
 
 // Merely opening an athlete must not write a block: the coach creates the
 // first one, by a tap.
-describe('StudentProgrammingSection for an athlete without a block', () => {
+describe('StudentOverview for an athlete without a block', () => {
   beforeEach(() => {
     programsRead = read({ data: [], isSuccess: true, refetch: refetchPrograms });
     programRead = read({ refetch: refetchProgram });
@@ -159,7 +162,7 @@ describe('StudentProgrammingSection for an athlete without a block', () => {
 
 // Review item P53: an athlete's draft is read-only for the coach until it is
 // approved; the sheet says so above the block.
-describe('StudentProgrammingSection on an athlete\u2019s draft', () => {
+describe('StudentOverview on an athlete\u2019s draft', () => {
   it('says the block is a draft and where it is approved', () => {
     programRead = read({ data: { id: 'p-1', status: 'draft', weeks: [] }, isSuccess: true, refetch: refetchProgram });
     renderSection();

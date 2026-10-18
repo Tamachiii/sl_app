@@ -106,7 +106,7 @@ export default function StudentGoalsSection() {
         return (
           <section key={g.id} aria-label={g.exercise?.name} className="flex items-start gap-2 rounded-group bg-surface p-4">
             <div className="min-w-0 flex-1">
-              <h3 className="pk-headline">{g.exercise?.name}</h3>
+              <h2 className="pk-headline">{g.exercise?.name}</h2>
               <p className="pk-caption m-0">
                 {t('parcGoals.target', { what: goalTargetText(g, ctx) })}
                 {g.achieved && (

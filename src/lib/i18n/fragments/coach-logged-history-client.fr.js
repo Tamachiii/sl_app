@@ -13,8 +13,5 @@ export default {
       setLogged: 'Série {n} enregistrée',
       removeBlocked: 'Cet exercice contient des séries enregistrées et ne peut pas être retiré',
     },
-    athlete: {
-      actionsLabel: 'Aller aux messages ou aux séances de {name}',
-    },
   },
 };
