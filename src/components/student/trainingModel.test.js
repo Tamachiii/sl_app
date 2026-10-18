@@ -94,7 +94,9 @@ describe('whenText', () => {
   it('writes any other date the coach set as a day of the calendar', () => {
     const today = wednesday();
     expect(whenText(session('a', { scheduled_date: '2026-10-16' }), en, today)).toBe('Fri, Oct 16');
-    expect(whenText(session('a', { scheduled_date: '2026-10-09' }), en, today)).toBe('Fri, Oct 9');
+    // A day gone is said as the day it was planned for.
+    expect(whenText(session('a', { scheduled_date: '2026-10-09' }), en, today)).toBe('planned for Fri, Oct 9');
+    expect(whenText(session('a', { scheduled_date: '2026-09-15' }), fr, today)).toBe('prévue le mar. 15 sept.');
     expect(whenText(session('a', { scheduled_date: '2026-10-16' }), fr, today)).toBe('ven. 16 oct.');
   });
 

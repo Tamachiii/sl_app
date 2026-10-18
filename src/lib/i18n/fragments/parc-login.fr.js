@@ -9,5 +9,9 @@ export default {
     password: 'Mot de passe',
     signIn: 'Se connecter',
     signingIn: 'Connexion…',
+    invalidCredentials: 'E-mail ou mot de passe incorrect.',
+    tooManyAttempts: 'Trop d’essais. Attends quelques minutes, puis réessaie.',
+    noAnswer: 'Le serveur n’a pas répondu. Vérifie ta connexion et réessaie.',
+    failed: 'La connexion n’a pas abouti. Réessaie.',
   },
 };

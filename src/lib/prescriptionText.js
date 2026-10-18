@@ -45,7 +45,7 @@ function groupText({ count, reps, seconds, kg }, { t, lang }) {
     });
     return load ? t('parcPrescription.loaded', { work: hold, kg: load }) : hold;
   }
-  const work = count === 1 ? formatNumber(lang, reps) : `${formatNumber(lang, count)} × ${formatNumber(lang, reps)}`;
+  const work = count === 1 ? formatNumber(lang, reps) : `${formatNumber(lang, count)}\u00a0×\u00a0${formatNumber(lang, reps)}`;
   return load ? t('parcPrescription.loaded', { work, kg: load }) : t('parcPrescription.bodyweight', { work });
 }
 

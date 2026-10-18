@@ -3,7 +3,21 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { returnPathFor } from '../../lib/returnPath';
+import { isNetworkError } from '../../lib/networkErrors';
 import { Button } from '../parc';
+
+// What a refused sign-in says, in the app's language: the auth server's own
+// message is English (« Invalid login credentials »), and it was shown as it
+// came on a page in French.
+function signInProblem(error) {
+  const message = error?.message ?? '';
+  if (error?.code === 'invalid_credentials' || /invalid (login )?credentials/i.test(message)) {
+    return 'parcLogin.invalidCredentials';
+  }
+  if (error?.status === 429 || error?.code === 'over_request_rate_limit') return 'parcLogin.tooManyAttempts';
+  if (isNetworkError(error)) return 'parcLogin.noAnswer';
+  return 'parcLogin.failed';
+}
 
 /**
  * The sign-in page, in the Parc design (no mock of its own: the README and the
@@ -33,7 +47,7 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     const { error: err } = await signIn(email, password);
-    if (err) setError(err.message);
+    if (err) setError(signInProblem(err));
     setLoading(false);
   }
 
@@ -65,7 +79,7 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-4">
             {error && (
               <p role="alert" className="m-0 rounded-control bg-red-soft p-3 text-[14px] leading-[1.4] text-red">
-                {error}
+                {t(error)}
               </p>
             )}
             <label htmlFor={emailId} className="flex flex-col gap-1.5">

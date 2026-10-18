@@ -200,7 +200,7 @@ describe('BodyweightCard — the weight', () => {
 
     expect(screen.getByText('71.4')).toBeInTheDocument();
     expect(screen.getByText('kg')).toBeInTheDocument();
-    expect(facts(container)).toBe('-0.8 kg in 6 weeks, weighed today');
+    expect(facts(container)).toBe('-0.8\u00a0kg in 6 weeks, weighed today');
     // Drawn for the eye; one point per weigh-in of the window.
     expect(sparkline(container)).toHaveAttribute('aria-hidden', 'true');
     expect(sparkline(container).querySelector('polyline').getAttribute('points').split(' ')).toHaveLength(3);
@@ -212,7 +212,7 @@ describe('BodyweightCard — the weight', () => {
       { id: 'bw-1', weight_kg: 80, logged_on: '2026-10-09' },
     ];
     const { container } = render(<BodyweightCard />);
-    expect(facts(container)).toBe('+0.5 kg in 1 week, weighed yesterday');
+    expect(facts(container)).toBe('+0.5\u00a0kg in 1 week, weighed yesterday');
   });
 
   it('says the day of a weigh-in more than six days old', () => {
@@ -258,7 +258,7 @@ describe('BodyweightCard — the weight', () => {
         { id: 'bw-1', weight_kg: 81, logged_on: '2026-10-03' },
       ];
       const { container, unmount } = render(<BodyweightCard />);
-      expect(facts(container)).toBe('-1 kg in 2 weeks, weighed today');
+      expect(facts(container)).toBe('-1\u00a0kg in 2 weeks, weighed today');
       unmount();
     });
   });

@@ -9,7 +9,7 @@ export default {
     toFollow: 'Im Blick behalten',
     upToDate: 'Auf dem Laufenden',
     others: 'Weitere Athleten',
-    sessionOf: 'Einheit {n} von {total}',
+    sessionOf: 'Einheit {n} von\u00a0{total}',
     toReview: '{n} zu prüfen',
     toReviewAria: '{n} Einheiten von {name} zu prüfen',
     quiet: 'Still seit {n} T',

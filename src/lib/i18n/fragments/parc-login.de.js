@@ -9,5 +9,9 @@ export default {
     password: 'Passwort',
     signIn: 'Anmelden',
     signingIn: 'Anmeldung…',
+    invalidCredentials: 'E-Mail oder Passwort falsch.',
+    tooManyAttempts: 'Zu viele Versuche. Warte ein paar Minuten und versuch es dann noch einmal.',
+    noAnswer: 'Der Server hat nicht geantwortet. Prüf deine Verbindung und versuch es noch einmal.',
+    failed: 'Die Anmeldung hat nicht geklappt. Versuch es noch einmal.',
   },
 };

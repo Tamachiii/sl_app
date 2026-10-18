@@ -96,7 +96,8 @@ function exercisesText(n, { t, lang }) {
  * `neverTrained`: no confirmation in any block. The queue knows the block
  * being trained only, so "No sessions logged yet" went to an athlete with 24
  * confirmed sessions in the blocks before it (live N7). It is said when it is
- * true, and only then.
+ * true, and only then. That athlete, in a block with nothing done yet, read
+ * nothing at all beside the dots: the line says the block has not begun.
  */
 function Header({ fullName, onSignOut, subtitle, week, queue, neverTrained }) {
   const { t, lang } = useI18n();
@@ -109,6 +110,8 @@ function Header({ fullName, onSignOut, subtitle, week, queue, neverTrained }) {
     line = t('parcTraining.lastTrained', { when: formatRelativeDays(lang, -queue.daysSinceLast) });
   } else if (neverTrained && queue?.total > 0) {
     line = t('parcTraining.neverTrained');
+  } else if (neverTrained === false && queue?.total > 0 && queue.completed === 0) {
+    line = t('parcTraining.blockNotStarted');
   }
   return (
     <header>
@@ -296,8 +299,9 @@ export default function StudentTraining() {
   const activeWeeks = details.data?.weeks ?? NO_WEEKS;
   const confirmedIds = confirmations.data ?? NO_IDS;
   // Every confirmation of the athlete, whatever the block — and none known
-  // until the read has answered: an unanswered read says nothing either way.
-  const neverTrained = confirmations.data != null && confirmations.data.size === 0;
+  // until the read has answered: an unanswered read says nothing either way
+  // (null).
+  const neverTrained = confirmations.data == null ? null : confirmations.data.size === 0;
 
   const queue = useMemo(() => buildQueue(activeWeeks, confirmedIds), [activeWeeks, confirmedIds]);
   const positions = useMemo(() => positionsOf(activeWeeks), [activeWeeks]);

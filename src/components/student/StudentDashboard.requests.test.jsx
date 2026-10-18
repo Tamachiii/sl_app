@@ -204,7 +204,7 @@ beforeEach(() => {
 describe('Stats page — what it sends', () => {
   it('opens on "all" with six reads of the stats: the row id once, the list, the tree and the three lists', async () => {
     renderPage();
-    await findSessionsDone('1 of 2');
+    await findSessionsDone('1 of\u00a02');
     await settle();
 
     expect(count('students')).toBe(1);
@@ -226,7 +226,7 @@ describe('Stats page — what it sends', () => {
 
   it('adds four reads for the records and the bodyweight, each once, none narrowed to the scope', async () => {
     renderPage();
-    await findSessionsDone('1 of 2');
+    await findSessionsDone('1 of\u00a02');
     await screen.findByText('72.4');
     await settle();
 
@@ -251,7 +251,7 @@ describe('Stats page — what it sends', () => {
 
   it('does not read the history overlay outside the active scope', async () => {
     renderPage();
-    await findSessionsDone('1 of 2');
+    await findSessionsDone('1 of\u00a02');
     await settle();
     expect(count('programs:history')).toBe(0);
     expect(count('session_confirmations:history')).toBe(0);
@@ -260,7 +260,7 @@ describe('Stats page — what it sends', () => {
   it('reads a saved block and nothing else: no "all" on the way', async () => {
     localStorage.setItem(PREFS_KEY, JSON.stringify({ scope: 'p-2' }));
     renderPage();
-    await findSessionsDone('0 of 1');
+    await findSessionsDone('0 of\u00a01');
     await settle();
 
     // The id, the list that says the block still exists, then the block.
@@ -296,7 +296,7 @@ describe('Stats page — what it sends', () => {
     expect(screen.queryByText(/no stats yet/i)).not.toBeInTheDocument();
 
     answerList();
-    await findSessionsDone('0 of 1');
+    await findSessionsDone('0 of\u00a01');
     await settle();
     expect(count('students')).toBe(1);
     expect(count('programs:tree')).toBe(1);
@@ -305,7 +305,7 @@ describe('Stats page — what it sends', () => {
   it('reads "all" once for a saved block that is gone', async () => {
     localStorage.setItem(PREFS_KEY, JSON.stringify({ scope: 'p-gone' }));
     renderPage();
-    await findSessionsDone('1 of 2');
+    await findSessionsDone('1 of\u00a02');
     await settle();
 
     expect(statsKinds().slice(0, 3)).toEqual(['students', 'programs:list', 'programs:tree']);
@@ -320,7 +320,7 @@ describe('Stats page — what it sends', () => {
   it('reads "all" once for a saved block that a new active block replaced', async () => {
     localStorage.setItem(PREFS_KEY, JSON.stringify({ scope: 'p-2', activeBlock: 'p-2' }));
     renderPage();
-    await findSessionsDone('1 of 2');
+    await findSessionsDone('1 of\u00a02');
     await settle();
 
     expect(statsKinds().slice(0, 3)).toEqual(['students', 'programs:list', 'programs:tree']);
@@ -333,7 +333,7 @@ describe('Stats page — what it sends', () => {
 
   it('adds the two reads of the history overlay for the active block, and still one row id', async () => {
     renderPage('/student/stats?scope=active');
-    await findSessionsDone('1 of 1');
+    await findSessionsDone('1 of\u00a01');
     await settle();
 
     expect(count('students')).toBe(1);
@@ -355,13 +355,13 @@ describe('Stats page — what it sends', () => {
 
   it('reads only the new block when the athlete changes the scope', async () => {
     renderPage();
-    await findSessionsDone('1 of 2');
+    await findSessionsDone('1 of\u00a02');
     await screen.findByText('72.4');
     await settle();
     const before = db.requests.length;
 
     pickScope('Block B');
-    await findSessionsDone('0 of 1');
+    await findSessionsDone('0 of\u00a01');
     await settle();
 
     // The tree and its three lists — and nothing of the records or the
@@ -375,7 +375,7 @@ describe('Stats page — what it sends', () => {
     // Back to a scope that was read a moment ago: from the cache.
     const afterSwitch = db.requests.length;
     pickScope('All');
-    await findSessionsDone('1 of 2');
+    await findSessionsDone('1 of\u00a02');
     await settle();
     expect(db.requests).toHaveLength(afterSwitch);
   });
@@ -386,7 +386,7 @@ describe('Stats page — what it sends', () => {
 describe('Stats page — changing the scope', () => {
   it('keeps the selector and the figures on screen until the new block is read', async () => {
     const { container } = renderPage();
-    await findSessionsDone('1 of 2');
+    await findSessionsDone('1 of\u00a02');
     await findScopeGroup();
     expect(container.querySelector('[aria-busy]')).toBeNull();
 
@@ -397,20 +397,20 @@ describe('Stats page — changing the scope', () => {
     // Still the page: its selector, on the new choice, and the old figures,
     // marked as on their way out.
     expect(pressedScope()).toEqual(['Block B']);
-    expect(sessionsDone()).toBe('1 of 2');
+    expect(sessionsDone()).toBe('1 of\u00a02');
     const outgoing = screen.getByText('Sessions done').closest('li');
     expect(outgoing.closest('[aria-busy="true"]')).not.toBeNull();
     expect(screen.getByRole('heading', { level: 1, name: 'Stats' })).not.toHaveClass('sr-only');
 
     answerTree();
-    await findSessionsDone('0 of 1');
+    await findSessionsDone('0 of\u00a01');
     expect(container.querySelector('[aria-busy]')).toBeNull();
     expect(pressedScope()).toEqual(['Block B']);
   });
 
   it('lets the athlete change their mind while a block loads', async () => {
     renderPage();
-    await findSessionsDone('1 of 2');
+    await findSessionsDone('1 of\u00a02');
     await findScopeGroup();
 
     const answerTree = hold('programs:tree');
@@ -420,10 +420,10 @@ describe('Stats page — changing the scope', () => {
     pickScope('All');
 
     expect(pressedScope()).toEqual(['All']);
-    expect(sessionsDone()).toBe('1 of 2');
+    expect(sessionsDone()).toBe('1 of\u00a02');
     answerTree();
     await settle();
-    expect(sessionsDone()).toBe('1 of 2');
+    expect(sessionsDone()).toBe('1 of\u00a02');
     expect(pressedScope()).toEqual(['All']);
   });
 });

@@ -348,7 +348,7 @@ describe('useArchiveSessions', () => {
     expect(sent.map(({ id }) => id)).toEqual(['a', 'b', 'c']);
     expect(result.current.error.partial).toBe(2);
     expect(pushToast.mock.calls).toEqual([
-      ['2 of 5 archived. The rest could not be saved — try again.', { kind: 'error' }],
+      ['2 of\u00a05 archived. The rest could not be saved — try again.', { kind: 'error' }],
     ]);
     // A partial failure still moved rows: the caches are read again either way.
     for (const queryKey of READ_AGAIN) expect(invalidate).toHaveBeenCalledWith({ queryKey });
@@ -363,7 +363,7 @@ describe('useArchiveSessions', () => {
     await waitFor(() => expect(result.current.isError).toBe(true));
 
     expect(pushToast.mock.calls).toEqual([
-      ['1 of 3 restored. The rest could not be saved — try again.', { kind: 'error' }],
+      ['1 of\u00a03 restored. The rest could not be saved — try again.', { kind: 'error' }],
     ]);
   });
 
@@ -394,7 +394,7 @@ describe('useArchiveSessions', () => {
 
     expect(result.current.error.partial).toBe(1);
     expect(pushToast.mock.calls).toEqual([
-      ['1 of 3 archived. The rest could not be saved — try again.', { kind: 'error' }],
+      ['1 of\u00a03 archived. The rest could not be saved — try again.', { kind: 'error' }],
     ]);
   });
 });

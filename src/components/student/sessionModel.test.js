@@ -308,35 +308,35 @@ describe('what the editor of a set opens with (editorSeeds)', () => {
 
 describe('how a set is written', () => {
   it('a load in kilograms, or bodyweight for none', () => {
-    expect(loadText(20, ctx)).toBe('20 kg');
-    expect(loadText('17.5', ctx)).toBe('17.5 kg');
+    expect(loadText(20, ctx)).toBe('20\u00a0kg');
+    expect(loadText('17.5', ctx)).toBe('17.5\u00a0kg');
     expect(loadText(0, ctx)).toBe('bodyweight');
     expect(loadText(null, ctx)).toBe('bodyweight');
   });
 
   it('reps and a load, a hold of seconds with its load when it has one, a load alone', () => {
-    expect(workText({ reps: 5, seconds: null, weightKg: 20 }, ctx)).toBe('5 reps, 20 kg');
+    expect(workText({ reps: 5, seconds: null, weightKg: 20 }, ctx)).toBe('5 reps, 20\u00a0kg');
     expect(workText({ reps: 1, seconds: null, weightKg: null }, ctx)).toBe('1 rep, bodyweight');
-    expect(workText({ reps: null, seconds: 30, weightKg: null }, ctx)).toBe('30 s hold');
-    expect(workText({ reps: null, seconds: 30, weightKg: 10 }, ctx)).toBe('30 s hold, 10 kg');
-    expect(workText({ reps: null, seconds: null, weightKg: 20 }, ctx)).toBe('20 kg');
+    expect(workText({ reps: null, seconds: 30, weightKg: null }, ctx)).toBe('30\u00a0s hold');
+    expect(workText({ reps: null, seconds: 30, weightKg: 10 }, ctx)).toBe('30\u00a0s hold, 10\u00a0kg');
+    expect(workText({ reps: null, seconds: null, weightKg: 20 }, ctx)).toBe('20\u00a0kg');
     expect(workText({ reps: null, seconds: null, weightKg: null }, ctx)).toBe('Bodyweight');
   });
 
   it('the target of a set as the coach wrote it', () => {
-    expect(targetText(prescribed(1, { target_reps: 5, target_weight_kg: 20 }), ctx)).toBe('5 reps, 20 kg');
+    expect(targetText(prescribed(1, { target_reps: 5, target_weight_kg: 20 }), ctx)).toBe('5 reps, 20\u00a0kg');
     expect(targetText(prescribed(1, { target_reps: null, target_duration_seconds: 45, target_weight_kg: null }), ctx)).toBe(
-      '45 s hold',
+      '45\u00a0s hold',
     );
   });
 
   it('what was done: the actual of each dimension, else its target', () => {
     const log = prescribed(1, { target_reps: 5, target_weight_kg: 20 });
-    expect(actualText({ ...log, actual_reps: 3 }, ctx)).toBe('3 reps, 20 kg');
-    expect(actualText({ ...log, actual_weight_kg: 22.5 }, ctx)).toBe('5 reps, 22.5 kg');
+    expect(actualText({ ...log, actual_reps: 3 }, ctx)).toBe('3 reps, 20\u00a0kg');
+    expect(actualText({ ...log, actual_weight_kg: 22.5 }, ctx)).toBe('5 reps, 22.5\u00a0kg');
     expect(actualText({ ...log, actual_reps: 4, actual_weight_kg: 0 }, ctx)).toBe('4 reps, bodyweight');
     const hold = prescribed(1, { target_reps: null, target_duration_seconds: 30, target_weight_kg: null });
-    expect(actualText({ ...hold, actual_weight_kg: 12.5 }, ctx)).toBe('30 s hold, 12.5 kg');
+    expect(actualText({ ...hold, actual_weight_kg: 12.5 }, ctx)).toBe('30\u00a0s hold, 12.5\u00a0kg');
   });
 
   it('a rest as a clock', () => {
@@ -359,31 +359,31 @@ describe('the line of last time', () => {
   const five = (weight) => Array.from({ length: 5 }, () => ({ weight, reps: 5 }));
 
   it('says when, and the sets by groups of identical sets', () => {
-    expect(lastTimeText({ performedAt: daysAgo(7), sets: five(17.5) }, ctx, now)).toBe('7 days ago, 5 × 5 at 17.5 kg.');
+    expect(lastTimeText({ performedAt: daysAgo(7), sets: five(17.5) }, ctx, now)).toBe('7 days ago, 5\u00a0×\u00a05 at 17.5\u00a0kg.');
     expect(
       lastTimeText(
         { performedAt: daysAgo(1), sets: [{ weight: 20, reps: 10 }, { weight: 22.5, reps: 8 }, { weight: 22.5, reps: 8 }] },
         ctx,
         now,
       ),
-    ).toBe('Yesterday, 10 at 20 kg, 2 × 8 at 22.5 kg.');
+    ).toBe('Yesterday, 10 at 20\u00a0kg, 2\u00a0×\u00a08 at 22.5\u00a0kg.');
   });
 
   it('a set without a load is its reps alone', () => {
     expect(
       lastTimeText({ performedAt: daysAgo(0), sets: [{ weight: 0, reps: 12 }, { weight: 0, reps: 12 }] }, ctx, now),
-    ).toBe('Today, 2 × 12.');
+    ).toBe('Today, 2\u00a0×\u00a012.');
   });
 
   it('past four groups, the count of the others', () => {
     const sets = [10, 9, 8, 7, 6, 5].map((reps) => ({ weight: 20, reps }));
     expect(lastTimeText({ performedAt: daysAgo(2), sets }, ctx, now)).toBe(
-      '2 days ago, 10 at 20 kg, 9 at 20 kg, 8 at 20 kg, 7 at 20 kg, +2.',
+      '2 days ago, 10 at 20\u00a0kg, 9 at 20\u00a0kg, 8 at 20\u00a0kg, 7 at 20\u00a0kg, +2.',
     );
   });
 
   it('without a date, the sets alone; without sets, nothing', () => {
-    expect(lastTimeText({ performedAt: null, sets: five(17.5) }, ctx, now)).toBe('5 × 5 at 17.5 kg.');
+    expect(lastTimeText({ performedAt: null, sets: five(17.5) }, ctx, now)).toBe('5\u00a0×\u00a05 at 17.5\u00a0kg.');
     expect(lastTimeText({ performedAt: daysAgo(1), sets: [] }, ctx, now)).toBe('');
     expect(lastTimeText(null, ctx, now)).toBe('');
     expect(lastTimeText(undefined, ctx, now)).toBe('');

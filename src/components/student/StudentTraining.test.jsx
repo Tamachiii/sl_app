@@ -728,6 +728,16 @@ describe('StudentTraining', () => {
         renderTraining();
         expect(screen.queryByText('No session done yet')).toBeNull();
         expect(screen.getByText('Bloc Reprise, session 1 of 2')).toBeInTheDocument();
+        // The line beside the dots says the block has not begun — it was
+        // empty (live run, 2026-10-17).
+        expect(screen.getByText('No session in this block yet')).toBeInTheDocument();
+      });
+
+      it('says nothing of a block not begun once one of its sessions is done', () => {
+        mockList = freshBlock();
+        mockConfirmedIds = read(new Set(['a']));
+        renderTraining();
+        expect(screen.queryByText('No session in this block yet')).toBeNull();
       });
 
       it('is not said while the confirmations could not be read', () => {

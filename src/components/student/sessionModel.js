@@ -226,7 +226,7 @@ export function lastTimeText(perf, ctx, now) {
   }
   const MAX_GROUPS = 4;
   const parts = groups.slice(0, MAX_GROUPS).map((g) => {
-    const reps = g.count > 1 ? `${g.count} × ${formatNumber(lang, g.reps)}` : formatNumber(lang, g.reps);
+    const reps = g.count > 1 ? `${g.count}\u00a0×\u00a0${formatNumber(lang, g.reps)}` : formatNumber(lang, g.reps);
     return g.weight > 0
       ? t('parcSession.lastGroupLoaded', { sets: reps, kg: formatNumber(lang, g.weight) })
       : reps;

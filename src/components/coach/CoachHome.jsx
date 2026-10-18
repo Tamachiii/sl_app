@@ -244,7 +244,14 @@ function RosterView({ students, online, restoring }) {
       ) : filtered.length === 0 ? (
         <p className="rounded-group bg-surface p-4 pk-body">{t('parcRoster.noMatches')}</p>
       ) : (
-        <div className="flex flex-col gap-6 lg:grid lg:grid-cols-2 lg:items-start">
+        // Side by side from 1024px when both groups have athletes; one group
+        // alone takes the width, as the sessions feed does, instead of
+        // leaving the right half of the page empty.
+        <div
+          className={`flex flex-col gap-6 lg:grid lg:items-start ${
+            toFollow.length > 0 && upToDate.length > 0 ? 'lg:grid-cols-2' : ''
+          }`}
+        >
           {toFollow.length > 0 && (
             <ListGroup title={t('parcRoster.toFollow')} aside={count(toFollow.length)}>
               {toFollow.map((entry) => (

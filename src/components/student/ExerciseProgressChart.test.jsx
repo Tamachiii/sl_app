@@ -46,8 +46,8 @@ describe('<ExerciseProgressChart />', () => {
     expect(chartSvg(container)).toHaveAttribute('aria-hidden', 'true');
     const rows = sessionRows();
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatch(/1,000 kg$/);
-    expect(rows[1]).toMatch(/1,500 kg$/);
+    expect(rows[0]).toMatch(/1,000\u00a0kg$/);
+    expect(rows[1]).toMatch(/1,500\u00a0kg$/);
   });
 
   it('changing the select switches the visible exercise', () => {
@@ -60,10 +60,10 @@ describe('<ExerciseProgressChart />', () => {
       'e-2': [{ week_number: 1, tonnage: 200, program_id: 'p', key: 'p:1' }],
     };
     render(<ExerciseProgressChart exercises={exercises} byExercise={byExercise} />);
-    expect(sessionRows()).toEqual(['100 kg']);
+    expect(sessionRows()).toEqual(['100\u00a0kg']);
     fireEvent.change(exercisePicker(), { target: { value: 'e-2' } });
     expect(exercisePicker().value).toBe('e-2');
-    expect(sessionRows()).toEqual(['200 kg']);
+    expect(sessionRows()).toEqual(['200\u00a0kg']);
   });
 
   it('says so when the selected exercise has no points', () => {
@@ -197,9 +197,9 @@ describe('<ExerciseProgressChart />', () => {
     };
     const { container } = render(<ExerciseProgressChart exercises={exercises} byExercise={byExercise} />);
     const said = [
-      'Block A, Jul 8, 2026, Heavy, 1,250 kg',
-      'Block A, Jul 11, 2026, 900 kg, in place of Front squat',
-      'Block A, Jul 14, 2026, 950 kg, replaced by Leg press',
+      'Block A, Jul 8, 2026, Heavy, 1,250\u00a0kg',
+      'Block A, Jul 11, 2026, 900\u00a0kg, in place of Front squat',
+      'Block A, Jul 14, 2026, 950\u00a0kg, replaced by Leg press',
     ];
     expect(sessionRows()).toEqual(said);
     expect([...chartSvg(container).querySelectorAll('circle > title')].map((n) => n.textContent)).toEqual(said);
@@ -261,13 +261,13 @@ describe('<ExerciseProgressChart />', () => {
     it('draws that exercise, and offers no select', () => {
       render(<ExerciseProgressChart exercises={exercises} byExercise={byExercise} exerciseId="e-2" />);
       expect(screen.queryByRole('combobox')).toBeNull();
-      expect(sessionRows()).toEqual(['Jul 9, 2026, 200 kg']);
+      expect(sessionRows()).toEqual(['Jul 9, 2026, 200\u00a0kg']);
     });
 
     it('follows the exercise it is given', () => {
       const view = render(<ExerciseProgressChart exercises={exercises} byExercise={byExercise} exerciseId="e-2" />);
       view.rerender(<ExerciseProgressChart exercises={exercises} byExercise={byExercise} exerciseId="e-1" />);
-      expect(sessionRows()).toEqual(['Jul 8, 2026, 100 kg']);
+      expect(sessionRows()).toEqual(['Jul 8, 2026, 100\u00a0kg']);
     });
 
     it('neither reads nor writes a saved choice', () => {
@@ -280,7 +280,7 @@ describe('<ExerciseProgressChart />', () => {
           exerciseId="e-2"
         />,
       );
-      expect(sessionRows()).toEqual(['Jul 9, 2026, 200 kg']);
+      expect(sessionRows()).toEqual(['Jul 9, 2026, 200\u00a0kg']);
       expect(window.localStorage.getItem('sl_test_chart')).toBe('e-1');
     });
 

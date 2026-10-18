@@ -9,7 +9,7 @@ export default {
     leftOut: 'Exercises left out of the copy: {n} — not in your library.',
     // useArchiveSessions, when some of the selected sessions were written and
     // one was not.
-    archivePartial: '{done} of {total} archived. The rest could not be saved — try again.',
-    restorePartial: '{done} of {total} restored. The rest could not be saved — try again.',
+    archivePartial: '{done} of\u00a0{total} archived. The rest could not be saved — try again.',
+    restorePartial: '{done} of\u00a0{total} restored. The rest could not be saved — try again.',
   },
 };

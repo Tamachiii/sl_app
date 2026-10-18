@@ -41,9 +41,13 @@ export function ProgressList({ exercises, byExercise, storageKey }) {
         </li>
       )}
       {exercises.map((ex) => {
-        const points = byExercise[ex.id] || [];
-        const last = points[points.length - 1];
-        const delta = points.length > 1 ? last.tonnage - points[0].tonnage : null;
+        // The sessions in which the exercise was lifted: one where it was
+        // planned and not done — skipped, swapped, left — weighs nothing, and
+        // it read « Dernière séance, 0 kg soulevés » with a fall of the whole
+        // tonnage. The change is the last of them against the one before.
+        const lifted = (byExercise[ex.id] || []).filter((p) => p.tonnage > 0);
+        const last = lifted[lifted.length - 1];
+        const delta = lifted.length > 1 ? last.tonnage - lifted[lifted.length - 2].tonnage : null;
         const open = openId === ex.id;
         return (
           <Fragment key={ex.id}>

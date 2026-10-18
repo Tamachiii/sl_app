@@ -411,14 +411,18 @@ describe('StudentDashboard — the progression of each exercise', () => {
       { id: 'e-1', name: 'Bench' },
       { id: 'e-2', name: 'Row' },
       { id: 'e-3', name: 'Squat' },
+      { id: 'e-4', name: 'Dips' },
     ],
     byExercise: {
-      // Up 240 kg since the first session of the scope.
-      'e-1': [point('s-1', '2026-07-01', 1000), point('s-2', '2026-07-08', 1240)],
+      // Up 240 kg on the session before.
+      'e-1': [point('s-0', '2026-06-24', 700), point('s-1', '2026-07-01', 1000), point('s-2', '2026-07-08', 1240)],
       // One session: nothing to compare.
       'e-2': [point('s-1', '2026-07-01', 800)],
       // Down 150 kg.
       'e-3': [point('s-1', '2026-07-01', 2150), point('s-2', '2026-07-08', 2000)],
+      // Planned in the last session and not lifted: the row speaks of the
+      // session before it, and compares that one with the one before.
+      'e-4': [point('s-0', '2026-06-24', 900), point('s-1', '2026-07-01', 1200), point('s-2', '2026-07-08', 0)],
     },
   };
   const rowButton = (name) =>
@@ -431,7 +435,7 @@ describe('StudentDashboard — the progression of each exercise', () => {
     mockStats = { data: { ...sampleData, exerciseProgress: progress }, isLoading: false };
   });
 
-  it('gives each exercise a row: the tonnage of its last session, and the change since the first', () => {
+  it('gives each exercise a row: the tonnage of its last session, and the change on the one before', () => {
     renderDashboard();
     const bench = rowButton('Bench');
     expect(bench).toHaveTextContent('Last session, 1,240 kg lifted');
@@ -440,8 +444,12 @@ describe('StudentDashboard — the progression of each exercise', () => {
     // A single session has no change to show.
     expect(rowButton('Row')).toHaveTextContent('Last session, 800 kg lifted');
     expect(rowButton('Row')).not.toHaveTextContent(/[+-]\d/);
+    // A last session in which the exercise weighed nothing is not its last.
+    expect(rowButton('Dips')).toHaveTextContent('Last session, 1,200 kg lifted');
+    expect(rowButton('Dips')).toHaveTextContent('+300 kg');
+    expect(rowButton('Dips')).not.toHaveTextContent(/\b0 kg/);
     // Closed, all of them.
-    for (const name of ['Bench', 'Row', 'Squat']) {
+    for (const name of ['Bench', 'Row', 'Squat', 'Dips']) {
       expect(rowButton(name)).toHaveAttribute('aria-expanded', 'false');
     }
     expect(chartCaption()).not.toBeInTheDocument();

@@ -1,11 +1,12 @@
 // Der Trainingsbildschirm des Athleten im Parc-Design (design/parc/screens/Entrainement.dc.html).
 export default {
   parcTraining: {
-    programPosition: '{program}, Einheit {n} von {total}',
+    programPosition: '{program}, Einheit {n} von\u00a0{total}',
     weekCountOne: '{n} Einheit diese Woche gemacht',
     weekCountMany: '{n} Einheiten diese Woche gemacht',
     lastTrained: 'Letzte Einheit {when}',
     neverTrained: 'Noch keine Einheit gemacht',
+    blockNotStarted: 'Noch keine Einheit in diesem Block',
     weekLabel: 'Diese Woche, {parts}',
     weekDoneOne: '{days} gemacht',
     weekDoneMany: '{days} gemacht',
@@ -13,6 +14,7 @@ export default {
     weekNext: 'nächste Einheit {day}',
     weekEmpty: 'nichts geplant',
     recommendedOn: 'empfohlen am {day}',
+    plannedOn: 'geplant für {date}',
     next: 'Nächste',
     nextWhen: 'Nächste, {when}',
     untitledSession: 'Einheit ohne Namen',

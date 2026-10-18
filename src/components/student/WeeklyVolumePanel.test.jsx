@@ -4,6 +4,7 @@ import WeeklyVolumePanel, {
   WEEKS_SHOWN,
   computeMaxWeeklyTotal,
   formatBucketRange,
+  niceCeiling,
   weeklyWindow,
 } from './WeeklyVolumePanel';
 import { inTimeZone, ZONES } from '../../test/inTimeZone';
@@ -110,6 +111,16 @@ describe('weeklyWindow', () => {
   });
 });
 
+describe('niceCeiling', () => {
+  it('tops the axis with a number whose half is whole, an empty chart included', () => {
+    expect([0, 1, 2, 3, 5, 7, 9, 10].map(niceCeiling)).toEqual([2, 2, 2, 4, 6, 8, 10, 10]);
+    expect([11, 20, 21, 50, 51, 340, 1200].map(niceCeiling)).toEqual([20, 20, 50, 50, 100, 500, 2000]);
+    for (const max of [0, 1, 3, 5, 7, 11, 21, 51, 340, 1200, 4500]) {
+      expect(Number.isInteger(niceCeiling(max) / 2)).toBe(true);
+    }
+  });
+});
+
 describe('formatBucketRange', () => {
   it('writes the Mon–Sun span in the language of the app', () => {
     // Intl puts thin spaces around the dash; the test reads them as spaces.
@@ -201,7 +212,7 @@ describe('<WeeklyVolumePanel />', () => {
       .toEqual(['2026-06-22', '2026-06-29', '2026-07-06']);
     expect(within(table()).getAllByText('9 of 12')).toHaveLength(2);
     // Its last week is not this week: it is named.
-    expect(lastWeekLine(container)).toBe('Week of Jul 6, 9 of 12 sets done.');
+    expect(lastWeekLine(container)).toBe('Week of Jul 6, 9 of\u00a012 sets done.');
   });
 
   // The finding: a week of planks and holds has no volume, and the panel
@@ -215,7 +226,7 @@ describe('<WeeklyVolumePanel />', () => {
     expect(within(table()).getByText('3 of 3')).toBeInTheDocument();
     expect(screen.queryByText('No training in this block yet.')).toBeNull();
     // What the figure counts is said; the pull/push legend has no bar to explain.
-    expect(lastWeekLine(container)).toBe('This week, 3 of 3 sets done.');
+    expect(lastWeekLine(container)).toBe('This week, 3 of\u00a03 sets done.');
     expect(container.querySelector('svg path')).toBeNull();
     expect(screen.queryByText('Pull', { selector: 'span' })).toBeNull();
   });
@@ -242,7 +253,7 @@ describe('<WeeklyVolumePanel />', () => {
     expect(container.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
     // One column for pull, one for push.
     expect(rows(container)[0].querySelectorAll('path')).toHaveLength(2);
-    expect(lastWeekLine(container)).toBe('This week, 19 of 21 sets done. 2 more were added.');
+    expect(lastWeekLine(container)).toBe('This week, 19 of\u00a021 sets done. 2 more were added.');
     expect(screen.queryByText('No training in this block yet.')).toBeNull();
   });
 

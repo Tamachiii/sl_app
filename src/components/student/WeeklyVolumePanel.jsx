@@ -105,10 +105,12 @@ const BAR_W = 14;
 const BAR_GAP = 4;
 const RADIUS = 4;
 
-// A round number at or above `max`, for the top of the axis: 2, 5 or 10 times
-// a power of ten, so the three ticks read cleanly.
-function niceCeiling(max) {
-  if (max <= 0) return 1;
+// A round number at or above `max`, for the top of the axis, whose half — the
+// middle tick — is a whole number too: 2, 4, 6, 8 or 10 below ten, then 2, 5
+// or 10 times a power of ten. An empty chart was drawn up to 1, and its
+// middle tick, 0.5, read « 1 » over « 1 » over « 0 ».
+export function niceCeiling(max) {
+  if (max <= 10) return [2, 4, 6, 8, 10].find((m) => m >= max);
   const power = 10 ** Math.floor(Math.log10(max));
   const step = [1, 2, 5, 10].find((m) => m * power >= max) ?? 10;
   return step * power;

@@ -32,14 +32,18 @@ export function placesOf(weeks) {
 }
 
 // When a session is planned for, said in a few words: « aujourd'hui »,
-// « demain », « ven. 21 août » for a date, « conseillée lundi » for a weekday
-// only; null when the coach set neither.
+// « demain », « ven. 21 août » for a date — « prévue le mar. 15 sept. » for a
+// day gone —, « conseillée lundi » for a weekday only; null when the coach set
+// neither.
 export function whenText(session, { t, lang }, today = new Date()) {
   const date = session.scheduled_date ? parseISODate(session.scheduled_date) : null;
   if (date) {
     const days = Math.round((date - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 86400000);
     if (days >= -1 && days <= 1) return formatRelativeDays(lang, days);
-    return formatDate(lang, date, { weekday: 'short', day: 'numeric', month: 'short' });
+    const text = formatDate(lang, date, { weekday: 'short', day: 'numeric', month: 'short' });
+    // A day gone is the day it was planned for, not one to come: « Suivante,
+    // mar. 15 sept. » read as a date ahead a month after it.
+    return days < 0 ? t('parcTraining.plannedOn', { date: text }) : text;
   }
   const dn = session.day_number;
   if (dn >= 1 && dn <= 7) return t('parcTraining.recommendedOn', { day: dayName(lang, dn, 'long') });

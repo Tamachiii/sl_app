@@ -1,11 +1,12 @@
 // The athlete's training screen in the Parc design (design/parc/screens/Entrainement.dc.html).
 export default {
   parcTraining: {
-    programPosition: '{program}, session {n} of {total}',
+    programPosition: '{program}, session {n} of\u00a0{total}',
     weekCountOne: '{n} session done this week',
     weekCountMany: '{n} sessions done this week',
     lastTrained: 'Last session {when}',
     neverTrained: 'No session done yet',
+    blockNotStarted: 'No session in this block yet',
     weekLabel: 'This week, {parts}',
     weekDoneOne: '{days} done',
     weekDoneMany: '{days} done',
@@ -13,6 +14,7 @@ export default {
     weekNext: 'next session {day}',
     weekEmpty: 'nothing planned',
     recommendedOn: 'advised on {day}',
+    plannedOn: 'planned for {date}',
     next: 'Next',
     nextWhen: 'Next, {when}',
     untitledSession: 'Session without a name',

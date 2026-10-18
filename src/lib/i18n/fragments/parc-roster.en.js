@@ -9,7 +9,7 @@ export default {
     toFollow: 'To follow',
     upToDate: 'Up to date',
     others: 'Other athletes',
-    sessionOf: 'Session {n} of {total}',
+    sessionOf: 'Session {n} of\u00a0{total}',
     toReview: '{n} to review',
     toReviewAria: '{n} sessions of {name} to review',
     quiet: 'Quiet {n} d',

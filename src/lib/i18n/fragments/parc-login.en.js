@@ -9,5 +9,9 @@ export default {
     password: 'Password',
     signIn: 'Sign in',
     signingIn: 'Signing in…',
+    invalidCredentials: 'Wrong email or password.',
+    tooManyAttempts: 'Too many tries. Wait a few minutes, then try again.',
+    noAnswer: 'The server did not answer. Check your connection and try again.',
+    failed: 'Signing in did not work. Try again.',
   },
 };

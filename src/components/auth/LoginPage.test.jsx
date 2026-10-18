@@ -64,8 +64,8 @@ describe('LoginPage', () => {
     expect(mockSignIn).toHaveBeenCalledWith('test@test.com', 'password123');
   });
 
-  it('shows error message on failed sign in', async () => {
-    mockSignIn.mockResolvedValue({ error: { message: 'Invalid credentials' } });
+  it('says in the app’s language that the email or the password is wrong', async () => {
+    mockSignIn.mockResolvedValue({ error: { message: 'Invalid login credentials', code: 'invalid_credentials', status: 400 } });
     const user = userEvent.setup();
     renderLogin();
 
@@ -73,9 +73,27 @@ describe('LoginPage', () => {
     await user.type(passwordField(), 'wrong');
     await user.click(signInButton());
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Invalid credentials');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Wrong email or password.');
     // The form is offered again.
     expect(signInButton()).toBeEnabled();
+  });
+
+  // The auth server's message is English; it is never shown as it comes.
+  it.each([
+    ['an older server, without a code', { message: 'Invalid login credentials', status: 400 }, 'Wrong email or password.'],
+    ['too many tries', { message: 'Request rate limit reached', status: 429 }, 'Too many tries. Wait a few minutes, then try again.'],
+    ['no answer', Object.assign(new Error('Failed to fetch'), { name: 'AuthRetryableFetchError' }), 'The server did not answer. Check your connection and try again.'],
+    ['anything else', { message: 'Database error querying schema', code: 'unexpected_failure', status: 500 }, 'Signing in did not work. Try again.'],
+  ])('words a refusal in the app’s language: %s', async (_case, error, sentence) => {
+    mockSignIn.mockResolvedValue({ error });
+    const user = userEvent.setup();
+    renderLogin();
+    await user.type(emailField(), 'bad@test.com');
+    await user.type(passwordField(), 'wrong');
+    await user.click(signInButton());
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(sentence);
+    expect(alert).not.toHaveTextContent(error.message);
   });
 
   it('shows loading state while submitting', async () => {

@@ -239,7 +239,7 @@ describe('SessionsFeed', () => {
       mockDb = [makeConfirmation({ week_number: 3, day_number: 2, week_label: 'Volume' })];
       mockPositions = { data: { 'sess-1': { n: 2, total: 9 } } };
       renderFeed();
-      expect(link()).toHaveAccessibleName('Alice, Push Day, Volume, session 2 of 9');
+      expect(link()).toHaveAccessibleName('Alice, Push Day, Volume, session 2 of\u00a09');
       expect(link().textContent).not.toMatch(/W3|D2/);
     });
 
@@ -247,7 +247,7 @@ describe('SessionsFeed', () => {
       mockDb = [makeConfirmation({ week_number: 3, day_number: null, week_label: null })];
       mockPositions = { data: { 'sess-1': { n: 4, total: 12 } } };
       renderFeed();
-      expect(link()).toHaveAccessibleName('Alice, Push Day, session 4 of 12');
+      expect(link()).toHaveAccessibleName('Alice, Push Day, session 4 of\u00a012');
       expect(link().textContent).not.toMatch(/W3|· D|null|, ,/);
     });
 
@@ -273,7 +273,7 @@ describe('SessionsFeed', () => {
       mockDb = [makeConfirmation({ session_title: null, day_number: null, week_label: 'Volume' })];
       mockPositions = { data: { 'sess-1': { n: 2, total: 9 } } };
       renderFeed();
-      expect(link()).toHaveAccessibleName('Alice, Session 2 of 9, Volume');
+      expect(link()).toHaveAccessibleName('Alice, Session 2 of\u00a09, Volume');
       expect(screen.queryByText(/null/)).toBeNull();
     });
 

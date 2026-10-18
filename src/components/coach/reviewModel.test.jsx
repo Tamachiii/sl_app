@@ -200,7 +200,7 @@ describe('setRows', () => {
         en,
       );
       expect(said(rows)).toEqual([
-        { kind: 'done', title: 'Sets 1 to 3', caption: 'As planned, 5 reps, 100 kg', rpe: 'RPE 7 to 8' },
+        { kind: 'done', title: 'Sets 1 to 3', caption: 'As planned, 5 reps, 100\u00a0kg', rpe: 'RPE 7 to 8' },
       ]);
       expect(rows[0].numbers).toEqual([1, 2, 3]);
       expect(rows[0].key).toBe('log-1');
@@ -217,7 +217,7 @@ describe('setRows', () => {
 
     it('name one set alone', () => {
       const rows = setRows([set(4, { done: true })], en);
-      expect(said(rows)).toEqual([{ kind: 'done', title: 'Set 4', caption: 'As planned, 5 reps, 100 kg', rpe: null }]);
+      expect(said(rows)).toEqual([{ kind: 'done', title: 'Set 4', caption: 'As planned, 5 reps, 100\u00a0kg', rpe: null }]);
     });
 
     it('split where the target changes', () => {
@@ -226,8 +226,8 @@ describe('setRows', () => {
         en,
       );
       expect(said(rows)).toEqual([
-        { kind: 'done', title: 'Sets 1 and 2', caption: 'As planned, 5 reps, 100 kg', rpe: null },
-        { kind: 'done', title: 'Set 3', caption: 'As planned, 3 reps, 110 kg', rpe: null },
+        { kind: 'done', title: 'Sets 1 and 2', caption: 'As planned, 5 reps, 100\u00a0kg', rpe: null },
+        { kind: 'done', title: 'Set 3', caption: 'As planned, 3 reps, 110\u00a0kg', rpe: null },
       ]);
     });
 
@@ -235,7 +235,7 @@ describe('setRows', () => {
       const logs = [1, 2, 3, 5].map((n) => set(n, { done: true, rpe: n === 5 ? 8 : 7.5, target_weight_kg: 32.5 }));
       const rows = setRows([...logs, set(4, { done: true, actual_weight_kg: 35 })], fr);
       expect(rows.map((row) => row.title)).toEqual(['Séries 1, 2, 3 et 5', 'Série 4, hors plan']);
-      expect(rows[0].caption).toBe('Comme prévu, 5 répétitions, 32,5 kg');
+      expect(rows[0].caption).toBe('Comme prévu, 5 répétitions, 32,5\u00a0kg');
       expect(rows[0].rpe).toBe('RPE 7,5 à 8');
       expect(setRows(logs.slice(0, 3), fr)[0].title).toBe('Séries 1 à 3');
     });
@@ -243,7 +243,7 @@ describe('setRows', () => {
 
   it('says a set done off plan with what was done, the plan being above', () => {
     const rows = setRows([set(1, { done: true, rpe: 8 }), set(2, { done: true, rpe: 9, actual_weight_kg: 105 })], en);
-    expect(said(rows)[1]).toEqual({ kind: 'offPlan', title: 'Set 2, off plan', caption: 'Off plan, 5 reps, 105 kg', rpe: 'RPE 9' });
+    expect(said(rows)[1]).toEqual({ kind: 'offPlan', title: 'Set 2, off plan', caption: 'Off plan, 5 reps, 105\u00a0kg', rpe: 'RPE 9' });
   });
 
   describe('a failed set', () => {
@@ -254,11 +254,11 @@ describe('setRows', () => {
     });
 
     it('says what was planned when it says nothing more', () => {
-      expect(setRows([set(2, { failed: true })], en)[0].caption).toBe('Planned 5 reps, 100 kg');
+      expect(setRows([set(2, { failed: true })], en)[0].caption).toBe('Planned 5 reps, 100\u00a0kg');
     });
 
     it('says the load it was tried at', () => {
-      expect(setRows([set(2, { failed: true, actual_weight_kg: 110 })], en)[0].caption).toBe('5 reps, 110 kg');
+      expect(setRows([set(2, { failed: true, actual_weight_kg: 110 })], en)[0].caption).toBe('5 reps, 110\u00a0kg');
     });
   });
 
@@ -271,12 +271,12 @@ describe('setRows', () => {
       { kind: 'skipped', title: 'Set 2, skipped' },
       { kind: 'failed', title: 'Set 3, failed' },
     ]);
-    expect(rows[1].caption).toBe('Planned 5 reps, 100 kg');
+    expect(rows[1].caption).toBe('Planned 5 reps, 100\u00a0kg');
   });
 
   it('says a set not done with what was planned', () => {
     const rows = setRows([set(1, { done: true }), set(2)], en);
-    expect(said(rows)[1]).toEqual({ kind: 'notDone', title: 'Set 2, not done', caption: 'Planned 5 reps, 100 kg', rpe: null });
+    expect(said(rows)[1]).toEqual({ kind: 'notDone', title: 'Set 2, not done', caption: 'Planned 5 reps, 100\u00a0kg', rpe: null });
   });
 
   describe('a set the athlete added', () => {
@@ -287,8 +287,8 @@ describe('setRows', () => {
       );
       // The same values as the planned sets, and still not one of them.
       expect(said(rows)).toEqual([
-        { kind: 'done', title: 'Sets 1 and 2', caption: 'As planned, 5 reps, 100 kg', rpe: null },
-        { kind: 'added', title: 'Set 3, added', caption: '5 reps, 100 kg', rpe: 'RPE 9' },
+        { kind: 'done', title: 'Sets 1 and 2', caption: 'As planned, 5 reps, 100\u00a0kg', rpe: null },
+        { kind: 'added', title: 'Set 3, added', caption: '5 reps, 100\u00a0kg', rpe: 'RPE 9' },
       ]);
     });
 
