@@ -132,9 +132,12 @@ export function SortablePhaseDivider({ week, sessionCount }) {
 // `readOnly` — the block is an athlete's draft: the head shows the name and
 // the places, and offers no rename and no menu (every item of it writes, or
 // copies into a block the sheet could pick as this very draft).
+// `action` — while the sheet is in a mode (choosing, reordering), what stands
+// at the right of the head in place of its menu: « Done » on the first phase,
+// nothing (null) on the others. Left out, the head carries its menu.
 export default function PhaseDivider({
   week, titleId, range, canReorder, onRename,
-  onAddSession, onDuplicate, onCopy, onDelete, onReorder, readOnly = false,
+  onAddSession, onDuplicate, onCopy, onDelete, onReorder, readOnly = false, action,
 }) {
   const ctx = useI18n();
   const { t } = ctx;
@@ -170,7 +173,7 @@ export default function PhaseDivider({
         </h2>
         <span className="pk-caption">{phaseRangeText(range, ctx)}</span>
       </div>
-      {!readOnly && (
+      {action !== undefined ? action : !readOnly && (
         <PhaseMenu
           canReorder={canReorder}
           onReorder={onReorder}

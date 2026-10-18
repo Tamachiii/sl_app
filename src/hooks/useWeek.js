@@ -115,7 +115,7 @@ export function useCreateWeek() {
  * was never put in: it is not sent until the next focus or reconnection, and
  * not at all after a reload. So the component that calls these hooks is
  * mounted once per block (`key={program.id}` on `ProgramSheet`, in
- * `StudentProgrammingSection`); a hook that unmounts leaves its writes in the
+ * `StudentOverview`); a hook that unmounts leaves its writes in the
  * cache as they were made, and they are sent.
  */
 function blockOrderScope(blockId) {

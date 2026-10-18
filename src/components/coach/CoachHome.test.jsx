@@ -25,16 +25,26 @@ vi.mock('../../hooks/useClientErrors', () => ({
   useClientErrors: () => mockClientErrors,
 }));
 
-// Inline stubs that read the outlet context the same way the real sections do
-// — verifies the layout's <Outlet context> wiring without pulling in their
-// data hooks.
+// Inline stubs that read the outlet context the same way the real pages do —
+// verifies the layout's <Outlet context> wiring without pulling in their data
+// hooks. The athlete page draws its title in the frame it is handed, with the
+// athlete's name, as StudentOverview does while it has no block to show.
 function OverviewStub() {
-  const { student } = useOutletContext();
-  return <div data-testid="overview">overview:{student.id}</div>;
+  const { student, athleteName, titleProps } = useOutletContext();
+  return (
+    <>
+      <LargeTitle {...titleProps} title={athleteName} />
+      <div data-testid="overview">overview:{student.id}</div>
+    </>
+  );
 }
 function SessionStub() {
   const { student } = useOutletContext();
   return <div data-testid="session-editor">session:{student.id}</div>;
+}
+function SubPageStub({ name }) {
+  const { student, athleteName } = useOutletContext();
+  return <div data-testid={name}>{name}:{student.id}:{athleteName}</div>;
 }
 
 // Where the router is, search included.
@@ -44,9 +54,10 @@ function LocationProbe() {
 }
 
 import CoachHome from './CoachHome';
+import { LargeTitle } from '../parc';
 
-// Mirrors the real route tree: the athlete is ONE page, with every surface that
-// used to be a tab redirecting back to it.
+// Mirrors the real route tree: the athlete page, Goals, Stats and the session
+// editor under it, and the tabs of an earlier version redirecting to it.
 function renderCoachHome(path = '/coach/students') {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -56,11 +67,11 @@ function renderCoachHome(path = '/coach/students') {
         <Route path="/coach/students/:studentId" element={<CoachHome />}>
           <Route index element={<OverviewStub />} />
           <Route path="s/:sessionId" element={<SessionStub />} />
+          <Route path="goals" element={<SubPageStub name="goals" />} />
+          <Route path="stats" element={<SubPageStub name="stats" />} />
           <Route path="programming" element={<Navigate to=".." replace relative="path" />} />
           <Route path="progress" element={<Navigate to=".." replace relative="path" />} />
           <Route path="profile" element={<Navigate to=".." replace relative="path" />} />
-          <Route path="goals" element={<Navigate to=".." replace relative="path" />} />
-          <Route path="stats" element={<Navigate to=".." replace relative="path" />} />
           <Route path="messaging" element={<Navigate to=".." replace relative="path" />} />
         </Route>
       </Routes>
@@ -563,11 +574,25 @@ describe('CoachHome', () => {
       expect(screen.queryAllByRole('tab')).toHaveLength(0);
     });
 
-    it('makes the athlete the page title', () => {
+    // The athlete page's title is the athlete's block
+    // (design/parc/screens/Programme.dc.html), which only the page knows: this
+    // layout draws no title over it, and hands it the athlete's name and the
+    // frame of its title — the way back to the roster, the account menu.
+    it('leaves the title to the athlete page, and hands it the name and the frame', () => {
       renderCoachHome('/coach/students/s-1');
+      expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
       expect(screen.getByRole('heading', { level: 1, name: 'Alice' })).toBeInTheDocument();
-      // The roster title is REPLACED, not stacked above the name.
+      // The roster title is REPLACED, not stacked above the page's.
       expect(screen.queryByRole('heading', { name: 'Athletes' })).not.toBeInTheDocument();
+    });
+
+    it('opens Goals and Stats as pages of the athlete, with no title of its own over them', () => {
+      renderCoachHome('/coach/students/s-1/goals');
+      expect(screen.getByTestId('goals')).toHaveTextContent('goals:s-1:Alice');
+      expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+
+      renderCoachHome('/coach/students/s-1/stats');
+      expect(screen.getByTestId('stats')).toHaveTextContent('stats:s-1:Alice');
     });
 
     // The session editor is a page of its own (design/parc/screens/
@@ -636,10 +661,8 @@ describe('CoachHome', () => {
       '/coach/students/s-1/programming',
       '/coach/students/s-1/progress',
       '/coach/students/s-1/profile',
-      '/coach/students/s-1/goals',
-      '/coach/students/s-1/stats',
       '/coach/students/s-1/messaging',
-    ])('former tab URL %s falls back to the one page', (path) => {
+    ])('former tab URL %s falls back to the athlete page', (path) => {
       renderCoachHome(path);
       expect(screen.getByTestId('overview')).toBeInTheDocument();
     });

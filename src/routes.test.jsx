@@ -30,6 +30,8 @@ vi.mock('./components/coach/CoachHome', async () => {
 vi.mock('./components/auth/LoginPage', () => ({ default: () => <div data-testid="page">LoginPage</div> }));
 vi.mock('./components/coach/StudentOverview', () => ({ default: () => <div data-testid="child">StudentOverview</div> }));
 vi.mock('./components/coach/SessionEditor', () => ({ default: () => <div data-testid="child">SessionEditor</div> }));
+vi.mock('./components/coach/StudentGoalsPage', () => ({ default: () => <div data-testid="child">StudentGoalsPage</div> }));
+vi.mock('./components/coach/StudentStatsPage', () => ({ default: () => <div data-testid="child">StudentStatsPage</div> }));
 vi.mock('./components/coach/SessionsFeed', () => ({ default: () => <div data-testid="page">SessionsFeed</div> }));
 vi.mock('./components/coach/ExerciseLibrary', () => ({ default: () => <div data-testid="page">ExerciseLibrary</div> }));
 vi.mock('./components/coach/SessionReview', () => ({ default: () => <div data-testid="page">SessionReview</div> }));
@@ -117,19 +119,19 @@ describe('route table', () => {
       ['/coach', '/coach/students', 'CoachHome', null],
       ['/coach/dashboard', '/coach/students', 'CoachHome', null],
       ['/coach/students', '/coach/students', 'CoachHome', null],
-      // The athlete page and its only child destination.
+      // The athlete page and the pages under it.
       ['/coach/students/a1', '/coach/students/a1', 'CoachHome', 'StudentOverview'],
       ['/coach/students/a1/s/s1', '/coach/students/a1/s/s1', 'CoachHome', 'SessionEditor'],
+      ['/coach/students/a1/goals', '/coach/students/a1/goals', 'CoachHome', 'StudentGoalsPage'],
+      ['/coach/students/a1/stats', '/coach/students/a1/stats', 'CoachHome', 'StudentStatsPage'],
       // Retired tabs: `..` resolved against the PATH, one segment up.
       ['/coach/students/a1/programming', '/coach/students/a1', 'CoachHome', 'StudentOverview'],
       ['/coach/students/a1/progress', '/coach/students/a1', 'CoachHome', 'StudentOverview'],
       ['/coach/students/a1/profile', '/coach/students/a1', 'CoachHome', 'StudentOverview'],
-      ['/coach/students/a1/goals', '/coach/students/a1', 'CoachHome', 'StudentOverview'],
-      ['/coach/students/a1/stats', '/coach/students/a1', 'CoachHome', 'StudentOverview'],
       ['/coach/students/a1/messaging', '/coach/students/a1', 'CoachHome', 'StudentOverview'],
       // Legacy deep links that carry their params across the redirect.
       ['/coach/students/a1/programming/s/s1', '/coach/students/a1/s/s1', 'CoachHome', 'SessionEditor'],
-      ['/coach/student/a1/goals', '/coach/students/a1', 'CoachHome', 'StudentOverview'],
+      ['/coach/student/a1/goals', '/coach/students/a1/goals', 'CoachHome', 'StudentGoalsPage'],
       ['/coach/student/a1/week/w1', '/coach/students/a1', 'CoachHome', 'StudentOverview'],
       ['/coach/student/a1/week/w1/session/s1', '/coach/students/a1/s/s1', 'CoachHome', 'SessionEditor'],
       // The other coach pages.

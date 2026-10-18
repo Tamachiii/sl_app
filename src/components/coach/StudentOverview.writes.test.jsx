@@ -54,6 +54,7 @@ vi.mock('../../hooks/useProgram', async (importOriginal) => ({
 }));
 vi.mock('../../hooks/useSessionConfirmation', () => ({
   useProgramConfirmedSessionIds: () => ({ data: new Set() }),
+  useReviewCounts: () => ({ data: {} }),
 }));
 vi.mock('../../hooks/useSession', () => ({
   useProgramLoggedSessionIds: () => ({ data: new Set() }),
@@ -84,7 +85,7 @@ vi.mock('@dnd-kit/core', async (importOriginal) => {
   };
 });
 
-import StudentProgrammingSection from './StudentProgrammingSection';
+import StudentOverview from './StudentOverview';
 
 // The athlete's page as `CoachHome` hosts it: one route, the athlete in the
 // outlet context. The link is the bell's — a notification about another
@@ -108,7 +109,7 @@ function renderSection() {
       <MemoryRouter initialEntries={['/coach/students/s-1']}>
         <Routes>
           <Route path="/coach/students/:studentId" element={<AthletePage />}>
-            <Route index element={<StudentProgrammingSection />} />
+            <Route index element={<StudentOverview />} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -123,7 +124,7 @@ function drop(row, activeId, overId) {
 }
 
 async function pickBlock(user, name) {
-  await user.click(screen.getByRole('button', { name: 'Choose the block' }));
+  await user.click(screen.getByRole('button', { description: 'Choose the block' }));
   await user.click(screen.getByRole('option', { name: new RegExp(name) }));
 }
 
@@ -231,11 +232,11 @@ describe('a write that was waiting when the page moved on', () => {
     const list = () => within(screen.getByRole('listbox'));
 
     act(() => onlineManager.setOnline(false));
-    await user.click(screen.getByRole('button', { name: 'Choose the block' }));
+    await user.click(screen.getByRole('button', { description: 'Choose the block' }));
     drop(list().getByText('Block one'), 'p-2', 'p-1');
 
     await user.click(screen.getByRole('link', { name: 'other athlete' }));
-    const trigger = await screen.findByRole('button', { name: 'Choose the block' });
+    const trigger = await screen.findByRole('button', { description: 'Choose the block' });
     expect(trigger).toHaveTextContent('Block seven');
     await user.click(trigger);
     drop(list().getByText('Block seven'), 'p-8', 'p-7');

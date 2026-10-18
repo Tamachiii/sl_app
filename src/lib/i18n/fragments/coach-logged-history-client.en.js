@@ -13,8 +13,5 @@ export default {
       setLogged: 'Set {n} is logged',
       removeBlocked: 'This exercise has logged sets and cannot be removed',
     },
-    athlete: {
-      actionsLabel: 'Go to {name}’s messages or sessions',
-    },
   },
 };
