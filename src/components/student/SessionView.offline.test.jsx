@@ -211,7 +211,11 @@ const settle = () =>
   });
 
 const banner = () => screen.getByTestId('offline-banner');
-const confirmButton = () => screen.queryByRole('button', { name: 'Confirm session' });
+// The way to confirm: the ActionBar's « Confirm session » once every set is
+// dealt with, the « ⋯ » of the title (« Finish the session now ») before.
+const confirmButton = () =>
+  screen.queryByRole('button', { name: 'Confirm session' }) ??
+  screen.queryByRole('button', { name: 'Session options' });
 // The page's title, and the exercise it shows: one at a time, its name the
 // panel's heading (the chips above name every exercise of the session).
 const title = () => screen.queryByRole('heading', { level: 1, name: 'Pull A' });

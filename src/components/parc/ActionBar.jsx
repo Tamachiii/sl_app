@@ -12,6 +12,10 @@ const TOAST_GAP_PX = 10;
  * running. Three elements at most — the rest, « +30 s », « Valider la série 3 »
  * — or the main action alone across the width.
  *
+ * `above` is a row drawn over that one, across the bar: on the session
+ * screen, the exercise before and the one after (« ‹ Dips • ● • Pec Deck › »).
+ * The row of the main action stays as it is under it.
+ *
  * The caller gives the main button (`<Button variant="primary" size="lg"
  * className="flex-1">`) and, while a rest runs, a `<RestCountdown>`. The page
  * above stops short of the bar: its bottom padding is the bar's height.
@@ -20,7 +24,7 @@ const TOAST_GAP_PX = 10;
  * of the bar's top: the 28px of `safe-bottom` is what the mocks draw for the
  * phone's home bar, which `env(safe-area-inset-bottom)` measures for real.
  */
-export default function ActionBar({ className = '', children, ...rest }) {
+export default function ActionBar({ above, className = '', children, ...rest }) {
   const ref = useRef(null);
 
   // While the bar is shown, the toasts stand above it: its height, measured
@@ -43,10 +47,17 @@ export default function ActionBar({ className = '', children, ...rest }) {
     <div
       ref={ref}
       {...rest}
-      className={`pk-actionbar ${className}`}
+      className={['pk-actionbar', above && 'flex-col items-stretch gap-2', className].filter(Boolean).join(' ')}
       style={{ paddingBottom: 'max(var(--space-3), env(safe-area-inset-bottom))', ...rest.style }}
     >
-      {children}
+      {above ? (
+        <>
+          {above}
+          <div className="flex items-center gap-3">{children}</div>
+        </>
+      ) : (
+        children
+      )}
     </div>
   );
 }

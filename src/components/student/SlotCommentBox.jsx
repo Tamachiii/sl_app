@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useImperativeHandle, useState } from 'react';
 import { useSaveSlotComment } from '../../hooks/useSlotComments';
 import { useI18n } from '../../hooks/useI18n';
 import { Button, CoachNote } from '../parc';
@@ -6,7 +6,8 @@ import { Button, CoachNote } from '../parc';
 /**
  * The athlete's note for the coach on one exercise.
  *
- * - No note: « Ajouter une note pour le coach », a text button.
+ * - No note: nothing. The field is opened by « Ajouter une note pour le
+ *   coach » in the exercise's menu (`ExerciseMenu`), through `ref.open()`.
  * - A note: the note itself, signed « Ta note pour le coach », and « Modifier
  *   la note ».
  * - Writing: a field that saves when it is left (or does nothing if unchanged)
@@ -19,7 +20,7 @@ import { Button, CoachNote } from '../parc';
  * is neither a success nor a failure, and the field used to stay open on it as
  * if nothing had happened.
  */
-export default function SlotCommentBox({ sessionId, slotId, comment, locked = false }) {
+export default function SlotCommentBox({ sessionId, slotId, comment, locked = false, ref }) {
   const { t } = useI18n();
   const fieldId = useId();
   const body = comment?.body || '';
@@ -38,6 +39,12 @@ export default function SlotCommentBox({ sessionId, slotId, comment, locked = fa
     setDraft(unsaved ?? body);
     setOpen(true);
   }
+
+  useImperativeHandle(ref, () => ({
+    open() {
+      if (!locked) openEditor();
+    },
+  }));
 
   function handleBlur() {
     setOpen(false);
@@ -76,22 +83,16 @@ export default function SlotCommentBox({ sessionId, slotId, comment, locked = fa
     );
   }
 
-  if (body) {
-    return (
-      <CoachNote title={t('parcSession.yourNote')} from="athlete">
-        {body}
-        <div>
-          <Button variant="text" className="-ml-1 mt-1" onClick={openEditor}>
-            {t('parcSession.editNote')}
-          </Button>
-        </div>
-      </CoachNote>
-    );
-  }
+  if (!body) return null;
 
   return (
-    <Button variant="text" className="self-start" onClick={openEditor}>
-      {t('parcSession.addNote')}
-    </Button>
+    <CoachNote title={t('parcSession.yourNote')} from="athlete">
+      {body}
+      <div>
+        <Button variant="text" className="-ml-1 mt-1" onClick={openEditor}>
+          {t('parcSession.editNote')}
+        </Button>
+      </div>
+    </CoachNote>
   );
 }

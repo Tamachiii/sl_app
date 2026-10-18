@@ -29,13 +29,14 @@ import {
   Button,
   CoachNote,
   ConfirmSheet,
-  ExerciseSwitcher,
+  ExerciseSteps,
   Icon,
   LargeTitle,
   RestCountdown,
   Sheet,
   formatRestClock,
 } from '../parc';
+import ActionMenu from './ActionMenu';
 import SessionExercise, { exerciseNameOf } from './SessionExercise';
 import SetSheet from './SetSheet';
 import RpeSheet from './RpeSheet';
@@ -50,6 +51,8 @@ import {
   isDurationBased,
   isLogResolved,
   nextSlotToShow,
+  stepEntry,
+  stepFinished,
 } from './sessionModel';
 
 // The exercises of a session that is not read yet: one array, so that what is
@@ -101,8 +104,9 @@ function RestControls() {
 
 // « Valider la série n »: the set done through its own hooks, then the RPE
 // sheet — or the set's sheet for an extra set that does not say yet what was
-// done. Mounted per set (`key`), like the sheets.
-function ValidateSetButton({ log, exercise, onRpe, onValues }) {
+// done. Mounted per set (`key`), like the sheets. In a superset it names the
+// exercise by its code, « Valider C1 »: the round is in the panel.
+function ValidateSetButton({ log, exercise, code, onRpe, onValues }) {
   const { t } = useI18n();
   const actions = useSetActions(log, exercise);
   return (
@@ -115,7 +119,7 @@ function ValidateSetButton({ log, exercise, onRpe, onValues }) {
         else onRpe(log.id);
       }}
     >
-      {t('parcSession.validateSet', { n: log.set_number })}
+      {code ? t('sessionSuperset.validate', { code }) : t('parcSession.validateSet', { n: log.set_number })}
     </Button>
   );
 }
@@ -198,9 +202,25 @@ export default function SessionView() {
   // single logged set is really to be confirmed.
   const [askedAgain, setAskedAgain] = useState(false);
   const [undoDialogOpen, setUndoDialogOpen] = useState(false);
-  // The exercise shown: chosen by a chip, or by the screen moving on after a
-  // set. null until then: the first exercise with a set to do.
+  // The exercise shown: chosen from the neighbours over the ActionBar, or by
+  // the screen moving on after a set. null until then: the first exercise
+  // with a set to do.
   const [chosenSlotId, setChosenSlotId] = useState(null);
+  // The neighbour pressed keeps the focus. Where the session ends on that
+  // side, its button goes, and the one of the other side takes the focus.
+  const stepFocus = useRef(null);
+  const previousStepRef = useRef(null);
+  const nextStepRef = useRef(null);
+  useEffect(() => {
+    const which = stepFocus.current;
+    if (!which) return;
+    stepFocus.current = null;
+    const [first, second] =
+      which === 'next'
+        ? [nextStepRef.current, previousStepRef.current]
+        : [previousStepRef.current, nextStepRef.current];
+    (first && !first.disabled ? first : second)?.focus();
+  }, [chosenSlotId]);
   // The set whose sheet is open, and the last one opened: the sheet stays
   // mounted on it while it closes, and its focus goes back to the row.
   const [setSheet, setSetSheet] = useState({ open: false, logId: null });
@@ -380,9 +400,113 @@ export default function SessionView() {
     return exerciseNameOf(slot, t);
   }
 
-  // The editor context of a set of the exercise shown: whether it is swapped,
-  // what its fields open with, and its unit.
+  // The steps of the session, from the ActionBar: an exercise alone, or the
+  // exercises of a superset as one step. A row over the main action with the
+  // step before at its left and the one after at its right, each named — a
+  // superset by its exercises —, and a dot per step between them: the one
+  // shown, the finished ones. A session of one step has none of it.
+  const stepName = (group) =>
+    group.slots.length > 1
+      ? t('sessionSuperset.stepName', { names: group.slots.map(chipName).join(' + ') })
+      : chipName(group.slots[0]);
+  const stepLabel = (group) => (group.slots.length > 1 ? group.slots.map(chipName).join(' + ') : chipName(group.slots[0]));
+  let neighbours = null;
+  const shownIndex = shownGroup ? slotGroups.indexOf(shownGroup) : -1;
+  if (slotGroups.length > 1 && shownIndex >= 0) {
+    const before = slotGroups[shownIndex - 1] ?? null;
+    const after = slotGroups[shownIndex + 1] ?? null;
+    const finished = slotGroups.flatMap((group, index) =>
+      stepFinished(group.slots, logsOf, skippedSlotIds) ? [index] : [],
+    );
+    const goTo = (which, group) => {
+      stepFocus.current = which;
+      setChosenSlotId(stepEntry(group.slots, logsOf, skippedSlotIds));
+    };
+    neighbours = (
+      <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-1">
+          {before && (
+            <Button
+              ref={previousStepRef}
+              variant="text"
+              className="min-w-0 text-ink"
+              aria-label={t('sessionStepper.previous', { name: stepName(before) })}
+              onClick={() => goTo('previous', before)}
+            >
+              <Icon name="chevron-left" size={18} />
+              <span className="min-w-0 truncate">{stepLabel(before)}</span>
+            </Button>
+          )}
+        </div>
+        <ExerciseSteps
+          count={slotGroups.length}
+          current={shownIndex}
+          done={finished}
+          label={t(pluralKey(lang, finished.length, 'sessionStepper.steps'), {
+            n: formatNumber(lang, shownIndex + 1),
+            total: formatNumber(lang, slotGroups.length),
+            done: formatNumber(lang, finished.length),
+          })}
+        />
+        <div className="flex min-w-0 flex-1 justify-end">
+          {after && (
+            <Button
+              ref={nextStepRef}
+              variant="text"
+              className="min-w-0 text-ink"
+              aria-label={t('sessionStepper.next', { name: stepName(after) })}
+              onClick={() => goTo('next', after)}
+            >
+              <span className="min-w-0 truncate">{stepLabel(after)}</span>
+              <Icon name="chevron-right" size={18} />
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // The exercises of the superset shown, for its panel and its rounds: each
+  // with its sets, its name, its code (« C1 »: the letter of its step, its
+  // place in the superset) and its unit.
+  const superset =
+    shownGroup && shownGroup.slots.length > 1
+      ? {
+          members: shownGroup.slots.map((slot, index) => {
+            const slotLogs = logsOf(slot.id);
+            return {
+              slot,
+              logs: slotLogs,
+              name: chipName(slot),
+              code: `${String.fromCharCode(65 + shownIndex)}${index + 1}`,
+              durationBased: isDurationBased(slot, slotLogs),
+              skipped: skippedSlotIds.has(slot.id),
+            };
+          }),
+          onSelect: setChosenSlotId,
+        }
+      : null;
+
+  // The editor context of a set: whether its exercise is swapped, what its
+  // fields open with, and its unit — of the exercise shown, or of the other
+  // exercise of its superset, whose sets are listed in the same rounds.
   function exerciseContextOf(log) {
+    if (log.exercise_slot_id !== shownSlot?.id) {
+      const slot = slots.find((s) => s.id === log.exercise_slot_id);
+      if (slot) {
+        const { swapped, deviation } = deviationOf(slot, slotDeviations);
+        const slotLogs = logsOf(slot.id);
+        const exerciseId = swapped ? deviation.substitute_exercise_id : slot.exercise?.id;
+        const lastPerf = lastPerformance && exerciseId ? lastPerformance[exerciseId] : null;
+        const seed = editorSeeds(slotLogs, { swapped, lastPerf }).get(log.id);
+        return {
+          swapped,
+          seedReps: seed?.reps ?? null,
+          seedWeightKg: seed?.weightKg ?? null,
+          durationBased: isDurationBased(slot, slotLogs),
+        };
+      }
+    }
     const seed = shownSeeds.get(log.id);
     return {
       swapped: !!shown?.swapped,
@@ -401,8 +525,12 @@ export default function SessionView() {
     if (chosenSlotId == null && shownSlot) setChosenSlotId(shownSlot.id);
   }
 
+  // A set of the other exercise of a superset, tapped in the rounds, shows
+  // its exercise as it opens.
   function openSet(logId) {
-    pin();
+    const log = (logs || []).find((l) => l.id === logId);
+    if (log && shownSlot && log.exercise_slot_id !== shownSlot.id) setChosenSlotId(log.exercise_slot_id);
+    else pin();
     setSetSheet({ open: true, logId });
   }
 
@@ -491,6 +619,26 @@ export default function SessionView() {
   // A set is still to do somewhere in the session.
   const anySetLeft = slots.some((slot) => !skippedSlotIds.has(slot.id) && currentLogOf(logsOf(slot.id)));
   const canConfirm = !confLoading && !isConfirmed && !isClosed;
+  // Confirming before every set is dealt with, from the « ⋯ » of the title:
+  // the sheet counts what was logged, and asks twice when nothing was. Once
+  // every set is dealt with, the ActionBar carries it.
+  const setsLeft = totalCount - resolvedCount;
+  const sessionItems =
+    canConfirm && anySetLeft
+      ? [
+          {
+            key: 'finish',
+            icon: 'check',
+            title: confirmInFlight ? t('parcSession.confirming') : t('sessionMenus.finishNow'),
+            subtitle:
+              setsLeft > 0
+                ? t(pluralKey(lang, setsLeft, 'sessionMenus.setsLeft'), { n: formatNumber(lang, setsLeft) })
+                : undefined,
+            disabled: confirmInFlight,
+            onSelect: () => setConfirmDialogOpen(true),
+          },
+        ]
+      : [];
 
   // The facts under the title: the day, the exercises, the sets done.
   const facts = [];
@@ -521,6 +669,7 @@ export default function SessionView() {
         key={currentLog.id}
         log={currentLog}
         exercise={exerciseContextOf(currentLog)}
+        code={superset?.members.find((member) => member.slot.id === shownSlot.id)?.code}
         onRpe={openRpe}
         onValues={openSet}
       />
@@ -566,6 +715,13 @@ export default function SessionView() {
           title={session?.title || t('sessionUnavailable.title')}
           subtitle={subtitle}
           back={{ label: t('parcSession.back'), onClick: goBack }}
+          actions={
+            <ActionMenu
+              label={t('sessionMenus.sessionOptions')}
+              title={t('sessionMenus.sessionOptions')}
+              items={sessionItems}
+            />
+          }
         />
 
         {feedback && (
@@ -580,18 +736,9 @@ export default function SessionView() {
           </CoachNote>
         )}
 
-        {slots.length > 1 && (
-          <ExerciseSwitcher
-            label={t('parcSession.exercisesLabel')}
-            items={slots.map((slot) => ({ id: slot.id, label: chipName(slot) }))}
-            currentId={shownSlotId}
-            onSelect={setChosenSlotId}
-          />
-        )}
-
         {shownSlot && (
           <SessionExercise
-            key={shownSlot.id}
+            key={shownGroup?.key ?? shownSlot.id}
             slot={shownSlot}
             slotLogs={shownLogs}
             seeds={shownSeeds}
@@ -614,21 +761,8 @@ export default function SessionView() {
             onGesture={pin}
             onAddSet={handleAddSet}
             addingSet={addSet.isPending}
+            superset={superset}
           />
-        )}
-
-        {/* Confirming before every set is dealt with: the sheet counts what
-            was logged, and asks twice when nothing was. Once every set is
-            dealt with, the ActionBar carries it. */}
-        {canConfirm && anySetLeft && (
-          <Button
-            variant="text"
-            className="self-start"
-            disabled={confirmInFlight}
-            onClick={() => setConfirmDialogOpen(true)}
-          >
-            {confirmInFlight ? t('parcSession.confirming') : t('parcSession.confirmCta')}
-          </Button>
         )}
 
         {!confLoading && isConfirmed && (
@@ -689,8 +823,8 @@ export default function SessionView() {
         )}
       </div>
 
-      {(mainAction || !setsLocked) && (
-        <ActionBar className="sticky bottom-0 z-10 mt-auto">
+      {(mainAction || !setsLocked || neighbours) && (
+        <ActionBar className="sticky bottom-0 z-10 mt-auto" above={neighbours}>
           {!setsLocked && <RestControls />}
           {mainAction}
         </ActionBar>

@@ -21,6 +21,9 @@ import {
   restText,
   setOutcome,
   sharedRest,
+  stepEntry,
+  stepFinished,
+  supersetRounds,
   targetText,
   workText,
 } from './sessionModel';
@@ -387,5 +390,61 @@ describe('the line of last time', () => {
     expect(lastTimeText({ performedAt: daysAgo(1), sets: [] }, ctx, now)).toBe('');
     expect(lastTimeText(null, ctx, now)).toBe('');
     expect(lastTimeText(undefined, ctx, now)).toBe('');
+  });
+});
+
+// A superset is one step of the session: entered on the exercise whose next
+// set comes first in the rounds, finished when both are, listed in rounds.
+describe('the steps of a session, and the rounds of a superset', () => {
+  const A = { id: 'a' };
+  const B = { id: 'b' };
+  const set = (slot, n, extra = {}) => prescribed(n, { id: `${slot}-${n}`, exercise_slot_id: slot, ...extra });
+  const logsFrom = (byslot) => (slotId) => byslot[slotId] ?? [];
+  const none = new Set();
+
+  it('enters a superset on the exercise whose next set comes first, the first on a tie', () => {
+    const fresh = logsFrom({ a: [set('a', 1), set('a', 2)], b: [set('b', 1), set('b', 2)] });
+    expect(stepEntry([A, B], fresh, none)).toBe('a');
+
+    const afterA1 = logsFrom({ a: [set('a', 1, { done: true }), set('a', 2)], b: [set('b', 1), set('b', 2)] });
+    expect(stepEntry([A, B], afterA1, none)).toBe('b');
+
+    const afterRound1 = logsFrom({
+      a: [set('a', 1, { done: true }), set('a', 2)],
+      b: [set('b', 1, { done: true }), set('b', 2)],
+    });
+    expect(stepEntry([A, B], afterRound1, none)).toBe('a');
+  });
+
+  it('passes over a skipped exercise, and falls back on the first when nothing is left', () => {
+    const fresh = logsFrom({ a: [set('a', 1)], b: [set('b', 1)] });
+    expect(stepEntry([A, B], fresh, new Set(['a']))).toBe('b');
+    const finished = logsFrom({ a: [set('a', 1, { done: true })], b: [set('b', 1, { failed: true })] });
+    expect(stepEntry([A, B], finished, none)).toBe('a');
+    expect(stepEntry([A], logsFrom({ a: [set('a', 1)] }), none)).toBe('a');
+  });
+
+  it('is finished when each exercise is skipped or has every set dealt with', () => {
+    const half = logsFrom({ a: [set('a', 1, { done: true })], b: [set('b', 1)] });
+    expect(stepFinished([A, B], half, none)).toBe(false);
+    expect(stepFinished([A, B], half, new Set(['b']))).toBe(true);
+    const both = logsFrom({ a: [set('a', 1, { done: true })], b: [set('b', 1, { skipped: true })] });
+    expect(stepFinished([A, B], both, none)).toBe(true);
+    // An exercise without a set is not finished: there is nothing done yet.
+    expect(stepFinished([A], logsFrom({}), none)).toBe(false);
+  });
+
+  it('lists the sets of a superset in rounds, an exercise with fewer sets missing from the last', () => {
+    const members = [
+      { name: 'A', logs: [set('a', 1), set('a', 2), set('a', 3)] },
+      { name: 'B', logs: [set('b', 1), set('b', 2)] },
+    ];
+    const rounds = supersetRounds(members);
+    expect(rounds.map((round) => round.map(({ member, log }) => `${member.name}${log.set_number}`))).toEqual([
+      ['A1', 'B1'],
+      ['A2', 'B2'],
+      ['A3'],
+    ]);
+    expect(supersetRounds([])).toEqual([]);
   });
 });
