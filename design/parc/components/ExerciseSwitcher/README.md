@@ -2,6 +2,8 @@
 
 La rangée de puces qui choisit l'exercice affiché sur l'écran de séance.
 
+> L'écran de séance ne s'en sert plus : il répétait le nom écrit juste en dessous dans le SetPanel. Les exercices voisins de l'ActionBar et ExerciseSteps l'ont remplacé (voir `ActionBar/README.md`).
+
 ## Quand l'utiliser
 
 - Sous le titre de la séance, pour passer d'un exercice à l'autre sans quitter l'écran. Un exercice terminé passe de lui-même au suivant.

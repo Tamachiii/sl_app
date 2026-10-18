@@ -202,9 +202,33 @@ function settle(view, logs) {
 
 const panel = () => screen.getByRole('region', { name: 'Set in progress' });
 const shownExercise = () => within(panel()).getByRole('heading', { level: 2 }).textContent;
-const chipRow = () => screen.queryByRole('navigation', { name: 'Exercises of the session' });
-const chip = (name) => within(chipRow()).getByRole('button', { name });
-const shownChip = () => chipRow().querySelector('[aria-current="true"]')?.textContent;
+// The row over the ActionBar's main action: the exercise before at its left
+// and the one after at its right, each a button named for it — none on the
+// side where the session ends —, and the dots between them.
+const previousArrow = () => screen.queryByRole('button', { name: /^Previous exercise/ });
+const nextArrow = () => screen.queryByRole('button', { name: /^Next exercise/ });
+const steps = () => screen.queryByRole('img', { name: /^Exercise \d+ of \d+/ });
+// Steps back to the first exercise unless `name` comes first, then forward
+// to it.
+async function goToExercise(user, name) {
+  while (shownExercise() !== name && previousArrow() && !previousArrow().disabled) {
+    await user.click(previousArrow());
+  }
+  while (shownExercise() !== name && nextArrow() && !nextArrow().disabled) {
+    await user.click(nextArrow());
+  }
+  expect(shownExercise()).toBe(name);
+}
+// The exercises in the order the arrows go through them, from the first.
+async function exerciseOrder(user) {
+  while (previousArrow() && !previousArrow().disabled) await user.click(previousArrow());
+  const names = [shownExercise()];
+  while (nextArrow() && !nextArrow().disabled) {
+    await user.click(nextArrow());
+    names.push(shownExercise());
+  }
+  return names;
+}
 const setList = () => screen.queryByRole('list', { name: 'Sets' });
 // The row of set n, found by its title (« Set 2 », « Set 2, failed »): jsdom
 // joins the title and the caption of a row without a space in its name. A row
@@ -743,7 +767,7 @@ describe('SessionView', () => {
 
   // P68. jsdom lays nothing out: the 44 px are read from the classes, which
   // the Parc stylesheet sizes at --target-min (44px) and more.
-  it('draws its controls at 44 px: the way back, the menus, the chips, the rows, the main action and "Reply in messages"', () => {
+  it('draws its controls at 44 px: the way back, the menus, the arrows, the rows, the main action and "Reply in messages"', () => {
     mockFeedback = {
       data: { id: 'msg-1', body: 'Good.', created_at: '2026-04-15T10:00:00Z' },
     };
@@ -752,7 +776,7 @@ describe('SessionView', () => {
     renderSessionView();
 
     expect(screen.getByRole('button', { name: 'Back to training' })).toHaveClass('pk-icon-btn');
-    expect(chip('Squat')).toHaveClass('pk-chip');
+    expect(nextArrow()).toHaveClass('pk-btn');
     expect(setRowButton(1)).toHaveClass('pk-row');
     expect(inBar().getByRole('button', { name: 'Validate set 1' })).toHaveClass('pk-btn', 'pk-btn-lg');
     expect(sessionMenu()).toHaveClass('pk-icon-btn');
@@ -793,11 +817,12 @@ describe('SessionView: one exercise at a time', () => {
     ]);
     renderSessionView();
 
-    // Both exercises have their chip; the one shown is current.
-    expect(chip('Dip')).toBeInTheDocument();
-    expect(chip('Pullup')).toHaveAttribute('aria-current', 'true');
-    expect(chip('Dip')).not.toHaveAttribute('aria-current');
+    // The second of two is shown: the dots say so, and the arrow back names
+    // the first.
     expect(shownExercise()).toBe('Pullup');
+    expect(steps()).toHaveAccessibleName('Exercise 2 of 2, 1 done');
+    expect(previousArrow()).toHaveAccessibleName('Previous exercise: Dip');
+    expect(nextArrow()).toBeNull();
     // Pullup's two pending sets, and none of Dip's done ones.
     expect(within(setList()).getAllByRole('listitem')).toHaveLength(2);
     expect(screen.queryByText(/^Set \d+, done$/)).toBeNull();
@@ -809,9 +834,10 @@ describe('SessionView: one exercise at a time', () => {
     mockSetLogsData = logsRead([setLog('l-a', 'slot-a', 1), setLog('l-b', 'slot-b', 1), setLog('l-c', 'slot-c', 1)]);
     renderSessionView();
 
-    expect(within(chipRow()).getAllByRole('button').map((c) => c.textContent)).toEqual(['Squat', 'Bench', 'Row']);
-    expect(shownChip()).toBe('Squat');
     expect(shownExercise()).toBe('Squat');
+    expect(steps()).toHaveAccessibleName('Exercise 1 of 3, 0 done');
+    expect(previousArrow()).toBeNull();
+    expect(nextArrow()).toHaveAccessibleName('Next exercise: Bench');
     // Only the exercise shown has its sets on screen.
     expect(within(setList()).getAllByRole('listitem')).toHaveLength(1);
   });
@@ -841,7 +867,7 @@ describe('SessionView: one exercise at a time', () => {
     mockSetLogsData = logsRead([setLog('l-1', 'slot-a', 1, { failed: true }), setLog('l-2', 'slot-b', 1)]);
     renderSessionView();
     expect(shownExercise()).toBe('Bench');
-    expect(shownChip()).toBe('Bench');
+    expect(steps()).toHaveAccessibleName('Exercise 2 of 2, 1 done');
   });
 
   // Squat's only set is skipped (neither done nor failed, per the DB CHECK).
@@ -874,7 +900,8 @@ describe('SessionView: one exercise at a time', () => {
     expect(shownExercise()).toBe('Bench');
 
     // Its own screen says it was skipped, with no set to do.
-    await user.click(chip('Squat'));
+    expect(steps()).toHaveAccessibleName('Exercise 2 of 2, 1 done');
+    await goToExercise(user, 'Squat');
     expect(within(panel()).getByText('Exercise skipped')).toBeInTheDocument();
     expect(screen.getByText('You skipped this exercise.')).toBeInTheDocument();
     expect(setList()).toBeNull();
@@ -883,28 +910,44 @@ describe('SessionView: one exercise at a time', () => {
     expect(within(sheet('Confirm the session')).getByText('1 of 2 sets logged')).toBeInTheDocument();
   });
 
-  it('a chip shows its exercise, and only one is current', async () => {
+  it('the neighbours over the main action step through the exercises, and the one pressed keeps the focus', async () => {
     const user = userEvent.setup();
     mockSessionData = loaded([SQUAT, BENCH, ROW]);
     mockSetLogsData = logsRead([setLog('l-a', 'slot-a', 1), setLog('l-b', 'slot-b', 1), setLog('l-c', 'slot-c', 1)]);
     renderSessionView();
     expect(shownExercise()).toBe('Squat');
+    // The first exercise has nothing before it; the one after is named.
+    expect(previousArrow()).toBeNull();
+    expect(nextArrow()).toHaveTextContent('Bench');
+    expect(actionBar()).toContainElement(nextArrow());
+    expect(actionBar()).toContainElement(steps());
 
-    await user.click(chip('Row'));
-    expect(shownExercise()).toBe('Row');
-    expect(chipRow().querySelectorAll('[aria-current="true"]')).toHaveLength(1);
-    expect(shownChip()).toBe('Row');
-
-    await user.click(chip('Bench'));
+    await user.click(nextArrow());
     expect(shownExercise()).toBe('Bench');
-    expect(shownChip()).toBe('Bench');
+    expect(steps()).toHaveAccessibleName('Exercise 2 of 3, 0 done');
+    expect(previousArrow()).toHaveTextContent('Squat');
+    expect(nextArrow()).toHaveTextContent('Row');
+    expect(nextArrow()).toHaveFocus();
+
+    await user.click(nextArrow());
+    expect(shownExercise()).toBe('Row');
+    // The session ends on that side: its button goes, and the other one has
+    // the focus.
+    expect(nextArrow()).toBeNull();
+    expect(previousArrow()).toHaveFocus();
+
+    await user.click(previousArrow());
+    expect(shownExercise()).toBe('Bench');
+    expect(previousArrow()).toHaveFocus();
     // The ActionBar follows the exercise shown.
     expect(inBar().getByRole('button', { name: 'Validate set 1' })).toBeInTheDocument();
   });
 
-  // The chips replace the numbered headers of the accordion: one per
-  // exercise, in the session's order, the exercises of a superset included.
-  it("has one chip per exercise in the session's order, a superset's exercises included", () => {
+  // The neighbours replace the chips, which replaced the numbered headers of
+  // the accordion: every exercise in the session's order, a superset's
+  // included.
+  it("steps through every exercise in the session's order, a superset's exercises included", async () => {
+    const user = userEvent.setup();
     mockSessionData = loaded([
       slot('slot-1', 'Dips'),
       slot('slot-2a', 'Pull-up', { sort_order: 1, superset_group: 1 }),
@@ -919,19 +962,17 @@ describe('SessionView: one exercise at a time', () => {
     ]);
     renderSessionView();
 
-    expect(within(chipRow()).getAllByRole('button').map((c) => c.textContent)).toEqual([
-      'Dips',
-      'Pull-up',
-      'Push-up',
-      'Bench Press',
-    ]);
+    expect(steps()).toHaveAccessibleName('Exercise 1 of 4, 0 done');
+    expect(await exerciseOrder(user)).toEqual(['Dips', 'Pull-up', 'Push-up', 'Bench Press']);
   });
 
-  it('a session of one exercise has no chips', () => {
+  it('a session of one exercise has no arrows and no dots', () => {
     mockSessionData = loaded([SQUAT]);
     mockSetLogsData = logsRead([setLog('l-a', 'slot-a', 1)]);
     renderSessionView();
-    expect(chipRow()).toBeNull();
+    expect(previousArrow()).toBeNull();
+    expect(nextArrow()).toBeNull();
+    expect(steps()).toBeNull();
     expect(shownExercise()).toBe('Squat');
   });
 
@@ -948,7 +989,7 @@ describe('SessionView: one exercise at a time', () => {
 
     // Without one note per superset, the athlete would be asked for a note
     // once per exercise of it: the note of the second exercise is the first's.
-    await user.click(chip('Skullcrusher'));
+    await goToExercise(user, 'Skullcrusher');
     expect(within(panel()).getByText('In a superset with Curl')).toBeInTheDocument();
     const menu = await openExerciseMenu(user);
     await user.click(within(menu).getByRole('button', { name: 'Add a note for the coach' }));
@@ -971,7 +1012,7 @@ describe('SessionView: one exercise at a time', () => {
     renderSessionView();
 
     expect(screen.getByRole('region', { name: 'Your note for the coach' })).toHaveTextContent('Elbows hurt');
-    await user.click(chip('Skullcrusher'));
+    await goToExercise(user, 'Skullcrusher');
     expect(screen.getByRole('region', { name: 'Your note for the coach' })).toHaveTextContent('Elbows hurt');
   });
 
@@ -1003,7 +1044,8 @@ describe('SessionView: one exercise at a time', () => {
     expect(within(panel()).getByText('80')).toBeInTheDocument();
   });
 
-  it('an exercise the athlete replaced is named by its substitute, on its chip and its panel', () => {
+  it('an exercise the athlete replaced is named by its substitute, on its panel and the arrow to it', async () => {
+    const user = userEvent.setup();
     mockLibrary = [{ id: 'ex-ring', name: 'Ring dip', type: 'push' }];
     mockDeviations = {
       data: [{ exercise_slot_id: 'slot-a', kind: 'swap', substitute_exercise_id: 'ex-ring' }],
@@ -1013,9 +1055,10 @@ describe('SessionView: one exercise at a time', () => {
     mockSetLogsData = logsRead([setLog('l-a', 'slot-a', 1), setLog('l-b', 'slot-b', 1)]);
     renderSessionView();
 
-    expect(within(chipRow()).getAllByRole('button').map((c) => c.textContent)).toEqual(['Ring dip', 'Bench']);
     expect(shownExercise()).toBe('Ring dip');
     expect(screen.getByText('You do Ring dip instead.')).toBeInTheDocument();
+    await user.click(nextArrow());
+    expect(previousArrow()).toHaveAccessibleName('Previous exercise: Ring dip');
   });
 });
 
@@ -1077,7 +1120,7 @@ describe('SessionView: the main action', () => {
     expect(mockSetRpe).toHaveBeenCalledWith({ logId: 'l-1', rpe: 7.5 });
     expect(rpeSheet()).toBeNull();
     expect(shownExercise()).toBe('Bench');
-    expect(shownChip()).toBe('Bench');
+    expect(steps()).toHaveAccessibleName('Exercise 2 of 2, 1 done');
     expect(inBar().getByRole('button', { name: 'Validate set 1' })).toBeInTheDocument();
   });
 
@@ -1163,7 +1206,7 @@ describe('SessionView: the main action', () => {
     renderSessionView();
     expect(shownExercise()).toBe('Bench');
 
-    await user.click(chip('Squat'));
+    await goToExercise(user, 'Squat');
     expect(within(panel()).getByText('Exercise done')).toBeInTheDocument();
     expect(validateButton()).toBeNull();
 

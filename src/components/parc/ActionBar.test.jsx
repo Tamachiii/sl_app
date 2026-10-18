@@ -18,6 +18,37 @@ describe('ActionBar', () => {
     expect(timer.closest('.pk-actionbar')).toContainElement(screen.getByRole('button', { name: 'Valider la série 3' }));
   });
 
+  // The session's neighbouring exercises: a row across the bar, over the
+  // row of the main action, which keeps its rest and its button.
+  it('draws `above` as a row over the row of the main action', () => {
+    render(
+      <ActionBar above={<button type="button">Pec Deck</button>}>
+        <RestCountdown label="Repos" time="1:30" ariaLabel="Repos, 90 secondes restantes" />
+        <Button variant="primary" size="lg" className="flex-1">
+          Valider la série 3
+        </Button>
+      </ActionBar>,
+    );
+    const bar = screen.getByRole('timer').closest('.pk-actionbar');
+    expect(bar).toHaveClass('flex-col');
+    const [top, main] = [...bar.children];
+    expect(top).toBe(screen.getByRole('button', { name: 'Pec Deck' }));
+    expect(main).toHaveClass('flex', 'items-center');
+    expect(main).toContainElement(screen.getByRole('timer'));
+    expect(main).toContainElement(screen.getByRole('button', { name: 'Valider la série 3' }));
+  });
+
+  it('without `above`, is the one row it always was', () => {
+    render(
+      <ActionBar>
+        <Button variant="primary">Confirmer la séance</Button>
+      </ActionBar>,
+    );
+    const button = screen.getByRole('button', { name: 'Confirmer la séance' });
+    expect(button.parentElement).toHaveClass('pk-actionbar');
+    expect(button.parentElement).not.toHaveClass('flex-col');
+  });
+
   it('pads its bottom with the safe area, never less than its top', () => {
     const { container } = render(<ActionBar />);
     expect(container.firstChild.style.paddingBottom).toBe('max(var(--space-3), env(safe-area-inset-bottom))');

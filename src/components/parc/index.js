@@ -7,6 +7,7 @@ export { default as Button, IconButton } from './Button';
 export { default as ActionBar, RestCountdown, formatRestClock } from './ActionBar';
 export { default as LargeTitle } from './LargeTitle';
 export { default as ExerciseSwitcher } from './ExerciseSwitcher';
+export { default as ExerciseSteps } from './ExerciseSteps';
 export { default as SetPanel } from './SetPanel';
 export { default as SetRow } from './SetRow';
 export { useLongPress, LONG_PRESS_MS } from './useLongPress';

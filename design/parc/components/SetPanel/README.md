@@ -4,7 +4,7 @@ Le panneau de la série en cours : répétitions et charge en chiffres géants c
 
 ## Quand l'utiliser
 
-- Une fois, en haut de l'écran de séance, sous le sélecteur d'exercice. C'est l'élément mémorable du système, rien d'autre n'a cette taille.
+- Une fois, en haut de l'écran de séance, sous le grand titre. C'est l'élément mémorable du système, rien d'autre n'a cette taille.
 
 ## Ce que fournit l'appelant
 

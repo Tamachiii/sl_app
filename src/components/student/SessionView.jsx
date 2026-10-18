@@ -29,7 +29,7 @@ import {
   Button,
   CoachNote,
   ConfirmSheet,
-  ExerciseSwitcher,
+  ExerciseSteps,
   Icon,
   LargeTitle,
   RestCountdown,
@@ -199,9 +199,25 @@ export default function SessionView() {
   // single logged set is really to be confirmed.
   const [askedAgain, setAskedAgain] = useState(false);
   const [undoDialogOpen, setUndoDialogOpen] = useState(false);
-  // The exercise shown: chosen by a chip, or by the screen moving on after a
-  // set. null until then: the first exercise with a set to do.
+  // The exercise shown: chosen from the neighbours over the ActionBar, or by
+  // the screen moving on after a set. null until then: the first exercise
+  // with a set to do.
   const [chosenSlotId, setChosenSlotId] = useState(null);
+  // The neighbour pressed keeps the focus. Where the session ends on that
+  // side, its button goes, and the one of the other side takes the focus.
+  const stepFocus = useRef(null);
+  const previousStepRef = useRef(null);
+  const nextStepRef = useRef(null);
+  useEffect(() => {
+    const which = stepFocus.current;
+    if (!which) return;
+    stepFocus.current = null;
+    const [first, second] =
+      which === 'next'
+        ? [nextStepRef.current, previousStepRef.current]
+        : [previousStepRef.current, nextStepRef.current];
+    (first && !first.disabled ? first : second)?.focus();
+  }, [chosenSlotId]);
   // The set whose sheet is open, and the last one opened: the sheet stays
   // mounted on it while it closes, and its focus goes back to the row.
   const [setSheet, setSetSheet] = useState({ open: false, logId: null });
@@ -379,6 +395,69 @@ export default function SessionView() {
       if (substitute) return substitute.name;
     }
     return exerciseNameOf(slot, t);
+  }
+
+  // The exercises in the session's order, from the ActionBar: a row over the
+  // main action with the exercise before at its left and the one after at
+  // its right, each named, and a dot per exercise between them — the one
+  // shown, the finished ones (every set dealt with, or the exercise skipped).
+  // A session of one exercise has none of it.
+  let neighbours = null;
+  const shownIndex = shownSlot ? slots.indexOf(shownSlot) : -1;
+  if (slots.length > 1 && shownIndex >= 0) {
+    const before = slots[shownIndex - 1] ?? null;
+    const after = slots[shownIndex + 1] ?? null;
+    const finished = slots.flatMap((slot, index) => {
+      const slotLogs = logsOf(slot.id);
+      const isFinished = skippedSlotIds.has(slot.id) || (slotLogs.length > 0 && !currentLogOf(slotLogs));
+      return isFinished ? [index] : [];
+    });
+    const goTo = (which, target) => {
+      stepFocus.current = which;
+      setChosenSlotId(target.id);
+    };
+    neighbours = (
+      <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-1">
+          {before && (
+            <Button
+              ref={previousStepRef}
+              variant="text"
+              className="min-w-0 text-ink"
+              aria-label={t('sessionStepper.previous', { name: chipName(before) })}
+              onClick={() => goTo('previous', before)}
+            >
+              <Icon name="chevron-left" size={18} />
+              <span className="min-w-0 truncate">{chipName(before)}</span>
+            </Button>
+          )}
+        </div>
+        <ExerciseSteps
+          count={slots.length}
+          current={shownIndex}
+          done={finished}
+          label={t(pluralKey(lang, finished.length, 'sessionStepper.steps'), {
+            n: formatNumber(lang, shownIndex + 1),
+            total: formatNumber(lang, slots.length),
+            done: formatNumber(lang, finished.length),
+          })}
+        />
+        <div className="flex min-w-0 flex-1 justify-end">
+          {after && (
+            <Button
+              ref={nextStepRef}
+              variant="text"
+              className="min-w-0 text-ink"
+              aria-label={t('sessionStepper.next', { name: chipName(after) })}
+              onClick={() => goTo('next', after)}
+            >
+              <span className="min-w-0 truncate">{chipName(after)}</span>
+              <Icon name="chevron-right" size={18} />
+            </Button>
+          )}
+        </div>
+      </div>
+    );
   }
 
   // The editor context of a set of the exercise shown: whether it is swapped,
@@ -608,15 +687,6 @@ export default function SessionView() {
           </CoachNote>
         )}
 
-        {slots.length > 1 && (
-          <ExerciseSwitcher
-            label={t('parcSession.exercisesLabel')}
-            items={slots.map((slot) => ({ id: slot.id, label: chipName(slot) }))}
-            currentId={shownSlotId}
-            onSelect={setChosenSlotId}
-          />
-        )}
-
         {shownSlot && (
           <SessionExercise
             key={shownSlot.id}
@@ -703,8 +773,8 @@ export default function SessionView() {
         )}
       </div>
 
-      {(mainAction || !setsLocked) && (
-        <ActionBar className="sticky bottom-0 z-10 mt-auto">
+      {(mainAction || !setsLocked || neighbours) && (
+        <ActionBar className="sticky bottom-0 z-10 mt-auto" above={neighbours}>
           {!setsLocked && <RestControls />}
           {mainAction}
         </ActionBar>

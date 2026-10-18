@@ -144,6 +144,21 @@
   outline-offset: 2px;
 }
 
+/* ---------- Exercise steps ----------
+   One dot per exercise of the session, over the ActionBar's main action
+   (components/parc/ExerciseSteps): the one shown a pill in `ink`, a finished
+   one `blue`, the others `line-strong`, at the size of the week's dots. */
+.pk-steps { display: flex; align-items: center; gap: var(--space-1\.5); }
+.pk-steps > span {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  background: var(--line-strong);
+}
+.pk-steps > .is-done { background: var(--blue); }
+.pk-steps > .is-current { width: 24px; background: var(--ink); }
+
 /* ---------- Motion ----------
    Nothing moves for someone who asked for less: the sheet appears, the check
    is there. */

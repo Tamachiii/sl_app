@@ -630,10 +630,9 @@ describe('a note written without a network', () => {
 
     // The screen opens on the first exercise with a set to do; the note is
     // for the one before it, whose two sets are ticked and not rated yet —
-    // picked by its chip.
+    // reached by the arrow back.
     expect(screen.getByRole('heading', { level: 2, name: 'Weighted Dip' })).toBeInTheDocument();
-    const chips = screen.getByRole('navigation', { name: 'Exercises of the session' });
-    await user.click(within(chips).getByRole('button', { name: 'Bench Press' }));
+    await user.click(screen.getByRole('button', { name: 'Previous exercise: Bench Press' }));
     expect(screen.getByRole('heading', { level: 2, name: 'Bench Press' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Exercise options' }));
