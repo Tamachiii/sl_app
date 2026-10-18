@@ -36,6 +36,7 @@ import {
   Sheet,
   formatRestClock,
 } from '../parc';
+import ActionMenu from './ActionMenu';
 import SessionExercise, { exerciseNameOf } from './SessionExercise';
 import SetSheet from './SetSheet';
 import RpeSheet from './RpeSheet';
@@ -491,6 +492,26 @@ export default function SessionView() {
   // A set is still to do somewhere in the session.
   const anySetLeft = slots.some((slot) => !skippedSlotIds.has(slot.id) && currentLogOf(logsOf(slot.id)));
   const canConfirm = !confLoading && !isConfirmed && !isClosed;
+  // Confirming before every set is dealt with, from the « ⋯ » of the title:
+  // the sheet counts what was logged, and asks twice when nothing was. Once
+  // every set is dealt with, the ActionBar carries it.
+  const setsLeft = totalCount - resolvedCount;
+  const sessionItems =
+    canConfirm && anySetLeft
+      ? [
+          {
+            key: 'finish',
+            icon: 'check',
+            title: confirmInFlight ? t('parcSession.confirming') : t('sessionMenus.finishNow'),
+            subtitle:
+              setsLeft > 0
+                ? t(pluralKey(lang, setsLeft, 'sessionMenus.setsLeft'), { n: formatNumber(lang, setsLeft) })
+                : undefined,
+            disabled: confirmInFlight,
+            onSelect: () => setConfirmDialogOpen(true),
+          },
+        ]
+      : [];
 
   // The facts under the title: the day, the exercises, the sets done.
   const facts = [];
@@ -566,6 +587,13 @@ export default function SessionView() {
           title={session?.title || t('sessionUnavailable.title')}
           subtitle={subtitle}
           back={{ label: t('parcSession.back'), onClick: goBack }}
+          actions={
+            <ActionMenu
+              label={t('sessionMenus.sessionOptions')}
+              title={t('sessionMenus.sessionOptions')}
+              items={sessionItems}
+            />
+          }
         />
 
         {feedback && (
@@ -615,20 +643,6 @@ export default function SessionView() {
             onAddSet={handleAddSet}
             addingSet={addSet.isPending}
           />
-        )}
-
-        {/* Confirming before every set is dealt with: the sheet counts what
-            was logged, and asks twice when nothing was. Once every set is
-            dealt with, the ActionBar carries it. */}
-        {canConfirm && anySetLeft && (
-          <Button
-            variant="text"
-            className="self-start"
-            disabled={confirmInFlight}
-            onClick={() => setConfirmDialogOpen(true)}
-          >
-            {confirmInFlight ? t('parcSession.confirming') : t('parcSession.confirmCta')}
-          </Button>
         )}
 
         {!confLoading && isConfirmed && (

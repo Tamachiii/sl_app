@@ -68,16 +68,20 @@ function useFiguresHold(figures, columns) {
  * screen, under the exercise switcher; nothing else has this size.
  *
  * `primary` and `secondary` are `{ value, unit }`; `footer` the line of last
- * time; `label` the name of the panel (« Série en cours »).
+ * time; `label` the name of the panel (« Série en cours »); `action` a round
+ * button at the right of the title (the exercise's « ⋯ »).
  */
-export default function SetPanel({ title, position, primary, secondary, footer, label, children }) {
+export default function SetPanel({ title, position, primary, secondary, footer, label, action, children }) {
   const figures = `${primary?.value ?? ''}|${secondary?.value ?? ''}`;
   const [rowRef, hold] = useFiguresHold(figures, `${!!primary}${!!secondary}`);
   return (
     <section aria-label={label} className="pk-panel">
-      <div className="flex items-baseline justify-between gap-3">
-        <h2 className="pk-title min-w-0">{title}</h2>
-        {position && <span className="pk-subhead whitespace-nowrap">{position}</span>}
+      <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-baseline justify-between gap-3">
+          <h2 className="pk-title min-w-0">{title}</h2>
+          {position && <span className="pk-subhead whitespace-nowrap">{position}</span>}
+        </div>
+        {action}
       </div>
       {(primary || secondary) && (
         // Two equal columns while both figures hold in one, the wider figure

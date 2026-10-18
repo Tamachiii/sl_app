@@ -1,8 +1,9 @@
-import { useId } from 'react';
+import { useId, useRef } from 'react';
 import { useI18n } from '../../hooks/useI18n';
 import { formatNumber, pluralKey } from '../../lib/i18n/format';
 import { formatRpe } from '../../lib/rpe';
-import { Button, CoachNote, SetPanel, SetRow } from '../parc';
+import { CoachNote, Icon, SetPanel, SetRow } from '../parc';
+import ExerciseMenu from './ExerciseMenu';
 import SlotCommentBox from './SlotCommentBox';
 import SlotDeviationBar from './SlotDeviationBar';
 import { useSetActions } from './useSetActions';
@@ -136,8 +137,9 @@ function SessionSetRow({ log, current, locked, showRest, recordVideo, video, dur
 /**
  * The exercise shown on the session screen (screens/Seance.dc.html): the panel
  * of the set in progress, what the coach asked, the sets, and the athlete's
- * own controls on the exercise — replace or skip it, add a set, a note for
- * the coach.
+ * own controls on the exercise — « Ajouter une série » as the last row of the
+ * sets, and the « ⋯ » of the panel (`ExerciseMenu`): replace or skip it, a
+ * note for the coach.
  *
  * `slotLogs` are the exercise's sets in set order; `seeds` what each set's
  * editor opens with (sessionModel `editorSeeds`); `lastPerf` the exercise's
@@ -171,6 +173,7 @@ export default function SessionExercise({
 }) {
   const { t, lang } = useI18n();
   const holdHintId = useId();
+  const noteBox = useRef(null);
   const ctx = { t, lang };
 
   const substitute = swapped
@@ -199,14 +202,44 @@ export default function SessionExercise({
   // once on the panel otherwise.
   const rest = sharedRest(slotLogs);
   const restOnRows = rest === undefined;
-  const deviationBar = (
-    <SlotDeviationBar
-      sessionId={sessionId}
-      slot={slot}
-      deviation={deviation}
-      exerciseLibrary={exerciseLibrary}
-      locked={setsLocked}
-    />
+
+  const canAddSet = !skipped && !setsLocked;
+  const addSetRow = canAddSet && online && (
+    <button
+      type="button"
+      onClick={onAddSet}
+      disabled={addingSet}
+      className="pk-row w-full bg-transparent text-left text-blue disabled:opacity-45"
+    >
+      <span className="pk-set-dot bg-blue-soft text-blue" aria-hidden="true">
+        <Icon name="plus" size={18} />
+      </span>
+      <span className="pk-headline">{t('parcSession.addSet')}</span>
+    </button>
+  );
+  // The sets are one list; « Ajouter une série » closes their group without
+  // being one of them.
+  const setList = !skipped && slotLogs.length > 0 && (
+    <ol className={addSetRow ? 'm-0 list-none p-0' : 'pk-group'} aria-label={t('parcSession.setsLabel')}>
+      {slotLogs.map((log) => {
+        const recordVideo = (slot.record_video_set_numbers || []).includes(log.set_number);
+        return (
+          <SessionSetRow
+            key={log.id}
+            log={log}
+            current={current?.id === log.id}
+            locked={setsLocked}
+            showRest={restOnRows}
+            recordVideo={recordVideo}
+            video={recordVideo ? getVideoForLog(log.id) : null}
+            durationBased={durationBased}
+            holdHintId={holdHintId}
+            onOpen={onOpenSet}
+            onGesture={onGesture}
+          />
+        );
+      })}
+    </ol>
   );
 
   return (
@@ -215,6 +248,19 @@ export default function SessionExercise({
         label={t('parcSession.panelLabel')}
         title={name}
         position={position}
+        action={
+          <ExerciseMenu
+            sessionId={sessionId}
+            slot={slot}
+            name={name}
+            exerciseLibrary={exerciseLibrary}
+            canDeviate={!deviation && !setsLocked}
+            canNote={!isReadOnly}
+            hasNote={!!slotComment?.body}
+            onNote={() => noteBox.current?.open()}
+            className="-my-2.5 -mr-2"
+          />
+        }
         primary={figures.primary}
         secondary={figures.secondary}
         footer={
@@ -241,55 +287,39 @@ export default function SessionExercise({
         )}
       </SetPanel>
 
-      {/* A swap or a skip is said under the panel: it changes what the panel
-          shows. The way off the plan waits under the sets. */}
-      {deviation && deviationBar}
+      {/* A swap or a skip is said under the panel, with its way back: it
+          changes what the panel shows. */}
+      <SlotDeviationBar
+        sessionId={sessionId}
+        slot={slot}
+        deviation={deviation}
+        exerciseLibrary={exerciseLibrary}
+        locked={setsLocked}
+      />
 
       {slot.notes && <CoachNote title={t('parcSession.coachNote')}>{slot.notes}</CoachNote>}
 
-      {!skipped && slotLogs.length > 0 && (
+      {(setList || canAddSet) && (
         <div className="flex flex-col gap-2.5">
-          <ol className="pk-group" aria-label={t('parcSession.setsLabel')}>
-            {slotLogs.map((log) => {
-              const recordVideo = (slot.record_video_set_numbers || []).includes(log.set_number);
-              return (
-                <SessionSetRow
-                  key={log.id}
-                  log={log}
-                  current={current?.id === log.id}
-                  locked={setsLocked}
-                  showRest={restOnRows}
-                  recordVideo={recordVideo}
-                  video={recordVideo ? getVideoForLog(log.id) : null}
-                  durationBased={durationBased}
-                  holdHintId={holdHintId}
-                  onOpen={onOpenSet}
-                  onGesture={onGesture}
-                />
-              );
-            })}
-          </ol>
-          {!setsLocked && (
+          {addSetRow ? (
+            <div className="pk-group">
+              {setList}
+              {addSetRow}
+            </div>
+          ) : (
+            setList
+          )}
+          {setList && !setsLocked && (
             <p id={holdHintId} className="pk-caption">
               {t('parcSession.holdHint')}
             </p>
           )}
+          {canAddSet && !online && <p className="pk-caption">{t('parcSession.addSetOffline')}</p>}
         </div>
       )}
 
-      {!skipped && !setsLocked && (
-        online ? (
-          <Button variant="text" className="self-start" onClick={onAddSet} disabled={addingSet}>
-            {t('parcSession.addSet')}
-          </Button>
-        ) : (
-          <p className="pk-caption">{t('parcSession.addSetOffline')}</p>
-        )
-      )}
-
-      {!deviation && deviationBar}
-
       <SlotCommentBox
+        ref={noteBox}
         sessionId={sessionId}
         slotId={noteSlotId}
         comment={slotComment}

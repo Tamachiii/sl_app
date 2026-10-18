@@ -2,8 +2,9 @@
 // the list of its sets, the line of last time, and the athlete's own controls
 // on it. The component and the rows are the real ones, and so is each row's
 // `useSetActions` — the long press that marks a set failed goes through it.
-// The writes are doubles, and so are the two sibling controls (the swap bar and
-// the note box), which have hooks of their own and their own tests.
+// The writes are doubles, and so are the three sibling controls (the swap bar,
+// the note box and the exercise's menu), which have hooks of their own and
+// their own tests.
 //
 // What the screen hands the component — the seeds of each set's editor, the
 // unit, the deviation — is worked out here by the same functions SessionView
@@ -34,7 +35,8 @@ vi.mock('../../hooks/useRestTimer', async () => {
   return { ...actual, startRestTimer: vi.fn(), clearRestTimer: vi.fn() };
 });
 
-// The two siblings draw a marker: which slot, locked or not.
+// The siblings draw a marker: which slot, locked or not. The note box says
+// whether it was opened, and the menu what it offers, with its note item.
 vi.mock('./SlotDeviationBar', () => ({
   default: ({ slot, deviation, locked = false }) => (
     <div
@@ -45,14 +47,39 @@ vi.mock('./SlotDeviationBar', () => ({
     />
   ),
 }));
-vi.mock('./SlotCommentBox', () => ({
-  default: ({ slotId, comment, locked = false }) => (
+vi.mock('./SlotCommentBox', async () => {
+  const { useImperativeHandle, useState } = await import('react');
+  return {
+    default: function NoteBox({ slotId, comment, locked = false, ref }) {
+      const [open, setOpen] = useState(false);
+      useImperativeHandle(ref, () => ({ open: () => setOpen(true) }));
+      return (
+        <div
+          data-testid="note-box"
+          data-slot={slotId}
+          data-comment={comment?.body ?? ''}
+          data-locked={locked ? 'yes' : 'no'}
+          data-open={open ? 'yes' : 'no'}
+        />
+      );
+    },
+  };
+});
+vi.mock('./ExerciseMenu', () => ({
+  default: ({ slot, name, canDeviate, canNote, hasNote, onNote }) => (
     <div
-      data-testid="note-box"
-      data-slot={slotId}
-      data-comment={comment?.body ?? ''}
-      data-locked={locked ? 'yes' : 'no'}
-    />
+      data-testid="exercise-menu"
+      data-slot={slot.id}
+      data-name={name}
+      data-deviate={canDeviate ? 'yes' : 'no'}
+      data-note={canNote ? (hasNote ? 'edit' : 'add') : 'no'}
+    >
+      {canNote && (
+        <button type="button" onClick={onNote}>
+          Note item
+        </button>
+      )}
+    </div>
   ),
 }));
 
@@ -725,13 +752,29 @@ describe('adding a set', () => {
   it('online, "Add a set" asks the screen for one, and is held while it is added', () => {
     const { props, rerenderWith } = renderExercise({ logs: [prescribed(1)] });
     const add = screen.getByRole('button', { name: 'Add a set' });
-    // P68: a button is 44 px at least (`.pk-btn`, held by test/hitTargets).
-    expect(add).toHaveClass('pk-btn');
+    // P68: a row is 44 px at least (`.pk-row`, held by test/hitTargets).
+    expect(add).toHaveClass('pk-row');
     fireEvent.click(add);
     expect(props.onAddSet).toHaveBeenCalledTimes(1);
 
     rerenderWith({ addingSet: true });
     expect(screen.getByRole('button', { name: 'Add a set' })).toBeDisabled();
+  });
+
+  it('is the last row of the sets, outside their list', () => {
+    renderExercise({ logs: [prescribed(1), prescribed(2)] });
+    const add = screen.getByRole('button', { name: 'Add a set' });
+    expect(within(setList()).queryByRole('button', { name: 'Add a set' })).toBeNull();
+    expect(within(setList()).getAllByRole('listitem')).toHaveLength(2);
+    expect(add.parentElement).toBe(setList().parentElement);
+    expect(add.parentElement).toHaveClass('pk-group');
+    expect(add.previousElementSibling).toBe(setList());
+  });
+
+  it('with no set yet, it is the group alone', () => {
+    renderExercise({ logs: [] });
+    expect(screen.queryByRole('list', { name: 'Sets' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Add a set' }).parentElement).toHaveClass('pk-group');
   });
 
   it('offline, it says a network is needed, and offers nothing to tap', () => {
@@ -744,17 +787,24 @@ describe('adding a set', () => {
 describe('what stands beside the sets', () => {
   const bar = () => screen.getByTestId('deviation-bar');
   const noteBox = () => screen.getByTestId('note-box');
+  const menu = () => screen.getByTestId('exercise-menu');
 
-  it('the way off the plan waits under the sets; a swap or a skip is said under the panel', () => {
+  it('the way off the plan is in the menu of the panel; a swap or a skip is said under the panel', () => {
     const { rerenderWith } = renderExercise({ logs: [prescribed(1)] });
+    expect(within(panel()).getByTestId('exercise-menu')).toBe(menu());
+    expect(menu()).toHaveAttribute('data-deviate', 'yes');
+    expect(menu()).toHaveAttribute('data-name', 'Bench press');
     expect(bar()).toHaveAttribute('data-deviation', 'none');
-    expect(setList().compareDocumentPosition(bar()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     rerenderWith({ deviations: [{ exercise_slot_id: 'slot-1', kind: 'swap', substitute_exercise_id: DIPS.id }] });
     expect(screen.getAllByTestId('deviation-bar')).toHaveLength(1);
     expect(bar()).toHaveAttribute('data-deviation', 'swap');
     expect(bar().compareDocumentPosition(setList()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(panel().compareDocumentPosition(bar()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The bar holds the way back; the menu names the substitute and offers no
+    // second swap.
+    expect(menu()).toHaveAttribute('data-deviate', 'no');
+    expect(menu()).toHaveAttribute('data-name', 'Weighted dip');
   });
 
   it('the way off the plan locks with the sets', () => {
@@ -762,6 +812,15 @@ describe('what stands beside the sets', () => {
     expect(bar()).toHaveAttribute('data-locked', 'no');
     rerenderWith({ setsLocked: true });
     expect(bar()).toHaveAttribute('data-locked', 'yes');
+    expect(menu()).toHaveAttribute('data-deviate', 'no');
+  });
+
+  it('the note item of the menu opens the note box', () => {
+    renderExercise({ logs: [prescribed(1)] });
+    expect(menu()).toHaveAttribute('data-note', 'add');
+    expect(noteBox()).toHaveAttribute('data-open', 'no');
+    fireEvent.click(screen.getByRole('button', { name: 'Note item' }));
+    expect(noteBox()).toHaveAttribute('data-open', 'yes');
   });
 
   // A superset shares one note, anchored to its first exercise: the screen
@@ -774,8 +833,10 @@ describe('what stands beside the sets', () => {
     expect(noteBox()).toHaveAttribute('data-slot', 'slot-0');
     expect(noteBox()).toHaveAttribute('data-comment', 'felt heavy');
     expect(noteBox()).toHaveAttribute('data-locked', 'no');
+    expect(menu()).toHaveAttribute('data-note', 'edit');
 
     rerenderWith({ isReadOnly: true });
     expect(noteBox()).toHaveAttribute('data-locked', 'yes');
+    expect(menu()).toHaveAttribute('data-note', 'no');
   });
 });

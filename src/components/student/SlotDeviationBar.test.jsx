@@ -13,9 +13,10 @@ vi.mock('../../hooks/useOnlineStatus', () => ({
   useOnlineStatus: () => network.online,
 }));
 
-// The picker and the question are Parc sheets: modal <dialog>s, opened with
-// `showModal()` (polyfilled in src/test/setup.js). A closed one is not shown,
-// so a query by role finds the open one only.
+// The picker is a Parc sheet: a modal <dialog>, opened with `showModal()`
+// (polyfilled in src/test/setup.js). A closed one is not shown, so a query by
+// role finds the open one only. The way off the plan — Replace, Skip — is in
+// the exercise's menu: ExerciseMenu.test.jsx.
 import SlotDeviationBar from './SlotDeviationBar';
 
 const slot = { id: 'sl-1', exercise: { id: 'ex-orig', name: 'Back Squat', type: 'push' } };
@@ -33,165 +34,17 @@ function renderBar(props = {}) {
   );
 }
 
-const replaceButton = () => screen.getByRole('button', { name: 'Replace' });
-const skipButton = () => screen.getByRole('button', { name: 'Skip' });
-
 beforeEach(() => {
   vi.clearAllMocks();
   network.online = true;
 });
 
 describe('SlotDeviationBar', () => {
-  it('offers Replace and Skip while the exercise is as planned', () => {
-    renderBar();
-    expect(replaceButton()).toBeInTheDocument();
-    expect(skipButton()).toBeInTheDocument();
-    // Nothing is asked or open yet.
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
-
-  // L12. A skip notifies the coach (bell and push) the moment it is written,
-  // and the Skip pill wrote it at the first tap.
-  describe('skipping the exercise asks first, and says the coach will be told', () => {
-    const askSkip = async (user) => {
-      await user.click(skipButton());
-      return screen.getByRole('dialog', { name: 'Skip Back Squat?' });
-    };
-
-    it('the button opens the question and writes nothing', async () => {
-      const user = userEvent.setup();
-      renderBar();
-
-      const sheet = await askSkip(user);
-
-      expect(mockSave.mutate).not.toHaveBeenCalled();
-      expect(sheet).toHaveTextContent('Your coach will be told.');
-    });
-
-    it('the answer skips it, and the question closes', async () => {
-      const user = userEvent.setup();
-      renderBar();
-      const sheet = await askSkip(user);
-
-      await user.click(within(sheet).getByRole('button', { name: 'Skip the exercise' }));
-
-      expect(mockSave.mutate).toHaveBeenCalledTimes(1);
-      expect(mockSave.mutate).toHaveBeenCalledWith({ sessionId: 'sess-1', slotId: 'sl-1', kind: 'skip' });
-      expect(screen.queryByRole('dialog', { name: 'Skip Back Squat?' })).not.toBeInTheDocument();
-    });
-
-    it('"Keep the exercise" writes nothing and closes it', async () => {
-      const user = userEvent.setup();
-      renderBar();
-      const sheet = await askSkip(user);
-
-      await user.click(within(sheet).getByRole('button', { name: 'Keep the exercise' }));
-
-      expect(mockSave.mutate).not.toHaveBeenCalled();
-      expect(screen.queryByRole('dialog', { name: 'Skip Back Squat?' })).not.toBeInTheDocument();
-    });
-
-    it('an exercise that could not be read is asked about without a name', async () => {
-      const user = userEvent.setup();
-      renderBar({ slot: { id: 'sl-1', exercise: null } });
-
-      await user.click(skipButton());
-
-      expect(screen.getByRole('dialog', { name: 'Skip this exercise?' })).toBeInTheDocument();
-      expect(mockSave.mutate).not.toHaveBeenCalled();
-    });
-  });
-
-  it('replaces it by a library exercise (not the prescribed one) through the picker, which closes', async () => {
-    const user = userEvent.setup();
-    renderBar();
-    await user.click(replaceButton());
-    const picker = screen.getByRole('dialog', { name: 'Replace the exercise' });
-    // The prescribed exercise is not offered as a substitute.
-    expect(within(picker).queryByRole('button', { name: /Back Squat/i })).not.toBeInTheDocument();
-
-    await user.click(within(picker).getByRole('button', { name: /Goblet Squat/i }));
-
-    expect(mockSave.mutate).toHaveBeenCalledWith({
-      sessionId: 'sess-1',
-      slotId: 'sl-1',
-      kind: 'swap',
-      substituteExerciseId: 'ex-2',
-    });
-    expect(screen.queryByRole('dialog', { name: 'Replace the exercise' })).not.toBeInTheDocument();
-  });
-
-  describe('the picker', () => {
-    const ARCHIVED = '2026-10-01T00:00:00Z';
-    const withArchived = [
-      ...library,
-      { id: 'ex-4', name: 'Hack Squat', type: 'push', archived_at: ARCHIVED },
-      { id: 'ex-5', name: 'Seated Row', type: 'pull', archived_at: null },
-    ];
-
-    it('does not offer an exercise the coach archived — with a search typed either', async () => {
-      const user = userEvent.setup();
-      renderBar({ exerciseLibrary: withArchived });
-      await user.click(replaceButton());
-      const picker = screen.getByRole('dialog', { name: 'Replace the exercise' });
-
-      expect(within(picker).queryByText('Hack Squat')).not.toBeInTheDocument();
-      // Active: no archived_at, or a row read before the column existed.
-      expect(within(picker).getByRole('button', { name: /seated row/i })).toBeInTheDocument();
-      expect(within(picker).getByRole('button', { name: /goblet squat/i })).toBeInTheDocument();
-
-      await user.type(within(picker).getByRole('searchbox', { name: 'Search an exercise' }), 'hack');
-      expect(within(picker).getByText('No exercise matches.')).toBeInTheDocument();
-    });
-
-    it('narrows the exercises to the search', async () => {
-      const user = userEvent.setup();
-      renderBar({ exerciseLibrary: withArchived });
-      await user.click(replaceButton());
-      const picker = screen.getByRole('dialog', { name: 'Replace the exercise' });
-
-      await user.type(within(picker).getByRole('searchbox', { name: 'Search an exercise' }), 'ROW');
-
-      expect(within(picker).getByRole('button', { name: /seated row/i })).toBeInTheDocument();
-      expect(within(picker).queryByRole('button', { name: /goblet squat/i })).not.toBeInTheDocument();
-    });
-
-    it('a swap to an exercise archived since keeps its name', () => {
-      renderBar({
-        exerciseLibrary: withArchived,
-        deviation: { exercise_slot_id: 'sl-1', kind: 'swap', substitute_exercise_id: 'ex-4' },
-      });
-      expect(screen.getByText('You do Hack Squat instead.')).toBeInTheDocument();
-    });
-
-    it("draws each exercise's type with the shared badge, under its name in the app", async () => {
-      const user = userEvent.setup();
-      renderBar({ exerciseLibrary: withArchived });
-      await user.click(replaceButton());
-      const picker = screen.getByRole('dialog', { name: 'Replace the exercise' });
-
-      // The badge: a mark of the type's chart colour before its name.
-      const push = within(within(picker).getByRole('button', { name: /goblet squat/i })).getByText('Push');
-      expect(push).toHaveClass('text-ink-2', 'shrink-0');
-      expect(push.querySelector('[aria-hidden="true"]')).toHaveClass('bg-chart-push');
-      const pull = within(within(picker).getByRole('button', { name: /seated row/i })).getByText('Pull');
-      expect(pull.querySelector('[aria-hidden="true"]')).toHaveClass('bg-chart-pull');
-      // The raw value of the enum is gone.
-      expect(within(picker).queryByText('push')).not.toBeInTheDocument();
-    });
-
-    it('a pick still swaps', async () => {
-      const user = userEvent.setup();
-      renderBar({ exerciseLibrary: withArchived });
-      await user.click(replaceButton());
-      await user.click(screen.getByRole('button', { name: /seated row/i }));
-      expect(mockSave.mutate).toHaveBeenCalledWith({
-        sessionId: 'sess-1',
-        slotId: 'sl-1',
-        kind: 'swap',
-        substituteExerciseId: 'ex-5',
-      });
-    });
+  it('renders nothing while the exercise is as planned, locked or not', () => {
+    const { container, rerender } = renderBar();
+    expect(container).toBeEmptyDOMElement();
+    rerender(<SlotDeviationBar sessionId="sess-1" slot={slot} exerciseLibrary={library} deviation={null} locked />);
+    expect(container).toBeEmptyDOMElement();
   });
 
   it('shows the active swap with the substitute name, and "Back to the plan" clears it', async () => {
@@ -207,6 +60,8 @@ describe('SlotDeviationBar', () => {
     renderBar({ deviation: SWAP });
     await user.click(screen.getByRole('button', { name: 'Change' }));
     const picker = screen.getByRole('dialog', { name: 'Replace the exercise' });
+    // The prescribed exercise is not offered as a substitute.
+    expect(within(picker).queryByRole('button', { name: /Back Squat/i })).not.toBeInTheDocument();
 
     await user.click(within(picker).getByRole('button', { name: /goblet squat/i }));
 
@@ -216,6 +71,15 @@ describe('SlotDeviationBar', () => {
       kind: 'swap',
       substituteExerciseId: 'ex-2',
     });
+    expect(screen.queryByRole('dialog', { name: 'Replace the exercise' })).not.toBeInTheDocument();
+  });
+
+  it('a swap to an exercise archived since keeps its name', () => {
+    renderBar({
+      exerciseLibrary: [...library, { id: 'ex-4', name: 'Hack Squat', type: 'push', archived_at: '2026-10-01T00:00:00Z' }],
+      deviation: { exercise_slot_id: 'sl-1', kind: 'swap', substitute_exercise_id: 'ex-4' },
+    });
+    expect(screen.getByText('You do Hack Squat instead.')).toBeInTheDocument();
   });
 
   it('a substitute that is not in the library is "another exercise"', () => {
@@ -228,11 +92,6 @@ describe('SlotDeviationBar', () => {
     expect(screen.getByText('You skipped this exercise.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Back to the plan' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Change' })).not.toBeInTheDocument();
-  });
-
-  it('renders nothing when locked and as planned', () => {
-    const { container } = renderBar({ locked: true });
-    expect(container).toBeEmptyDOMElement();
   });
 
   // A swap or a skip made in a session that is now confirmed or read-only is
@@ -266,26 +125,11 @@ describe('SlotDeviationBar', () => {
   });
 
   // P68. jsdom lays nothing out: the 44 px are the class of a Parc button,
-  // whose min-height is the target size, and the 60 px of a list row.
-  describe('every button is 44 px tall at least', () => {
-    it('Replace and Skip', () => {
-      renderBar();
-      expect(replaceButton()).toHaveClass('pk-btn');
-      expect(skipButton()).toHaveClass('pk-btn');
-    });
-
-    it('Change, Back to the plan and the request to the coach on a swap', () => {
-      renderBar({ deviation: SWAP });
-      for (const name of ['Change', 'Back to the plan', 'Ask your coach to keep this change']) {
-        expect(screen.getByRole('button', { name })).toHaveClass('pk-btn');
-      }
-    });
-
-    it('the exercises of the picker', async () => {
-      const user = userEvent.setup();
-      renderBar();
-      await user.click(replaceButton());
-      expect(screen.getByRole('button', { name: /goblet squat/i })).toHaveClass('pk-row');
-    });
+  // whose min-height is the target size.
+  it('Change, Back to the plan and the request to the coach on a swap are 44 px tall at least', () => {
+    renderBar({ deviation: SWAP });
+    for (const name of ['Change', 'Back to the plan', 'Ask your coach to keep this change']) {
+      expect(screen.getByRole('button', { name })).toHaveClass('pk-btn');
+    }
   });
 });

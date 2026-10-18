@@ -333,10 +333,20 @@ const settle = () =>
   });
 
 const banner = () => screen.getByTestId('offline-banner');
-// "Confirm session" is a text button in the page while sets are still to do,
-// and the ActionBar's main button once every set is dealt with: one of the
-// two, never both — so one button by that name.
-const confirmCta = () => screen.queryByRole('button', { name: 'Confirm session' });
+// Confirming is « Finish the session now » in the « ⋯ » of the title while
+// sets are still to do, and the ActionBar's « Confirm session » once every
+// set is dealt with: one of the two, never both. `confirmCta` is the control
+// that leads to it, `openConfirm` the way through it to the sheet.
+const confirmCta = () =>
+  screen.queryByRole('button', { name: 'Confirm session' }) ??
+  screen.queryByRole('button', { name: 'Session options' });
+async function openConfirm(user) {
+  const cta = confirmCta();
+  await user.click(cta);
+  if (cta.getAttribute('aria-label') !== 'Session options') return;
+  const menu = screen.getByRole('dialog', { name: 'Session options' });
+  await user.click(within(menu).getByRole('button', { name: /^Finish the session now/ }));
+}
 // The sheet that confirms, and its field. A closed sheet is not shown: both
 // are null once it has closed.
 const confirmSheet = () => screen.queryByRole('dialog', { name: 'Confirm the session' });
@@ -350,7 +360,7 @@ const waitingLine = () => screen.queryByText(/saved on this device/i);
 const facts = () => screen.queryByText(/sets done$/);
 
 async function confirmWith(user, note) {
-  await user.click(confirmCta());
+  await openConfirm(user);
   if (note) await user.type(notesField(), note);
   await user.click(within(confirmSheet()).getByRole('button', { name: 'Confirm' }));
 }
@@ -437,7 +447,7 @@ describe('a session confirmed without a network', () => {
     const page = renderSession(gym);
     expect(facts()).toHaveTextContent('2 exercises, 2 of 4 sets done');
 
-    await user.click(confirmCta());
+    await openConfirm(user);
     expect(within(confirmSheet()).getByText('2 of 4 sets logged')).toBeInTheDocument();
     await user.type(notesField(), 'felt strong');
     await user.click(within(confirmSheet()).getByRole('button', { name: 'Confirm' }));
@@ -520,7 +530,7 @@ describe('a session confirmed without a network', () => {
 
     // The note of the confirmation that has not been sent is still in the
     // field: it is written over.
-    await user.click(confirmCta());
+    await openConfirm(user);
     expect(notesField()).toHaveValue('first');
     await user.clear(notesField());
     await user.type(notesField(), 'second');
@@ -550,7 +560,7 @@ describe('a session confirmed without a network', () => {
     await undoConfirmation(user);
     await waitFor(() => expect(confirmCta()).not.toBeNull());
 
-    await user.click(confirmCta());
+    await openConfirm(user);
     await user.type(notesField(), ', then a back-off set');
 
     setNetwork(true);
@@ -606,7 +616,7 @@ describe('a session confirmed on a network that is slow to answer', () => {
     expect(server.confirmations.has('s-2')).toBe(false);
     await waitFor(() => expect(confirmCta()).toBeEnabled());
 
-    await user.click(confirmCta());
+    await openConfirm(user);
     expect(notesField()).toHaveValue('felt strong');
   });
 });
@@ -626,7 +636,9 @@ describe('a note written without a network', () => {
     await user.click(within(chips).getByRole('button', { name: 'Bench Press' }));
     expect(screen.getByRole('heading', { level: 2, name: 'Bench Press' })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Add a note for the coach' }));
+    await user.click(screen.getByRole('button', { name: 'Exercise options' }));
+    const menu = screen.getByRole('dialog', { name: 'Bench Press' });
+    await user.click(within(menu).getByRole('button', { name: 'Add a note for the coach' }));
     await user.type(screen.getByRole('textbox', { name: 'Note for your coach' }), 'left elbow');
     await user.tab();
 
