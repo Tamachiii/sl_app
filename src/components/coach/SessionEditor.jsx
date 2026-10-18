@@ -293,7 +293,7 @@ function SessionEditorPage() {
         subtitle={athleteName}
       />
 
-      <label className="flex flex-col gap-1.5 sm:max-w-xs">
+      <label className="flex min-w-0 flex-col gap-1.5 sm:max-w-xs">
         <span className="pk-caption">{t('parcEditor.date')}</span>
         <input
           id="session-date"

@@ -136,7 +136,7 @@ src/
                  hardcodedScan.js (lists hard-coded JSX text of a folder)
                  contrast.js (WCAG ratio of two colours; what a selector of a stylesheet declares)
                  static guards: ciGuardrails · docsSuite · authConfig · runbookIndex · parcTokens
-                 · hitTargets (.test.js)
+                 · hitTargets · dateFields (.test.js)
                  dbSuiteExitCode.test.js (runs vitest as a child: a failed DB test ends with status 1)
 supabase/        schema.sql (install path, and what the DB tests load)
                  migrations/ (manifest.json + manifest.js, README.md = the format;
