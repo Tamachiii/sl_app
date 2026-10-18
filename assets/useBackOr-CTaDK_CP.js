@@ -1,0 +1,1 @@
+import{f as o,u as a,r as i}from"./router-CLksRuCC.js";function r(n){var t;const e=typeof window>"u"||(t=window.history.state)==null?void 0:t.idx;return typeof e=="number"?e>0:n.key!=="default"}function u(n){const e=o(),t=a();return i.useCallback(()=>{r(t)?e(-1):e(n,{replace:!0})},[e,t,n])}export{u};

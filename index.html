@@ -1,17 +1,18 @@
 <!DOCTYPE html>
-<!-- `class="dark"` is set here, not by JS: the app is dark-only, and waiting
-     for ThemeProvider to add it would flash the light surface on cold start. -->
-<html lang="en" class="dark">
+<!-- No theme class: the app is light-only (the Parc design system,
+     design/parc/). The colours below are its `surface`. -->
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="description" content="Street Lifting Coach — manage and track calisthenics training programs for coaches and athletes." />
-    <!-- One value, no `media`: the app is dark-only, so there is no second
-         theme for the strip to follow. ink-900 = the AppShell surface. This
-         governs Safari tabs and Android; an installed iOS app reads the
-         manifest's theme_color instead (see vite.config.js). -->
-    <meta name="theme-color" content="#111110" />
-    <meta name="color-scheme" content="dark" />
+    <!-- One value, no `media`: the app is light-only, so there is no second
+         theme for the strip to follow. #FFFFFF = Parc's `surface`, the colour
+         of the bars at the top and bottom of a screen. This governs Safari
+         tabs and Android; an installed iOS app reads the manifest's
+         theme_color instead (see vite.config.js). -->
+    <meta name="theme-color" content="#FFFFFF" />
+    <meta name="color-scheme" content="light" />
     <!-- No `apple-mobile-web-app-status-bar-style` here on purpose.
          `black-translucent` does make the strip follow the theme — it is the
          only thing that does — but it also leaves the initial containing block
@@ -26,19 +27,15 @@
     <link rel="icon" href="/sl_app/icon-192.png" type="image/png" sizes="192x192" />
     <link rel="apple-touch-icon" href="/sl_app/apple-touch-icon.png" />
     <!-- vite-plugin-pwa injects <link rel="manifest"> at build time -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <!-- Only the weights and families the stylesheet actually asks for.
-         Archivo tops out at 800 (.sl-display); Archivo Narrow went with the
-         .sl-condensed utility that nothing used. -->
-    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <!-- The font is Archivo, a file of the build (src/main.jsx imports
+         @fontsource-variable/archivo): nothing is asked of Google Fonts. -->
     <title>Street Lifting Coach</title>
-    <script type="module" crossorigin src="/sl_app/assets/index-D2TXqe_a.js"></script>
-    <link rel="modulepreload" crossorigin href="/sl_app/assets/router-BSvP3KM-.js">
-    <link rel="modulepreload" crossorigin href="/sl_app/assets/query-CZXO2OQd.js">
+    <script type="module" crossorigin src="/sl_app/assets/index-D8lTEcEn.js"></script>
+    <link rel="modulepreload" crossorigin href="/sl_app/assets/router-CLksRuCC.js">
+    <link rel="modulepreload" crossorigin href="/sl_app/assets/query-BvXbF8Gd.js">
     <link rel="modulepreload" crossorigin href="/sl_app/assets/supabase-k82gbVKr.js">
-    <link rel="stylesheet" crossorigin href="/sl_app/assets/index-DNKF40t7.css">
-    <meta name="sl-build" content="20261017112250">
+    <link rel="stylesheet" crossorigin href="/sl_app/assets/index-CZeHLCay.css">
+    <meta name="sl-build" content="20261018111027">
   <link rel="manifest" href="/sl_app/manifest.webmanifest"></head>
   <body>
     <div id="root"></div>

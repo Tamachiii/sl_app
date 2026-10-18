@@ -1,0 +1,1 @@
+function r(i,t){return t?{id:`${i}-${t}`}:void 0}function u(i,t){return t!=null&&t.id?i.isMutating({predicate:e=>{var n;return((n=e.options.scope)==null?void 0:n.id)===t.id}})>1:!1}export{u as l,r as m};
