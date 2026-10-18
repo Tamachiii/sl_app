@@ -159,6 +159,25 @@
 .pk-steps > .is-done { background: var(--blue); }
 .pk-steps > .is-current { width: 24px; background: var(--ink); }
 
+/* ---------- Date fields ----------
+   iOS Safari draws a date field as a native control with a width of its own,
+   wider than a phone's column, which `width: 100%` does not hold back: the
+   page then scrolls sideways (the « Date conseillée » of the session editor).
+   Drawn as a plain field, it takes the width it is given, and its value starts
+   at the left like the text of any other field. */
+.pk-field[type="date"],
+.pk-field[type="time"] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+}
+.pk-field[type="date"]::-webkit-date-and-time-value,
+.pk-field[type="time"]::-webkit-date-and-time-value {
+  text-align: left;
+}
+
 /* ---------- Motion ----------
    Nothing moves for someone who asked for less: the sheet appears, the check
    is there. */
