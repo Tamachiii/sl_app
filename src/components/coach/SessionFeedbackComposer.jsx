@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
 import { useSendMessage } from '../../hooks/useMessages';
 import { useMarkSessionReviewed } from '../../hooks/useSession';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
-import ConfirmDialog from '../ui/ConfirmDialog';
+import { ActionBar, Button, ConfirmSheet } from '../parc';
 import { clearFeedbackDraft, readFeedbackDraft, writeFeedbackDraft } from '../../lib/feedbackDraft';
+import { ReviewEnd } from './SessionFeedbackSent';
 
 const MAX_LEN = 4000;
 
@@ -20,9 +21,11 @@ const MAX_LEN = 4000;
  * so a session can't be re-reviewed.
  *
  * Has three render states:
- *   1. composer (default)
+ *   1. composer (default): « Ton retour à Léa » and its field, « Envoyer le
+ *      retour » and « Terminer sans retour » in the ActionBar
+ *      (design/parc/screens/Revue.dc.html)
  *   2. sending (composer disabled)
- *   3. sent (confirmation card with "open thread" / "back to sessions")
+ *   3. sent (« Retour envoyé », with the conversation and « Fermer la revue »)
  *
  * What is typed is a draft of THIS session, kept on the device as it is typed
  * (lib/feedbackDraft) and read back when the composer mounts: leaving the
@@ -39,6 +42,8 @@ export default function SessionFeedbackComposer({
 }) {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const formId = useId();
+  const fieldId = useId();
   const sendMessage = useSendMessage();
   const markReviewed = useMarkSessionReviewed();
 
@@ -117,94 +122,52 @@ export default function SessionFeedbackComposer({
 
   if (sentAt) {
     return (
-      <div
-        className="rounded-xl p-4 space-y-3"
-        style={{
-          background: 'color-mix(in srgb, var(--color-success) 10%, transparent)',
-          border: '1px solid color-mix(in srgb, var(--color-success) 35%, transparent)',
-        }}
-      >
-        <div
-          className="flex items-center gap-2 sl-label"
-          style={{ color: 'var(--color-success)' }}
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-          </svg>
-          {t('feedback.sentTitle')}
-        </div>
-        <p className="text-[13px] text-ink-700">{t('feedback.sentBody')}</p>
-        <div className="flex flex-wrap gap-2 pt-1">
-          <button
-            type="button"
-            onClick={() => navigate(`/coach/messages/${studentProfileId}`)}
-            className="sl-btn-primary text-[12px]"
-            style={{ padding: '8px 12px' }}
-          >
-            {t('feedback.openThread')}
-          </button>
-          <button
-            type="button"
-            onClick={finish}
-            className="sl-pill sl-pill-btn bg-ink-100 text-ink-700 hover:bg-ink-200"
-          >
-            {t('feedback.backToSessions')}
-          </button>
-        </div>
-      </div>
+      <ReviewEnd
+        title={t('parcReview.sentTitle')}
+        body={t('parcReview.sentBody')}
+        onClose={finish}
+        onOpenThread={() => navigate(`/coach/messages/${studentProfileId}`)}
+      />
     );
   }
 
   return (
-    <div className="sl-card p-4 space-y-3">
-      <div>
-        <div className="sl-label text-ink-400">{t('feedback.sectionLabel')}</div>
-        <h2 className="sl-display text-[16px] text-gray-900 leading-tight mt-0.5">
-          {t('feedback.coachKicker')}
-          {studentFullName ? ` · ${studentFullName}` : ''}
-        </h2>
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-2">
+    <>
+      <form id={formId} onSubmit={handleSubmit} className="flex flex-col gap-2.5 px-4 pb-6 md:px-8">
+        <label htmlFor={fieldId} className="pk-headline">
+          {studentFullName ? t('parcReview.feedbackTo', { name: studentFullName }) : t('parcReview.feedback')}
+        </label>
         <textarea
+          id={fieldId}
           value={body}
           onChange={(e) => handleChange(e.target.value)}
           rows={4}
-          placeholder={t('feedback.placeholder')}
-          aria-label={t('feedback.coachKicker')}
-          className="w-full resize-y rounded-xl bg-ink-100 px-3 py-2 text-[16px] text-gray-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+          placeholder={t('parcReview.placeholder')}
+          aria-invalid={tooLong || undefined}
+          className="pk-field block min-h-26 resize-y py-2.5 leading-[1.45]"
         />
         {(error || tooLong) && (
-          <div role="alert" className="sl-mono text-[11px] text-danger">
+          <p role="alert" className="text-[13px] leading-[1.35] text-red">
             {error || t('messaging.tooLong', { n: MAX_LEN })}
-          </div>
+          </p>
         )}
         {!isOnline && (
-          <div role="status" className="sl-mono text-[11px] text-ink-400">
+          <p role="status" className="pk-caption">
             {t('messaging.offline')}
-          </div>
+          </p>
         )}
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="submit"
-            disabled={!canSend}
-            className="sl-btn-primary text-[12px] disabled:opacity-50"
-            style={{ padding: '10px 14px' }}
-          >
-            {sendMessage.isPending ? t('feedback.sending') : t('feedback.sendFeedback')}
-          </button>
-          <button
-            type="button"
-            onClick={handleFinishWithoutFeedback}
-            disabled={!isOnline}
-            className="sl-pill sl-pill-btn bg-ink-100 text-ink-700 hover:bg-ink-200 disabled:opacity-50"
-          >
-            {t('feedback.finishWithoutFeedback')}
-          </button>
-        </div>
       </form>
 
-      <ConfirmDialog
+      <ActionBar className="sticky bottom-0 z-10 mt-auto flex-col items-stretch gap-1">
+        <Button type="submit" form={formId} variant="primary" size="lg" disabled={!canSend}>
+          {sendMessage.isPending ? t('feedback.sending') : t('parcReview.send')}
+        </Button>
+        <Button variant="text" onClick={handleFinishWithoutFeedback} disabled={!isOnline}>
+          {t('parcReview.finishWithout')}
+        </Button>
+      </ActionBar>
+
+      <ConfirmSheet
         open={askingToFinish}
         onClose={() => setAskingToFinish(false)}
         onConfirm={finish}
@@ -212,6 +175,6 @@ export default function SessionFeedbackComposer({
         message={t('coachReviewComposerRoster.finish.confirmMessage')}
         confirmText={t('coachReviewComposerRoster.finish.confirmAction')}
       />
-    </div>
+    </>
   );
 }

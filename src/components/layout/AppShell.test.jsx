@@ -59,6 +59,29 @@ describe('<AppShell />', () => {
     // covers the offer for its six seconds, never the other way round.
     expect(prompt.compareDocumentPosition(toasts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
+
+  it.each([
+    ['/student', true],
+    ['/student/stats', true],
+    ['/student/session/s-1', false],
+    ['/coach/students', true],
+    ['/coach/sessions', true],
+    ['/coach/students/st-1/s/sess-1', true],
+    ['/coach/student/st-1/session/sess-1/review', false],
+    ['/coach/student/st-1/session/sess-1/review/', false],
+    ['/coach/messages', true],
+    ['/coach/messages/p-1', false],
+    ['/student/messages', true],
+  ])('on %s, shows the tab bar: %s (the session, the review and a conversation have their bar instead)', (path, shown) => {
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={[path]}>
+          <AppShell />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByTestId('bottom-nav') !== null).toBe(shown);
+  });
 });
 
 // B34. The beep, the wake lock and the push of a rest were mounted by the

@@ -1,15 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
-import { ThemeProvider } from '../../hooks/useTheme';
+import { MemoryRouter, Routes, Route, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 const mockAddSlot = { mutate: vi.fn(), isPending: false };
 const mockUpdateSlot = { mutate: vi.fn(), mutateAsync: vi.fn().mockResolvedValue({}) };
 const mockReorderSlots = { mutate: vi.fn(), isPending: false };
 const mockUseReorderSlots = vi.fn(() => mockReorderSlots);
 const mockDeleteSlot = { mutate: vi.fn() };
-const mockDuplicateSession = { mutate: vi.fn(), isPending: false };
+const mockUpdateSession = { mutate: vi.fn(), isPending: false };
+const mockDeleteSession = { mutate: vi.fn(), isPending: false };
 let mockSessionData = { data: null, isLoading: false };
 let mockLibraryData = { data: [] };
 let mockConfirmation = { data: null };
@@ -21,29 +21,6 @@ vi.mock('react-router-dom', async () => {
     useParams: () => ({ sessionId: 'sess-1', studentId: 'stu-1' }),
   };
 });
-
-vi.mock('../../hooks/useStudents', () => ({
-  useStudents: () => ({
-    data: [
-      { id: 'stu-1', profile: { full_name: 'Alice' } },
-      { id: 'stu-2', profile: { full_name: 'Bob' } },
-    ],
-  }),
-}));
-
-const stubProgram = (id) => ({
-  data: id ? { id: 'prog-1', weeks: [{ id: 'w-10', week_number: 1, label: null }] } : null,
-});
-
-vi.mock('../../hooks/useProgram', () => ({
-  useActiveProgram: (sid) => stubProgram(sid),
-  useProgram: (pid) => stubProgram(pid),
-  // CopyDialog now picks the destination BLOCK before the week, so it needs
-  // the athlete's program list rather than just their active one.
-  useProgramsForStudent: (sid) => ({
-    data: sid ? [{ id: 'prog-1', name: 'Block A', is_active: true }] : [],
-  }),
-}));
 
 // The "last time" panel runs a real query; this file is about the editor.
 vi.mock('../../hooks/useLastPerformance', () => ({
@@ -93,27 +70,30 @@ vi.mock('../../hooks/useSessionConfirmation', () => ({
   useSessionConfirmation: () => mockConfirmation,
 }));
 
-vi.mock('../../hooks/useDuplicate', () => ({
-  useDuplicateSession: () => mockDuplicateSession,
-}));
-
-const mockDeleteSession = { mutate: vi.fn(), isPending: false };
-
 vi.mock('../../hooks/useWeek', () => ({
-  useUpdateSession: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateSession: () => mockUpdateSession,
   useDeleteSession: () => mockDeleteSession,
-  useProgramIdForWeek: () => ({ data: 'prog-1' }),
 }));
 
 import SessionEditor from './SessionEditor';
 
-function renderEditor(entry = '/coach/students/stu-1/s/sess-1') {
+const ALICE = { id: 'stu-1', profile: { full_name: 'Alice' } };
+
+// The editor stands in the athlete's page (CoachHome), which hands it the
+// athlete through its outlet.
+function AthleteShell({ student }) {
+  return <Outlet context={{ student }} />;
+}
+
+function renderEditor(entry = '/coach/students/stu-1/s/sess-1', { student = ALICE } = {}) {
   return render(
-    <ThemeProvider>
-      <MemoryRouter initialEntries={[entry]}>
-        <SessionEditor />
-      </MemoryRouter>
-    </ThemeProvider>
+    <MemoryRouter initialEntries={[entry]}>
+      <Routes>
+        <Route element={<AthleteShell student={student} />}>
+          <Route path="/coach/students/:studentId/s/:sessionId" element={<SessionEditor />} />
+        </Route>
+      </Routes>
+    </MemoryRouter>
   );
 }
 
@@ -132,6 +112,25 @@ function noSession(overrides = {}) {
   };
 }
 
+// The header's round buttons (a Parc LargeTitle), and the title, which is a
+// button named by its text and described by what a tap does.
+const backButton = () => screen.getByRole('button', { name: 'Back to the program' });
+const optionsButton = () => screen.queryByRole('button', { name: 'Session options' });
+const renameButton = () => screen.queryByRole('button', { description: 'Rename the session' });
+const addExerciseButton = () => screen.queryByRole('button', { name: 'Add an exercise' });
+// The round "Remove {name}" of each exercise — not the "Remove set n" of a
+// per-set row.
+const removeExerciseButtons = () => screen.queryAllByRole('button', { name: /^Remove (?!set \d)/ });
+const moveButtons = () => screen.queryAllByRole('button', { name: /^Move / });
+
+// "Session options" → "Delete the session": the question it asks.
+async function askToDelete(user) {
+  await user.click(optionsButton());
+  const options = screen.getByRole('dialog', { name: 'Session options' });
+  await user.click(within(options).getByRole('button', { name: 'Delete the session' }));
+  return screen.getByRole('dialog', { name: 'Delete this session?' });
+}
+
 describe('SessionEditor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -146,10 +145,14 @@ describe('SessionEditor', () => {
     };
   });
 
+  // The header stands while the session is read: the way back, under a title
+  // that names the kind of page.
   it('renders loading spinner', () => {
     mockSessionData = { data: null, isLoading: true };
     renderEditor();
-    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Loading' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Session' })).toBeInTheDocument();
+    expect(backButton()).toBeInTheDocument();
   });
 
   // Review items P49 and L11: the editor tested `isLoading` alone, so a read
@@ -157,10 +160,13 @@ describe('SessionEditor', () => {
   // empty and writable.
   describe('without a session to show', () => {
     function expectNoEditor() {
-      expect(screen.queryByText('+ ADD EXERCISE')).toBeNull();
-      expect(screen.queryByText('Delete this session')).toBeNull();
+      // The header stays — the way back, titled "Session" — and nothing that writes.
+      expect(screen.getByRole('heading', { level: 1, name: 'Session' })).toBeInTheDocument();
+      expect(backButton()).toBeInTheDocument();
+      expect(addExerciseButton()).toBeNull();
+      expect(optionsButton()).toBeNull();
       expect(screen.queryByLabelText('Recommended date')).toBeNull();
-      expect(screen.queryByRole('button', { name: /edit session title/i })).toBeNull();
+      expect(renameButton()).toBeNull();
     }
 
     it('says a failed read failed, and asks again on Retry', async () => {
@@ -234,14 +240,14 @@ describe('SessionEditor', () => {
     // The editor at its route, and every other URL printed: where it went.
     function renderAtRoute(entry = '/coach/students/stu-1/s/sess-1') {
       return render(
-        <ThemeProvider>
-          <MemoryRouter initialEntries={['/coach/students/stu-1', entry]} initialIndex={1}>
-            <Routes>
+        <MemoryRouter initialEntries={['/coach/students/stu-1', entry]} initialIndex={1}>
+          <Routes>
+            <Route element={<AthleteShell student={ALICE} />}>
               <Route path="/coach/students/:studentId/s/:sessionId" element={<SessionEditor />} />
-              <Route path="*" element={<Where />} />
-            </Routes>
-          </MemoryRouter>
-        </ThemeProvider>
+            </Route>
+            <Route path="*" element={<Where />} />
+          </Routes>
+        </MemoryRouter>
       );
     }
 
@@ -256,7 +262,7 @@ describe('SessionEditor', () => {
       mockSessionData = sessionIn({ program_id: 'p-next', program_is_active: false });
       renderAtRoute();
 
-      await user.click(screen.getByRole('button', { name: 'Back' }));
+      await user.click(backButton());
       expect(screen.getByTestId('where')).toHaveTextContent('/coach/students/stu-1?program=p-next');
     });
 
@@ -265,7 +271,7 @@ describe('SessionEditor', () => {
       mockSessionData = sessionIn({ program_id: 'p-now', program_is_active: true });
       renderAtRoute();
 
-      await user.click(screen.getByRole('button', { name: 'Back' }));
+      await user.click(backButton());
       expect(screen.getByTestId('where').textContent).toBe('/coach/students/stu-1');
     });
 
@@ -274,7 +280,7 @@ describe('SessionEditor', () => {
       mockSessionData = sessionIn({ program_id: 'p-next', program_is_active: false });
       renderAtRoute();
 
-      await user.click(screen.getByRole('button', { name: 'Back' }));
+      await user.click(backButton());
       await user.click(screen.getByRole('button', { name: 'system back' }));
       // The athlete page the editor was opened from, not the editor.
       expect(screen.getByTestId('where').textContent).toBe('/coach/students/stu-1');
@@ -287,12 +293,13 @@ describe('SessionEditor', () => {
       mockDeleteSession.mutate.mockImplementationOnce((_id, { onSuccess }) => onSuccess());
       renderAtRoute();
 
-      await user.click(screen.getByText('Delete this session'));
-      await user.click(screen.getByRole('button', { name: 'Delete' }));
+      const confirm = await askToDelete(user);
+      await user.click(within(confirm).getByRole('button', { name: 'Delete the session' }));
       expect(screen.getByTestId('where')).toHaveTextContent('/coach/students/stu-1?program=p-next');
     });
 
-    it('falls back on its own ?program= while there is no session', () => {
+    it('falls back on its own ?program= while there is no session', async () => {
+      const user = userEvent.setup();
       mockSessionData = noSession({ data: null, isSuccess: true });
       renderAtRoute('/coach/students/stu-1/s/sess-1?program=p-next');
 
@@ -300,6 +307,19 @@ describe('SessionEditor', () => {
         'href',
         '/coach/students/stu-1?program=p-next',
       );
+      // The header's way back goes to the same place.
+      await user.click(backButton());
+      expect(screen.getByTestId('where')).toHaveTextContent('/coach/students/stu-1?program=p-next');
+    });
+
+    // The header is there while the read has nothing to show, and leaves.
+    it('leaves from a page whose read failed too', async () => {
+      const user = userEvent.setup();
+      mockSessionData = noSession({ isError: true });
+      renderAtRoute();
+
+      await user.click(backButton());
+      expect(screen.getByTestId('where').textContent).toBe('/coach/students/stu-1');
     });
 
     // A session cached by a build that did not read `program_id`.
@@ -308,7 +328,7 @@ describe('SessionEditor', () => {
       mockSessionData = sessionIn({ program_is_active: false });
       renderAtRoute();
 
-      await user.click(screen.getByRole('button', { name: 'Back' }));
+      await user.click(backButton());
       expect(screen.getByTestId('where').textContent).toBe('/coach/students/stu-1');
     });
   });
@@ -339,16 +359,18 @@ describe('SessionEditor', () => {
 
     it('is read-only as a whole', () => {
       renderEditor();
-      expect(screen.getByText('Draft day')).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /edit session title/i })).toBeNull();
+      // The title is text, not the way to rename it.
+      expect(screen.getByRole('heading', { level: 1, name: 'Draft day' })).toBeInTheDocument();
+      expect(renameButton()).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Draft day' })).toBeNull();
       expect(screen.getByLabelText('Recommended date')).toBeDisabled();
       for (const field of [...screen.getAllByRole('spinbutton'), ...screen.queryAllByRole('textbox')]) {
         expect(field.disabled || field.readOnly).toBe(true);
       }
-      expect(screen.queryByText('+ ADD EXERCISE')).toBeNull();
-      expect(screen.queryByText('Delete this session')).toBeNull();
-      expect(screen.queryByRole('button', { name: /remove exercise/i })).toBeNull();
-      expect(screen.queryByRole('button', { name: /^reorder /i })).toBeNull();
+      expect(addExerciseButton()).toBeNull();
+      expect(optionsButton()).toBeNull();
+      expect(removeExerciseButtons()).toHaveLength(0);
+      expect(moveButtons()).toHaveLength(0);
     });
 
     it('is editable once approved', () => {
@@ -358,8 +380,10 @@ describe('SessionEditor', () => {
       };
       renderEditor();
       expect(screen.queryByRole('note')).toBeNull();
-      expect(screen.getByText('+ ADD EXERCISE')).toBeInTheDocument();
+      expect(addExerciseButton()).toBeInTheDocument();
       expect(screen.getByLabelText('Recommended date')).toBeEnabled();
+      expect(renameButton()).toBeInTheDocument();
+      expect(optionsButton()).toBeInTheDocument();
     });
   });
 
@@ -430,13 +454,13 @@ describe('SessionEditor', () => {
     });
   });
 
-  // Review item L15: the back button was 36px.
+  // Review item L15: the back button was 36px. The header's round buttons are
+  // Parc's: 44px, held by test/hitTargets.test.js.
   it('has a back button a thumb can hit: 44px', () => {
     mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
     renderEditor();
-    const back = screen.getByRole('button', { name: 'Back' });
-    expect(back).toHaveClass('w-11', 'h-11');
-    expect(back).not.toHaveClass('w-9');
+    expect(backButton()).toHaveClass('pk-icon-btn');
+    expect(optionsButton()).toHaveClass('pk-icon-btn');
   });
 
   // Review item B8, the coach's half: an exercise this coach cannot read
@@ -457,70 +481,238 @@ describe('SessionEditor', () => {
     };
     renderEditor();
 
-    expect(screen.getByText('Exercise unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Exercise unavailable' })).toBeInTheDocument();
     expect(screen.getByText(/a library you can’t read/i)).toBeInTheDocument();
-    expect(screen.getAllByText('Dip').length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('button', { name: /remove exercise/i })).toHaveLength(1);
+    expect(screen.getByRole('region', { name: 'Dip' })).toBeInTheDocument();
+    expect(removeExerciseButtons().map((b) => b.getAttribute('aria-label'))).toEqual(['Remove Dip']);
   });
 
-  it('renders session title', () => {
+  // The page of the session (design/parc/screens/Editeur.dc.html): its name
+  // as the title, a tap renames it, and the athlete under it.
+  describe('the title', () => {
+    it('renders session title', () => {
+      mockSessionData = {
+        data: { title: 'Push Day', exercise_slots: [] },
+        isLoading: false,
+      };
+      renderEditor();
+      const title = screen.getByRole('heading', { level: 1, name: 'Push Day' });
+      // The title is the way to rename it: a button named by its text.
+      expect(within(title).getByRole('button', { name: 'Push Day' })).toBe(renameButton());
+    });
+
+    it('renames the session on a tap', async () => {
+      const user = userEvent.setup();
+      mockSessionData = { data: { title: 'Push Day', exercise_slots: [] }, isLoading: false };
+      renderEditor();
+
+      await user.click(renameButton());
+      const field = screen.getByRole('textbox', { name: 'Rename the session' });
+      expect(field).toHaveFocus();
+      await user.clear(field);
+      await user.type(field, 'Upper body{Enter}');
+      expect(mockUpdateSession.mutate).toHaveBeenCalledWith({ id: 'sess-1', title: 'Upper body' });
+      expect(screen.getByRole('heading', { level: 1 })).toContainElement(renameButton());
+    });
+
+    it('names a session without a title "Session"', () => {
+      mockSessionData = { data: { title: null, exercise_slots: [] }, isLoading: false };
+      renderEditor();
+      expect(screen.getByRole('heading', { level: 1, name: 'Session' })).toBeInTheDocument();
+      expect(renameButton()).toHaveAccessibleName('Session');
+    });
+
+    it('puts the athlete under it', () => {
+      mockSessionData = { data: { title: 'Push Day', exercise_slots: [] }, isLoading: false };
+      renderEditor();
+      const header = screen.getByRole('heading', { level: 1, name: 'Push Day' }).closest('header');
+      expect(within(header).getByText('Alice')).toBeInTheDocument();
+    });
+
+    it('writes no line under it for an athlete without a name', () => {
+      mockSessionData = { data: { title: 'Push Day', exercise_slots: [] }, isLoading: false };
+      renderEditor(undefined, { student: { id: 'stu-1', profile: { full_name: '  ' } } });
+      const header = screen.getByRole('heading', { level: 1, name: 'Push Day' }).closest('header');
+      expect(header.querySelector('p')).toBeNull();
+    });
+  });
+
+  it('writes the recommended date, and clears it', () => {
     mockSessionData = {
-      data: { title: 'Push Day', exercise_slots: [] },
+      data: { title: 'Day 1', scheduled_date: '2026-10-19', exercise_slots: [] },
       isLoading: false,
     };
     renderEditor();
-    expect(screen.getByText('Push Day')).toBeInTheDocument();
+    const date = screen.getByLabelText('Recommended date');
+    expect(date).toHaveAttribute('id', 'session-date');
+    expect(date).toHaveValue('2026-10-19');
+
+    fireEvent.change(date, { target: { value: '2026-10-20' } });
+    expect(mockUpdateSession.mutate).toHaveBeenLastCalledWith({ id: 'sess-1', scheduled_date: '2026-10-20' });
+    fireEvent.change(date, { target: { value: '' } });
+    expect(mockUpdateSession.mutate).toHaveBeenLastCalledWith({ id: 'sess-1', scheduled_date: null });
   });
 
-  it('clicking "+ Add Exercise" shows the add form', async () => {
-    const user = userEvent.setup();
-    mockSessionData = {
-      data: { title: 'Day 1', exercise_slots: [] },
-      isLoading: false,
-    };
-    renderEditor();
+  describe('adding an exercise', () => {
+    beforeEach(() => {
+      mockSessionData = {
+        data: { title: 'Day 1', exercise_slots: [] },
+        isLoading: false,
+      };
+    });
 
-    await user.click(screen.getByText('+ ADD EXERCISE'));
-    expect(screen.getByText('Select exercise…')).toBeInTheDocument();
-    expect(screen.getByText('Add')).toBeInTheDocument();
-    expect(screen.getByText('Cancel')).toBeInTheDocument();
+    const exercisePicker = () => screen.queryByRole('combobox', { name: 'Exercise' });
+
+    it('clicking "Add an exercise" shows the add form', async () => {
+      const user = userEvent.setup();
+      renderEditor();
+
+      await user.click(addExerciseButton());
+      expect(exercisePicker()).toHaveDisplayValue('Choose an exercise');
+      const unit = screen.getByRole('group', { name: 'Counted in' });
+      expect(within(unit).getByRole('radio', { name: 'Reps' })).toBeChecked();
+      expect(within(unit).getByRole('radio', { name: 'Seconds held' })).not.toBeChecked();
+      // Nothing to pair with in an empty session.
+      expect(screen.queryByRole('checkbox', { name: 'In a superset with the one before' })).toBeNull();
+      // Nothing to add before an exercise is chosen.
+      expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    });
+
+    it('clicking Cancel hides the add form', async () => {
+      const user = userEvent.setup();
+      renderEditor();
+
+      await user.click(addExerciseButton());
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(exercisePicker()).toBeNull();
+      expect(addExerciseButton()).toBeInTheDocument();
+    });
+
+    it('names each exercise by its name, type and level', async () => {
+      const user = userEvent.setup();
+      renderEditor();
+      await user.click(addExerciseButton());
+      expect([...exercisePicker().options].map((o) => o.textContent)).toEqual([
+        'Choose an exercise',
+        'Pull Up, Pull, level 2',
+        'Dip, Push, level 2',
+      ]);
+    });
+
+    it('selecting an exercise and clicking Add calls addSlot', async () => {
+      const user = userEvent.setup();
+      renderEditor();
+
+      await user.click(addExerciseButton());
+      await user.selectOptions(exercisePicker(), 'ex-1');
+      await user.click(screen.getByRole('button', { name: 'Add' }));
+
+      expect(mockAddSlot.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: 'sess-1',
+          exerciseId: 'ex-1',
+          sets: 3,
+          reps: 10,
+        })
+      );
+      expect(mockAddSlot.mutate.mock.calls[0][0]).not.toHaveProperty('durationSeconds');
+      // The form closes behind it.
+      expect(exercisePicker()).toBeNull();
+    });
+
+    it('adds a held exercise in seconds, not reps', async () => {
+      const user = userEvent.setup();
+      renderEditor();
+
+      await user.click(addExerciseButton());
+      await user.selectOptions(exercisePicker(), 'ex-1');
+      await user.click(screen.getByRole('radio', { name: 'Seconds held' }));
+      await user.click(screen.getByRole('button', { name: 'Add' }));
+
+      const [added] = mockAddSlot.mutate.mock.calls[0];
+      expect(added).toMatchObject({ exerciseId: 'ex-1', sets: 3, durationSeconds: 30 });
+      expect(added).not.toHaveProperty('reps');
+    });
+
+    it('pairs it with the exercise before in a superset when asked', async () => {
+      const user = userEvent.setup();
+      mockSessionData = {
+        data: {
+          title: 'Day 1',
+          exercise_slots: [
+            { id: 's-a', sets: 3, reps: 10, sort_order: 0, exercise: { name: 'Pull Up', type: 'pull', difficulty: 2, volume_weight: 1 }, set_logs: [] },
+          ],
+        },
+        isLoading: false,
+      };
+      renderEditor();
+
+      await user.click(addExerciseButton());
+      await user.selectOptions(exercisePicker(), 'ex-2');
+      await user.click(screen.getByRole('checkbox', { name: 'In a superset with the one before' }));
+      await user.click(screen.getByRole('button', { name: 'Add' }));
+
+      // The exercise before joins a new superset, and the new one with it.
+      expect(mockUpdateSlot.mutate).toHaveBeenCalledTimes(1);
+      const [{ id, superset_group: group }] = mockUpdateSlot.mutate.mock.calls[0];
+      expect(id).toBe('s-a');
+      expect(group).toEqual(expect.any(String));
+      expect(mockAddSlot.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ exerciseId: 'ex-2', supersetGroup: group }),
+      );
+    });
+
+    it('joins the superset the exercise before is already in', async () => {
+      const user = userEvent.setup();
+      mockSessionData = {
+        data: {
+          title: 'Day 1',
+          exercise_slots: [
+            { id: 's-a', sets: 3, reps: 10, sort_order: 0, superset_group: 'g-1', exercise: { name: 'Pull Up', type: 'pull', difficulty: 2, volume_weight: 1 }, set_logs: [] },
+          ],
+        },
+        isLoading: false,
+      };
+      renderEditor();
+
+      await user.click(addExerciseButton());
+      await user.selectOptions(exercisePicker(), 'ex-2');
+      await user.click(screen.getByRole('checkbox', { name: 'In a superset with the one before' }));
+      await user.click(screen.getByRole('button', { name: 'Add' }));
+
+      expect(mockUpdateSlot.mutate).not.toHaveBeenCalled();
+      expect(mockAddSlot.mutate).toHaveBeenCalledWith(expect.objectContaining({ supersetGroup: 'g-1' }));
+    });
+
+    // Regression: adding an exercise used to assign sortOrder = slots.length, which
+    // collides with existing sort_orders when a prior deletion has left a gap. The
+    // collision made superset children render before their parent.
+    it('adds a new slot with sortOrder = max(existing)+1 when sort_orders have gaps', async () => {
+      const user = userEvent.setup();
+      mockSessionData = {
+        data: {
+          title: 'Day 1',
+          exercise_slots: [
+            { id: 's-a', sets: 3, reps: 10, sort_order: 0, exercise: { name: 'Pull Up', type: 'pull', difficulty: 2, volume_weight: 1 } },
+            // gap at 1 (deleted)
+            { id: 's-b', sets: 3, reps: 10, sort_order: 2, exercise: { name: 'Dip', type: 'push', difficulty: 2, volume_weight: 1 } },
+            { id: 's-c', sets: 3, reps: 10, sort_order: 5, exercise: { name: 'Pull Up', type: 'pull', difficulty: 2, volume_weight: 1 } },
+          ],
+        },
+        isLoading: false,
+      };
+      renderEditor();
+
+      await user.click(addExerciseButton());
+      await user.selectOptions(exercisePicker(), 'ex-2');
+      await user.click(screen.getByRole('button', { name: 'Add' }));
+
+      expect(mockAddSlot.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ sortOrder: 6 })
+      );
+    });
   });
-
-  it('clicking Cancel hides the add form', async () => {
-    const user = userEvent.setup();
-    mockSessionData = {
-      data: { title: 'Day 1', exercise_slots: [] },
-      isLoading: false,
-    };
-    renderEditor();
-
-    await user.click(screen.getByText('+ ADD EXERCISE'));
-    await user.click(screen.getByText('Cancel'));
-    expect(screen.queryByText('Select exercise…')).not.toBeInTheDocument();
-  });
-
-  it('selecting an exercise and clicking Add calls addSlot', async () => {
-    const user = userEvent.setup();
-    mockSessionData = {
-      data: { title: 'Day 1', exercise_slots: [] },
-      isLoading: false,
-    };
-    renderEditor();
-
-    await user.click(screen.getByText('+ ADD EXERCISE'));
-    await user.selectOptions(screen.getByRole('combobox'), 'ex-1');
-    await user.click(screen.getByText('Add'));
-
-    expect(mockAddSlot.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sessionId: 'sess-1',
-        exerciseId: 'ex-1',
-        sets: 3,
-        reps: 10,
-      })
-    );
-  });
-
 
   // Review decision P18: an exercise in use is archived instead of deleted,
   // and an archived one is not offered for new work.
@@ -541,8 +733,8 @@ describe('SessionEditor', () => {
       const user = userEvent.setup();
       mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
       renderEditor();
-      await user.click(screen.getByText('+ ADD EXERCISE'));
-      const values = [...screen.getByRole('combobox').options].map((o) => o.value);
+      await user.click(addExerciseButton());
+      const values = [...screen.getByRole('combobox', { name: 'Exercise' }).options].map((o) => o.value);
       expect(values).toEqual(['', 'ex-1', 'ex-3']);
     });
 
@@ -562,24 +754,31 @@ describe('SessionEditor', () => {
       renderEditor();
       // The slot, and the "last time" panel that lists the session's exercises.
       expect(screen.getAllByText('Dip')).toHaveLength(2);
+      expect(screen.getByRole('heading', { level: 2, name: 'Dip' })).toBeInTheDocument();
       expect(screen.queryByText('Exercise unavailable')).toBeNull();
-      expect(screen.getAllByRole('button', { name: /remove exercise/i })).toHaveLength(1);
+      expect(removeExerciseButtons().map((b) => b.getAttribute('aria-label'))).toEqual(['Remove Dip']);
+      expect(screen.getByLabelText('Sets')).toBeEnabled();
     });
   });
 
   // Duplicate and "copy to…" left this header: the sheet carries both now — a
   // duplicate button on every row, copy behind its selection bar — so keeping
-  // them was a second door onto the same actions, above the actual work.
-  it('leaves duplicate and copy to the sheet', () => {
+  // them was a second door onto the same actions, above the actual work. The
+  // session's options hold its delete alone.
+  it('leaves duplicate and copy to the sheet', async () => {
+    const user = userEvent.setup();
     mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
     renderEditor();
-    expect(screen.queryByText('duplicate')).toBeNull();
-    expect(screen.queryByText('copy to…')).toBeNull();
+    expect(screen.queryByRole('button', { name: /duplicate|copy/i })).toBeNull();
+    await user.click(optionsButton());
+    const options = screen.getByRole('dialog', { name: 'Session options' });
+    expect(within(options).getAllByRole('button').map((b) => b.getAttribute('aria-label') || b.textContent))
+      .toEqual(['Close', 'Delete the session']);
   });
 
   // Delete stays — it is the ONLY delete path in the app, and archiving from
-  // the sheet does not replace it for a session created by mistake. It moved
-  // to the bottom, away from the title.
+  // the sheet does not replace it for a session created by mistake. It lives
+  // in the session's options, away from the work.
   it('deletes the session from here — this is the only delete path there is', async () => {
     const user = userEvent.setup();
     mockSessionData = {
@@ -588,13 +787,29 @@ describe('SessionEditor', () => {
     };
     renderEditor();
 
-    await user.click(screen.getByText('Delete this session'));
+    await user.click(optionsButton());
+    const options = screen.getByRole('dialog', { name: 'Session options' });
+    await user.click(within(options).getByRole('button', { name: 'Delete the session' }));
+    // The options give way to the question.
+    expect(options.open).toBe(false);
+    const confirm = screen.getByRole('dialog', { name: 'Delete this session?' });
     // Destructive, so it must go through the confirm step.
     expect(mockDeleteSession.mutate).not.toHaveBeenCalled();
-    await user.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(confirm).toHaveTextContent('It cannot be undone.');
+    await user.click(within(confirm).getByRole('button', { name: 'Delete the session' }));
     expect(mockDeleteSession.mutate).toHaveBeenCalledWith('sess-1', expect.any(Object));
   });
 
+  it('deletes nothing when the question is cancelled', async () => {
+    const user = userEvent.setup();
+    mockSessionData = { data: { title: 'Day 1', exercise_slots: [] }, isLoading: false };
+    renderEditor();
+
+    const confirm = await askToDelete(user);
+    await user.click(within(confirm).getByRole('button', { name: 'Cancel' }));
+    expect(confirm.open).toBe(false);
+    expect(mockDeleteSession.mutate).not.toHaveBeenCalled();
+  });
 
   it('renders exercise slots', () => {
     mockSessionData = {
@@ -618,34 +833,44 @@ describe('SessionEditor', () => {
     // panel, which lists every exercise of the session with what the athlete
     // actually lifted for it.
     expect(screen.getAllByText('Pull Up')).toHaveLength(2);
+    expect(screen.getByRole('region', { name: 'Pull Up' })).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Last time' })).getByText('Pull Up')).toBeInTheDocument();
   });
 
-  // Regression: adding an exercise used to assign sortOrder = slots.length, which
-  // collides with existing sort_orders when a prior deletion has left a gap. The
-  // collision made superset children render before their parent.
-  it('adds a new slot with sortOrder = max(existing)+1 when sort_orders have gaps', async () => {
-    const user = userEvent.setup();
-    mockSessionData = {
-      data: {
-        title: 'Day 1',
-        exercise_slots: [
-          { id: 's-a', sets: 3, reps: 10, sort_order: 0, exercise: { name: 'Pull Up', type: 'pull', difficulty: 2, volume_weight: 1 } },
-          // gap at 1 (deleted)
-          { id: 's-b', sets: 3, reps: 10, sort_order: 2, exercise: { name: 'Dip', type: 'push', difficulty: 2, volume_weight: 1 } },
-          { id: 's-c', sets: 3, reps: 10, sort_order: 5, exercise: { name: 'Pull Up', type: 'pull', difficulty: 2, volume_weight: 1 } },
-        ],
-      },
-      isLoading: false,
-    };
-    renderEditor();
+  // A superset is drawn as one group, which the coach can take apart.
+  describe('a superset', () => {
+    const ex = (name) => ({ name, type: 'pull', difficulty: 2, volume_weight: 1 });
+    beforeEach(() => {
+      mockSessionData = {
+        data: {
+          title: 'Day 1',
+          exercise_slots: [
+            { id: 's-a', sets: 3, reps: 10, sort_order: 0, superset_group: 'g-1', exercise: ex('Pull Up'), set_logs: [] },
+            { id: 's-b', sets: 3, reps: 10, sort_order: 1, superset_group: 'g-1', exercise: ex('Row'), set_logs: [] },
+            { id: 's-c', sets: 3, reps: 10, sort_order: 2, superset_group: null, exercise: ex('Dip'), set_logs: [] },
+          ],
+        },
+        isLoading: false,
+      };
+    });
 
-    await user.click(screen.getByText('+ ADD EXERCISE'));
-    await user.selectOptions(screen.getByRole('combobox'), 'ex-2');
-    await user.click(screen.getByText('Add'));
+    it('is named as one, with its exercises', () => {
+      renderEditor();
+      expect(screen.getAllByText('In a superset')).toHaveLength(1);
+      const group = screen.getByText('In a superset').parentElement.parentElement;
+      expect(within(group).getByRole('region', { name: 'Pull Up' })).toBeInTheDocument();
+      expect(within(group).getByRole('region', { name: 'Row' })).toBeInTheDocument();
+      expect(within(group).queryByRole('region', { name: 'Dip' })).toBeNull();
+    });
 
-    expect(mockAddSlot.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ sortOrder: 6 })
-    );
+    it('is separated: each of its exercises leaves the group', async () => {
+      const user = userEvent.setup();
+      renderEditor();
+      await user.click(screen.getByRole('button', { name: 'Separate this superset' }));
+      expect(mockUpdateSlot.mutate).toHaveBeenCalledTimes(2);
+      expect(mockUpdateSlot.mutate).toHaveBeenCalledWith({ id: 's-a', sessionId: 'sess-1', superset_group: null });
+      expect(mockUpdateSlot.mutate).toHaveBeenCalledWith({ id: 's-b', sessionId: 'sess-1', superset_group: null });
+    });
   });
 
   // Review findings P3 and P12. Every session of the sheet used to open here
@@ -690,10 +915,11 @@ describe('SessionEditor', () => {
 
       it('is read-only as a whole: nothing left on the page writes', () => {
         renderEditor();
-        // Header: the title is text, the date is off.
-        expect(screen.getByText('Pull Day')).toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: /edit session title/i })).toBeNull();
+        // Header: the title is text, the date is off, no options.
+        expect(screen.getByRole('heading', { level: 1, name: 'Pull Day' })).toBeInTheDocument();
+        expect(renameButton()).toBeNull();
         expect(screen.getByLabelText('Recommended date')).toBeDisabled();
+        expect(optionsButton()).toBeNull();
         // Every field of every exercise, trained or not.
         const fields = [...screen.getAllByRole('spinbutton'), ...screen.queryAllByRole('textbox')];
         expect(fields.length).toBeGreaterThan(0);
@@ -701,15 +927,15 @@ describe('SessionEditor', () => {
           expect(field.disabled || field.readOnly).toBe(true);
         }
         // And none of the structural actions.
-        expect(screen.queryByText('+ ADD EXERCISE')).toBeNull();
-        expect(screen.queryByText('Delete this session')).toBeNull();
-        expect(screen.queryByRole('button', { name: /remove exercise/i })).toBeNull();
-        expect(screen.queryByRole('button', { name: /remove set/i })).toBeNull();
-        expect(screen.queryByRole('button', { name: /add set/i })).toBeNull();
-        expect(screen.queryByRole('button', { name: /^reorder /i })).toBeNull();
+        expect(addExerciseButton()).toBeNull();
+        expect(removeExerciseButtons()).toHaveLength(0);
+        expect(screen.queryByRole('button', { name: /^Remove set/ })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Add a set' })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Set by set' })).toBeNull();
+        expect(moveButtons()).toHaveLength(0);
       });
 
-      it('hides "unlink" on a superset', () => {
+      it('hides "Separate" on a superset', () => {
         mockSessionData = {
           data: {
             title: 'Pull Day',
@@ -718,8 +944,8 @@ describe('SessionEditor', () => {
           isLoading: false,
         };
         renderEditor();
-        expect(screen.getByText('Superset')).toBeInTheDocument();
-        expect(screen.queryByText('unlink')).toBeNull();
+        expect(screen.getByText('In a superset')).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Separate this superset' })).toBeNull();
       });
 
       // `performed_at` is the confirmation mirrored onto the session row. It
@@ -737,7 +963,7 @@ describe('SessionEditor', () => {
         };
         renderEditor();
         expect(screen.getByRole('note')).toHaveTextContent(/confirmed by the athlete/i);
-        expect(screen.queryByText('+ ADD EXERCISE')).toBeNull();
+        expect(addExerciseButton()).toBeNull();
       });
     });
 
@@ -756,21 +982,42 @@ describe('SessionEditor', () => {
         expect(reviewLink()).toHaveAttribute('href', '/coach/student/stu-1/session/sess-1/review');
       });
 
+      // `from` is how the review's back button returns to this editor.
+      it('opens the review with the way back to this editor', async () => {
+        const user = userEvent.setup();
+        function ReviewProbe() {
+          const { state } = useLocation();
+          return <output data-testid="from">{state?.from}</output>;
+        }
+        render(
+          <MemoryRouter initialEntries={['/coach/students/stu-1/s/sess-1']}>
+            <Routes>
+              <Route path="/coach/students/:studentId/s/:sessionId" element={<SessionEditor />} />
+              <Route path="/coach/student/:studentId/session/:sessionId/review" element={<ReviewProbe />} />
+            </Routes>
+          </MemoryRouter>
+        );
+        await user.click(reviewLink());
+        expect(screen.getByTestId('from')).toHaveTextContent('/coach/students/stu-1/s/sess-1');
+      });
+
       it('locks the logged set and keeps the rest of the session editable', () => {
         renderEditor();
         // Pull Up: set 1 is done, set 2 is still to do.
-        expect(screen.getByLabelText('Set 1 reps')).toBeDisabled();
-        expect(screen.getByLabelText('Set 2 reps')).toBeEnabled();
+        expect(screen.getByLabelText('Set 1, reps')).toBeDisabled();
+        expect(screen.getByLabelText('Set 2, reps')).toBeEnabled();
         // Dip is untouched: its compact row works as usual.
         expect(screen.getByLabelText('Sets')).toBeEnabled();
-        const removeButtons = screen.getAllByRole('button', { name: /remove exercise/i });
-        expect(removeButtons.map((b) => b.disabled)).toEqual([true, false]);
+        expect(removeExerciseButtons().map((b) => [b.getAttribute('aria-label'), b.disabled])).toEqual([
+          ['Remove Pull Up', true],
+          ['Remove Dip', false],
+        ]);
         // The session can still grow…
-        expect(screen.getByText('+ ADD EXERCISE')).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /edit session title/i })).toBeInTheDocument();
+        expect(addExerciseButton()).toBeInTheDocument();
+        expect(renameButton()).toBeInTheDocument();
         expect(screen.getByLabelText('Recommended date')).toBeEnabled();
         // …but not be deleted: the database refuses a session with logged sets.
-        expect(screen.queryByText('Delete this session')).toBeNull();
+        expect(optionsButton()).toBeNull();
       });
     });
 
@@ -782,7 +1029,7 @@ describe('SessionEditor', () => {
       renderEditor();
       expect(screen.queryByRole('note')).toBeNull();
       expect(screen.queryByRole('link', { name: /open the review/i })).toBeNull();
-      expect(screen.getByText('Delete this session')).toBeInTheDocument();
+      expect(optionsButton()).toBeInTheDocument();
     });
   });
 });

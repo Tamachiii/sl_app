@@ -44,7 +44,7 @@ describe('<EditableText />', () => {
         <button>focus sink</button>
       </div>,
     );
-    await user.click(screen.getByRole('button', { name: /Edit Hello/i }));
+    await user.click(screen.getByRole('button', { name: 'Hello' }));
     await user.clear(screen.getByRole('textbox'));
     await user.type(screen.getByRole('textbox'), 'Bye');
     await user.click(screen.getByRole('button', { name: /focus sink/i }));
@@ -78,6 +78,47 @@ describe('<EditableText />', () => {
     expect(screen.getByRole('button', { name: 'Edit week label' })).toBeInTheDocument();
   });
 
+  // A heading that is also the way to rename what it names (a phase of the
+  // program sheet): the button is named by its text, so the heading is too,
+  // and what a tap does is its description — and, once open, the field's name.
+  describe('ariaLabel={false}', () => {
+    function renderNamedByText(value) {
+      return render(
+        <>
+          <EditableText
+            value={value}
+            onSave={() => {}}
+            placeholder="Unnamed phase"
+            ariaLabel={false}
+            describedBy="hint"
+          />
+          <span id="hint" hidden>
+            Rename the phase
+          </span>
+        </>,
+      );
+    }
+
+    it('names the button by its text and describes it by the hint', () => {
+      renderNamedByText('Intro');
+      const button = screen.getByRole('button', { name: 'Intro' });
+      expect(button).toHaveAccessibleDescription('Rename the phase');
+      expect(button).not.toHaveAttribute('aria-label');
+    });
+
+    it('names it by the placeholder when there is no value', () => {
+      renderNamedByText('');
+      expect(screen.getByRole('button', { name: 'Unnamed phase' })).toHaveAccessibleDescription('Rename the phase');
+    });
+
+    it('names the field by the hint once it is open', async () => {
+      const user = userEvent.setup();
+      renderNamedByText('Intro');
+      await user.click(screen.getByRole('button', { name: 'Intro' }));
+      expect(screen.getByRole('textbox', { name: 'Rename the phase' })).toHaveValue('Intro');
+    });
+  });
+
   // The two assertions below are on class names, which is normally a poor test.
   // They earn it here because jsdom has no layout engine, so the thing they
   // guard cannot be measured: the field swaps in for the button in place, and
@@ -94,7 +135,7 @@ describe('<EditableText />', () => {
     });
 
     // iOS Safari zooms the whole page on a focused input under 16px, and this
-    // is a PWA people use one-handed mid-set. See docs/DESIGN_SYSTEM.md.
+    // is a PWA people use one-handed mid-set. See docs/INVARIANTS.md.
     it('holds the 16px iOS floor by default', async () => {
       const user = userEvent.setup();
       render(<EditableText value="Hello" onSave={() => {}} />);

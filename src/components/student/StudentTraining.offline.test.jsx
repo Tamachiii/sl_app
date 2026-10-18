@@ -208,6 +208,11 @@ function makeClient(mode) {
   });
 }
 
+// The next session: the panel that holds « Start the session ».
+const nextPanel = () => screen.getByRole('link', { name: 'Start the session' }).closest('section');
+// The row of the past block, in the history.
+const pastBlockRow = () => screen.getByRole('button', { name: /^Bloc Reprise,/ });
+
 const withClient = (client) => ({ children }) => (
   <QueryClientProvider client={client}>{children}</QueryClientProvider>
 );
@@ -268,17 +273,16 @@ describe.each(Object.keys(MODES))('a launch without a network (reads %s)', (mode
     const before = db.requests.length;
     renderTraining(gym);
 
-    expect(screen.getByText('Bloc 3')).toBeInTheDocument();
     // One confirmed out of three: the athlete is on the second, not back on
     // the first.
-    expect(screen.getByText('Session 2 of 3')).toBeInTheDocument();
-    const nextCard = screen.getByText('Next').closest('.rounded-2xl');
-    expect(within(nextCard).getByText('Pull A')).toBeInTheDocument();
-    expect(within(nextCard).getByText('Bench Press')).toBeInTheDocument();
-    expect(screen.getByText('Legs A')).toBeInTheDocument();
-    expect(screen.getByText(/past program · 2 sessions/i)).toBeInTheDocument();
+    expect(screen.getByText('Bloc 3, session 2 of 3')).toBeInTheDocument();
+    const next = nextPanel();
+    expect(within(next).getByRole('heading', { name: 'Pull A' })).toBeInTheDocument();
+    expect(within(next).getByText('Bench Press')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Then' })).getByText('Legs A')).toBeInTheDocument();
+    expect(pastBlockRow()).toHaveAccessibleName('Bloc Reprise, Block over, 2 sessions');
 
-    expect(screen.queryByText(/no program assigned yet/i)).toBeNull();
+    expect(screen.queryByText(/no program yet/i)).toBeNull();
     expect(screen.queryByText(/isn’t on this device/i)).toBeNull();
     expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
 
@@ -287,7 +291,7 @@ describe.each(Object.keys(MODES))('a launch without a network (reads %s)', (mode
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(screen.getByText('Session 2 of 3')).toBeInTheDocument();
+    expect(screen.getByText('Bloc 3, session 2 of 3')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
     if (MODES[mode].managerFollows) expect(db.requests).toHaveLength(before);
   });
@@ -322,7 +326,7 @@ describe.each(Object.keys(MODES))('a launch without a network (reads %s)', (mode
     );
     const said = [];
     const watch = new MutationObserver(() => {
-      if (/isn’t on this device|couldn’t be loaded|no program assigned/i.test(container.textContent)) {
+      if (/isn’t on this device|couldn’t be loaded|no program yet/i.test(container.textContent)) {
         said.push(container.textContent);
       }
     });
@@ -332,7 +336,7 @@ describe.each(Object.keys(MODES))('a launch without a network (reads %s)', (mode
     expect(screen.queryByText(/isn’t on this device/i)).toBeNull();
 
     await act(async () => handOver());
-    expect(await screen.findByText('Session 2 of 3')).toBeInTheDocument();
+    expect(await screen.findByText('Bloc 3, session 2 of 3')).toBeInTheDocument();
     watch.disconnect();
     expect(said).toEqual([]);
   });
@@ -373,7 +377,7 @@ describe.each(Object.keys(MODES))('a launch without a network (reads %s)', (mode
     const { client: atHome, view } = await visitOnline(mode);
 
     // Opened at home: read, shown.
-    await user.click(screen.getByText('Bloc Reprise'));
+    await user.click(pastBlockRow());
     expect(await screen.findByText('Old Squat')).toBeInTheDocument();
     expect(atHome.getQueryData(studentPastProgramKey('u-1', 'p-1'))).toHaveLength(1);
 
@@ -387,8 +391,8 @@ describe.each(Object.keys(MODES))('a launch without a network (reads %s)', (mode
 
     setNetwork(false, mode);
     renderTraining(gym);
-    await user.click(screen.getByText('Bloc Reprise'));
-    const past = screen.getByText('Bloc Reprise').closest('section');
+    await user.click(pastBlockRow());
+    const past = screen.getByRole('region', { name: 'History' });
     expect(
       await within(past).findByText(/this block isn’t on this device/i),
     ).toBeInTheDocument();
@@ -412,12 +416,12 @@ describe.each(Object.keys(MODES))('a launch without a network (reads %s)', (mode
     expect(
       await screen.findByText(/your training isn’t on this device yet/i),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/no program assigned yet/i)).toBeNull();
+    expect(screen.queryByText(/no program yet/i)).toBeNull();
     expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
 
     // No tap: the return of the network is enough.
     setNetwork(true, mode);
-    expect(await screen.findByText('Session 2 of 3')).toBeInTheDocument();
+    expect(await screen.findByText('Bloc 3, session 2 of 3')).toBeInTheDocument();
     expect(screen.getByText('Pull A')).toBeInTheDocument();
     expect(screen.queryByText(/isn’t on this device/i)).toBeNull();
   });
@@ -435,7 +439,7 @@ describe.each(Object.keys(MODES))('a launch without a network (reads %s)', (mode
       // A client that holds its reads back sends them when ITS manager says so.
       act(() => onlineManager.setOnline(true));
     }
-    expect(await screen.findByText('Session 2 of 3')).toBeInTheDocument();
+    expect(await screen.findByText('Bloc 3, session 2 of 3')).toBeInTheDocument();
   });
 });
 
@@ -449,7 +453,7 @@ describe('on a network', () => {
     });
     supabase.from.mockImplementation(db.from);
     renderTraining(makeClient('paused'));
-    expect(await screen.findByText(/no program assigned yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/no program yet/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
   });
 
@@ -462,7 +466,7 @@ describe('on a network', () => {
     const client = makeClient('paused');
     renderTraining(client);
 
-    expect(await screen.findByText(/no program assigned yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/no program yet/i)).toBeInTheDocument();
     expect(screen.queryByText(/couldn’t be loaded/i)).toBeNull();
     expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
     // No link to read a program through: none was asked for.
@@ -478,11 +482,11 @@ describe('on a network', () => {
     network.up = false; // the request fails; the device says it is online
     renderTraining(makeClient('paused'));
     expect(await screen.findByText(/your training couldn’t be loaded/i)).toBeInTheDocument();
-    expect(screen.queryByText(/no program assigned yet/i)).toBeNull();
+    expect(screen.queryByText(/no program yet/i)).toBeNull();
 
     network.up = true;
     await user.click(screen.getByRole('button', { name: /try again/i }));
-    expect(await screen.findByText('Session 2 of 3')).toBeInTheDocument();
+    expect(await screen.findByText('Bloc 3, session 2 of 3')).toBeInTheDocument();
   });
 });
 

@@ -4,6 +4,9 @@ import App from './App';
 import { appUpdater } from './lib/appUpdate';
 import { chunkRecovery } from './lib/chunkRecovery';
 import { restNotifications } from './lib/restNotifications';
+// Archivo, one variable file per alphabet with a weight and a width axis: the
+// Parc design system's only family (design/parc/README.md, "Typographie").
+import '@fontsource-variable/archivo/wdth.css';
 import './index.css';
 
 // The service worker is registered here, by hand, and not through

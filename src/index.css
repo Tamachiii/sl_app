@@ -1,42 +1,58 @@
 @import "tailwindcss";
+/* The Parc design system (design/parc/): its tokens as CSS variables, then its
+   pk-* component classes. Both files are copies of design/parc/, and every
+   value comes from design/parc/tokens.json (src/test/parcTokens.test.js holds
+   them to it). The classes sit in the components layer, so a utility written
+   beside one (`w-full`, `mt-4`) still wins over it. */
+@import "./styles/parc-tokens.css";
+@import "./styles/bundle.css" layer(components);
+@import "./styles/parc-app.css" layer(components);
+/* The mocks of design/parc/screens are references, not sources: no utility is
+   generated from their markup. */
+@source not "../design";
 
-@custom-variant dark (&:where(.dark, .dark *));
+/* The Parc tokens as Tailwind utilities: bg-ground, bg-surface, text-ink-2,
+   border-line-control, rounded-group, shadow-sheet, min-h-target, max-w-content…
+   `inline` makes a utility read the variable of src/styles/parc-tokens.css
+   itself, so each value lives in one place. Spacing needs nothing: Parc's
+   space-N is Tailwind's N (p-4 = 16px, gap-2.5 = 10px, py-3.5 = 14px). */
+@theme inline {
+  --font-sans: var(--font-sans);
 
-@theme {
-  /* Typography */
-  --font-display: "Archivo", "Inter", system-ui, sans-serif;
-  --font-body: "Inter", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-fill: var(--fill);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-line-control: var(--line-control);
+  --color-blue: var(--blue);
+  --color-blue-pressed: var(--blue-pressed);
+  --color-blue-soft: var(--blue-soft);
+  --color-on-blue: var(--on-blue);
+  --color-amber: var(--amber);
+  --color-amber-soft: var(--amber-soft);
+  --color-red: var(--red);
+  --color-red-soft: var(--red-soft);
+  --color-chart-pull: var(--chart-pull);
+  --color-chart-push: var(--chart-push);
+  --color-overlay: var(--overlay);
 
-  /* Warm ink scale (replaces gray-*) */
-  --color-ink-950: #0a0a0a;
-  --color-ink-900: #111110;
-  --color-ink-850: #171716;
-  --color-ink-800: #1d1c1a;
-  --color-ink-700: #26241f;
-  --color-ink-600: #3a3631;
-  --color-ink-500: #5b564d;
-  --color-ink-400: #807a6e;
-  --color-ink-300: #a8a197;
-  --color-ink-200: #c9c3b8;
-  --color-ink-100: #e4dfd4;
-  --color-ink-50:  #f2efe6;
-  --color-ink-0:   #faf8f3;
+  --radius-control: var(--radius-control);
+  --radius-button: var(--radius-button);
+  --radius-group: var(--radius-group);
+  --radius-panel: var(--radius-panel);
 
-  /* Accent & semantic */
-  --color-accent: #ff5a1f;
-  --color-danger: #ff4a2e;
-  --color-success: #8cf06a;
-  --color-warn: #ffb347;
+  --shadow-sheet: var(--shadow-sheet);
+  --shadow-toast: var(--shadow-toast);
 
-  /* Legacy alias — still backs the `*-primary` utilities in SlotCommentBox
-     and EditableText. New work should use the accent scale. */
-  --color-primary: #ff5a1f;
-  /* Pull/Push volume colors — the archived-pill amber for pull and the
-     accent orange for push. Intentionally avoids the success-lime,
-     which is reserved for "done" states elsewhere in the app. */
-  --color-pull: #ffb347;
-  --color-push: #ff5a1f;
+  --spacing-target: var(--target-min);
+  --spacing-button-lg: var(--button-lg-height);
+  --spacing-row: var(--row-min);
+  --spacing-safe-bottom: var(--safe-bottom);
+  --container-content: var(--content-max);
 }
 
 html, body, #root {
@@ -51,11 +67,10 @@ html, body, #root {
 /* Paint the canvas itself, not only <body>. With `viewport-fit=cover` the
    safe-area strips sit outside the AppShell's painted box, so a transparent
    root shows through as the UA's default black behind the Dynamic Island.
-   Matches the AppShell's own `bg-gray-50`; `.dark` overrides it below. Set on
-   the root ONLY — putting it on the shared selector above would leave #root
-   light while dark mode repaints body. */
+   Parc's `ground`, the page colour; bundle.css says the same, but from a
+   layer, which this unlayered rule would otherwise outrank. */
 html {
-  background-color: #f9fafb;
+  background-color: var(--ground);
 }
 
 /* Soft-keyboard inset, populated by `useKeyboardInset` (mounted in AppShell)
@@ -67,249 +82,28 @@ html {
 }
 
 body {
-  font-family: var(--font-body);
+  font-family: var(--font-sans);
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
 }
 
-/* ---------- Component utilities ---------- */
-@layer components {
-  .sl-display {
-    font-family: var(--font-display);
-    font-weight: 800;
-    letter-spacing: -0.03em;
-    line-height: 1.05;
-  }
-  .sl-label {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 500;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--color-ink-400);
-  }
-  .sl-mono {
-    font-family: var(--font-mono);
-    font-feature-settings: "tnum";
-  }
-  .sl-hairline {
-    height: 1px;
-    background: var(--color-ink-100);
-  }
-  .dark .sl-hairline {
-    background: var(--color-ink-700);
-  }
-  .sl-no-scrollbar {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-  .sl-no-scrollbar::-webkit-scrollbar {
-    display: none;
-  }
-  .sl-card {
-    background: #fff;
-    border-radius: 16px;
-    box-shadow: 0 1px 0 var(--color-ink-100);
-  }
-  .dark .sl-card {
-    background: var(--color-ink-850);
-    box-shadow: none;
-  }
-  .sl-btn {
-    font-family: var(--font-display);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    font-size: 14px;
-    border: none;
-    cursor: pointer;
-  }
-  .sl-btn-primary {
-    background: var(--color-accent);
-    color: var(--color-ink-900);
-    font-family: var(--font-display);
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    border-radius: 12px;
-    padding: 16px 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-  }
-  /* Text on an accent or danger fill: ink-900, the colour `.sl-btn-primary`
-     writes — 6.06:1 on accent and 5.64:1 on danger, where white gives 3.12
-     and 3.35. The two classes that look like they say the same do not:
-     `text-ink-900` and `text-gray-900` are remapped to cream by `.dark`,
-     2.94:1 on accent. `!important` inside a layer outranks an `!important`
-     outside every layer, so neither that remap nor a `text-white` left beside
-     this class takes the colour back. */
-  .sl-on-fill {
-    color: var(--color-ink-900) !important;
-  }
-  .sl-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-  }
-  /* ---- 44px: the smallest thing a thumb hits (WCAG 2.5.5, Apple HIG) ----
-     Two ways to reach it, for the two kinds of control.
-
-     A pill that is a BUTTON grows: `sl-pill sl-pill-btn`. It stands after
-     `.sl-pill` so that its padding wins over the pill's, and inside this
-     layer so that a utility beside it (`px-2`, `w-full`, `min-w-0`) still
-     wins over it. The label keeps the pill's 10px. */
-  .sl-pill-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 44px;
-    min-width: 44px;
-    padding-inline: 14px;
-    cursor: pointer;
-  }
-  /* A control that must stay as small as it is drawn — a 16px close icon, a
-     ⋯ in a dense row — keeps its box and gets a larger area to hit: `sl-hit`.
-     The area is a pseudo-element centred on the control, 44px at least and
-     never smaller than the control itself, so nothing around it moves. It
-     belongs to the control: a press on it is a press on the control.
-     Two things take it away: an ancestor with `overflow: hidden` closer than
-     the area's edge, and a second `sl-hit` nearer than 44px, whose area lies
-     on top of this one where they meet. */
-  .sl-hit {
-    position: relative;
-  }
-  .sl-hit::after {
-    content: "";
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 100%;
-    height: 100%;
-    min-width: 44px;
-    min-height: 44px;
-    transform: translate(-50%, -50%);
-  }
-}
-
-/* ---------- Dark theme ----------
- * Overrides common Tailwind utility classes when `.dark` is on <html>.
- * Remapped onto the warm ink-* scale.
- */
-.dark {
-  color-scheme: dark;
-  background-color: var(--color-ink-900);
-  /* Muted text. ink-400 is the one step of the scale that is text colour
-     without a class remap: `text-ink-400`, `.sl-label`, `.dark .text-gray-400`,
-     inline `var(--color-ink-400)` and the chart fills all read the token. So
-     the dark value is set on the token, not on a class, and reaches every one
-     of them. The scale's #807a6e gives small text 4.43:1 on the page and
-     3.99:1 on a pill; this value is at least 4.5:1 on every ink surface the
-     remaps below paint, ink-900 to ink-700, and stays darker than ink-300,
-     the step secondary copy uses. src/test/contrast.test.js recomputes it. */
-  --color-ink-400: #948e82;
-}
-
-.dark body {
-  background-color: var(--color-ink-900);
-  color: var(--color-ink-50);
-}
-
-/* Backgrounds — old gray-* utilities remap to ink-* */
-.dark .bg-white { background-color: var(--color-ink-850) !important; }
-.dark .bg-gray-50 { background-color: var(--color-ink-900) !important; }
-.dark .bg-gray-100 { background-color: var(--color-ink-800) !important; }
-.dark .bg-gray-200 { background-color: var(--color-ink-700) !important; }
-.dark .bg-red-50 { background-color: #3f1d1d !important; }
-.dark .bg-green-50 { background-color: #14532d !important; }
-.dark .bg-green-100 { background-color: #166534 !important; }
-.dark .bg-orange-50 { background-color: #431407 !important; }
-.dark .bg-orange-100 { background-color: #7c2d12 !important; }
-.dark .bg-yellow-50 { background-color: #422006 !important; }
-.dark .bg-yellow-100 { background-color: #713f12 !important; }
-.dark .bg-amber-50 { background-color: #422006 !important; }
-.dark .bg-amber-100 { background-color: #78350f !important; }
-.dark .bg-blue-50 { background-color: #1e293b !important; }
-.dark .bg-blue-100 { background-color: #1e3a8a !important; }
-
-/* Accent text colors — keep readable on their tinted backgrounds */
-.dark .text-green-600,
-.dark .text-green-700 { color: #86efac !important; }
-.dark .text-orange-600,
-.dark .text-orange-700 { color: #fdba74 !important; }
-.dark .text-yellow-600,
-.dark .text-yellow-700 { color: #fde047 !important; }
-.dark .text-blue-500,
-.dark .text-blue-600,
-.dark .text-blue-700 { color: #93c5fd !important; }
-.dark .text-amber-600,
-.dark .text-amber-700,
-.dark .text-amber-800 { color: #fcd34d !important; }
-.dark .ring-amber-300 { --tw-ring-color: #b45309 !important; }
-
-/* Text — gray-* remaps onto ink-* */
-.dark .text-gray-900 { color: var(--color-ink-0) !important; }
-.dark .text-gray-800 { color: var(--color-ink-50) !important; }
-.dark .text-gray-700 { color: var(--color-ink-100) !important; }
-.dark .text-gray-600 { color: var(--color-ink-200) !important; }
-.dark .text-gray-500 { color: var(--color-ink-300) !important; }
-.dark .text-gray-400 { color: var(--color-ink-400) !important; }
-.dark .text-red-700 { color: #fca5a5 !important; }
-
-/* Borders */
-.dark .border-gray-100 { border-color: var(--color-ink-800) !important; }
-.dark .border-gray-200 { border-color: var(--color-ink-700) !important; }
-.dark .border-gray-300 { border-color: var(--color-ink-600) !important; }
-
-/* ink-* surfaces — flip light cream shades to dark ends of the same scale */
-.dark .bg-ink-50   { background-color: var(--color-ink-900) !important; }
-.dark .bg-ink-100  { background-color: var(--color-ink-800) !important; }
-.dark .bg-ink-200  { background-color: var(--color-ink-700) !important; }
-.dark .hover\:bg-ink-50:hover   { background-color: var(--color-ink-850) !important; }
-.dark .hover\:bg-ink-100:hover  { background-color: var(--color-ink-800) !important; }
-.dark .hover\:bg-ink-200:hover  { background-color: var(--color-ink-700) !important; }
-.dark .border-ink-100 { border-color: var(--color-ink-800) !important; }
-.dark .border-ink-200 { border-color: var(--color-ink-700) !important; }
-
-/* ink-* text — flip dark-end values used for "muted" ui copy to light-end values */
-.dark .text-ink-500 { color: var(--color-ink-300) !important; }
-.dark .text-ink-600 { color: var(--color-ink-200) !important; }
-.dark .text-ink-700 { color: var(--color-ink-100) !important; }
-.dark .text-ink-800 { color: var(--color-ink-50) !important; }
-.dark .text-ink-900 { color: var(--color-ink-0) !important; }
-
-/* Shadows look bad in dark mode — tone them down */
-.dark .shadow-sm,
-.dark .shadow,
-.dark .shadow-lg,
-.dark .shadow-xl {
-  --tw-shadow-color: rgba(0, 0, 0, 0.5);
-}
-
-/* Custom video scrubber thumb — invisible track (painted by overlay divs), accent thumb */
+/* The video player's scrubber: the track is drawn by the player, the thumb is
+   a blue disc ringed in white. */
 .video-scrub::-webkit-slider-thumb {
   appearance: none;
   width: 14px;
   height: 14px;
   border-radius: 9999px;
-  background: var(--color-accent);
-  border: 2px solid #fff;
+  background: var(--blue);
+  border: 2px solid var(--surface);
   cursor: pointer;
 }
 .video-scrub::-moz-range-thumb {
   width: 14px;
   height: 14px;
   border-radius: 9999px;
-  background: var(--color-accent);
-  border: 2px solid #fff;
+  background: var(--blue);
+  border: 2px solid var(--surface);
   cursor: pointer;
 }
 .video-scrub::-webkit-slider-runnable-track {

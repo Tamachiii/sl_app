@@ -1,20 +1,15 @@
-import { useMemo } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useMemo, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
 import { useStudents } from '../../hooks/useStudents';
 import { useConversations } from '../../hooks/useMessages';
 import UserMenu from '../ui/UserMenu';
-import EmptyState from '../ui/EmptyState';
 import Spinner from '../ui/Spinner';
 import ConversationList from '../messaging/ConversationList';
 import MessageThread from '../messaging/MessageThread';
-
-const ChevronLeft = (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-  </svg>
-);
+import { formatNumber, pluralKey } from '../../lib/i18n/format';
+import { Avatar, IconButton, LargeTitle, ListGroup, Row, SearchField } from '../parc';
 
 /**
  * Coach Messages tab. Two modes:
@@ -28,8 +23,9 @@ const ChevronLeft = (
 export default function CoachMessages() {
   const { otherProfileId } = useParams();
   const { profile, signOut } = useAuth();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const navigate = useNavigate();
+  const [query, setQuery] = useState('');
   const { data: students } = useStudents();
   const { data: conversations } = useConversations();
 
@@ -39,7 +35,7 @@ export default function CoachMessages() {
   const counterpart = useMemo(() => {
     if (!otherProfileId) return null;
     const s = (students || []).find((x) => x.profile_id === otherProfileId);
-    if (s) return { id: s.profile_id, full_name: s.profile?.full_name };
+    if (s) return { id: s.profile_id, full_name: s.profile?.full_name, studentRowId: s.id };
     const c = (conversations || []).find((x) => x.otherProfileId === otherProfileId);
     if (c) return { id: c.otherProfileId, full_name: c.otherFullName };
     return null;
@@ -52,95 +48,88 @@ export default function CoachMessages() {
     const seen = new Set((conversations || []).map((c) => c.otherProfileId));
     return (students || [])
       .filter((s) => !seen.has(s.profile_id))
-      .map((s) => ({ profileId: s.profile_id, fullName: s.profile?.full_name || '—' }));
-  }, [students, conversations, otherProfileId]);
+      .map((s) => ({ profileId: s.profile_id, fullName: (s.profile?.full_name || '').trim() || t('parcMessages.unnamedAthlete') }));
+  }, [students, conversations, otherProfileId, t]);
 
   if (otherProfileId) {
-    // Outer container fills main (flex-1 of the AppShell wrapper). The
-    // composer bar inside MessageThread spans full width and lifts above
-    // the soft keyboard via its own --kb-inset paddingBottom.
+    const name = (counterpart?.full_name || '').trim() || t('parcMessages.unknown');
+    // The conversation (design/parc/screens/Conversation.dc.html): back to
+    // the list, the athlete's name in the middle, and their page behind their
+    // initials at the right.
     return (
-      <div className="flex-1 flex flex-col min-h-0">
-        <div className="px-4 md:px-8 pt-3 pb-3 flex items-center justify-between gap-3 shrink-0">
-          <button
-            type="button"
-            onClick={() => navigate('/coach/messages')}
-            aria-label={t('common.back')}
-            className="w-11 h-11 shrink-0 rounded-lg bg-ink-100 text-ink-700 flex items-center justify-center"
-          >
-            {ChevronLeft}
-          </button>
-          <div className="min-w-0 text-center">
-            <div className="sl-label text-ink-400 truncate">{t('messaging.title')}</div>
-            <div className="sl-display text-[18px] md:text-[22px] text-gray-900 truncate">
-              {counterpart?.full_name || '—'}
-            </div>
-          </div>
-          <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
-        </div>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <header className="flex shrink-0 items-center gap-3 border-b border-line-strong px-4 py-3 md:px-8">
+          <IconButton icon="chevron-left" label={t('parcMessages.back')} onClick={() => navigate('/coach/messages')} />
+          <h1 className="pk-headline min-w-0 flex-1 truncate text-center">{name}</h1>
+          {counterpart?.studentRowId ? (
+            <Link
+              to={`/coach/students/${counterpart.studentRowId}`}
+              aria-label={t('parcMessages.seeAthlete', { name })}
+              className="shrink-0 rounded-full"
+            >
+              <Avatar name={name} />
+            </Link>
+          ) : (
+            <span className="w-11 shrink-0" aria-hidden="true" />
+          )}
+        </header>
 
-        <div className="flex-1 min-h-0 flex">
-          <MessageThread
-            otherProfileId={otherProfileId}
-            otherFullName={counterpart?.full_name}
-            className="w-full"
-          />
+        <div className="flex min-h-0 flex-1">
+          <MessageThread otherProfileId={otherProfileId} otherFullName={counterpart?.full_name} className="w-full" />
         </div>
       </div>
     );
   }
 
+  // The search keeps the athletes it names, with or without a conversation.
+  const q = query.trim().toLowerCase();
+  const startableShown = q ? startable.filter((s) => s.fullName.toLowerCase().includes(q)) : startable;
+  const unreadConversations = (conversations || []).filter((c) => c.unreadCount > 0).length;
+  const subtitle = conversations
+    ? unreadConversations > 0
+      ? t(pluralKey(lang, unreadConversations, 'parcMessages.unread'), { n: formatNumber(lang, unreadConversations) })
+      : t('parcMessages.allRead')
+    : null;
+
   return (
-    <div className="p-4 pb-6 md:p-8 space-y-5">
-      <div className="pt-3 pb-1 flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="sl-label text-ink-400">{t('coach.home.kicker')}</div>
-          <h1 className="sl-display text-[28px] md:text-[40px] text-gray-900 leading-none mt-1">
-            {t('messaging.title')}
-          </h1>
-        </div>
-        <UserMenu fullName={profile?.full_name} onSignOut={signOut} />
-      </div>
+    <div className="flex flex-col gap-6 px-4 pt-3 pb-6 md:px-8">
+      <LargeTitle
+        title={t('parcMessages.title')}
+        subtitle={subtitle}
+        trailing={<UserMenu fullName={profile?.full_name} onSignOut={signOut} />}
+      />
 
       {!students && (
         <div className="flex justify-center py-12"><Spinner /></div>
       )}
 
       {students && students.length === 0 && (
-        <EmptyState message={t('coach.home.noStudentsExt')} />
+        <p className="rounded-group bg-surface p-4 pk-body">{t('parcMessages.noAthlete')}</p>
       )}
 
       {students && students.length > 0 && (
         <>
+          {(conversations || []).length > 0 && (
+            <SearchField label={t('parcMessages.search')} value={query} onChange={(e) => setQuery(e.target.value)} />
+          )}
+
           <ConversationList
             linkBuilder={(c) => `/coach/messages/${c.otherProfileId}`}
-            emptyMessage={t('messaging.coachNoConversations')}
+            emptyMessage={t('parcMessages.noConversation')}
+            query={query}
           />
 
-          {startable.length > 0 && (
-            <section aria-labelledby="start-heading" className="space-y-2 pt-2">
-              <h2 id="start-heading" className="sl-label text-ink-400">
-                {t('messaging.startNew')}
-              </h2>
-              <ul className="grid grid-cols-2 md:grid-cols-3 gap-2 list-none p-0 m-0">
-                {startable.map((s) => (
-                  <li key={s.profileId}>
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/coach/messages/${s.profileId}`)}
-                      className="w-full sl-card p-3 text-left hover:bg-ink-50/50 dark:hover:bg-ink-800 transition-colors"
-                    >
-                      <span className="sl-display text-[14px] text-gray-900 truncate block">
-                        {s.fullName}
-                      </span>
-                      <span className="sl-mono text-[10px] text-ink-400 mt-1 block">
-                        {t('messaging.tapToOpen')}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
+          {startableShown.length > 0 && (
+            <ListGroup title={t('parcMessages.startNew')}>
+              {startableShown.map((s) => (
+                <Row
+                  key={s.profileId}
+                  to={`/coach/messages/${s.profileId}`}
+                  leading={<Avatar name={s.fullName} />}
+                  title={s.fullName}
+                />
+              ))}
+            </ListGroup>
           )}
         </>
       )}

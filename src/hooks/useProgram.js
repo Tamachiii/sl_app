@@ -496,7 +496,7 @@ export function useReorderPrograms(studentRowId) {
  *
  * `weekDays` is the current Mon–Sun strip from the SHARED `buildDayStrip`, so
  * the coach's view of a week and the athlete's own can't drift. Powers the
- * `StudentWeekStrip` on each athlete card without an N+1 fetch.
+ * week's dots on each roster row without an N+1 fetch.
  */
 export function useCoachDashboardPrograms() {
   const { user } = useAuth();

@@ -123,7 +123,7 @@ function drop(row, activeId, overId) {
 }
 
 async function pickBlock(user, name) {
-  await user.click(screen.getByRole('button', { name: /select program/i }));
+  await user.click(screen.getByRole('button', { name: 'Choose the block' }));
   await user.click(screen.getByRole('option', { name: new RegExp(name) }));
 }
 
@@ -231,11 +231,11 @@ describe('a write that was waiting when the page moved on', () => {
     const list = () => within(screen.getByRole('listbox'));
 
     act(() => onlineManager.setOnline(false));
-    await user.click(screen.getByRole('button', { name: /select program/i }));
+    await user.click(screen.getByRole('button', { name: 'Choose the block' }));
     drop(list().getByText('Block one'), 'p-2', 'p-1');
 
     await user.click(screen.getByRole('link', { name: 'other athlete' }));
-    const trigger = await screen.findByRole('button', { name: /select program/i });
+    const trigger = await screen.findByRole('button', { name: 'Choose the block' });
     expect(trigger).toHaveTextContent('Block seven');
     await user.click(trigger);
     drop(list().getByText('Block seven'), 'p-8', 'p-7');

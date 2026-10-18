@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
-import { ThemeProvider } from '../../hooks/useTheme';
 
 // The address the page leaves, printed for the test to read.
 function LocationProbe() {
@@ -20,6 +19,10 @@ let mockStudentIdQuery = null;
 // computed, and whether it let the read start.
 let statsCalls = [];
 let historyCalls = [];
+// The records and the bodyweight, all-time: they moved here from the Profile.
+let mockRecords = { data: [], isLoading: false };
+let recordsCalls = [];
+let mockBodyweight = { data: [] };
 
 vi.mock('../../hooks/useStudentProgressStats', () => ({
   useStudentProgressStats: (studentId, scope, options) => {
@@ -44,6 +47,18 @@ vi.mock('../../hooks/useProgram', () => ({
   useProgramsForStudent: () => mockProgramsQuery || { data: mockPrograms },
 }));
 
+vi.mock('../../hooks/useStudentRecords', () => ({
+  useStudentRecords: (studentRowId) => {
+    recordsCalls.push(studentRowId);
+    return mockRecords;
+  },
+}));
+
+vi.mock('../../hooks/useBodyweight', () => ({
+  useBodyweightLogs: () => mockBodyweight,
+  useLogBodyweight: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({}),
 }));
@@ -51,16 +66,15 @@ vi.mock('../../hooks/useAuth', () => ({
 import StudentDashboard from './StudentDashboard';
 
 const PREFS_KEY = 'sl_stats_prefs:self';
+const EXERCISE_KEY = 'sl_stats_prefs:self:exerciseId';
 const savedScope = () => JSON.parse(localStorage.getItem(PREFS_KEY) || '{}').scope;
 
 function dashboard(initialPath) {
   return (
-    <ThemeProvider>
-      <MemoryRouter initialEntries={[initialPath]}>
-        <StudentDashboard />
-        <LocationProbe />
-      </MemoryRouter>
-    </ThemeProvider>
+    <MemoryRouter initialEntries={[initialPath]}>
+      <StudentDashboard />
+      <LocationProbe />
+    </MemoryRouter>
   );
 }
 
@@ -69,6 +83,25 @@ function renderDashboard(initialPath = '/student/stats') {
   // Renders the same page again, after a test changed what a hook answers.
   return { ...view, again: () => view.rerender(dashboard(initialPath)) };
 }
+
+// The scope is a group of chips named "Block" (ProgramScopeSelector): the
+// chip that is pressed, and a tap on one.
+const scopeGroup = () => screen.getByRole('group', { name: 'Block' });
+const queryScopeGroup = () => screen.queryByRole('group', { name: 'Block' });
+const pressedScope = () =>
+  within(scopeGroup())
+    .getAllByRole('button')
+    .filter((chip) => chip.getAttribute('aria-pressed') === 'true')
+    .map((chip) => chip.textContent);
+const pickScope = (name) => fireEvent.click(within(scopeGroup()).getByRole('button', { name }));
+
+// A row of the Summary list, by its label: "Sessions done", "Sets done",
+// "Average RPE". Its value is at the right, its note under the label.
+const summaryRow = (label) =>
+  within(screen.getByRole('region', { name: 'Summary' })).getByText(label).closest('li');
+
+// The line under the title: what the figures are of.
+const subtitle = () => screen.getByRole('heading', { level: 1, name: 'Stats' }).closest('header').querySelector('p');
 
 const sampleData = {
   totalSessions: 12,
@@ -108,62 +141,107 @@ const sampleData = {
   exerciseProgress: { exercises: [], byExercise: {} },
 };
 
+const emptyData = {
+  totalSessions: 0,
+  totalSessionsConfirmed: 0,
+  totalSets: 0,
+  totalSetsDone: 0,
+  weeksActive: 0,
+  avgRpe: null,
+  weeklyVolume: [],
+  recentConfirmations: [],
+  sessionCalendar: [],
+  exerciseProgress: { exercises: [], byExercise: {} },
+};
+
+// A record of a lift with added load, its bodyweight unknown: the list offers
+// to log it (PersonalRecords).
+const RECORD = {
+  exercise_id: 'e-9',
+  name: 'Weighted Pull-up',
+  type: 'pull',
+  loadMode: 'added',
+  bestE1rm: 44,
+  bestE1rmWeight: 40,
+  bestE1rmReps: 3,
+  bestE1rmAt: '2026-07-08T12:00:00Z',
+  bestReps: 3,
+  bestRepsAt: '2026-07-08T12:00:00Z',
+  relStrength: null,
+  bwAtBest: null,
+  recent: false,
+};
+
+function resetMocks() {
+  vi.clearAllMocks();
+  // The scope is read from localStorage during render: what one test saved
+  // would be the scope of the next.
+  localStorage.clear();
+  lastScope = null;
+  mockProgramsQuery = null;
+  mockStudentIdQuery = null;
+  statsCalls = [];
+  historyCalls = [];
+  mockRecords = { data: [], isLoading: false };
+  recordsCalls = [];
+  mockBodyweight = { data: [] };
+  mockPrograms = [
+    { id: 'p-1', name: 'Block A', is_active: true, sort_order: 0 },
+    { id: 'p-2', name: 'Block B', is_active: false, sort_order: 1 },
+  ];
+}
+
 describe('StudentDashboard', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    // The scope is read from localStorage during render: what one test saved
-    // would be the scope of the next.
-    localStorage.clear();
+    resetMocks();
     mockStats = { data: null, isLoading: true };
-    lastScope = null;
-    mockProgramsQuery = null;
-    mockStudentIdQuery = null;
-    statsCalls = [];
-    historyCalls = [];
-    mockPrograms = [
-      { id: 'p-1', name: 'Block A', is_active: true, sort_order: 0 },
-      { id: 'p-2', name: 'Block B', is_active: false, sort_order: 1 },
-    ];
   });
 
   it('renders the Stats header', () => {
+    mockStats = { data: sampleData, isLoading: false };
     renderDashboard();
-    expect(screen.getByText('Stats')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Stats' })).toBeInTheDocument();
   });
 
-  it('shows a spinner while loading', () => {
+  it('shows a spinner while loading, under the page\'s name', () => {
     renderDashboard();
+    expect(screen.getByRole('status', { name: 'Loading' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Stats' })).toBeInTheDocument();
     expect(screen.queryByText(/summary/i)).not.toBeInTheDocument();
   });
 
-  it('shows empty state when no program', () => {
-    mockStats = {
-      data: {
-        totalSessions: 0,
-        totalSessionsConfirmed: 0,
-        totalSets: 0,
-        totalSetsDone: 0,
-        weeksActive: 0,
-        avgRpe: null,
-        weeklyVolume: [],
-        recentConfirmations: [],
-        sessionCalendar: [],
-        exerciseProgress: { exercises: [], byExercise: {} },
-      },
-      isLoading: false,
-    };
+  it('shows the records and the bodyweight without waiting for the figures of the scope', () => {
     renderDashboard();
-    expect(screen.getByText(/no program assigned yet/i)).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Loading' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Records' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Bodyweight' })).toBeInTheDocument();
+  });
+
+  it('shows empty state when no program', () => {
+    mockStats = { data: emptyData, isLoading: false };
+    renderDashboard();
+    expect(screen.getByText('No stats yet. They come with your first sessions.')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Summary' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Volume per week' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Progression' })).not.toBeInTheDocument();
   });
 
   it('renders summary stats', () => {
     mockStats = { data: sampleData, isLoading: false };
     renderDashboard();
-    expect(screen.getByText('5/12')).toBeInTheDocument();
-    expect(screen.getByText(/42% complete/i)).toBeInTheDocument();
-    expect(screen.getByText('42')).toBeInTheDocument();
-    expect(screen.getByText(/of 100 prescribed/i)).toBeInTheDocument();
-    expect(screen.getByText('7.3')).toBeInTheDocument();
+    const sessions = summaryRow('Sessions done');
+    expect(within(sessions).getByText('5 of 12')).toBeInTheDocument();
+    expect(within(sessions).getByText(/^42\s?% done$/)).toBeInTheDocument();
+    expect(within(summaryRow('Sets done')).getByText('42 of 100')).toBeInTheDocument();
+    expect(within(summaryRow('Average RPE')).getByText('7.3')).toBeInTheDocument();
+  });
+
+  // English writes a percentage against its number ("42% done", as every
+  // other English string of the app does); the space is French and German.
+  it('writes the share of sessions done the English way', () => {
+    mockStats = { data: sampleData, isLoading: false };
+    renderDashboard();
+    expect(within(summaryRow('Sessions done')).getByText('42% done')).toBeInTheDocument();
   });
 
   // "Sets done" counts the prescribed sets; the ones the athlete added are
@@ -171,13 +249,17 @@ describe('StudentDashboard', () => {
   it('says the sets the athlete added apart from the prescribed ones, and only when there are some', () => {
     mockStats = { data: { ...sampleData, totalExtraSetsDone: 3 }, isLoading: false };
     const { again } = renderDashboard();
-    expect(screen.getByText('42')).toBeInTheDocument();
-    expect(screen.getByText('of 100 prescribed · +3 extra')).toBeInTheDocument();
+    expect(within(summaryRow('Sets done')).getByText('42 of 100')).toBeInTheDocument();
+    expect(within(summaryRow('Sets done')).getByText('3 sets added')).toBeInTheDocument();
+
+    mockStats = { data: { ...sampleData, totalExtraSetsDone: 1 }, isLoading: false };
+    again();
+    expect(within(summaryRow('Sets done')).getByText('1 set added')).toBeInTheDocument();
 
     mockStats = { data: { ...sampleData, totalExtraSetsDone: 0 }, isLoading: false };
     again();
-    expect(screen.getByText('of 100 prescribed')).toBeInTheDocument();
-    expect(screen.queryByText(/extra/)).not.toBeInTheDocument();
+    expect(within(summaryRow('Sets done')).getByText('42 of 100')).toBeInTheDocument();
+    expect(screen.queryByText(/added/)).not.toBeInTheDocument();
   });
 
   // Volume rows are labelled by the real days they cover, so a block spread
@@ -189,8 +271,10 @@ describe('StudentDashboard', () => {
     try {
       mockStats = { data: sampleData, isLoading: false };
       renderDashboard();
-      expect(screen.getByText('Jul 6 – 12')).toBeInTheDocument();
-      expect(screen.getByText('Jul 13 – 19')).toBeInTheDocument();
+      const volume = within(screen.getByRole('region', { name: 'Volume per week' }));
+      // The chart is drawn for the eye; its table says the same in words.
+      expect(volume.getByText('Jul 6 – 12').tagName).toBe('TH');
+      expect(volume.getByText('Jul 13 – 19').tagName).toBe('TH');
       expect(screen.queryByText(/^W1$/)).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
@@ -237,48 +321,243 @@ describe('StudentDashboard', () => {
       isLoading: false,
     };
     renderDashboard();
-    expect(screen.getByText('—')).toBeInTheDocument();
+    const rpe = summaryRow('Average RPE');
+    expect(within(rpe).getByText('–')).toBeInTheDocument();
+    expect(within(rpe).getByText('Rate your sets to see it')).toBeInTheDocument();
   });
 
   it('defaults the program scope to "all" and renders the scope selector', () => {
     mockStats = { data: sampleData, isLoading: false };
     renderDashboard();
     expect(lastScope).toBe('all');
-    const select = screen.getByLabelText(/stats scope/i);
-    expect(select).toHaveValue('all');
-    expect(screen.getByRole('option', { name: /all programs/i })).toBeInTheDocument();
-    expect(
-      screen.getByRole('option', { name: /Block A \(active\)/ }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Block B' })).toBeInTheDocument();
+    // The block being trained, the blocks before it, then "All".
+    expect(within(scopeGroup()).getAllByRole('button').map((chip) => chip.textContent))
+      .toEqual(['Block A', 'Block B', 'All']);
+    expect(pressedScope()).toEqual(['All']);
   });
 
   it('reads the scope from the ?scope= URL param', () => {
     mockStats = { data: sampleData, isLoading: false };
     renderDashboard('/student/stats?scope=p-2');
     expect(lastScope).toBe('p-2');
+    expect(pressedScope()).toEqual(['Block B']);
+  });
+
+  it('presses the active block\'s chip for ?scope=active', () => {
+    mockStats = { data: sampleData, isLoading: false };
+    renderDashboard('/student/stats?scope=active');
+    expect(lastScope).toBe('active');
+    expect(pressedScope()).toEqual(['Block A']);
   });
 
   it('falls back to "all" when ?scope= references an unknown program', () => {
     mockStats = { data: sampleData, isLoading: false };
     renderDashboard('/student/stats?scope=ghost-program-id');
     expect(lastScope).toBe('all');
+    expect(pressedScope()).toEqual(['All']);
   });
 
-  it('switches scope and rerenders when the user picks an option', () => {
+  it('switches scope and rerenders when the user picks a block', () => {
     mockStats = { data: sampleData, isLoading: false };
     renderDashboard();
-    fireEvent.change(screen.getByLabelText(/stats scope/i), {
-      target: { value: 'p-2' },
-    });
+    pickScope('Block B');
     expect(lastScope).toBe('p-2');
+    expect(pressedScope()).toEqual(['Block B']);
+    // The address names what the page shows.
+    expect(search()).toBe('?scope=p-2');
   });
 
   it('hides the scope selector when the student has no programs', () => {
     mockPrograms = [];
     mockStats = { data: sampleData, isLoading: false };
     renderDashboard();
-    expect(screen.queryByLabelText(/stats scope/i)).not.toBeInTheDocument();
+    expect(queryScopeGroup()).not.toBeInTheDocument();
+  });
+
+  // design/parc/screens/Stats.dc.html: the line under the title says what the
+  // figures are of.
+  describe('the line under the title', () => {
+    beforeEach(() => {
+      mockStats = { data: sampleData, isLoading: false };
+    });
+
+    it('says "All your blocks" for "all"', () => {
+      renderDashboard();
+      expect(subtitle()).toHaveTextContent('All your blocks');
+    });
+
+    it('names the block being trained as such, picked by its id or as "active"', () => {
+      const byId = renderDashboard('/student/stats?scope=p-1');
+      expect(subtitle()).toHaveTextContent('Block A, block in progress');
+      byId.unmount();
+
+      renderDashboard('/student/stats?scope=active');
+      expect(subtitle()).toHaveTextContent('Block A, block in progress');
+    });
+
+    it('names a past block by its name alone', () => {
+      renderDashboard('/student/stats?scope=p-2');
+      expect(subtitle()).toHaveTextContent(/^Block B$/);
+    });
+  });
+});
+
+// « Progression »: one row per exercise of the scope, which opens its chart
+// under it. It replaced the chart and its select of exercises.
+describe('StudentDashboard — the progression of each exercise', () => {
+  const point = (session_id, date, tonnage) => ({ session_id, key: session_id, date, tonnage });
+  const progress = {
+    exercises: [
+      { id: 'e-1', name: 'Bench' },
+      { id: 'e-2', name: 'Row' },
+      { id: 'e-3', name: 'Squat' },
+      { id: 'e-4', name: 'Dips' },
+    ],
+    byExercise: {
+      // Up 240 kg on the session before.
+      'e-1': [point('s-0', '2026-06-24', 700), point('s-1', '2026-07-01', 1000), point('s-2', '2026-07-08', 1240)],
+      // One session: nothing to compare.
+      'e-2': [point('s-1', '2026-07-01', 800)],
+      // Down 150 kg.
+      'e-3': [point('s-1', '2026-07-01', 2150), point('s-2', '2026-07-08', 2000)],
+      // Planned in the last session and not lifted: the row speaks of the
+      // session before it, and compares that one with the one before.
+      'e-4': [point('s-0', '2026-06-24', 900), point('s-1', '2026-07-01', 1200), point('s-2', '2026-07-08', 0)],
+    },
+  };
+  const rowButton = (name) =>
+    within(screen.getByRole('region', { name: 'Progression' })).getByRole('button', { name: new RegExp(`^${name},`) });
+  // The chart under a row says its highest tonnage in its caption.
+  const chartCaption = () => screen.queryByText(/^Tonnage done:/);
+
+  beforeEach(() => {
+    resetMocks();
+    mockStats = { data: { ...sampleData, exerciseProgress: progress }, isLoading: false };
+  });
+
+  it('gives each exercise a row: the tonnage of its last session, and the change on the one before', () => {
+    renderDashboard();
+    const bench = rowButton('Bench');
+    expect(bench).toHaveTextContent('Last session, 1,240 kg lifted');
+    expect(bench).toHaveTextContent('+240 kg');
+    expect(rowButton('Squat')).toHaveTextContent('-150 kg');
+    // A single session has no change to show.
+    expect(rowButton('Row')).toHaveTextContent('Last session, 800 kg lifted');
+    expect(rowButton('Row')).not.toHaveTextContent(/[+-]\d/);
+    // A last session in which the exercise weighed nothing is not its last.
+    expect(rowButton('Dips')).toHaveTextContent('Last session, 1,200 kg lifted');
+    expect(rowButton('Dips')).toHaveTextContent('+300 kg');
+    expect(rowButton('Dips')).not.toHaveTextContent(/\b0 kg/);
+    // Closed, all of them.
+    for (const name of ['Bench', 'Row', 'Squat', 'Dips']) {
+      expect(rowButton(name)).toHaveAttribute('aria-expanded', 'false');
+    }
+    expect(chartCaption()).not.toBeInTheDocument();
+  });
+
+  it('opens the chart of an exercise under its row, without a select, and closes it on a second tap', () => {
+    renderDashboard();
+    fireEvent.click(rowButton('Bench'));
+
+    expect(rowButton('Bench')).toHaveAttribute('aria-expanded', 'true');
+    const under = rowButton('Bench').closest('li').nextElementSibling;
+    expect(under).toContainElement(chartCaption());
+    expect(chartCaption()).toHaveTextContent('Highest, 1,240 kg.');
+    // The row chose the exercise: the chart offers no other.
+    expect(screen.queryByRole('combobox', { name: 'Exercise' })).not.toBeInTheDocument();
+
+    fireEvent.click(rowButton('Bench'));
+    expect(rowButton('Bench')).toHaveAttribute('aria-expanded', 'false');
+    expect(chartCaption()).not.toBeInTheDocument();
+  });
+
+  it('opens one chart at a time', () => {
+    renderDashboard();
+    fireEvent.click(rowButton('Bench'));
+    fireEvent.click(rowButton('Squat'));
+    expect(rowButton('Bench')).toHaveAttribute('aria-expanded', 'false');
+    expect(rowButton('Squat')).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getAllByText(/^Tonnage done:/)).toHaveLength(1);
+    expect(chartCaption()).toHaveTextContent('Highest, 2,150 kg.');
+  });
+
+  // The key the chart's select was remembered under: an athlete who had
+  // picked an exercise finds it open.
+  it('remembers the open exercise for the next visit, and forgets it once closed', () => {
+    const first = renderDashboard();
+    fireEvent.click(rowButton('Squat'));
+    expect(localStorage.getItem(EXERCISE_KEY)).toBe('e-3');
+    first.unmount();
+
+    const second = renderDashboard();
+    expect(rowButton('Squat')).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(rowButton('Squat'));
+    expect(localStorage.getItem(EXERCISE_KEY)).toBeNull();
+    second.unmount();
+
+    renderDashboard();
+    expect(chartCaption()).not.toBeInTheDocument();
+  });
+
+  it('says so when the scope has no exercise to follow', () => {
+    mockStats = { data: sampleData, isLoading: false };
+    renderDashboard();
+    const list = within(screen.getByRole('region', { name: 'Progression' }));
+    expect(list.getByText('No exercise with a load yet.')).toBeInTheDocument();
+    expect(list.queryByRole('button')).not.toBeInTheDocument();
+  });
+});
+
+// The records and the bodyweight moved here from the Profile. They are
+// all-time: the scope does not change them.
+describe('StudentDashboard — the records and the bodyweight', () => {
+  beforeEach(() => {
+    resetMocks();
+    mockStats = { data: sampleData, isLoading: false };
+    mockRecords = { data: [RECORD], isLoading: false };
+    mockBodyweight = { data: [{ id: 'bw-1', weight_kg: 72.4, logged_on: '2026-07-08' }] };
+  });
+
+  it('shows the athlete\'s records and bodyweight, read for the signed-in athlete', () => {
+    renderDashboard();
+    expect(within(screen.getByRole('region', { name: 'Records' })).getByText('Weighted Pull-up')).toBeInTheDocument();
+    const bodyweight = within(screen.getByRole('region', { name: 'Bodyweight' }));
+    expect(bodyweight.getByText('72.4')).toBeInTheDocument();
+    expect(bodyweight.getByRole('button', { name: 'Log my weight' })).toBeInTheDocument();
+    // No athlete row id: the athlete's own records, scoped by RLS.
+    expect(recordsCalls.length).toBeGreaterThan(0);
+    expect(recordsCalls.every((id) => id === undefined)).toBe(true);
+  });
+
+  it('keeps them when the scope holds nothing yet', () => {
+    mockStats = { data: emptyData, isLoading: false };
+    renderDashboard('/student/stats?scope=p-2');
+    expect(screen.getByText('No stats yet. They come with your first sessions.')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Records' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Bodyweight' })).toBeInTheDocument();
+  });
+
+  it('keeps them, the same, from one scope to the next', () => {
+    renderDashboard();
+    pickScope('Block B');
+    expect(within(screen.getByRole('region', { name: 'Records' })).getByText('Weighted Pull-up')).toBeInTheDocument();
+    expect(recordsCalls.every((id) => id === undefined)).toBe(true);
+  });
+
+  // The nudge of the records list scrolls to the bodyweight card's title,
+  // which is on this page now.
+  it('leads the bodyweight nudge to the bodyweight card of the page', () => {
+    const scrolled = [];
+    Element.prototype.scrollIntoView = function scrollIntoView() {
+      scrolled.push(this);
+    };
+    try {
+      renderDashboard();
+      fireEvent.click(screen.getByRole('button', { name: /log your bodyweight/i }));
+      expect(scrolled).toEqual([screen.getByRole('heading', { level: 2, name: 'Bodyweight' })]);
+    } finally {
+      delete Element.prototype.scrollIntoView;
+    }
   });
 });
 
@@ -290,21 +569,12 @@ describe('StudentDashboard — the scope is known before anything is computed', 
   const heldBack = { data: undefined, isLoading: false };
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    localStorage.clear();
+    resetMocks();
     mockStats = { data: sampleData, isLoading: false };
-    lastScope = null;
-    mockProgramsQuery = null;
-    mockStudentIdQuery = null;
-    statsCalls = [];
-    historyCalls = [];
-    mockPrograms = [
-      { id: 'p-1', name: 'Block A', is_active: true, sort_order: 0 },
-      { id: 'p-2', name: 'Block B', is_active: false, sort_order: 1 },
-    ];
   });
 
   const enabledScopes = () => [...new Set(statsCalls.filter((c) => c.enabled).map((c) => c.scope))];
+  const sessionsDone = () => within(summaryRow('Sessions done')).getByText('5 of 12');
 
   it('computes the saved block from the first render, never "all" on the way', () => {
     localStorage.setItem(PREFS_KEY, JSON.stringify({ scope: 'p-2' }));
@@ -313,7 +583,7 @@ describe('StudentDashboard — the scope is known before anything is computed', 
     expect(statsCalls[0]).toEqual({ studentId: undefined, scope: 'p-2', enabled: true });
     expect(enabledScopes()).toEqual(['p-2']);
     expect(statsCalls.some((c) => c.scope === 'all')).toBe(false);
-    expect(screen.getByLabelText(/stats scope/i)).toHaveValue('p-2');
+    expect(pressedScope()).toEqual(['Block B']);
   });
 
   it('holds the stats back until the programs list says the saved block still exists', () => {
@@ -325,9 +595,9 @@ describe('StudentDashboard — the scope is known before anything is computed', 
     expect(statsCalls.length).toBeGreaterThan(0);
     expect(statsCalls.every((c) => c.enabled === false && c.scope === 'p-2')).toBe(true);
     // Held back is not "nothing to show": no empty state, no figures.
-    expect(screen.queryByText(/no program assigned yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no stats yet/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/summary/i)).not.toBeInTheDocument();
-    expect(screen.getByText('Stats')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Stats' })).toBeInTheDocument();
 
     mockProgramsQuery = null;
     mockStats = { data: sampleData, isLoading: false };
@@ -335,7 +605,7 @@ describe('StudentDashboard — the scope is known before anything is computed', 
 
     expect(statsCalls.at(-1)).toEqual({ studentId: undefined, scope: 'p-2', enabled: true });
     expect(enabledScopes()).toEqual(['p-2']);
-    expect(screen.getByText('5/12')).toBeInTheDocument();
+    expect(sessionsDone()).toBeInTheDocument();
   });
 
   it('holds a ?scope=<id> back the same way', () => {
@@ -349,7 +619,7 @@ describe('StudentDashboard — the scope is known before anything is computed', 
     mockProgramsQuery = { data: undefined };
     renderDashboard();
     expect(statsCalls[0]).toEqual({ studentId: undefined, scope: 'all', enabled: true });
-    expect(screen.getByText('5/12')).toBeInTheDocument();
+    expect(sessionsDone()).toBeInTheDocument();
   });
 
   it('does not wait for the programs list to compute the active block', () => {
@@ -369,7 +639,7 @@ describe('StudentDashboard — the scope is known before anything is computed', 
     mockStats = { data: sampleData, isLoading: false };
     view.again();
     expect(enabledScopes()).toEqual(['all']);
-    expect(screen.getByLabelText(/stats scope/i)).toHaveValue('all');
+    expect(pressedScope()).toEqual(['All']);
   });
 
   it('lets the URL win over the saved scope', () => {
@@ -383,16 +653,17 @@ describe('StudentDashboard — the scope is known before anything is computed', 
     renderDashboard();
     expect(lastScope).toBe('p-2');
 
-    fireEvent.change(screen.getByLabelText(/stats scope/i), { target: { value: 'all' } });
+    pickScope('All');
     expect(lastScope).toBe('all');
     expect(statsCalls.at(-1).enabled).toBe(true);
-    expect(screen.getByLabelText(/stats scope/i)).toHaveValue('all');
+    expect(pressedScope()).toEqual(['All']);
     expect(savedScope()).toBeUndefined();
+    expect(search()).toBe('');
   });
 
   it('saves the block the athlete picks', () => {
     renderDashboard();
-    fireEvent.change(screen.getByLabelText(/stats scope/i), { target: { value: 'p-2' } });
+    pickScope('Block B');
     expect(savedScope()).toBe('p-2');
     expect(statsCalls.at(-1)).toEqual({ studentId: undefined, scope: 'p-2', enabled: true });
   });
@@ -415,7 +686,7 @@ describe('StudentDashboard — the scope is known before anything is computed', 
     arrange();
     renderDashboard();
     expect(statsCalls.at(-1)).toEqual({ studentId: undefined, scope: 'all', enabled: true });
-    expect(screen.getByText('5/12')).toBeInTheDocument();
+    expect(sessionsDone()).toBeInTheDocument();
   });
 
   describe('history overlay', () => {
@@ -451,44 +722,52 @@ describe('StudentDashboard — the scope is known before anything is computed', 
 // included, with a spinner — 3 s of nothing on the gym's 4G.
 describe('StudentDashboard — changing the scope keeps the page', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    localStorage.clear();
-    lastScope = null;
-    mockProgramsQuery = null;
-    mockStudentIdQuery = null;
-    statsCalls = [];
-    historyCalls = [];
-    mockPrograms = [
-      { id: 'p-1', name: 'Block A', is_active: true, sort_order: 0 },
-      { id: 'p-2', name: 'Block B', is_active: false, sort_order: 1 },
-    ];
+    resetMocks();
+    mockRecords = { data: [RECORD], isLoading: false };
+    mockBodyweight = { data: [{ id: 'bw-1', weight_kg: 72.4, logged_on: '2026-07-08' }] };
   });
 
   // What the hook answers between two scopes: the figures of the scope that
   // was on screen, flagged as a stand-in.
   const standIn = { data: sampleData, isLoading: false, isPlaceholderData: true };
+  const sessionsDone = () => within(summaryRow('Sessions done')).getByText('5 of 12');
+  // Whether an element is inside a part of the page marked as on its way out.
+  const busyParts = (container) => [...container.querySelectorAll('[aria-busy="true"]')];
+  const isBusy = (container, element) => busyParts(container).some((part) => part.contains(element));
 
   it('keeps the header, the selector and the figures while the new scope loads', () => {
     mockStats = standIn;
     renderDashboard('/student/stats?scope=p-2');
 
-    // The page's own header ("Stats."), not the bare one of the loading state.
-    expect(screen.getByRole('heading', { level: 1, name: 'Stats.' })).toBeInTheDocument();
+    // The page's own header, not the bare one of the loading state.
+    const title = screen.getByRole('heading', { level: 1, name: 'Stats' });
+    expect(title).not.toHaveClass('sr-only');
+    expect(subtitle()).toHaveTextContent('Block B');
     // The selector already shows the choice that was just made.
-    expect(screen.getByLabelText(/stats scope/i)).toHaveValue('p-2');
-    expect(screen.getByText('5/12')).toBeInTheDocument();
+    expect(pressedScope()).toEqual(['Block B']);
+    expect(sessionsDone()).toBeInTheDocument();
   });
 
   it('marks the outgoing figures as busy, and only them', () => {
     mockStats = standIn;
     const { container } = renderDashboard('/student/stats?scope=p-2');
 
-    const busy = container.querySelectorAll('[aria-busy="true"]');
-    expect(busy).toHaveLength(1);
-    expect(busy[0]).toContainElement(screen.getByText('5/12'));
-    expect(busy[0]).toHaveClass('opacity-50');
+    const busy = busyParts(container);
+    expect(busy.length).toBeGreaterThan(0);
+    expect(isBusy(container, sessionsDone())).toBe(true);
+    expect(isBusy(container, screen.getByRole('region', { name: 'Volume per week' }))).toBe(true);
+    for (const part of busy) expect(part).toHaveClass('opacity-50');
     // The control that changes the scope is not dimmed with them.
-    expect(busy[0]).not.toContainElement(screen.getByLabelText(/stats scope/i));
+    expect(isBusy(container, scopeGroup())).toBe(false);
+  });
+
+  // They are all-time: nothing of them is on its way out. Dimmed, the button
+  // that logs a weight reads as disabled while it is not.
+  it('does not mark the records and the bodyweight as busy', () => {
+    mockStats = standIn;
+    const { container } = renderDashboard('/student/stats?scope=p-2');
+    expect(isBusy(container, screen.getByRole('region', { name: 'Records' }))).toBe(false);
+    expect(isBusy(container, screen.getByRole('region', { name: 'Bodyweight' }))).toBe(false);
   });
 
   it('marks nothing as busy once the figures are the scope\'s own', () => {
@@ -496,13 +775,13 @@ describe('StudentDashboard — changing the scope keeps the page', () => {
     const { container } = renderDashboard('/student/stats?scope=p-2');
     expect(container.querySelector('[aria-busy]')).toBeNull();
     expect(container.querySelector('.opacity-50')).toBeNull();
-    expect(screen.getByText('5/12')).toBeInTheDocument();
+    expect(sessionsDone()).toBeInTheDocument();
   });
 
   it('still opens on a spinner when there is nothing to keep', () => {
     mockStats = { data: undefined, isLoading: true, isPlaceholderData: false };
     const { container } = renderDashboard();
-    expect(screen.queryByLabelText(/stats scope/i)).not.toBeInTheDocument();
+    expect(queryScopeGroup()).not.toBeInTheDocument();
     expect(container.querySelector('[aria-busy]')).toBeNull();
   });
 });
@@ -527,14 +806,8 @@ describe('StudentDashboard — a saved block, and a new block made active since'
   const enabledScopes = () => [...new Set(statsCalls.filter((c) => c.enabled).map((c) => c.scope))];
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    localStorage.clear();
+    resetMocks();
     mockStats = { data: sampleData, isLoading: false };
-    lastScope = null;
-    mockProgramsQuery = null;
-    mockStudentIdQuery = null;
-    statsCalls = [];
-    historyCalls = [];
     mockPrograms = later;
   });
 
@@ -542,7 +815,7 @@ describe('StudentDashboard — a saved block, and a new block made active since'
     save({ scope: 'p-1', activeBlock: 'p-1' });
     renderDashboard();
     expect(enabledScopes()).toEqual(['all']);
-    expect(screen.getByLabelText(/stats scope/i)).toHaveValue('all');
+    expect(pressedScope()).toEqual(['All']);
     expect(saved()).toEqual({});
     expect(search()).toBe('');
   });
@@ -615,7 +888,7 @@ describe('StudentDashboard — a saved block, and a new block made active since'
   it('saves the active block with the one picked, and lets go of it when the next block is made active', () => {
     mockPrograms = before;
     const first = renderDashboard();
-    fireEvent.change(screen.getByLabelText(/stats scope/i), { target: { value: 'p-1' } });
+    pickScope('Block A');
     expect(saved()).toEqual({ scope: 'p-1', activeBlock: 'p-1' });
     first.unmount();
 
@@ -623,6 +896,6 @@ describe('StudentDashboard — a saved block, and a new block made active since'
     statsCalls = [];
     renderDashboard();
     expect(enabledScopes()).toEqual(['all']);
-    expect(screen.getByLabelText(/stats scope/i)).toHaveValue('all');
+    expect(pressedScope()).toEqual(['All']);
   });
 });

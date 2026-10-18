@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Athlètes sur grand écran, coach</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="parc-tokens.css">
+<link rel="stylesheet" href="ds/slcoachparc/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1E4FBF}a:hover{color:#163C93}
+button,input{font-family:inherit}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 760px; background: var(--ground); color: var(--ink); font-family: var(--font-sans)">
+
+  <nav aria-label="Navigation principale" style="flex: 1 1 240px; box-sizing: border-box; padding: 24px 16px; background: var(--surface); border-right: 1px solid var(--line-strong); display: flex; flex-direction: column; gap: 24px">
+    <p class="pk-condensed" style="margin: 0; padding: 0 12px; font-size: 30px; line-height: 1; font-weight: 800">SL Coach</p>
+    <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px">
+      <li>
+        <a href="#" aria-current="page" style="display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 12px; border-radius: var(--radius-control); background: var(--blue-soft); color: var(--blue); font-size: 16px; font-weight: 600; text-decoration: none">
+          <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+          Athlètes
+        </a>
+      </li>
+      <li>
+        <a href="#" style="display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 12px; border-radius: var(--radius-control); color: var(--ink-2); font-size: 16px; font-weight: 600; text-decoration: none">
+          <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>
+          <span style="flex: 1">Séances</span>
+          <span class="pk-count"><span aria-hidden="true">3</span><span class="sr-only">3 séances à revoir</span></span>
+        </a>
+      </li>
+      <li>
+        <a href="#" style="display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 12px; border-radius: var(--radius-control); color: var(--ink-2); font-size: 16px; font-weight: 600; text-decoration: none">
+          <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+          Messages
+        </a>
+      </li>
+      <li>
+        <a href="#" style="display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 12px; border-radius: var(--radius-control); color: var(--ink-2); font-size: 16px; font-weight: 600; text-decoration: none">
+          <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
+          Librairie
+        </a>
+      </li>
+    </ul>
+    <button type="button" aria-label="Menu du compte, Tony" style="margin-top: auto; display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 12px; border: 0; border-radius: var(--radius-control); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer">
+      <span aria-hidden="true" style="width: 40px; height: 40px; flex-shrink: 0; border-radius: 999px; background: var(--ink); color: var(--surface); display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700">T</span>
+      <span style="display: flex; flex-direction: column"><span style="font-size: 16px; font-weight: 600">Tony</span><span class="pk-small">Coach</span></span>
+    </button>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 32px">
+    <div style="max-width: var(--content-max); margin: 0 auto; display: flex; flex-direction: column; gap: 24px">
+
+      <div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px">
+        <div>
+          <h1 class="pk-large-title">Athlètes</h1>
+          <p class="pk-subhead" style="margin: 6px 0 0">9 athlètes, 3 séances à revoir</p>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+          <label style="position: relative; display: block; width: 320px; max-width: 100%">
+            <span class="sr-only">Rechercher un athlète</span>
+            <svg width="18" height="18" fill="none" stroke="var(--ink-2)" viewBox="0 0 24 24" aria-hidden="true" style="position: absolute; left: 14px; top: 13px"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 10.5a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z"></path></svg>
+            <input type="search" placeholder="Rechercher un athlète" class="pk-field" style="padding-left: 42px">
+          </label>
+          <a href="#" class="pk-btn pk-btn-primary">
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M12 5v14M5 12h14"></path></svg>
+            Inviter un athlète
+          </a>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px">
+
+        <section aria-labelledby="desk-follow" style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+          <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px">
+            <h2 id="desk-follow" class="pk-headline">À suivre</h2>
+            <span class="pk-subhead">4 athlètes</span>
+          </div>
+          <ul class="pk-group">
+            <li>
+              <a href="#" class="pk-row">
+                <span aria-hidden="true" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 999px; background: var(--blue-soft); color: var(--blue); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700">LM</span>
+                <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+                  <span class="pk-headline">Léa Martin</span>
+                  <span class="pk-caption">Séance 7 sur 24, Force tirage</span>
+                  <span class="pk-week" role="img" aria-label="Cette semaine : lundi et mercredi faits, séance prévue aujourd’hui" style="margin-top: 4px"><span class="is-done"></span><span></span><span class="is-done"></span><span class="is-today"></span><span></span><span></span><span></span></span>
+                </span>
+                <span style="font-size: 14px; font-weight: 700; color: var(--blue); white-space: nowrap">2 à revoir</span>
+              </a>
+            </li>
+            <li>
+              <a href="#" class="pk-row">
+                <span aria-hidden="true" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 999px; background: var(--blue-soft); color: var(--blue); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700">CR</span>
+                <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+                  <span class="pk-headline">Camille Roux</span>
+                  <span class="pk-caption">Séance 15 sur 18, Base poussée</span>
+                  <span class="pk-week" role="img" aria-label="Cette semaine : lundi et mardi faits, prochaine séance samedi" style="margin-top: 4px"><span class="is-done"></span><span class="is-done"></span><span></span><span></span><span></span><span class="is-next"></span><span></span></span>
+                </span>
+                <span style="font-size: 14px; font-weight: 700; color: var(--blue); white-space: nowrap">1 à revoir</span>
+              </a>
+            </li>
+            <li>
+              <a href="#" class="pk-row">
+                <span aria-hidden="true" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 999px; background: var(--blue-soft); color: var(--blue); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700">HB</span>
+                <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+                  <span class="pk-headline">Hugo Bernard</span>
+                  <span class="pk-caption">Séance 3 sur 18, Base poussée</span>
+                  <span class="pk-week" role="img" aria-label="Cette semaine : aucune séance faite, séance prévue aujourd’hui" style="margin-top: 4px"><span></span><span></span><span></span><span class="is-today"></span><span></span><span></span><span></span></span>
+                </span>
+                <span style="font-size: 14px; font-weight: 700; color: var(--amber); white-space: nowrap">Silencieux 9 j</span>
+              </a>
+            </li>
+            <li>
+              <a href="#" class="pk-row">
+                <span aria-hidden="true" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 999px; background: var(--blue-soft); color: var(--blue); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700">IP</span>
+                <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+                  <span class="pk-headline">Inès Petit</span>
+                  <span class="pk-caption">Invitation acceptée lundi</span>
+                </span>
+                <span style="font-size: 14px; font-weight: 700; color: var(--red); white-space: nowrap">Sans programme</span>
+              </a>
+            </li>
+          </ul>
+        </section>
+
+        <section aria-labelledby="desk-ok" style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+          <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px">
+            <h2 id="desk-ok" class="pk-headline">À jour</h2>
+            <span class="pk-subhead">5 athlètes</span>
+          </div>
+          <ul class="pk-group">
+            <li>
+              <a href="#" class="pk-row">
+                <span aria-hidden="true" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 999px; background: var(--blue-soft); color: var(--blue); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700">CG</span>
+                <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+                  <span class="pk-headline">Chloé Garnier</span>
+                  <span class="pk-caption">Séance 5 sur 12, Fondations</span>
+                  <span class="pk-week" role="img" aria-label="Cette semaine : lundi et mercredi faits, séance prévue aujourd’hui" style="margin-top: 4px"><span class="is-done"></span><span></span><span class="is-done"></span><span class="is-today"></span><span></span><span></span><span></span></span>
+                </span>
+                <span style="font-size: 14px; color: var(--ink-2); white-space: nowrap">Aujourd'hui</span>
+              </a>
+            </li>
+            <li>
+              <a href="#" class="pk-row">
+                <span aria-hidden="true" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 999px; background: var(--blue-soft); color: var(--blue); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700">YM</span>
+                <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+                  <span class="pk-headline">Yanis Moreau</span>
+                  <span class="pk-caption">Séance 12 sur 24, Force tirage</span>
+                  <span class="pk-week" role="img" aria-label="Cette semaine : lundi et mardi faits, prochaine séance vendredi" style="margin-top: 4px"><span class="is-done"></span><span class="is-done"></span><span></span><span></span><span class="is-next"></span><span></span><span></span></span>
+                </span>
+                <span style="font-size: 14px; color: var(--ink-2); white-space: nowrap">Vendredi</span>
+              </a>
+            </li>
+            <li>
+              <a href="#" class="pk-row">
+                <span aria-hidden="true" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 999px; background: var(--blue-soft); color: var(--blue); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700">SG</span>
+                <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+                  <span class="pk-headline">Sarah Girard</span>
+                  <span class="pk-caption">Séance 9 sur 18, Base poussée</span>
+                  <span class="pk-week" role="img" aria-label="Cette semaine : lundi fait, prochaine séance vendredi" style="margin-top: 4px"><span class="is-done"></span><span></span><span></span><span></span><span class="is-next"></span><span></span><span></span></span>
+                </span>
+                <span style="font-size: 14px; color: var(--ink-2); white-space: nowrap">Vendredi</span>
+              </a>
+            </li>
+            <li>
+              <a href="#" class="pk-row">
+                <span aria-hidden="true" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 999px; background: var(--blue-soft); color: var(--blue); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700">ML</span>
+                <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+                  <span class="pk-headline">Mathis Lefèvre</span>
+                  <span class="pk-caption">Séance 20 sur 24, Force tirage</span>
+                  <span class="pk-week" role="img" aria-label="Cette semaine : mardi et mercredi faits, prochaine séance samedi" style="margin-top: 4px"><span></span><span class="is-done"></span><span class="is-done"></span><span></span><span></span><span class="is-next"></span><span></span></span>
+                </span>
+                <span style="font-size: 14px; color: var(--ink-2); white-space: nowrap">Samedi</span>
+              </a>
+            </li>
+            <li>
+              <a href="#" class="pk-row">
+                <span aria-hidden="true" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 999px; background: var(--blue-soft); color: var(--blue); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700">ND</span>
+                <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+                  <span class="pk-headline">Nathan Dubois</span>
+                  <span class="pk-caption">Séance 2 sur 12, Fondations</span>
+                  <span class="pk-week" role="img" aria-label="Cette semaine : mercredi fait, prochaine séance lundi prochain" style="margin-top: 4px"><span></span><span></span><span class="is-done"></span><span></span><span></span><span></span><span></span></span>
+                </span>
+                <span style="font-size: 14px; color: var(--ink-2); white-space: nowrap">Lundi</span>
+              </a>
+            </li>
+          </ul>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":760}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

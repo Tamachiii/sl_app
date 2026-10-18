@@ -13,21 +13,8 @@ export default {
       setLogged: 'Satz {n} ist eingetragen',
       removeBlocked: 'Diese Übung enthält eingetragene Sätze und kann nicht entfernt werden',
     },
-    sheet: {
-      openReview: 'Auswertung öffnen',
-      inProgress: 'Vom Athleten begonnen, noch nicht bestätigt',
-    },
-    review: {
-      openEditor: 'Editor',
-      openEditorAria: 'Diese Einheit im Editor öffnen',
-    },
-    roster: {
-      reviewChipAria: '{n} zu prüfen — Einheiten von {name}',
-    },
     athlete: {
       actionsLabel: 'Zu den Nachrichten oder Einheiten von {name}',
-      message: 'Nachricht',
-      sessions: 'Einheiten',
     },
   },
 };

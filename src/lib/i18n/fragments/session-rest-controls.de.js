@@ -3,11 +3,8 @@
 export default {
   sessionRestControls: {
     restStarted: 'Pause {time}',
-    timerGroup: 'Pausentimer',
-    addThirty: '+30 s',
-    addThirtyAria: '30 Sekunden Pause hinzufügen',
-    skip: 'Pause überspringen',
-    addNoteOn: 'Notiz für den Coach hinzufügen: {name}',
-    editNoteOn: 'Notiz für den Coach bearbeiten: {name}',
+    // The tab's title while the app is in the background.
+    tabTitle: 'Pause {time} – {title}',
+    tabTitleDone: 'Pause vorbei – {title}',
   },
 };

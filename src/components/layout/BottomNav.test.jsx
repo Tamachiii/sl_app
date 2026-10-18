@@ -10,9 +10,10 @@ vi.mock('../../hooks/useAuth', () => ({
 }));
 
 // The Messages tab now reads an unread-count via React Query. Stub the hook
-// so we don't need a fake supabase chain; tests below just care about layout.
+// so we don't need a fake supabase chain; most tests below leave it at 0.
+let mockUnread = 0;
 vi.mock('../../hooks/useMessages', () => ({
-  useUnreadMessageCount: () => ({ data: 0 }),
+  useUnreadMessageCount: () => ({ data: mockUnread }),
 }));
 
 // The Sessions tab's badge reads the number of sessions to review. Stubbed at
@@ -52,6 +53,7 @@ describe('BottomNav', () => {
     vi.clearAllMocks();
     mockRole = 'coach';
     mockToReview = undefined;
+    mockUnread = 0;
   });
 
   it('renders all 4 coach nav tabs (incl. Messages)', () => {
@@ -85,29 +87,81 @@ describe('BottomNav', () => {
     expect(screen.queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument();
   });
 
+  // The open tab is the one the page says it is (`aria-current="page"`), which
+  // is also what draws it in blue: one fact for the eye and for a screen
+  // reader. Exactly one tab is open on a page of the nav.
+  const openTabs = () =>
+    within(screen.getByRole('navigation', { name: 'Main navigation' }))
+      .getAllByRole('link')
+      .filter((link) => link.getAttribute('aria-current') === 'page')
+      .map((link) => link.textContent);
+
+  it.each(['/coach/students', '/coach/students/s-1', '/coach/students/s-1/s/sess-1'])(
+    'Athletes tab is active on %s',
+    (route) => {
+      renderBottomNav(route);
+      expect(screen.getByRole('link', { name: /athletes/i })).toHaveAttribute('aria-current', 'page');
+      expect(openTabs()).toEqual(['Athletes']);
+    },
+  );
+
   it('Athletes tab is active on legacy singular-prefix authoring routes (now redirects)', () => {
     renderBottomNav('/coach/student/s-1/week/w-1');
     const athletesLink = screen.getByRole('link', { name: /athletes/i });
-    expect(athletesLink).toHaveClass('text-[var(--color-accent)]');
+    expect(athletesLink).toHaveAttribute('aria-current', 'page');
+    expect(openTabs()).toEqual(['Athletes']);
   });
 
   it('Sessions tab is active on the review deep route', () => {
     renderBottomNav('/coach/student/s-1/session/sess-1/review');
     const sessionsLink = screen.getByRole('link', { name: /sessions/i });
-    expect(sessionsLink).toHaveClass('text-[var(--color-accent)]');
+    expect(sessionsLink).toHaveAttribute('aria-current', 'page');
   });
 
   it('Athletes tab is NOT active on the review deep route', () => {
     renderBottomNav('/coach/student/s-1/session/sess-1/review');
     const athletesLink = screen.getByRole('link', { name: /athletes/i });
-    expect(athletesLink).not.toHaveClass('text-[var(--color-accent)]');
+    expect(athletesLink).not.toHaveAttribute('aria-current');
+    expect(openTabs()).toEqual(['Sessions']);
+  });
+
+  it.each([
+    ['/coach/exercises', 'Library'],
+    ['/coach/messages/p-1', 'Messages'],
+  ])('a tab without a rule of its own follows the router: on %s, %s', (route, open) => {
+    renderBottomNav(route);
+    expect(openTabs()).toEqual([open]);
+  });
+
+  it('Training tab is active on the training list', () => {
+    mockRole = 'student';
+    renderBottomNav('/student');
+    expect(screen.getByRole('link', { name: /training/i })).toHaveAttribute('aria-current', 'page');
+    expect(openTabs()).toEqual(['Training']);
   });
 
   it('Training tab is not active when student is on a sub-route like /student/session/1', () => {
     mockRole = 'student';
     renderBottomNav('/student/session/1');
     const trainingLink = screen.getByRole('link', { name: /training/i });
-    expect(trainingLink).not.toHaveClass('text-primary');
+    expect(trainingLink).not.toHaveAttribute('aria-current');
+    expect(openTabs()).toEqual([]);
+  });
+
+  it('marks the open tab in the side nav the same way', () => {
+    renderBottomNav('/coach/student/s-1/session/sess-1/review', SideNav);
+    expect(openTabs()).toEqual(['Sessions']);
+  });
+
+  // Under 1024px the tab bar, from 1024px the side nav: one of the two on any
+  // screen, named the same. (Read off their classes: jsdom has no layout.)
+  it('is the tab bar under 1024px, and the side nav from 1024px', () => {
+    renderBottomNav('/coach/students');
+    renderBottomNav('/coach/students', SideNav);
+    const [tabBar, sideNav] = screen.getAllByRole('navigation', { name: 'Main navigation' });
+    expect(tabBar).toHaveClass('lg:hidden');
+    expect(tabBar).not.toHaveClass('hidden');
+    expect(sideNav).toHaveClass('hidden', 'lg:flex');
   });
 
   // Review item L13: tapping the tab that is open did nothing on an athlete
@@ -264,6 +318,39 @@ describe('BottomNav', () => {
       renderBottomNav('/student', SideNav);
       expect(toReviewCalls).not.toHaveBeenCalled();
       expect(screen.queryByText('3')).toBeNull();
+    });
+  });
+
+  // The Messages tab of both roles counts the unread messages the way the
+  // Sessions tab counts its reviews: digits for the eye, words for the ear.
+  describe('the number of unread messages', () => {
+    const messagesTab = () => screen.getByRole('link', { name: /^messages/i });
+    const named = (words) => new RegExp(`^Messages ?${words}$`);
+
+    it('draws nothing when there is none', () => {
+      renderBottomNav();
+      expect(messagesTab()).toHaveAccessibleName('Messages');
+    });
+
+    it.each(['coach', 'student'])('draws the number on the %s’s tab, and says it in words', (role) => {
+      mockRole = role;
+      mockUnread = 4;
+      renderBottomNav(role === 'coach' ? '/coach/students' : '/student');
+      expect(within(messagesTab()).getByText('4')).toHaveAttribute('aria-hidden', 'true');
+      expect(messagesTab()).toHaveAccessibleName(named('4 unread'));
+    });
+
+    it('caps the number it draws, not the one it says', () => {
+      mockUnread = 120;
+      renderBottomNav();
+      expect(within(messagesTab()).getByText('99+')).toBeInTheDocument();
+      expect(messagesTab()).toHaveAccessibleName(named('120 unread'));
+    });
+
+    it('is in the side nav too', () => {
+      mockUnread = 2;
+      renderBottomNav('/coach/students', SideNav);
+      expect(messagesTab()).toHaveAccessibleName(named('2 unread'));
     });
   });
 });

@@ -1,0 +1,25 @@
+// The athlete's program draft in the Parc design (no mock).
+export default {
+  parcAuthor: {
+    title: 'Ein Programm schreiben',
+    offline: 'Du bist offline. Deine Änderungen werden gesendet, sobald die Verbindung zurück ist.',
+    intro: 'Entwirf ein Programm für deinen Coach. Er gibt es frei oder schickt es zurück, bevor es zählt.',
+    name: 'Name des Programms',
+    namePlaceholder: 'Mein Block außerhalb der Saison',
+    create: 'Entwurf erstellen',
+    creating: 'Wird erstellt…',
+    notFound: 'Entwurf nicht gefunden.',
+    submitted: 'Eingereicht, wartet auf deinen Coach',
+    submittedBody: 'Dein Coach wurde benachrichtigt. Du bekommst eine Benachrichtigung, wenn er es freigibt oder zurückschickt.',
+    phase: 'Phase {n}',
+    removePhase: 'Phase {n} entfernen',
+    remove: '{name} entfernen',
+    exerciseFallback: 'Übung',
+    submit: 'Zur Freigabe einreichen',
+    submitEmpty: 'Füge vor dem Einreichen mindestens eine Übung hinzu.',
+    discard: 'Entwurf verwerfen',
+    discardTitle: 'Diesen Entwurf verwerfen?',
+    pickerHint: 'Aus der Bibliothek deines Coaches.',
+    noExercise: 'Keine Übung gefunden.',
+  },
+};

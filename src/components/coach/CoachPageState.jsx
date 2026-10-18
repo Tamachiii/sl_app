@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
+import { Button } from '../parc';
 
 // What a coach page shows in place of its content when it has none to show.
 // Two different statements, never one for the other:
@@ -14,7 +15,7 @@ import { useI18n } from '../../hooks/useI18n';
 // `compact` is for one section of a page rather than the page.
 
 const boxClass = (compact) =>
-  `flex flex-col items-center text-center gap-3 ${compact ? 'py-6' : 'py-12'}`;
+  `flex flex-col items-center text-center gap-4 ${compact ? 'py-6' : 'py-12'}`;
 
 /**
  * `state` is what lib/readState.js said: 'offline' or 'failed'. `onRetry`
@@ -25,22 +26,17 @@ export function CoachReadProblem({ state, onRetry, retrying = false, compact = f
   const offline = state === 'offline';
   return (
     <div role="status" className={boxClass(compact)}>
-      <div>
-        <p className="text-[14px] text-gray-900">
+      <div className="flex flex-col gap-1">
+        <p className="pk-headline">
           {t(offline ? 'coachEditorNavErrors.read.offlineTitle' : 'coachEditorNavErrors.read.errorTitle')}
         </p>
-        <p className="text-[13px] text-ink-400 mt-1">
+        <p className="pk-subhead">
           {t(offline ? 'coachEditorNavErrors.read.offlineBody' : 'coachEditorNavErrors.read.errorBody')}
         </p>
       </div>
-      <button
-        type="button"
-        onClick={onRetry}
-        disabled={retrying}
-        className="sl-pill sl-pill-btn bg-ink-100 text-ink-700 hover:bg-ink-200 disabled:opacity-50"
-      >
+      <Button variant="on-ground" onClick={onRetry} disabled={retrying}>
         {t('coachEditorNavErrors.read.retry')}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -54,27 +50,18 @@ export function CoachReadProblem({ state, onRetry, retrying = false, compact = f
 export function CoachNotFound({ title, body, to, replace = false, linkLabel, onLeave, compact = false }) {
   return (
     <div role="status" className={boxClass(compact)}>
-      <div>
-        <p className="sl-display text-[18px] text-gray-900">{title}</p>
-        {body && <p className="text-[13px] text-ink-400 mt-1">{body}</p>}
+      <div className="flex flex-col gap-1">
+        <p className="pk-title">{title}</p>
+        {body && <p className="pk-subhead">{body}</p>}
       </div>
       {to ? (
-        <Link
-          to={to}
-          replace={replace}
-          onClick={onLeave}
-          className="sl-pill sl-pill-btn bg-ink-100 text-ink-700 hover:bg-ink-200"
-        >
+        <Button as={Link} to={to} replace={replace} onClick={onLeave} variant="on-ground">
           {linkLabel}
-        </Link>
+        </Button>
       ) : (
-        <button
-          type="button"
-          onClick={onLeave}
-          className="sl-pill sl-pill-btn bg-ink-100 text-ink-700 hover:bg-ink-200"
-        >
+        <Button variant="on-ground" onClick={onLeave}>
           {linkLabel}
-        </button>
+        </Button>
       )}
     </div>
   );

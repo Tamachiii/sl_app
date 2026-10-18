@@ -210,8 +210,7 @@ describe('day names', () => {
     expect(dayNames('de', 'long')).toEqual(['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']);
   });
 
-  it('gives the English tables of lib/day.js for English', () => {
-    // DAY_LABELS, DAY_FULL and DAY_FULL_LONG, which these replace.
+  it('gives the English day names for English', () => {
     expect(dayNames('en', 'narrow')).toEqual(['M', 'T', 'W', 'T', 'F', 'S', 'S']);
     expect(dayNames('en', 'short')).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
   });
@@ -282,11 +281,11 @@ describe('plurals', () => {
   });
 
   it('picks the …One or …Many key of a pair', () => {
-    expect(pluralKey('en', 1, 'student.training.sessions')).toBe('student.training.sessionsOne');
-    expect(pluralKey('en', 0, 'student.training.sessions')).toBe('student.training.sessionsMany');
-    expect(pluralKey('fr', 0, 'student.training.sessions')).toBe('student.training.sessionsOne');
-    expect(pluralKey('de', 0, 'student.training.sessions')).toBe('student.training.sessionsMany');
-    expect(pluralKey('fr', 2, 'student.training.sessions')).toBe('student.training.sessionsMany');
+    expect(pluralKey('en', 1, 'parcProgram.sessionsCount')).toBe('parcProgram.sessionsCountOne');
+    expect(pluralKey('en', 0, 'parcProgram.sessionsCount')).toBe('parcProgram.sessionsCountMany');
+    expect(pluralKey('fr', 0, 'parcProgram.sessionsCount')).toBe('parcProgram.sessionsCountOne');
+    expect(pluralKey('de', 0, 'parcProgram.sessionsCount')).toBe('parcProgram.sessionsCountMany');
+    expect(pluralKey('fr', 2, 'parcProgram.sessionsCount')).toBe('parcProgram.sessionsCountMany');
   });
 
   it('takes the plural form for the French millions, which are "many"', () => {
@@ -296,7 +295,7 @@ describe('plurals', () => {
   });
 
   it('takes a pair that is not named …One / …Many', () => {
-    const pair = { one: 'offline.bannerOfflineWithPending', other: 'offline.bannerOfflineWithPendingMany' };
+    const pair = { one: 'ns.oneChangeWaiting', other: 'ns.changesWaiting' };
     expect(pluralKey('en', 1, pair)).toBe(pair.one);
     expect(pluralKey('en', 3, pair)).toBe(pair.other);
     expect(pluralKey('fr', 0, pair)).toBe(pair.one);
@@ -306,11 +305,12 @@ describe('plurals', () => {
   });
 
   it('gives sentences that are right in the three languages, on the real dictionaries', () => {
-    const sessions = (lang, n) => getMessage(lang, pluralKey(lang, n, 'student.training.sessions'), { n });
+    const sessions = (lang, n) => getMessage(lang, pluralKey(lang, n, 'parcProgram.sessionsCount'), { n });
     expect([0, 1, 2].map((n) => sessions('en', n))).toEqual(['0 sessions', '1 session', '2 sessions']);
     expect([0, 1, 2].map((n) => sessions('fr', n))).toEqual(['0 séance', '1 séance', '2 séances']);
     expect([0, 1, 2].map((n) => sessions('de', n))).toEqual(['0 Einheiten', '1 Einheit', '2 Einheiten']);
-    const weeks = (lang, n) => getMessage(lang, pluralKey(lang, n, 'coach.home.weeks'), { n });
-    expect([weeks('fr', 0), weeks('en', 0), weeks('de', 1)]).toEqual(['0 semaine', '0 weeks', '1 Woche']);
+    // A pair of a fragment, which getMessage reads like the dictionary.
+    const attempts = (lang, n) => getMessage(lang, pluralKey(lang, n, 'parcGoals.attempts'), { n });
+    expect([attempts('fr', 0), attempts('en', 0), attempts('de', 1)]).toEqual(['0 tentative', '0 attempts', '1 Versuch']);
   });
 });

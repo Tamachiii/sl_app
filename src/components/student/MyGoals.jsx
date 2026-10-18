@@ -1,7 +1,5 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import Spinner from '../ui/Spinner';
-import EmptyState from '../ui/EmptyState';
-import ConfirmDialog from '../ui/ConfirmDialog';
 import { useI18n } from '../../hooks/useI18n';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useBackOr } from '../../hooks/useBackOr';
@@ -10,11 +8,20 @@ import {
   useAddGoalProgress,
   useDeleteGoalProgress,
   useToggleGoalAchieved,
-  formatGoalTarget,
 } from '../../hooks/useGoals';
+import { decimalText, parseDecimalInput } from '../../lib/number';
+import { formatDate, formatNumber, pluralKey } from '../../lib/i18n/format';
+import { Button, ConfirmSheet, Icon, IconButton, LargeTitle, NumberField } from '../parc';
+import { goalTargetText } from './goalText';
+
+// What an attempt may hold: what `goal_progress` stores — a load of
+// numeric(6,2) and whole numbers of sets and reps.
+const WEIGHT_RULES = { min: 0, max: 9999.99, allowEmpty: false };
+const COUNT_RULES = { min: 0, max: 999, integer: true };
 
 function GoalCard({ goal }) {
-  const { t } = useI18n();
+  const ctx = useI18n();
+  const { t, lang } = ctx;
   // Goal writes are not offline-queued (a client-minted progress INSERT has no
   // offline id story), so they are gated rather than left to pause silently —
   // same treatment as the bodyweight card and the video upload button.
@@ -22,214 +29,198 @@ function GoalCard({ goal }) {
   const addProgress = useAddGoalProgress();
   const deleteProgress = useDeleteGoalProgress();
   const toggleAchieved = useToggleGoalAchieved();
+  const notesId = useId();
   const [open, setOpen] = useState(false);
   const [weight, setWeight] = useState('');
-  const [sets, setSets] = useState(goal.kind === 'format' ? String(goal.target_sets ?? '') : '');
-  const [reps, setReps] = useState(String(goal.target_reps ?? ''));
+  const [sets, setSets] = useState(goal.kind === 'format' ? decimalText(goal.target_sets) : '');
+  const [reps, setReps] = useState(decimalText(goal.target_reps));
   const [notes, setNotes] = useState('');
-  // ID of the attempt the user is asking to delete; null = dialog closed.
-  // We can't just hold the row itself because its `goal_progress` reference
-  // becomes stale after the cache invalidates following the delete.
+  const [refused, setRefused] = useState(null);
+  const [showAll, setShowAll] = useState(false);
+  // ID of the attempt the athlete is asking to delete; null = sheet closed.
+  // Not the row itself: its `goal_progress` reference goes stale once the
+  // cache is refreshed after the delete.
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
 
   const entries = [...(goal.goal_progress || [])].sort(
-    (a, b) => new Date(b.recorded_at) - new Date(a.recorded_at)
+    (a, b) => new Date(b.recorded_at) - new Date(a.recorded_at),
   );
   const best = entries.reduce(
-    (acc, e) => (e.weight_kg > (acc?.weight_kg ?? -Infinity) ? e : acc),
-    null
+    (acc, e) => (Number(e.weight_kg) > Number(acc?.weight_kg ?? -Infinity) ? e : acc),
+    null,
   );
+  const kg = (value) => t('parcGoals.kg', { kg: formatNumber(lang, Number(value)) });
+  const day = (iso) => formatDate(lang, iso, { day: 'numeric', month: 'long' });
 
   function handleLog(e) {
     e.preventDefault();
-    if (!weight) return;
+    const w = parseDecimalInput(weight, WEIGHT_RULES);
+    const s = parseDecimalInput(sets, COUNT_RULES);
+    const r = parseDecimalInput(reps, COUNT_RULES);
+    if (!w.ok) return setRefused('weight');
+    if (!s.ok) return setRefused('sets');
+    if (!r.ok) return setRefused('reps');
     addProgress.mutate(
-      {
-        goalId: goal.id,
-        weight_kg: Number(weight),
-        sets: sets ? Number(sets) : null,
-        reps: reps ? Number(reps) : null,
-        notes: notes || null,
-      },
+      // 0 sets or reps is no count: written as none, as it always was.
+      { goalId: goal.id, weight_kg: w.value, sets: s.value || null, reps: r.value || null, notes: notes || null },
       {
         onSuccess: () => {
           setWeight('');
           setNotes('');
           setOpen(false);
         },
-      }
+      },
     );
   }
 
+  const shown = showAll ? entries : entries.slice(0, 8);
+
   return (
-    <div className="sl-card p-4 space-y-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="sl-display text-[18px] text-gray-900">{goal.exercise?.name}</span>
+    <section aria-label={goal.exercise?.name} className="flex flex-col gap-3 rounded-group bg-surface p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h2 className="pk-headline">{goal.exercise?.name}</h2>
+          <p className="pk-caption m-0">
+            {t('parcGoals.target', { what: goalTargetText(goal, ctx) })}
             {goal.achieved && (
-              <span
-                className="sl-pill inline-flex items-center gap-1"
-                style={{ background: 'var(--color-success)', color: 'var(--color-ink-900)' }}
-              >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                </svg>
-                achieved
-              </span>
+              <>
+                {', '}
+                <span className="font-semibold text-blue">{t('parcGoals.achieved')}</span>
+              </>
             )}
-          </div>
-          <p className="sl-mono text-[11px] text-ink-400 mt-1">TARGET · {formatGoalTarget(goal)}</p>
-          {goal.notes && (
-            <p className="text-[13px] text-gray-700 whitespace-pre-wrap mt-1.5 leading-snug">{goal.notes}</p>
-          )}
+          </p>
+          {goal.notes && <p className="pk-body m-0 mt-1.5 whitespace-pre-wrap">{goal.notes}</p>}
         </div>
-        <button
-          onClick={() =>
-            toggleAchieved.mutate({ id: goal.id, achieved: !goal.achieved })
-          }
-          disabled={!isOnline}
-          title={!isOnline ? t('common.offlineAction') : undefined}
-          className={`sl-pill shrink-0 disabled:opacity-50 ${
-            goal.achieved
-              ? 'bg-ink-100 text-ink-500 hover:bg-ink-200'
-              : ''
-          }`}
-          style={
-            goal.achieved
-              ? undefined
-              : { background: 'var(--color-accent)', color: 'var(--color-ink-900)' }
-          }
-        >
-          {goal.achieved ? 'undo' : 'mark achieved'}
-        </button>
       </div>
 
-      {entries.length > 0 && (
-        <div className="border-t border-ink-100 pt-3">
-          <p className="sl-label text-ink-400 mb-1">Best so far</p>
-          <p className="sl-display text-[20px] text-gray-900 tabular-nums">
-            {best.weight_kg}kg
+      {best && (
+        <div className="border-t border-line pt-3">
+          <p className="pk-small m-0">{t('parcGoals.best')}</p>
+          <p className="m-0 flex items-baseline gap-2">
+            <span className="pk-condensed pk-tnum text-[32px] font-extrabold leading-none">{kg(best.weight_kg)}</span>
             {best.sets && best.reps ? (
-              <span className="sl-mono text-[12px] text-ink-400 ml-2">
-                {best.sets} × {best.reps}
+              <span className="pk-caption">
+                {formatNumber(lang, best.sets)} × {formatNumber(lang, best.reps)}
               </span>
             ) : null}
           </p>
-          <details className="mt-2">
-            <summary className="sl-mono text-[11px] text-ink-400 cursor-pointer hover:text-gray-700">
-              {entries.length} attempt{entries.length === 1 ? '' : 's'}
-            </summary>
-            <ul className="mt-2 space-y-1">
-              {entries.slice(0, 8).map((e) => (
-                <li key={e.id} className="sl-mono text-[11px] text-gray-700 flex items-center justify-between gap-2">
-                  <span className="truncate">
-                    {e.weight_kg}kg
-                    {e.sets && e.reps ? ` — ${e.sets} × ${e.reps}` : ''}
-                    {e.notes ? ` · ${e.notes}` : ''}
+        </div>
+      )}
+
+      {entries.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <p className="pk-small m-0">
+            {t(pluralKey(lang, entries.length, 'parcGoals.attempts'), { n: formatNumber(lang, entries.length) })}
+          </p>
+          <ul className="pk-group bg-fill">
+            {shown.map((e) => (
+              <li key={e.id} className="pk-row">
+                <span className="min-w-0 flex-1">
+                  <span className="pk-body block font-semibold">
+                    {kg(e.weight_kg)}
+                    {e.sets && e.reps ? `, ${formatNumber(lang, e.sets)} × ${formatNumber(lang, e.reps)}` : ''}
                   </span>
-                  <span className="flex items-center gap-2 shrink-0">
-                    <span className="text-ink-400 tabular-nums">
-                      {new Date(e.recorded_at).toLocaleDateString()}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setPendingDeleteId(e.id)}
-                      disabled={!isOnline}
-                      title={!isOnline ? t('common.offlineAction') : undefined}
-                      aria-label={t('student.goals.deleteAttemptAria', {
-                        when: new Date(e.recorded_at).toLocaleDateString(),
-                      })}
-                      className="w-6 h-6 rounded-full flex items-center justify-center text-ink-400 hover:bg-ink-100 hover:text-[var(--color-danger,#c00)] active:scale-95 transition-all"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.25" viewBox="0 0 24 24" aria-hidden="true">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" />
-                      </svg>
-                    </button>
+                  <span className="pk-caption block">
+                    {day(e.recorded_at)}
+                    {e.notes ? `, ${e.notes}` : ''}
                   </span>
-                </li>
-              ))}
-            </ul>
-          </details>
+                </span>
+                <IconButton
+                  icon="close"
+                  tone="none"
+                  size={18}
+                  onClick={() => setPendingDeleteId(e.id)}
+                  disabled={!isOnline}
+                  title={!isOnline ? t('common.offlineAction') : undefined}
+                  label={t('student.goals.deleteAttemptAria', { when: day(e.recorded_at) })}
+                />
+              </li>
+            ))}
+          </ul>
+          {!showAll && entries.length > shown.length && (
+            <Button variant="text" className="self-start" onClick={() => setShowAll(true)}>
+              {t('parcGoals.showAllAttempts', { n: formatNumber(lang, entries.length) })}
+            </Button>
+          )}
         </div>
       )}
 
       {open ? (
-        <form onSubmit={handleLog} className="border-t border-ink-100 pt-3 space-y-2">
-          <div className="flex gap-2">
-            <label className="flex-1">
-              <span className="sl-label text-ink-400 block mb-1">Weight (kg)</span>
-              <input
-                type="number"
-                min={0}
-                step={0.5}
-                value={weight}
-                onChange={(e) => setWeight(e.target.value)}
-                required
-                className="w-full rounded-lg border border-ink-200 bg-white px-2 py-1.5 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-              />
-            </label>
-            <label className="flex-1">
-              <span className="sl-label text-ink-400 block mb-1">Sets</span>
-              <input
-                type="number"
-                min={0}
-                value={sets}
-                onChange={(e) => setSets(e.target.value)}
-                className="w-full rounded-lg border border-ink-200 bg-white px-2 py-1.5 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-              />
-            </label>
-            <label className="flex-1">
-              <span className="sl-label text-ink-400 block mb-1">Reps</span>
-              <input
-                type="number"
-                min={0}
-                value={reps}
-                onChange={(e) => setReps(e.target.value)}
-                className="w-full rounded-lg border border-ink-200 bg-white px-2 py-1.5 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-              />
-            </label>
+        <form onSubmit={handleLog} noValidate className="flex flex-col gap-3 border-t border-line pt-3">
+          <div className="grid grid-cols-3 gap-2">
+            <NumberField
+              {...WEIGHT_RULES}
+              label={t('parcGoals.weight')}
+              value={weight}
+              onChange={(e) => {
+                setWeight(e.target.value);
+                setRefused(null);
+              }}
+              error={refused === 'weight' ? t('coachDecimalInputs.goalWeightRange') : undefined}
+            />
+            <NumberField
+              {...COUNT_RULES}
+              label={t('parcGoals.sets')}
+              value={sets}
+              onChange={(e) => {
+                setSets(e.target.value);
+                setRefused(null);
+              }}
+              error={refused === 'sets' ? t('uiSharedHelpers.integerInvalid') : undefined}
+            />
+            <NumberField
+              {...COUNT_RULES}
+              label={t('parcGoals.reps')}
+              value={reps}
+              onChange={(e) => {
+                setReps(e.target.value);
+                setRefused(null);
+              }}
+              error={refused === 'reps' ? t('uiSharedHelpers.integerInvalid') : undefined}
+            />
           </div>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Notes (optional)"
-            rows={2}
-            className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-          />
-          <div className="flex gap-2">
-            <button
+          <label htmlFor={notesId} className="flex flex-col gap-1.5">
+            <span className="pk-caption">{t('parcGoals.notes')}</span>
+            <textarea
+              id={notesId}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              className="pk-field resize-none py-2.5 leading-[1.45]"
+            />
+          </label>
+          <div className="flex flex-col gap-1">
+            <Button
               type="submit"
+              variant="primary"
+              size="lg"
               disabled={addProgress.isPending || !isOnline}
               title={!isOnline ? t('common.offlineAction') : undefined}
-              className="flex-1 sl-btn-primary text-[13px] disabled:opacity-50"
-              style={{ padding: '10px 16px' }}
             >
-              {addProgress.isPending ? 'Logging…' : 'Log attempt'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="flex-1 bg-ink-100 text-ink-700 rounded-lg py-2 sl-display text-[13px] hover:bg-ink-200"
-            >
-              Cancel
-            </button>
+              {addProgress.isPending ? t('parcGoals.logging') : t('parcGoals.logAttempt')}
+            </Button>
+            <Button variant="text" onClick={() => setOpen(false)}>
+              {t('common.cancel')}
+            </Button>
           </div>
         </form>
       ) : (
-        <button
-          onClick={() => setOpen(true)}
-          className="w-full sl-mono text-[11px] rounded-lg py-2 hover:bg-ink-50 transition-colors"
-          style={{
-            border: '1px solid color-mix(in srgb, var(--color-accent) 40%, transparent)',
-            color: 'var(--color-accent)',
-          }}
-        >
-          + LOG ATTEMPT
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="primary" onClick={() => setOpen(true)}>
+            <Icon name="plus" size={18} />
+            {t('parcGoals.logAttempt')}
+          </Button>
+          <Button
+            onClick={() => toggleAchieved.mutate({ id: goal.id, achieved: !goal.achieved })}
+            disabled={!isOnline}
+            title={!isOnline ? t('common.offlineAction') : undefined}
+          >
+            {goal.achieved ? t('parcGoals.undoAchieved') : t('parcGoals.markAchieved')}
+          </Button>
+        </div>
       )}
 
-      <ConfirmDialog
+      <ConfirmSheet
         open={!!pendingDeleteId}
         onClose={() => setPendingDeleteId(null)}
         onConfirm={() => {
@@ -239,7 +230,7 @@ function GoalCard({ goal }) {
         message={t('student.goals.deleteAttemptMessage')}
         confirmText={t('student.goals.deleteConfirm')}
       />
-    </div>
+    </section>
   );
 }
 
@@ -249,47 +240,25 @@ export default function MyGoals() {
   // athlete's home instead of leaving the app (L31).
   const goBack = useBackOr('/student');
   const { data: goals, isLoading } = useMyGoals();
-
-  if (isLoading) {
-    return (
-      <div className="p-4">
-        <h1 className="sr-only">My Goals</h1>
-        <div className="flex justify-center py-12"><Spinner /></div>
-      </div>
-    );
-  }
+  const back = { label: t('common.back'), onClick: goBack };
 
   return (
-    <div className="p-4 pb-6 md:p-8 space-y-4">
-      {/* Goals is no longer a bottom-nav tab — it's reached from the Profile
-          page. So the right-hand slot mirrors Profile's: a back button in
-          the avatar's spot rather than UserMenu, since avatar→profile from
-          here would land on the page the user just came from. */}
-      <div className="pt-3 pb-1 flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="sl-label text-ink-400">Milestones</div>
-          <h1 className="sl-display text-[32px] md:text-[44px] text-gray-900 leading-none mt-1">Goals.</h1>
-        </div>
-        <button
-          type="button"
-          onClick={goBack}
-          aria-label={t('common.back')}
-          className="w-10 h-10 rounded-full bg-ink-100 flex items-center justify-center text-ink-700 hover:brightness-95 active:scale-95 transition-transform shrink-0"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-      </div>
+    <div className="flex flex-col gap-6 px-4 pt-3 pb-6 md:px-8">
+      {/* Goals is reached from the Profile page: back where the avatar would
+          be, since the avatar would lead to the page the athlete came from. */}
+      <LargeTitle back={back} title={t('parcGoals.title')} />
 
-      {(!goals || goals.length === 0) && (
-        <EmptyState message="Your coach hasn't set any goals yet" />
+      {isLoading ? (
+        <div className="flex justify-center py-12"><Spinner /></div>
+      ) : !goals || goals.length === 0 ? (
+        <p className="rounded-group bg-surface p-4 pk-body">{t('parcGoals.empty')}</p>
+      ) : (
+        <div className="flex flex-col gap-4 lg:grid lg:grid-cols-2 lg:items-start">
+          {goals.map((g) => (
+            <GoalCard key={g.id} goal={g} />
+          ))}
+        </div>
       )}
-      <div className="space-y-3">
-        {goals?.map((g) => (
-          <GoalCard key={g.id} goal={g} />
-        ))}
-      </div>
     </div>
   );
 }

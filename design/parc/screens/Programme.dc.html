@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Programme du bloc, coach</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="parc-tokens.css">
+<link rel="stylesheet" href="ds/slcoachparc/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1E4FBF}a:hover{color:#163C93}
+button{font-family:inherit}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 1400px; box-sizing: border-box; background: var(--ground); color: var(--ink); font-family: var(--font-sans); overflow: hidden">
+  <main style="padding: 12px 16px 120px; display: flex; flex-direction: column; gap: 24px">
+
+    <div>
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+        <button type="button" class="pk-icon-btn" aria-label="Retour">
+          <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M15 19l-7-7 7-7"></path></svg>
+        </button>
+        <button type="button" class="pk-btn pk-btn-on-ground" onClick="{{ clear }}">Terminer</button>
+      </div>
+      <h1 class="pk-large-title" style="margin-top: 16px">Force tirage</h1>
+      <p class="pk-subhead" style="margin: 6px 0 0">Bloc de Léa Martin, 24 séances</p>
+      <p class="pk-caption" style="margin: 12px 0 0">Touche une séance pour la choisir. La poignée à droite change l'ordre.</p>
+    </div>
+
+    <section aria-labelledby="phase-1" style="display: flex; flex-direction: column; gap: 10px">
+      <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px">
+        <h2 id="phase-1" class="pk-headline">Accumulation</h2>
+        <span class="pk-caption">Séances 1 à 8</span>
+      </div>
+      <ul class="pk-group">
+        <li>
+          <button type="button" class="pk-row" aria-expanded="false" style="width: 100%; border: 0; border-bottom: 1px solid var(--line); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer">
+            <span aria-hidden="true" style="width: 64px; flex-shrink: 0; display: flex">
+              <span style="width: 24px; height: 24px; border-radius: 999px; background: var(--blue); color: var(--on-blue); display: flex; align-items: center; justify-content: center">
+                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3.2" d="M5 13l4 4L19 7"></path></svg>
+              </span>
+            </span>
+            <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+              <span class="pk-headline">Séances 1 à 6</span>
+              <span class="pk-caption">Toutes faites, la dernière hier</span>
+            </span>
+            <svg width="20" height="20" fill="none" stroke="var(--ink-2)" viewBox="0 0 24 24" aria-hidden="true" style="flex-shrink: 0; margin-right: 12px"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M19 9l-7 7-7-7"></path></svg>
+          </button>
+        </li>
+        <sc-for list="{{ phase1 }}" as="s" hint-placeholder-count="2">
+          <li>
+            <sc-if value="{{ s.selected }}" hint-placeholder-val="{{ false }}">
+              <div class="pk-row" style="gap: 4px; margin: 0 -16px; padding: 12px 16px; background: var(--blue-soft)">
+                <button type="button" aria-pressed="true" onClick="{{ s.toggle }}" style="flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 12px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer">
+                  <span aria-hidden="true" style="width: 24px; height: 24px; flex-shrink: 0; border-radius: 999px; background: var(--blue); color: var(--on-blue); display: flex; align-items: center; justify-content: center">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3.2" d="M5 13l4 4L19 7"></path></svg>
+                  </span>
+                  <span class="pk-condensed pk-tnum" style="width: 28px; flex-shrink: 0; font-size: 26px; font-weight: 800; line-height: 1; text-align: center">{{ s.num }}</span>
+                  <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                    <span class="pk-headline">{{ s.name }}</span>
+                    <span class="pk-caption">{{ s.caption }}</span>
+                  </span>
+                </button>
+                <button type="button" class="pk-icon-btn" aria-label="{{ s.dragLabel }}" style="background: none; color: var(--ink-2); cursor: grab">
+                  <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-width="3.4" d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"></path></svg>
+                </button>
+              </div>
+            </sc-if>
+            <sc-if value="{{ s.unselected }}" hint-placeholder-val="{{ true }}">
+              <div class="pk-row" style="gap: 4px">
+                <button type="button" aria-pressed="false" onClick="{{ s.toggle }}" style="flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 12px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer">
+                  <span aria-hidden="true" style="width: 24px; height: 24px; flex-shrink: 0; box-sizing: border-box; border-radius: 999px; border: 2px solid var(--line-control)"></span>
+                  <span class="pk-condensed pk-tnum" style="width: 28px; flex-shrink: 0; font-size: 26px; font-weight: 800; line-height: 1; text-align: center">{{ s.num }}</span>
+                  <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                    <span class="pk-headline">{{ s.name }}</span>
+                    <span class="pk-caption">{{ s.caption }}</span>
+                  </span>
+                </button>
+                <button type="button" class="pk-icon-btn" aria-label="{{ s.dragLabel }}" style="background: none; color: var(--ink-2); cursor: grab">
+                  <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-width="3.4" d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"></path></svg>
+                </button>
+              </div>
+            </sc-if>
+          </li>
+        </sc-for>
+      </ul>
+    </section>
+
+    <section aria-labelledby="phase-2" style="display: flex; flex-direction: column; gap: 10px">
+      <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px">
+        <h2 id="phase-2" class="pk-headline">Intensification</h2>
+        <span class="pk-caption">Séances 9 à 16</span>
+      </div>
+      <ul class="pk-group">
+        <sc-for list="{{ phase2 }}" as="s" hint-placeholder-count="8">
+          <li>
+            <sc-if value="{{ s.selected }}" hint-placeholder-val="{{ false }}">
+              <div class="pk-row" style="gap: 4px; margin: 0 -16px; padding: 12px 16px; background: var(--blue-soft)">
+                <button type="button" aria-pressed="true" onClick="{{ s.toggle }}" style="flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 12px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer">
+                  <span aria-hidden="true" style="width: 24px; height: 24px; flex-shrink: 0; border-radius: 999px; background: var(--blue); color: var(--on-blue); display: flex; align-items: center; justify-content: center">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3.2" d="M5 13l4 4L19 7"></path></svg>
+                  </span>
+                  <span class="pk-condensed pk-tnum" style="width: 28px; flex-shrink: 0; font-size: 26px; font-weight: 800; line-height: 1; text-align: center">{{ s.num }}</span>
+                  <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                    <span class="pk-headline">{{ s.name }}</span>
+                    <span class="pk-caption">{{ s.caption }}</span>
+                  </span>
+                </button>
+                <button type="button" class="pk-icon-btn" aria-label="{{ s.dragLabel }}" style="background: none; color: var(--ink-2); cursor: grab">
+                  <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-width="3.4" d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"></path></svg>
+                </button>
+              </div>
+            </sc-if>
+            <sc-if value="{{ s.unselected }}" hint-placeholder-val="{{ true }}">
+              <div class="pk-row" style="gap: 4px">
+                <button type="button" aria-pressed="false" onClick="{{ s.toggle }}" style="flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 12px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer">
+                  <span aria-hidden="true" style="width: 24px; height: 24px; flex-shrink: 0; box-sizing: border-box; border-radius: 999px; border: 2px solid var(--line-control)"></span>
+                  <span class="pk-condensed pk-tnum" style="width: 28px; flex-shrink: 0; font-size: 26px; font-weight: 800; line-height: 1; text-align: center">{{ s.num }}</span>
+                  <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                    <span class="pk-headline">{{ s.name }}</span>
+                    <span class="pk-caption">{{ s.caption }}</span>
+                  </span>
+                </button>
+                <button type="button" class="pk-icon-btn" aria-label="{{ s.dragLabel }}" style="background: none; color: var(--ink-2); cursor: grab">
+                  <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-width="3.4" d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"></path></svg>
+                </button>
+              </div>
+            </sc-if>
+          </li>
+        </sc-for>
+      </ul>
+    </section>
+
+    <section aria-labelledby="phase-3" style="display: flex; flex-direction: column; gap: 10px">
+      <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px">
+        <h2 id="phase-3" class="pk-headline">Réalisation</h2>
+        <span class="pk-caption">Séances 17 à 24</span>
+      </div>
+      <ul class="pk-group">
+        <li>
+          <button type="button" class="pk-row" aria-expanded="false" style="width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer">
+            <span aria-hidden="true" style="width: 64px; flex-shrink: 0; display: flex">
+              <span style="width: 24px; height: 24px; box-sizing: border-box; border-radius: 999px; background: var(--fill)"></span>
+            </span>
+            <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+              <span class="pk-headline">8 séances prévues</span>
+              <span class="pk-caption">Dont le test de fin de bloc</span>
+            </span>
+            <svg width="20" height="20" fill="none" stroke="var(--ink-2)" viewBox="0 0 24 24" aria-hidden="true" style="flex-shrink: 0; margin-right: 12px"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M19 9l-7 7-7-7"></path></svg>
+          </button>
+        </li>
+      </ul>
+    </section>
+
+    <button type="button" class="pk-btn pk-btn-text" style="align-self: flex-start">
+      <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M12 5v14M5 12h14"></path></svg>
+      Ajouter une phase
+    </button>
+  </main>
+
+  <div class="pk-actionbar" style="position: absolute; left: 0; right: 0; bottom: 0">
+    <p role="status" style="margin: 0; flex: 1; min-width: 0; font-size: 15px; font-weight: 600">{{ selLabel }}</p>
+    <button type="button" class="pk-btn pk-btn-secondary pk-btn-lg" disabled="{{ none }}">Dupliquer</button>
+    <button type="button" class="pk-btn pk-btn-primary pk-btn-lg" disabled="{{ none }}">Déplacer</button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1400}}'>
+class Component extends DCLogic {
+  constructor(...args) {
+    super(...args);
+    this.state = { sel: { 13: true, 14: true } };
+  }
+  renderVals() {
+    const sel = this.state.sel || {};
+    const make = (num, name, caption) => {
+      const selected = !!sel[num];
+      return {
+        num: String(num),
+        name: name,
+        caption: caption,
+        selected: selected,
+        unselected: !selected,
+        dragLabel: 'Déplacer la séance ' + num,
+        toggle: () => {
+          const next = Object.assign({}, this.state.sel);
+          next[num] = !next[num];
+          this.setState({ sel: next });
+        }
+      };
+    };
+    const haut1 = 'Tractions, dips, front lever';
+    const haut2 = 'Muscle-up, tractions, dips';
+    const bas = 'Squat, gainage';
+    const phase1 = [
+      make(7, 'Haut 1', 'Suivante, prévue aujourd’hui'),
+      make(8, 'Bas', bas)
+    ];
+    const phase2 = [
+      make(9, 'Haut 2', haut2),
+      make(10, 'Haut 1', haut1),
+      make(11, 'Bas', bas),
+      make(12, 'Haut 2', haut2),
+      make(13, 'Haut 1', haut1),
+      make(14, 'Bas', bas),
+      make(15, 'Haut 2', haut2),
+      make(16, 'Décharge', 'Volume réduit de moitié')
+    ];
+    const n = Object.keys(sel).filter((k) => sel[k]).length;
+    return {
+      phase1: phase1,
+      phase2: phase2,
+      selLabel: n === 0 ? 'Aucune choisie' : (n === 1 ? '1 choisie' : n + ' choisies'),
+      none: n === 0,
+      clear: () => this.setState({ sel: {} })
+    };
+  }
+}
+</script>
+</body>
+</html>

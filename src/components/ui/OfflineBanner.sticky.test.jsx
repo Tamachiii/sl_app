@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { act, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import OfflineBanner from './OfflineBanner';
-import { AA_TEXT, contrastRatio, readStylesheet, readTokens } from '../../test/contrast.js';
+import { AA_TEXT, contrastRatio } from '../../test/contrast.js';
 
 // The banner is mounted at the top of the scrolling <main> of AppShell. It
 // used to scroll away with the page: half-way down a session, an athlete
@@ -93,11 +93,19 @@ describe('<OfflineBanner /> stays in view', () => {
   it('is opaque and readable: what scrolls under it does not show through its text', () => {
     renderBanner({ online: false });
     const banner = screen.getByTestId('offline-banner');
-    // Inline tokens, which no `.dark` remap touches.
-    expect(banner.style.background).toBe('var(--color-warn)');
-    expect(banner.style.color).toBe('var(--color-ink-900)');
-    const { dark } = readTokens(readStylesheet());
-    expect(dark.warn).toMatch(/^#[0-9a-f]{6}$/i);
-    expect(contrastRatio(dark['ink-900'], dark.warn)).toBeGreaterThanOrEqual(AA_TEXT);
+    // Parc tokens as utilities: amber-soft under ink. No alpha on the class
+    // (`bg-amber-soft/80` would let the page show through) and none in the
+    // token itself.
+    expect(banner).toHaveClass('bg-amber-soft', 'text-ink');
+    expect(banner.className).not.toMatch(/\bbg-[\w-]+\/\d+/);
+    // The utilities are the Parc tokens themselves.
+    const theme = source('../../index.css');
+    expect(theme).toMatch(/--color-amber-soft:\s*var\(--amber-soft\);/);
+    expect(theme).toMatch(/--color-ink:\s*var\(--ink\);/);
+    const parc = source('../../styles/parc-tokens.css');
+    const token = (name) => new RegExp(`--${name}:\\s*(#[0-9a-f]{6});`, 'i').exec(parc)?.[1];
+    expect(token('amber-soft')).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(token('ink')).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(contrastRatio(token('ink'), token('amber-soft'))).toBeGreaterThanOrEqual(AA_TEXT);
   });
 });

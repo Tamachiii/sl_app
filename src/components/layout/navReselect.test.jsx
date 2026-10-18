@@ -84,17 +84,20 @@ describe('a coach tab tapped while it is open', () => {
 
     fireEvent.click(tab(/athletes/i));
     expect(screen.queryByTestId('overview')).toBeNull();
-    expect(screen.getByRole('link', { name: /open alice/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Alice' })).toBeInTheDocument();
   });
 
   it('Athletes, in a session editor, shows the roster too', () => {
     renderApp('/coach/students/s-1/s/sess-1');
     expect(screen.getByTestId('editor')).toBeInTheDocument();
+    // The editor is a page of its own: no athlete title over it.
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
 
     fireEvent.click(tab(/athletes/i));
     expect(screen.queryByTestId('editor')).toBeNull();
     expect(screen.queryByTestId('overview')).toBeNull();
-    expect(screen.getByRole('link', { name: /open alice/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Athletes' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Alice' })).toBeInTheDocument();
   });
 
   it('Sessions, on a review left open, shows the feed and stays there', () => {
@@ -104,7 +107,8 @@ describe('a coach tab tapped while it is open', () => {
 
     fireEvent.click(tab(/sessions/i));
     expect(screen.queryByTestId('review')).toBeNull();
-    expect(screen.getByText(/no confirmed sessions yet/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Sessions' })).toBeInTheDocument();
+    expect(screen.getByText('No confirmed session yet.')).toBeInTheDocument();
   });
 });
 

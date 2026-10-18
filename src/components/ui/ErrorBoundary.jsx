@@ -5,6 +5,7 @@ import { chunkRecovery, isChunkLoadError } from '../../lib/chunkRecovery';
 import { writesAreSafe } from '../../lib/pendingWrites';
 import { useI18n } from '../../hooks/useI18n';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { Button } from '../parc';
 
 class ErrorBoundaryInner extends Component {
   // The app's query client, when a provider is above: "Reload" waits for the
@@ -60,24 +61,18 @@ class ErrorBoundaryInner extends Component {
     let body = online ? t('chunkRecovery.body') : t('chunkRecovery.offlineBody');
     if (reloading) body = t('chunkRecovery.reloading');
     return (
-      <div className="flex flex-col items-center justify-center min-h-[50vh] p-6 text-center">
-        <h2 className="sl-display text-[18px] text-gray-900 mb-2">
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 p-6 text-center">
+        <h2 className="pk-title">
           {online ? t('chunkRecovery.title') : t('chunkRecovery.offlineTitle')}
         </h2>
-        <p role="status" className="text-[13px] text-ink-500 mb-4 max-w-md">
+        <p role="status" className="pk-body m-0 max-w-md text-ink-2">
           {body}
         </p>
         {/* No "Try again": React.lazy keeps a failed import for good, and the
             same tree would fail on the same file. */}
-        <button
-          type="button"
-          onClick={this.handleReload}
-          disabled={this.state.reloadAsked}
-          className="sl-btn-primary text-[13px] min-h-[44px]"
-          style={{ padding: '10px 16px' }}
-        >
+        <Button variant="primary" onClick={this.handleReload} disabled={this.state.reloadAsked}>
           {t('chunkRecovery.reload')}
-        </button>
+        </Button>
       </div>
     );
   }
@@ -87,27 +82,14 @@ class ErrorBoundaryInner extends Component {
     if (this.state.hasError) {
       if (isChunkLoadError(this.state.error)) return this.renderMissingFile();
       return (
-        <div className="flex flex-col items-center justify-center min-h-[50vh] p-6 text-center">
-          <h2 className="sl-display text-[18px] text-gray-900 mb-2">
-            {t('errorBoundary.title')}
-          </h2>
-          <p className="text-[13px] text-ink-500 mb-4 max-w-md">
-            {t('errorBoundary.body')}
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={this.handleReset}
-              className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200"
-            >
-              {t('errorBoundary.tryAgain')}
-            </button>
-            <button
-              onClick={this.handleHome}
-              className="sl-btn-primary text-[12px]"
-              style={{ padding: '8px 14px' }}
-            >
+        <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 p-6 text-center">
+          <h2 className="pk-title">{t('errorBoundary.title')}</h2>
+          <p className="pk-body m-0 max-w-md text-ink-2">{t('errorBoundary.body')}</p>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button onClick={this.handleReset}>{t('errorBoundary.tryAgain')}</Button>
+            <Button variant="primary" onClick={this.handleHome}>
               {t('errorBoundary.goHome')}
-            </button>
+            </Button>
           </div>
         </div>
       );

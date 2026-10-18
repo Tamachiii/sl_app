@@ -8,13 +8,14 @@ import { MemoryRouter, Routes, Route, Outlet, useLocation } from 'react-router-d
 
 const refetchPrograms = vi.fn();
 const refetchProgram = vi.fn();
+const ensureProgram = { mutate: vi.fn(), isPending: false };
 let programsRead;
 let programRead;
 
 vi.mock('../../hooks/useProgram', () => ({
   useProgramsForStudent: () => programsRead,
   useProgram: () => programRead,
-  useEnsureProgram: () => ({ mutate: vi.fn(), isPending: false }),
+  useEnsureProgram: () => ensureProgram,
 }));
 vi.mock('./ProgramSheet', () => ({
   default: ({ program }) => <div data-testid="sheet">sheet:{program.id}</div>,
@@ -64,6 +65,8 @@ function renderSection(entry = '/coach/students/s-1') {
 beforeEach(() => {
   refetchPrograms.mockReset();
   refetchProgram.mockReset();
+  ensureProgram.mutate.mockReset();
+  ensureProgram.isPending = false;
   programsRead = read({ data: BLOCKS, isSuccess: true, refetch: refetchPrograms });
   programRead = read({ data: { id: 'p-1', status: 'approved', weeks: [] }, isSuccess: true, refetch: refetchProgram });
 });
@@ -81,7 +84,9 @@ describe('StudentProgrammingSection without a block to show', () => {
 
     expect(screen.getByText('This couldn’t be loaded')).toBeInTheDocument();
     expect(screen.queryByTestId('switcher')).toBeNull();
-    expect(screen.queryByText(/no program yet/i)).toBeNull();
+    // Not "no block yet": nothing is known about the blocks.
+    expect(screen.queryByText(/no block yet/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Create the first block' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(refetchPrograms).toHaveBeenCalledWith({ cancelRefetch: false });
   });
@@ -122,6 +127,33 @@ describe('StudentProgrammingSection without a block to show', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show the current block' }));
     expect(screen.getByTestId('where')).toHaveTextContent(/^\/coach\/students\/s-1$/);
     expect(refetchPrograms).toHaveBeenCalledWith({ cancelRefetch: false });
+  });
+});
+
+// Merely opening an athlete must not write a block: the coach creates the
+// first one, by a tap.
+describe('StudentProgrammingSection for an athlete without a block', () => {
+  beforeEach(() => {
+    programsRead = read({ data: [], isSuccess: true, refetch: refetchPrograms });
+    programRead = read({ refetch: refetchProgram });
+  });
+
+  it('says so, and creates the first block on the tap', () => {
+    renderSection();
+
+    expect(screen.getByText('No block yet for this athlete.')).toBeInTheDocument();
+    expect(screen.queryByTestId('switcher')).toBeNull();
+    expect(screen.queryByTestId('sheet')).toBeNull();
+    expect(ensureProgram.mutate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create the first block' }));
+    expect(ensureProgram.mutate).toHaveBeenCalledWith({ studentId: 's-1' });
+  });
+
+  it('takes no second tap while the block is being created', () => {
+    ensureProgram.isPending = true;
+    renderSection();
+    expect(screen.getByRole('button', { name: 'Create the first block' })).toBeDisabled();
   });
 });
 

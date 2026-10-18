@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useI18n } from '../../hooks/useI18n';
-import { formatDate } from '../../lib/i18n/format';
+import { formatDate, formatNumber } from '../../lib/i18n/format';
 
 // Compact axis tick — "17/8" (fr) / "8/17" (en). One point per session on a
 // real date, so the ticks have to stay short enough to sit side by side.
@@ -47,7 +47,7 @@ export function pointPositions(points, { left, right }) {
   return points.map((_, i) => left + (i * (right - left)) / (n - 1));
 }
 
-const TICK_FONT = 10;
+const TICK_FONT = 12;
 
 /** The width an axis label takes, in the chart's units (a monospace font). */
 export function tickWidth(text) {
@@ -101,42 +101,55 @@ export function thinTicks(ticks, { max = 6, gap = 4, minX = 0, maxX = Infinity }
   return [0];
 }
 
-// ink-100 is a near-white cream: a faint rule on the light card, but bright
-// lines across the dark one. A tint of the mid-tone ink reads correctly in
-// both themes — and unlike a utility class, an SVG `stroke` gets no dark-mode
-// remap from index.css.
-const GRIDLINE_STROKE = 'color-mix(in srgb, var(--color-ink-400) 30%, transparent)';
-
 function readStoredExerciseId(storageKey) {
   if (!storageKey) return '';
   try { return localStorage.getItem(storageKey) || ''; } catch { return ''; }
 }
 
-export default function ExerciseProgressChart({ exercises, byExercise, storageKey }) {
+/**
+ * The tonnage of one exercise, session by session, on a time axis: the
+ * performed line in `chart-pull` (2px, round), a dot per session with a ring
+ * of the surface, a light wash of the same blue under each session, the
+ * planned tonnage dashed in `ink-3` where the athlete moved away from it, the
+ * value axis in three ticks, at most six dates under it (`thinTicks`). Each
+ * dot says its session on hover (`<title>`), and a screen reader gets a table.
+ *
+ * Two ways to use it:
+ * - with `exerciseId`, it draws that exercise and nothing else — the
+ *   Progression list of the stats opens it under the row that was tapped;
+ * - without, it carries its own choice of exercise (a select), remembered
+ *   under `storageKey` — the coach's stats section.
+ * `bare` drops the white box, for a chart drawn inside one.
+ */
+export default function ExerciseProgressChart({ exercises, byExercise, storageKey, exerciseId, bare = false }) {
   const { t, lang } = useI18n();
-  const [selectedId, setSelectedId] = useState(() => {
+  const controlled = exerciseId !== undefined;
+  const [chosenId, setChosenId] = useState(() => {
     const stored = readStoredExerciseId(storageKey);
     if (stored && exercises.some((e) => e.id === stored)) return stored;
     return exercises[0]?.id ?? '';
   });
 
   useEffect(() => {
+    if (controlled) return;
     if (exercises.length === 0) {
-      setSelectedId('');
+      setChosenId('');
       return;
     }
-    if (!exercises.some((e) => e.id === selectedId)) {
+    if (!exercises.some((e) => e.id === chosenId)) {
       const stored = readStoredExerciseId(storageKey);
       if (stored && exercises.some((e) => e.id === stored)) {
-        setSelectedId(stored);
+        setChosenId(stored);
       } else {
-        setSelectedId(exercises[0].id);
+        setChosenId(exercises[0].id);
       }
     }
-  }, [exercises, selectedId, storageKey]);
+  }, [controlled, exercises, chosenId, storageKey]);
+
+  const selectedId = controlled ? exerciseId : chosenId;
 
   function handleSelect(next) {
-    setSelectedId(next);
+    setChosenId(next);
     if (!storageKey) return;
     try {
       if (next) localStorage.setItem(storageKey, next);
@@ -144,60 +157,42 @@ export default function ExerciseProgressChart({ exercises, byExercise, storageKe
     } catch { /* ignore — private mode, quota, etc. */ }
   }
 
-  const points = useMemo(() => {
-    // Hook returns points already sorted by training date — one per session.
-    return byExercise[selectedId] || [];
-  }, [byExercise, selectedId]);
+  const points = useMemo(() => byExercise[selectedId] || [], [byExercise, selectedId]);
 
-  // When points span multiple programs, surface the program in the x-axis
-  // label so two blocks' sessions aren't visually identical.
   const showProgramLabel = useMemo(() => {
     const names = new Set(points.map((p) => p.program_name).filter(Boolean));
     return names.size > 1;
   }, [points]);
 
-  // Scale to whichever is larger so the planned reference always fits...
-  const maxTonnage = points.reduce(
-    (m, p) => Math.max(m, p.tonnage, p.plannedTonnage ?? 0),
-    0
-  );
-  // ...but the caption's "Peak" reports the PERFORMED peak only, so it never
-  // overstates what the student actually did (planned may be higher).
-  const performedPeak = points.reduce((m, p) => Math.max(m, p.tonnage), 0);
-  // Only draw the planned reference when it actually diverges from performed
-  // (i.e. the student deviated somewhere) — otherwise it's visual noise.
-  const hasPlannedDivergence = points.some(
-    (p) => Math.abs((p.plannedTonnage ?? p.tonnage) - p.tonnage) > 1
-  );
+  const box = bare ? 'flex flex-col gap-3' : 'flex flex-col gap-3 rounded-group bg-surface p-4';
 
   if (exercises.length === 0) {
     return (
-      <div className="sl-card p-4">
-        <p className="sl-mono text-[11px] text-ink-400">
-          {t('student.stats.chart.noExercises')}
-        </p>
+      <div className={box}>
+        <p className="pk-caption">{t('parcStats.chartNoExercises')}</p>
       </div>
     );
   }
 
-  const W = 320;
-  const H = 140;
-  const PAD_L = 32;
+  const maxTonnage = points.reduce((m, p) => Math.max(m, p.tonnage, p.plannedTonnage ?? 0), 0);
+  const performedPeak = points.reduce((m, p) => Math.max(m, p.tonnage), 0);
+  const hasPlannedDivergence = points.some((p) => Math.abs((p.plannedTonnage ?? p.tonnage) - p.tonnage) > 1);
+
+  const W = 326;
+  const H = 150;
+  const PAD_L = 40;
   const PAD_R = 8;
   const PAD_T = 8;
-  const PAD_B = 24;
-  // The first and the last point sit this far inside the plot, so their bar
-  // stays inside it.
+  const PAD_B = 26;
+  // Breathing room so the first and last points sit inside the frame.
   const INSET = 10;
   const plotH = H - PAD_T - PAD_B;
+  const baseline = PAD_T + plotH;
 
   const xs = pointPositions(points, { left: PAD_L + INSET, right: W - PAD_R - INSET });
-  const xFor = (i) => xs[i];
-  const yFor = (v) =>
-    maxTonnage === 0 ? PAD_T + plotH : PAD_T + plotH - (v / maxTonnage) * plotH;
+  const yFor = (v) => (maxTonnage === 0 ? baseline : baseline - (v / maxTonnage) * plotH);
 
-  // A bar is at most 18 wide, and narrower than the nearest gap between two
-  // training days, so that two sessions a day apart do not draw one bar.
+  // A session's wash: never wider than the room between two sessions.
   const distinctXs = [...new Set(xs)].sort((a, b) => a - b);
   const nearestGap = distinctXs.reduce(
     (m, x, i) => (i === 0 ? m : Math.min(m, x - distinctXs[i - 1])),
@@ -205,9 +200,10 @@ export default function ExerciseProgressChart({ exercises, byExercise, storageKe
   );
   const barW = Math.max(2, Math.min(18, nearestGap * 0.6));
 
+  const fmt = (n) => formatNumber(lang, Math.round(n));
   const tickLabel = (p) =>
     showProgramLabel && p.program_name
-      ? `${p.program_name.slice(0, 3).toUpperCase()}·${formatTick(p.date, lang)}`
+      ? t('parcStats.chartProgramTick', { program: p.program_name.slice(0, 3), date: formatTick(p.date, lang) })
       : formatTick(p.date, lang);
   const tickTexts = points.map(tickLabel);
   const ticks = thinTicks(
@@ -215,43 +211,44 @@ export default function ExerciseProgressChart({ exercises, byExercise, storageKe
     { minX: 0, maxX: W },
   ).filter((i) => tickTexts[i]);
 
-  const linePath = points
-    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xFor(i)} ${yFor(p.tonnage)}`)
-    .join(' ');
+  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xs[i]} ${yFor(p.tonnage)}`).join(' ');
   const plannedPath = points
-    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xFor(i)} ${yFor(p.plannedTonnage ?? p.tonnage)}`)
+    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xs[i]} ${yFor(p.plannedTonnage ?? p.tonnage)}`)
     .join(' ');
+
+  const pointText = (p) => {
+    const parts = [
+      p.program_name ? `${p.program_name}, ${formatPointDate(p.date, lang)}` : formatPointDate(p.date, lang),
+      p.title,
+      t('parcStats.chartTonnage', { kg: fmt(p.tonnage) }),
+      p.swappedTo ? t('parcStats.chartSwappedTo', { name: p.swappedTo }) : null,
+      p.swappedFrom ? t('parcStats.chartSwappedFrom', { name: p.swappedFrom }) : null,
+    ];
+    return parts.filter(Boolean).join(', ');
+  };
 
   return (
-    <div className="sl-card p-4 space-y-3">
-      <label className="block">
-        <span className="sr-only">Select exercise</span>
-        <select
-          value={selectedId}
-          onChange={(e) => handleSelect(e.target.value)}
-          className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-display text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
-        >
-          {exercises.map((ex) => (
-            <option key={ex.id} value={ex.id}>
-              {ex.name}
-            </option>
-          ))}
-        </select>
-      </label>
+    <div className={box}>
+      {!controlled && (
+        <label className="grid gap-1.5">
+          <span className="pk-small">{t('parcStats.chartExercise')}</span>
+          <select value={selectedId} onChange={(e) => handleSelect(e.target.value)} className="pk-field">
+            {exercises.map((ex) => (
+              <option key={ex.id} value={ex.id}>
+                {ex.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       {points.length === 0 ? (
-        <p className="sl-mono text-[11px] text-ink-400">{t('student.stats.chart.noData')}</p>
+        <p className="pk-caption">{t('parcStats.chartNoData')}</p>
       ) : (
         <>
-          <svg
-            viewBox={`0 0 ${W} ${H}`}
-            className="w-full h-auto"
-            role="img"
-            aria-label={t('student.stats.chart.ariaLabel')}
-          >
+          <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full" aria-hidden="true" focusable="false">
             {[0, 0.5, 1].map((frac) => {
-              const y = PAD_T + plotH - frac * plotH;
-              const label = Math.round(maxTonnage * frac);
+              const y = baseline - frac * plotH;
               return (
                 <g key={frac}>
                   <line
@@ -259,47 +256,39 @@ export default function ExerciseProgressChart({ exercises, byExercise, storageKe
                     x2={W - PAD_R}
                     y1={y}
                     y2={y}
-                    stroke={GRIDLINE_STROKE}
+                    stroke={frac === 0 ? 'var(--line-strong)' : 'var(--line)'}
                     strokeWidth="1"
                   />
-                  <text
-                    x={PAD_L - 4}
-                    y={y + 3}
-                    textAnchor="end"
-                    fill="var(--color-ink-400)"
-                    fontFamily="var(--font-mono, 'JetBrains Mono', monospace)"
-                    fontSize="9"
-                  >
-                    {label}
+                  <text x={PAD_L - 6} y={y + 4} textAnchor="end" fill="var(--ink-2)" fontSize="12">
+                    {fmt(maxTonnage * frac)}
                   </text>
                 </g>
               );
             })}
 
             {points.map((p, i) => {
-              const cx = xFor(i);
               const top = yFor(p.tonnage);
               return (
                 <rect
                   key={p.key ?? p.session_id}
-                  x={cx - barW / 2}
+                  x={xs[i] - barW / 2}
                   y={top}
                   width={barW}
-                  height={PAD_T + plotH - top}
+                  height={baseline - top}
                   rx="2"
-                  fill="var(--color-accent)"
-                  fillOpacity="0.2"
+                  fill="var(--chart-pull)"
+                  fillOpacity="0.1"
                 />
               );
             })}
 
-            {/* Planned reference (dashed, faint) — drawn under the performed
-                line, only when the student deviated from the plan. */}
+            {/* The planned tonnage, dashed, under the performed line — only
+                where the athlete moved away from the plan. */}
             {points.length > 1 && hasPlannedDivergence && (
               <path
                 d={plannedPath}
                 fill="none"
-                stroke="var(--color-ink-400)"
+                stroke="var(--ink-3)"
                 strokeWidth="1.5"
                 strokeDasharray="3 3"
                 strokeLinecap="round"
@@ -311,7 +300,7 @@ export default function ExerciseProgressChart({ exercises, byExercise, storageKe
               <path
                 d={linePath}
                 fill="none"
-                stroke="var(--color-accent)"
+                stroke="var(--chart-pull)"
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -321,18 +310,14 @@ export default function ExerciseProgressChart({ exercises, byExercise, storageKe
             {points.map((p, i) => (
               <circle
                 key={p.key ?? p.session_id}
-                cx={xFor(i)}
+                cx={xs[i]}
                 cy={yFor(p.tonnage)}
-                r="3"
-                fill="var(--color-accent)"
+                r="4"
+                fill="var(--chart-pull)"
+                stroke="var(--surface)"
+                strokeWidth="2"
               >
-                <title>
-                  {p.program_name ? `${p.program_name} · ` : ''}
-                  {formatPointDate(p.date, lang)}
-                  {p.title ? ` — ${p.title}` : ''}: {Math.round(p.tonnage)} kg
-                  {p.swappedTo ? ` · swapped to ${p.swappedTo}` : ''}
-                  {p.swappedFrom ? ` · substituted for ${p.swappedFrom}` : ''}
-                </title>
+                <title>{pointText(p)}</title>
               </circle>
             ))}
 
@@ -340,13 +325,10 @@ export default function ExerciseProgressChart({ exercises, byExercise, storageKe
               {ticks.map((i) => (
                 <text
                   key={points[i].key ?? points[i].session_id ?? i}
-                  // Centred under its point, held inside the chart: the last
-                  // label used to be cut in half by the edge.
-                  x={tickCentre(xFor(i), tickWidth(tickTexts[i]), { minX: 0, maxX: W })}
-                  y={H - 8}
+                  x={tickCentre(xs[i], tickWidth(tickTexts[i]), { minX: 0, maxX: W })}
+                  y={H - 6}
                   textAnchor="middle"
-                  fill="var(--color-ink-400)"
-                  fontFamily="var(--font-mono, 'JetBrains Mono', monospace)"
+                  fill="var(--ink-2)"
                   fontSize={TICK_FONT}
                 >
                   {tickTexts[i]}
@@ -355,16 +337,22 @@ export default function ExerciseProgressChart({ exercises, byExercise, storageKe
             </g>
           </svg>
 
-          <p className="sl-mono text-[11px] text-ink-400">
-            {t('student.stats.chart.performedCaption')}{' '}
-            <span className="text-gray-800" style={{ color: 'var(--color-accent)' }}>
-              {t('student.stats.chart.peak', { n: Math.round(performedPeak) })}
-            </span>
-            {/* Only claim a dashed line when one is actually drawn (needs >1
-                point AND real divergence). */}
-            {points.length > 1 && hasPlannedDivergence && (
-              <span className="block mt-0.5">{t('student.stats.chart.plannedLegend')}</span>
-            )}
+          <table className="sr-only">
+            <caption>{t('parcStats.chartTitle')}</caption>
+            <tbody>
+              {points.map((p) => (
+                <tr key={p.key ?? p.session_id}>
+                  <td>{pointText(p)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <p className="pk-caption">
+            {t('parcStats.chartCaption', { kg: fmt(performedPeak) })}
+            {/* Only a line that is drawn is said: it needs two sessions and
+                a real difference. */}
+            {points.length > 1 && hasPlannedDivergence && ` ${t('parcStats.chartPlanned')}`}
           </p>
         </>
       )}

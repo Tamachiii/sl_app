@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import RestTimerHost from './RestTimerHost';
-import RestTimerBanner from './RestTimerBanner';
 import {
   startRestTimer,
   clearRestTimer,
@@ -113,19 +112,17 @@ describe('RestTimerHost: what a screen reader hears of a rest', () => {
     expect(region()).toHaveTextContent(/^Rest done$/);
   });
 
-  it('leaves the visible countdown out of every live region', () => {
-    render(
-      <>
-        <RestTimerBanner />
-        <RestTimerHost />
-      </>,
-    );
+  // The countdown on screen is the ActionBar's (a `timer`, never a live
+  // region): the one status region says the length once, not every second.
+  it('keeps the countdown out of its live region', () => {
+    render(<RestTimerHost />);
     act(() => {
       startRestTimer('log-A', 90);
     });
     tick(1000);
-    const countdown = screen.getByText('1:29');
-    expect(countdown.closest('[aria-live], [role="status"], [role="alert"], [role="timer"]')).toBeNull();
     expect(screen.getAllByRole('status')).toHaveLength(1);
+    expect(region()).toHaveTextContent(/^Rest 1:30$/);
+    tick(5000);
+    expect(region()).toHaveTextContent(/^Rest 1:30$/);
   });
 });

@@ -2,6 +2,7 @@ import { useIsMutating } from '@tanstack/react-query';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useI18n } from '../../hooks/useI18n';
 import { isQueuedWrite } from '../../lib/persistence';
+import { formatNumber, pluralKey } from '../../lib/i18n/format';
 
 /**
  * Slim global banner that surfaces real connectivity loss.
@@ -32,27 +33,17 @@ import { isQueuedWrite } from '../../lib/persistence';
  */
 export default function OfflineBanner() {
   const isOnline = useOnlineStatus();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const waitingCount = useIsMutating({ predicate: isQueuedWrite });
 
   const visible = !isOnline;
 
-  let message;
+  let message = '';
   if (!isOnline) {
-    if (waitingCount > 0) {
-      message = t(
-        waitingCount === 1
-          ? 'offline.bannerOfflineWithPending'
-          : 'offline.bannerOfflineWithPendingMany',
-        { n: waitingCount }
-      );
-    } else {
-      message = t('offline.bannerOffline');
-    }
-  } else {
-    // Render a frozen empty string while collapsing so screen readers don't
-    // re-announce on the way out — the wrapper is already aria-hidden.
-    message = '';
+    message =
+      waitingCount > 0
+        ? t(pluralKey(lang, waitingCount, 'parcFrame.offlinePending'), { n: formatNumber(lang, waitingCount) })
+        : t('parcFrame.offline');
   }
 
   return (
@@ -70,7 +61,7 @@ export default function OfflineBanner() {
         position: 'sticky',
         top: 0,
         zIndex: 40,
-        maxHeight: visible ? 48 : 0,
+        maxHeight: visible ? 80 : 0,
         opacity: visible ? 1 : 0,
         overflow: 'hidden',
         transition: 'max-height 220ms ease, opacity 180ms ease',
@@ -80,12 +71,7 @@ export default function OfflineBanner() {
         role="status"
         aria-live="polite"
         data-testid="offline-banner"
-        className="sl-mono text-[11px] text-center px-3 py-1.5 border-b"
-        style={{
-          background: 'var(--color-warn)',
-          color: 'var(--color-ink-900)',
-          borderColor: 'rgba(0,0,0,0.08)',
-        }}
+        className="border-b border-line-strong bg-amber-soft px-4 py-2 text-center text-[14px] font-semibold leading-[1.35] text-ink"
       >
         {message}
       </div>

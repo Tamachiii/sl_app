@@ -20,9 +20,9 @@ function renderLogin() {
   );
 }
 
-async function revealForm(user) {
-  await user.click(screen.getAllByRole('button', { name: /sign in/i })[0]);
-}
+const emailField = () => screen.getByLabelText('Email');
+const passwordField = () => screen.getByLabelText('Password');
+const signInButton = () => screen.getByRole('button', { name: 'Sign in' });
 
 describe('LoginPage', () => {
   beforeEach(() => {
@@ -30,101 +30,100 @@ describe('LoginPage', () => {
     mockAuth = { user: null, role: null, signIn: mockSignIn };
   });
 
-  it('renders the welcome headline and Sign In CTA', () => {
+  it("shows the app's name, the coach's line and the form on one screen", () => {
     renderLogin();
-    const heading = screen.getByRole('heading', { level: 1 });
-    expect(heading).toHaveTextContent(/become/i);
-    expect(heading).toHaveTextContent(/tony/i);
-    expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
+    expect(screen.getByText('SL Coach')).toBeInTheDocument();
+    expect(screen.getByText('Become a big monster like Tony.')).toBeInTheDocument();
+    // The form's title is the page's one heading.
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Sign in');
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    expect(signInButton()).toHaveAttribute('type', 'submit');
   });
 
-  it('reveals email and password inputs when the CTA is tapped', async () => {
-    const user = userEvent.setup();
+  it('shows email and password at once: there is no step before the form', () => {
+    // On a phone, a "welcome" step used to stand before the form, behind a
+    // tap on Sign In.
     renderLogin();
-    await revealForm(user);
-    expect(screen.getByLabelText('Email')).toBeInTheDocument();
-    expect(screen.getByLabelText('Password')).toBeInTheDocument();
+    expect(emailField()).toHaveAttribute('type', 'email');
+    expect(emailField()).toHaveAttribute('autocomplete', 'email');
+    expect(emailField()).toHaveFocus();
+    expect(passwordField()).toHaveAttribute('type', 'password');
+    expect(passwordField()).toHaveAttribute('autocomplete', 'current-password');
+    expect(screen.getAllByRole('button')).toEqual([signInButton()]);
   });
 
-  it('types email and password then clicks Sign In', async () => {
+  it('types email and password then clicks Sign in', async () => {
     mockSignIn.mockResolvedValue({ error: null });
     const user = userEvent.setup();
     renderLogin();
-    await revealForm(user);
 
-    await user.type(screen.getByLabelText('Email'), 'test@test.com');
-    await user.type(screen.getByLabelText('Password'), 'password123');
-    await user.click(screen.getByRole('button', { name: 'Sign In' }));
+    await user.type(emailField(), 'test@test.com');
+    await user.type(passwordField(), 'password123');
+    await user.click(signInButton());
 
     expect(mockSignIn).toHaveBeenCalledWith('test@test.com', 'password123');
   });
 
-  it('shows error message on failed sign in', async () => {
-    mockSignIn.mockResolvedValue({ error: { message: 'Invalid credentials' } });
+  it('says in the app’s language that the email or the password is wrong', async () => {
+    mockSignIn.mockResolvedValue({ error: { message: 'Invalid login credentials', code: 'invalid_credentials', status: 400 } });
     const user = userEvent.setup();
     renderLogin();
-    await revealForm(user);
 
-    await user.type(screen.getByLabelText('Email'), 'bad@test.com');
-    await user.type(screen.getByLabelText('Password'), 'wrong');
-    await user.click(screen.getByRole('button', { name: 'Sign In' }));
+    await user.type(emailField(), 'bad@test.com');
+    await user.type(passwordField(), 'wrong');
+    await user.click(signInButton());
 
-    expect(await screen.findByText('Invalid credentials')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Wrong email or password.');
+    // The form is offered again.
+    expect(signInButton()).toBeEnabled();
+  });
+
+  // The auth server's message is English; it is never shown as it comes.
+  it.each([
+    ['an older server, without a code', { message: 'Invalid login credentials', status: 400 }, 'Wrong email or password.'],
+    ['too many tries', { message: 'Request rate limit reached', status: 429 }, 'Too many tries. Wait a few minutes, then try again.'],
+    ['no answer', Object.assign(new Error('Failed to fetch'), { name: 'AuthRetryableFetchError' }), 'The server did not answer. Check your connection and try again.'],
+    ['anything else', { message: 'Database error querying schema', code: 'unexpected_failure', status: 500 }, 'Signing in did not work. Try again.'],
+  ])('words a refusal in the app’s language: %s', async (_case, error, sentence) => {
+    mockSignIn.mockResolvedValue({ error });
+    const user = userEvent.setup();
+    renderLogin();
+    await user.type(emailField(), 'bad@test.com');
+    await user.type(passwordField(), 'wrong');
+    await user.click(signInButton());
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(sentence);
+    expect(alert).not.toHaveTextContent(error.message);
   });
 
   it('shows loading state while submitting', async () => {
     mockSignIn.mockImplementation(() => new Promise(() => {}));
     const user = userEvent.setup();
     renderLogin();
-    await revealForm(user);
 
-    await user.type(screen.getByLabelText('Email'), 'test@test.com');
-    await user.type(screen.getByLabelText('Password'), 'password123');
-    await user.click(screen.getByRole('button', { name: 'Sign In' }));
+    await user.type(emailField(), 'test@test.com');
+    await user.type(passwordField(), 'password123');
+    await user.click(signInButton());
 
     expect(screen.getByRole('button', { name: 'Signing in…' })).toBeDisabled();
   });
 
-  // The page colours itself inline, on ink-900. An inline colour is not
-  // remapped by `.dark`, so the token named here is the one that is drawn:
-  // ink-500 is 2.59:1 on that background, ink-400 is the muted-text token
-  // src/test/contrast.test.js holds to AA.
-  describe('footer line', () => {
-    const footerStyle = () => screen.getByText('EST. 2026').parentElement.getAttribute('style');
-
-    it('is muted text on the welcome step', () => {
-      renderLogin();
-      expect(screen.getByText('BUILT FOR THE BAR').parentElement).toBe(screen.getByText('EST. 2026').parentElement);
-      expect(footerStyle()).toContain('color: var(--color-ink-400)');
-      expect(footerStyle()).not.toContain('--color-ink-500');
-    });
-
-    it('is muted text under the form', async () => {
-      const user = userEvent.setup();
-      renderLogin();
-      await revealForm(user);
-      // The welcome step, and its footer, are gone: this is the other one.
-      expect(screen.getByLabelText('Email')).toBeInTheDocument();
-      expect(footerStyle()).toContain('color: var(--color-ink-400)');
-      expect(footerStyle()).not.toContain('--color-ink-500');
-    });
-
-    it('draws no text on its dark background in a step darker than ink-400', async () => {
-      const user = userEvent.setup();
-      const { container } = renderLogin();
-      // ink-500 to ink-950 as an inline text colour. An element that paints
-      // its own background is left out: dark text on an accent fill is right.
-      const darkText = () =>
-        [...container.querySelectorAll('[style]')]
-          .map((el) => el.getAttribute('style'))
-          .filter((style) => /(?:^|;\s*)color:\s*var\(--color-ink-[5-9]\d\d\)/.test(style))
-          .filter((style) => !/(?:^|;\s*)background(?:-color)?:/.test(style));
-
-      expect(darkText()).toEqual([]);
-      await revealForm(user);
-      expect(darkText()).toEqual([]);
-    });
+  // The page used to colour itself inline, on ink-900, and its muted lines
+  // had to be held to the token src/test/contrast.test.js keeps at AA. In
+  // Parc it is drawn from the design system's classes only, whose text pairs
+  // src/test/parcTokens.test.js holds to 4.5:1.
+  it('draws its colours from the Parc tokens: no inline colour, none of the old ink scale', () => {
+    const { container } = renderLogin();
+    const inlineColours = [...container.querySelectorAll('[style]')]
+      .map((el) => el.getAttribute('style'))
+      .filter((style) => /(?:^|;\s*)(?:color|background(?:-color)?):/.test(style));
+    expect(inlineColours).toEqual([]);
+    const oldScale = [...container.querySelectorAll('[class]')]
+      .map((el) => el.getAttribute('class'))
+      .filter((cls) => /\b(?:text|bg|border)-(?:ink-\d{3}|gray-\d{3}|accent)\b/.test(cls));
+    expect(oldScale).toEqual([]);
   });
+
   // Review item L11: signing in always went to the role's home, so a link
   // opened without a session — a notification, a bookmark — was lost on the
   // way through this page.

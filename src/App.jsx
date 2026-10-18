@@ -3,7 +3,6 @@ import { HashRouter, useRoutes } from 'react-router-dom';
 import { QueryClientProvider, useIsRestoring } from '@tanstack/react-query';
 import { PersistQueryClientProvider, persistQueryClientSave } from '@tanstack/react-query-persist-client';
 import { AuthProvider, useAuth } from './hooks/useAuth';
-import { ThemeProvider } from './hooks/useTheme';
 import { I18nProvider } from './hooks/useI18n';
 import { usePushAutoHeal } from './hooks/usePushAutoHeal';
 import { queryClient, queryPersister, cacheOwner, persistOptions, replayQueuedWrites } from './lib/queryClient';
@@ -161,21 +160,19 @@ export function CacheBoundary({ children }) {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <I18nProvider>
-        <CacheBoundary>
-          <AuthProvider>
-            <ClearOnUserChange />
-            <SignOutGuard />
-            <PushAutoHeal />
-            <HashRouter>
-              <ErrorBoundary>
-                <AppRoutes />
-              </ErrorBoundary>
-            </HashRouter>
-          </AuthProvider>
-        </CacheBoundary>
-      </I18nProvider>
-    </ThemeProvider>
+    <I18nProvider>
+      <CacheBoundary>
+        <AuthProvider>
+          <ClearOnUserChange />
+          <SignOutGuard />
+          <PushAutoHeal />
+          <HashRouter>
+            <ErrorBoundary>
+              <AppRoutes />
+            </ErrorBoundary>
+          </HashRouter>
+        </AuthProvider>
+      </CacheBoundary>
+    </I18nProvider>
   );
 }

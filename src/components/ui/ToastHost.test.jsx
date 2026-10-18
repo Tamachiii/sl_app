@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import ToastHost from './ToastHost';
 import { I18nProvider } from '../../hooks/useI18n';
 import { dismissToast, getToasts, pushToast } from '../../lib/toast';
-import { AA_TEXT, contrastRatio, declared, readStylesheet, readTokens, resolveColour } from '../../test/contrast.js';
+import { AA_TEXT, contrastRatio, declared, readStylesheet } from '../../test/contrast.js';
 
 const LIFETIME = 6000;
 const LIFETIME_WITH_ACTION = 8000;
@@ -70,10 +70,16 @@ describe('<ToastHost />', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('gives the dismiss icon a 44px area to hit', () => {
+  it('gives the dismiss button a 44px round box', () => {
     render(<ToastHost />);
     push('It failed');
-    expect(screen.getByRole('button', { name: 'Dismiss' })).toHaveClass('sl-hit');
+    expect(screen.getByRole('button', { name: 'Dismiss' })).toHaveClass('pk-icon-btn');
+  });
+
+  it('closes an info toast by itself only: it has no dismiss button', () => {
+    render(<ToastHost />);
+    push('It is saved', { kind: 'info' });
+    expect(within(screen.getByRole('status')).queryAllByRole('button')).toEqual([]);
   });
 });
 
@@ -110,25 +116,25 @@ describe('<ToastHost />: the clock stops while a toast is read', () => {
 
   it('stops while a button of the toast holds the focus', () => {
     render(<ToastHost />);
-    push('Set removed', { kind: 'info', action: { label: 'Undo', onClick: () => {} } });
-    const toast = screen.getByRole('status');
-    const undo = within(toast).getByRole('button', { name: 'Undo' });
+    push('Not saved', { kind: 'error', action: { label: 'Retry', onClick: () => {} } });
+    const toast = screen.getByRole('alert');
+    const retry = within(toast).getByRole('button', { name: 'Retry' });
     const dismiss = within(toast).getByRole('button', { name: 'Dismiss' });
 
-    act(() => undo.focus());
+    act(() => retry.focus());
     advance(LIFETIME_WITH_ACTION * 5);
-    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
 
     // From one button of the toast to the other: the focus has not left it.
     act(() => dismiss.focus());
     advance(LIFETIME_WITH_ACTION * 5);
-    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
 
     act(() => dismiss.blur());
     advance(LIFETIME_WITH_ACTION - 1);
-    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
     advance(1);
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('stays stopped under the pointer when the focus leaves, and the other way round', () => {
@@ -164,12 +170,17 @@ describe('<ToastHost />: the clock stops while a toast is read', () => {
 });
 
 describe('<ToastHost />: a toast with an action', () => {
-  it('shows one button with the label, beside the dismiss button', () => {
+  it('shows one button with the label, and an error its dismiss button after it', () => {
     render(<ToastHost />);
     push('Set removed', { kind: 'info', action: { label: 'Undo', onClick: () => {} } });
-    const buttons = within(screen.getByRole('status')).getAllByRole('button');
-    expect(buttons.map((button) => button.getAttribute('aria-label') ?? button.textContent)).toEqual(['Undo', 'Dismiss']);
-    expect(buttons[0]).toHaveAttribute('type', 'button');
+    push('Not saved', { kind: 'error', action: { label: 'Retry', onClick: () => {} } });
+    const names = (role) =>
+      within(screen.getByRole(role))
+        .getAllByRole('button')
+        .map((button) => button.getAttribute('aria-label') ?? button.textContent);
+    expect(names('status')).toEqual(['Undo']);
+    expect(names('alert')).toEqual(['Retry', 'Dismiss']);
+    expect(within(screen.getByRole('status')).getByRole('button')).toHaveAttribute('type', 'button');
   });
 
   it('has no action button without an action', () => {
@@ -234,7 +245,7 @@ describe('<ToastHost />: a toast with an action', () => {
     const dismissed = vi.fn();
     const expired = vi.fn();
     render(<ToastHost />);
-    push('One', { kind: 'info', action: { label: 'Undo one', onClick: dismissed } });
+    push('One', { kind: 'error', action: { label: 'Undo one', onClick: dismissed } });
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
     push('Two', { kind: 'info', action: { label: 'Undo two', onClick: expired } });
     advance(LIFETIME_WITH_ACTION);
@@ -285,30 +296,25 @@ describe('<ToastHost />: a toast with an action', () => {
     }
   });
 
-  it('makes the button a 44px pill', () => {
+  it('makes the button a 44px Parc button', () => {
     render(<ToastHost />);
     push('Set removed', { kind: 'info', action: { label: 'Undo', onClick: () => {} } });
-    expect(screen.getByRole('button', { name: 'Undo' })).toHaveClass('sl-pill', 'sl-pill-btn');
+    expect(screen.getByRole('button', { name: 'Undo' })).toHaveClass('pk-btn');
   });
 
-  it('writes the label in a colour that reaches AA on the pill, at rest and hovered', () => {
+  it('writes the label and the message in colours that reach AA on the toast', () => {
     render(<ToastHost />);
     push('Set removed', { kind: 'info', action: { label: 'Undo', onClick: () => {} } });
-    const classes = [...screen.getByRole('button', { name: 'Undo' }).classList];
-    // The classes that decide the two colours, read off the button…
-    const text = classes.filter((name) => name.startsWith('text-'));
-    const fills = classes.filter((name) => /^(hover:)?bg-/.test(name));
-    expect(text).toEqual(['text-accent']);
-    expect(fills).toEqual(['bg-ink-100', 'hover:bg-ink-200']);
-    // …and what the dark theme makes of them, read off the stylesheet.
-    const css = readStylesheet();
-    const { dark } = readTokens(css);
-    expect(declared(css, '.dark .text-accent', 'color')).toBeUndefined();
-    const surfaces = ['.dark .bg-ink-100', '.dark .hover\\:bg-ink-200:hover'].map((selector) =>
-      resolveColour(declared(css, selector, 'background-color'), dark),
-    );
-    for (const surface of surfaces) {
-      expect(contrastRatio(dark.accent, surface)).toBeGreaterThanOrEqual(AA_TEXT);
-    }
+    expect(screen.getByRole('status')).toHaveClass('pk-toast');
+    // The toast is `ink`, its text `surface`, its action `--toast-action`
+    // (src/styles/parc-app.css), read off the stylesheets.
+    const tokens = readStylesheet('src/styles/parc-tokens.css');
+    const app = readStylesheet('src/styles/parc-app.css');
+    const ink = declared(tokens, ':root', '--ink');
+    expect(declared(app, '.pk-toast', 'background')).toBe('var(--ink)');
+    expect(declared(app, '.pk-toast .pk-btn', 'color')).toBe('var(--toast-action)');
+    expect(contrastRatio(declared(app, ':root', '--toast-action'), ink)).toBeGreaterThanOrEqual(AA_TEXT);
+    expect(contrastRatio(declared(app, ':root', '--toast-error'), ink)).toBeGreaterThanOrEqual(AA_TEXT);
+    expect(contrastRatio(declared(tokens, ':root', '--surface'), ink)).toBeGreaterThanOrEqual(AA_TEXT);
   });
 });

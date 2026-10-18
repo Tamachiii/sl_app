@@ -1,15 +1,15 @@
-// Contrast of the design tokens, computed from the stylesheet as text.
+// Contrast of colours, and the declarations of a stylesheet read as text.
 //
 // jsdom applies no cascade, so a component test cannot see what colour a class
-// ends up with. What can be read is `src/index.css` itself: the tokens of
-// `@theme`, what `.dark` sets on top of them, and the rule that paints each
-// surface. These helpers turn that text into colours and WCAG ratios, for
-// `contrast.test.js` and for any later test that needs "is this token readable
-// on that surface".
+// ends up with. What can be read is the stylesheets themselves — the Parc
+// tokens (src/styles/parc-tokens.css), its classes (bundle.css, parc-app.css),
+// src/index.css. These helpers turn that text into the value a selector
+// declares, and two colours into a WCAG ratio, for parcTokens.test.js,
+// hitTargets.test.js and the tests of a component that need either.
 //
 // The reader is deliberately small: it knows rules that hold declarations and
 // nothing else (an `@layer { … }` wrapper is seen through, a rule inside it is
-// read like any other). `index.css` holds no other construct.
+// read like any other).
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -46,19 +46,6 @@ export function contrastRatio(a, b) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-// `top` at `alpha` painted over `bottom`, as a hex colour: what a tint like
-// `bg-pull/15` — the colour at 15% — ends up as on the surface behind it.
-// Mixed per sRGB channel, which is how a browser paints one layer on another.
-export function mixOver(top, alpha, bottom) {
-  const channels = (hex) => {
-    const n = parseInt(normalizeHex(hex).slice(1), 16);
-    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-  };
-  const under = channels(bottom);
-  const mixed = channels(top).map((channel, i) => Math.round(alpha * channel + (1 - alpha) * under[i]));
-  return `#${mixed.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
-}
-
 // Every rule that holds declarations: [{ selectors, declarations }]. A rule
 // that is written twice appears twice, in source order.
 export function parseRules(css) {
@@ -76,38 +63,6 @@ export function parseRules(css) {
         }),
     ),
   }));
-}
-
-const colourTokens = (declarations) =>
-  Object.fromEntries(
-    Object.entries(declarations)
-      .filter(([property]) => property.startsWith('--color-'))
-      .map(([property, value]) => [property.slice('--color-'.length), value]),
-  );
-
-// The colour tokens by name (`ink-400`, `accent`, …): `light` is `@theme`,
-// `dark` is `@theme` with what the `.dark` rule itself sets on top — the
-// values the app runs with, `class="dark"` being on <html>.
-export function readTokens(css) {
-  const rules = parseRules(css);
-  const pick = (selector) =>
-    rules
-      .filter((rule) => rule.selectors.length === 1 && rule.selectors[0] === selector)
-      .reduce((all, rule) => ({ ...all, ...colourTokens(rule.declarations) }), {});
-  const light = pick('@theme');
-  return { light, dark: { ...light, ...pick('.dark') } };
-}
-
-// A declared value as a hex colour: `var(--color-ink-850) !important` and
-// `#fff` both resolve; anything else (a `color-mix`, a keyword, the
-// `undefined` of a rule that is gone) throws, so a test never compares
-// against a colour it did not understand.
-export function resolveColour(value, tokens) {
-  if (typeof value !== 'string') throw new Error('no declared value to resolve: the rule or the property is missing');
-  const bare = value.replace(/\s*!important\s*$/, '').trim();
-  const token = bare.match(/^var\(--color-([\w-]+)\)$/)?.[1];
-  if (token && tokens[token] === undefined) throw new Error(`no token --color-${token}`);
-  return normalizeHex(token ? tokens[token] : bare);
 }
 
 // The value a selector declares for one of the given properties — the last

@@ -12,10 +12,11 @@ const mockActions = {
 };
 let mockOnline = true;
 let mockLibrary = [];
+const mockNavigate = vi.fn();
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
-  return { ...actual, useNavigate: () => vi.fn() };
+  return { ...actual, useNavigate: () => mockNavigate };
 });
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({ profile: { full_name: 'Sam Lee' }, signOut: vi.fn() }),
@@ -48,43 +49,66 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+// A draft of one phase with one session, holding `slots`; `over` changes the
+// program (`submitted_at`).
+function draftWith(slots, over = {}) {
+  const program = { id: 'p-1', name: 'Block A', status: 'draft', submitted_at: null, ...over };
+  mockMyDraft = { data: program, isLoading: false };
+  mockTree = {
+    data: {
+      ...program,
+      weeks: [{ id: 'w-1', week_number: 1, sessions: [
+        { id: 's-1', title: 'Day 1', sort_order: 0, exercise_slots: slots },
+      ] }],
+    },
+    isLoading: false,
+  };
+}
+
+const squatSlot = { id: 'sl-1', exercise_id: 'e-1', sets: 3, reps: 5, sort_order: 0, exercise: { id: 'e-1', name: 'Squat', type: 'push' } };
+
 describe('<StudentProgramAuthor />', () => {
   it('offers to create a draft when the student has none, and creates one', () => {
     renderAuthor();
-    const input = screen.getByPlaceholderText(/off-season/i);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Write a program');
+    const input = screen.getByRole('textbox', { name: 'Name of the program' });
+    expect(input).toHaveAttribute('placeholder', 'My off-season block');
     fireEvent.change(input, { target: { value: 'My block' } });
-    fireEvent.click(screen.getByRole('button', { name: /create draft/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create the draft' }));
     expect(mockCreate.mutate).toHaveBeenCalledWith({ name: 'My block' });
   });
 
   it('stays editable offline — Create is enabled and the banner says changes sync', () => {
     mockOnline = false;
     renderAuthor();
-    expect(screen.getByText(/changes sync when you reconnect/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /create draft/i })).not.toBeDisabled();
+    expect(screen.getByText('You’re offline. Your changes are sent when the connection returns.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create the draft' })).not.toBeDisabled();
+  });
+
+  it('says nothing about the network online', () => {
+    renderAuthor();
+    expect(screen.queryByText(/offline/i)).not.toBeInTheDocument();
   });
 
   it('renders the draft tree and gates submit until an exercise exists', () => {
-    mockMyDraft = { data: { id: 'p-1', name: 'Block A', status: 'draft', submitted_at: null }, isLoading: false };
-    mockTree = {
-      data: {
-        id: 'p-1', name: 'Block A', status: 'draft', submitted_at: null,
-        weeks: [{ id: 'w-1', week_number: 1, sessions: [
-          { id: 's-1', title: 'Day 1', sort_order: 0, exercise_slots: [
-            { id: 'sl-1', exercise_id: 'e-1', sets: 3, reps: 5, sort_order: 0, exercise: { id: 'e-1', name: 'Squat', type: 'push' } },
-          ] },
-        ] }],
-      },
-      isLoading: false,
-    };
-    renderAuthor();
-    expect(screen.getByText('Block A')).toBeInTheDocument();
-    expect(screen.getByText('Week 1')).toBeInTheDocument();
+    draftWith([squatSlot]);
+    const { unmount } = renderAuthor();
+    expect(screen.getByRole('heading', { name: 'Block A' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Phase 1' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Day 1' })).toBeInTheDocument();
     expect(screen.getByText('Squat')).toBeInTheDocument();
-    const submitBtn = screen.getByRole('button', { name: /submit for approval/i });
+    const submitBtn = screen.getByRole('button', { name: 'Submit for approval' });
     expect(submitBtn).not.toBeDisabled();
+    expect(screen.queryByText('Add at least one exercise before submitting.')).not.toBeInTheDocument();
     fireEvent.click(submitBtn);
     expect(mockActions.submit).toHaveBeenCalled();
+    unmount();
+
+    // No exercise yet: nothing to submit, and the page says why.
+    draftWith([]);
+    renderAuthor();
+    expect(screen.getByRole('button', { name: 'Submit for approval' })).toBeDisabled();
+    expect(screen.getByText('Add at least one exercise before submitting.')).toBeInTheDocument();
   });
 
   it('adds a week via the optimistic action (works offline)', () => {
@@ -92,16 +116,59 @@ describe('<StudentProgramAuthor />', () => {
     mockMyDraft = { data: { id: 'p-1', name: 'Block A', status: 'draft', submitted_at: null }, isLoading: false };
     mockTree = { data: { id: 'p-1', name: 'Block A', status: 'draft', submitted_at: null, weeks: [] }, isLoading: false };
     renderAuthor();
-    fireEvent.click(screen.getByRole('button', { name: /add week/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add a phase' }));
     expect(mockActions.addWeek).toHaveBeenCalled();
   });
 
-  it('shows the submitted state (read-only) once submitted', () => {
-    mockMyDraft = { data: { id: 'p-1', name: 'Block A', status: 'draft', submitted_at: '2026-04-26T00:00:00Z' }, isLoading: false };
-    mockTree = { data: { id: 'p-1', name: 'Block A', status: 'draft', submitted_at: '2026-04-26T00:00:00Z', weeks: [] }, isLoading: false };
+  it('adds a session to its phase, and removes a phase, a session or an exercise by its name', () => {
+    draftWith([squatSlot]);
     renderAuthor();
-    expect(screen.getByText(/awaiting coach/i)).toBeInTheDocument();
+    const phase = within(screen.getByRole('region', { name: 'Phase 1' }));
+    fireEvent.click(phase.getByRole('button', { name: 'Add a session' }));
+    expect(mockActions.addSession).toHaveBeenCalledWith('w-1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Squat' }));
+    expect(mockActions.deleteRow).toHaveBeenLastCalledWith('exercise_slots', 'sl-1');
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Day 1' }));
+    expect(mockActions.deleteRow).toHaveBeenLastCalledWith('sessions', 's-1');
+    fireEvent.click(screen.getByRole('button', { name: 'Remove phase 1' }));
+    expect(mockActions.deleteRow).toHaveBeenLastCalledWith('weeks', 'w-1');
+  });
+
+  it('shows the submitted state (read-only) once submitted', () => {
+    draftWith([{ ...squatSlot, weight_kg: 100 }], { submitted_at: '2026-04-26T00:00:00Z' });
+    renderAuthor();
+    expect(screen.getByText('Submitted, waiting for your coach')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /submit for approval/i })).not.toBeInTheDocument();
+    // Nothing to edit: no field, no add, no remove — the prescription in words.
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^(add|remove)/i })).not.toBeInTheDocument();
+    expect(screen.getByText('3 × 5 at 100 kg')).toBeInTheDocument();
+  });
+
+  it('discards the draft only once the athlete says so in the sheet, then goes home', () => {
+    draftWith([squatSlot]);
+    renderAuthor();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard the draft' }));
+    const sheet = within(screen.getByRole('dialog', { name: 'Discard this draft?' }));
+    expect(sheet.getByText('It cannot be undone.')).toBeInTheDocument();
+    expect(mockActions.discard).not.toHaveBeenCalled();
+
+    fireEvent.click(sheet.getByRole('button', { name: 'Discard the draft' }));
+    expect(mockActions.discard).toHaveBeenCalledTimes(1);
+    const [{ onSettled }] = mockActions.discard.mock.calls[0];
+    expect(mockNavigate).not.toHaveBeenCalled();
+    onSettled();
+    expect(mockNavigate).toHaveBeenCalledWith('/student');
+  });
+
+  it('Cancel in the sheet keeps the draft', () => {
+    draftWith([squatSlot]);
+    renderAuthor();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard the draft' }));
+    const sheet = within(screen.getByRole('dialog', { name: 'Discard this draft?' }));
+    fireEvent.click(sheet.getByRole('button', { name: 'Cancel' }));
+    expect(mockActions.discard).not.toHaveBeenCalled();
   });
 
   // P31. The sets, reps and kg of a slot were `type="number"` fields: "62,5"
@@ -111,24 +178,12 @@ describe('<StudentProgramAuthor />', () => {
   // one of them says something it cannot hold.
   describe('the fields of a slot', () => {
     function renderSlot(slot = {}) {
-      mockMyDraft = { data: { id: 'p-1', name: 'Block A', status: 'draft', submitted_at: null }, isLoading: false };
-      mockTree = {
-        data: {
-          id: 'p-1', name: 'Block A', status: 'draft', submitted_at: null,
-          weeks: [{ id: 'w-1', week_number: 1, sessions: [
-            { id: 's-1', title: 'Day 1', sort_order: 0, exercise_slots: [
-              { id: 'sl-1', exercise_id: 'e-1', sets: 3, reps: 5, weight_kg: null, sort_order: 0,
-                exercise: { id: 'e-1', name: 'Squat', type: 'push' }, ...slot },
-            ] },
-          ] }],
-        },
-        isLoading: false,
-      };
+      draftWith([{ ...squatSlot, weight_kg: null, ...slot }]);
       renderAuthor();
     }
-    const sets = () => screen.getByRole('textbox', { name: 'sets' });
-    const reps = () => screen.getByRole('textbox', { name: 'reps' });
-    const kg = () => screen.getByRole('textbox', { name: 'kg' });
+    const sets = () => screen.getByRole('textbox', { name: 'Sets' });
+    const reps = () => screen.getByRole('textbox', { name: 'Reps' });
+    const kg = () => screen.getByRole('textbox', { name: 'Load in kg' });
 
     // Replaces what the field holds, then leaves it: the blur commits.
     async function enter(user, field, text) {
@@ -146,6 +201,8 @@ describe('<StudentProgramAuthor />', () => {
       expect(sets()).toHaveValue('3');
       expect(reps()).toHaveValue('5');
       expect(kg()).toHaveValue('62.5');
+      // The Parc number field.
+      for (const field of [sets(), reps(), kg()]) expect(field).toHaveClass('pk-field');
     });
 
     it.each(['62,5', '62.5'])('"%s" kg is written as 62.5', async (text) => {
@@ -191,6 +248,9 @@ describe('<StudentProgramAuthor />', () => {
       expect(mockActions.updateSlot).not.toHaveBeenCalled();
       expect(screen.getByRole('alert')).toHaveTextContent('Enter a whole number, 1 or more');
       expect(field).toHaveAttribute('aria-invalid', 'true');
+      // The one message of the line is about this field.
+      expect(field).toHaveAttribute('aria-describedby', screen.getByRole('alert').id);
+      expect(screen.getAllByRole('alert')).toHaveLength(1);
     });
 
     it('once the field is put right, the alert goes and the next blur writes the slot', async () => {
@@ -214,22 +274,13 @@ describe('<StudentProgramAuthor />', () => {
     const ARCHIVED = '2026-10-01T00:00:00Z';
 
     function renderSession(slots = []) {
-      mockMyDraft = { data: { id: 'p-1', name: 'Block A', status: 'draft', submitted_at: null }, isLoading: false };
-      mockTree = {
-        data: {
-          id: 'p-1', name: 'Block A', status: 'draft', submitted_at: null,
-          weeks: [{ id: 'w-1', week_number: 1, sessions: [
-            { id: 's-1', title: 'Day 1', sort_order: 0, exercise_slots: slots },
-          ] }],
-        },
-        isLoading: false,
-      };
+      draftWith(slots);
       renderAuthor();
     }
 
     async function openPicker(user) {
-      await user.click(screen.getByRole('button', { name: /add exercise/i }));
-      return screen.getByRole('dialog', { name: 'Add exercise' });
+      await user.click(screen.getByRole('button', { name: 'Add an exercise' }));
+      return screen.getByRole('dialog', { name: 'Add an exercise' });
     }
 
     it('does not offer an exercise the coach archived, and still names it on the slot that uses it', async () => {
@@ -252,8 +303,8 @@ describe('<StudentProgramAuthor />', () => {
       expect(offered.some((text) => text.includes('Pull-up'))).toBe(true);
       expect(within(picker).queryByText('Old Row')).not.toBeInTheDocument();
 
-      await user.type(within(picker).getByRole('textbox', { name: /search exercises/i }), 'row');
-      expect(within(picker).getByText(/no exercises found/i)).toBeInTheDocument();
+      await user.type(within(picker).getByRole('searchbox', { name: 'Search an exercise' }), 'row');
+      expect(within(picker).getByText('No exercise found.')).toBeInTheDocument();
     });
 
     it('shows each exercise\'s type with the shared badge, under its name in the app', async () => {
@@ -267,11 +318,15 @@ describe('<StudentProgramAuthor />', () => {
       const picker = await openPicker(user);
       const squat = within(picker).getByRole('button', { name: /squat/i });
       const pullUp = within(picker).getByRole('button', { name: /pull-up/i });
-      expect(within(squat).getByText('Push')).toHaveClass('sl-pill', 'bg-push/15', 'text-push');
-      expect(within(pullUp).getByText('Pull')).toHaveClass('sl-pill', 'bg-pull/15', 'text-pull');
+      // The badge: a mark of the type's chart colour before its name.
+      const mark = (badge) => badge.querySelector('[aria-hidden="true"]');
+      expect(mark(within(squat).getByText('Push'))).toHaveClass('bg-chart-push');
+      expect(mark(within(pullUp).getByText('Pull'))).toHaveClass('bg-chart-pull');
 
       await user.click(pullUp);
       expect(mockActions.addSlot).toHaveBeenCalledWith('s-1', mockLibrary[1]);
+      // The pick closes the sheet.
+      expect(screen.queryByRole('dialog', { name: 'Add an exercise' })).not.toBeInTheDocument();
     });
   });
 });

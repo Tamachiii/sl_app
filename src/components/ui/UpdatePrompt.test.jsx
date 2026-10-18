@@ -466,9 +466,10 @@ describe('<UpdatePrompt /> — the offer', () => {
     expect([...card.children].map((el) => el.tagName)).toEqual(['P', 'P', 'DIV']); // offer, what it costs, actions
     expect(card.lastElementChild).toBe(actions);
     expect(card.className).not.toMatch(/\bflex\b/);
-    // Thumb-sized, both.
-    expect(later.className).toContain('min-h-[44px]');
-    expect(update.className).toContain('min-h-[44px]');
+    // Thumb-sized, both: Parc buttons, which src/test/hitTargets.test.js
+    // holds to 44px.
+    expect(later).toHaveClass('pk-btn', 'pk-btn-text');
+    expect(update).toHaveClass('pk-btn', 'pk-btn-primary');
   });
 
   it('"Update" waits for a write that is on its way', async () => {

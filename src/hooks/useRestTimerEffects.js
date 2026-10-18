@@ -1,5 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRestTimer } from './useRestTimer';
+import { useI18n } from './useI18n';
 
 // useRestTimerEffects — out-of-band side effects that ride on top of the
 // app-wide rest-timer singleton (hooks/useRestTimer). Kept separate so the
@@ -162,6 +163,12 @@ function formatMMSS(seconds) {
 
 export function useRestTimerEffects() {
   const { endsAt, logId } = useRestTimer();
+  // The title is written from a timer: it reads the language of the moment.
+  const { t } = useI18n();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
 
   useEffect(() => {
     armAudioUnlock();
@@ -220,10 +227,10 @@ export function useRestTimerEffects() {
       }
       const remainingMs = endsAt - Date.now();
       if (remainingMs <= 0) {
-        document.title = `Rest done · ${originalTitle}`;
+        document.title = tRef.current('sessionRestControls.tabTitleDone', { title: originalTitle });
       } else {
         const s = Math.ceil(remainingMs / 1000);
-        document.title = `Rest ${formatMMSS(s)} · ${originalTitle}`;
+        document.title = tRef.current('sessionRestControls.tabTitle', { time: formatMMSS(s), title: originalTitle });
       }
     }
 

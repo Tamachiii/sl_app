@@ -130,30 +130,6 @@ export function buildLastPerformance(rows, { currentSessionId, exerciseIds } = {
 }
 
 /**
- * Compact one-line summary of a prior performance's sets, collapsing runs of
- * identical (weight, reps) sets:
- *   uniform 3×8 @ 100      → "3 × 8 @ 100kg"
- *   mixed 8@100, 8@100, 6  → "2 × 8 @ 100kg · 6 @ 100kg"
- *   bodyweight 10, 8       → "10 · 8"
- * Beyond `maxGroups` distinct groups it appends "+N".
- */
-export function formatLastPerformance(perf, { maxGroups = 4 } = {}) {
-  if (!perf || !Array.isArray(perf.sets) || perf.sets.length === 0) return '';
-  const groups = [];
-  for (const s of perf.sets) {
-    const prev = groups[groups.length - 1];
-    if (prev && prev.weight === s.weight && prev.reps === s.reps) prev.count++;
-    else groups.push({ weight: s.weight, reps: s.reps, count: 1 });
-  }
-  const parts = groups.slice(0, maxGroups).map((g) => {
-    const weightSuffix = g.weight > 0 ? ` @ ${g.weight}kg` : '';
-    return g.count > 1 ? `${g.count} × ${g.reps}${weightSuffix}` : `${g.reps}${weightSuffix}`;
-  });
-  if (groups.length > maxGroups) parts.push(`+${groups.length - maxGroups}`);
-  return parts.join(' · ');
-}
-
-/**
  * Whole CALENDAR days between an ISO timestamp and `now` (default today),
  * never negative. Feeds the relative-time label ("yesterday", "5 days ago"),
  * which is rendered via Intl.RelativeTimeFormat with numeric:'auto' — a

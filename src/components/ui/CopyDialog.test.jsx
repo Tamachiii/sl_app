@@ -73,9 +73,9 @@ function renderDialog(props) {
   return { ...all, ...utils, rerenderWith: (next) => utils.rerender(<CopyDialog {...all} {...next} />) };
 }
 
-const athlete = () => screen.getByLabelText('Student');
-const block = () => screen.getByLabelText('Destination block');
-const phase = () => screen.getByLabelText('Destination week');
+const athlete = () => screen.getByLabelText('Athlete');
+const block = () => screen.getByLabelText('Block');
+const phase = () => screen.getByLabelText('Phase');
 const copyButton = () => screen.getByRole('button', { name: 'Copy' });
 const options = (select) => within(select).getAllByRole('option').map((o) => o.textContent);
 
@@ -91,19 +91,21 @@ describe('CopyDialog', () => {
     const { onCopy } = renderDialog({ showWeekSelect: true });
 
     expect(block()).toBeDisabled();
+    expect(options(block())).toEqual(['Choose an athlete first']);
     expect(phase()).toBeDisabled();
+    expect(options(phase())).toEqual(['Choose a block first']);
     expect(copyButton()).toBeDisabled();
 
     await user.selectOptions(athlete(), 'st-2');
     expect(block()).toBeEnabled();
     // Every block of the athlete, not only the active one.
-    expect(options(block())).toEqual(['Select a block', 'Base (active)', 'Peak']);
+    expect(options(block())).toEqual(['Choose a block', 'Base, in progress', 'Peak']);
     expect(phase()).toBeDisabled();
     expect(copyButton()).toBeDisabled();
 
     await user.selectOptions(block(), 'p-2');
     expect(phase()).toBeEnabled();
-    expect(options(phase())).toEqual(['Select week…', 'Volume · Sessions 1–2', 'Unnamed phase · Session 3']);
+    expect(options(phase())).toEqual(['Choose a phase', 'Volume, Sessions 1 to 2', 'Unnamed phase, Session 3']);
     expect(copyButton()).toBeDisabled();
 
     await user.selectOptions(phase(), 'w-3');
@@ -119,7 +121,7 @@ describe('CopyDialog', () => {
     const user = userEvent.setup();
     const { onCopy } = renderDialog();
 
-    expect(screen.queryByLabelText('Destination week')).toBeNull();
+    expect(screen.queryByLabelText('Phase')).toBeNull();
     await user.selectOptions(athlete(), 'st-2');
     expect(copyButton()).toBeDisabled();
     await user.selectOptions(block(), 'p-3');
@@ -134,12 +136,12 @@ describe('CopyDialog', () => {
 
     await user.selectOptions(athlete(), 'st-3');
     expect(block()).toBeDisabled();
-    expect(options(block())).toEqual(['This athlete has no block yet']);
+    expect(options(block())).toEqual(['No block']);
 
     await user.selectOptions(athlete(), 'st-2');
     await user.selectOptions(block(), 'p-3');
     expect(phase()).toBeDisabled();
-    expect(options(phase())).toEqual(['No weeks in this student’s program']);
+    expect(options(phase())).toEqual(['No phase']);
     expect(copyButton()).toBeDisabled();
   });
 
@@ -157,12 +159,13 @@ describe('CopyDialog', () => {
 
   it('leaves the athlete of the page out, unless the copy may stay with them', () => {
     const { unmount } = renderDialog();
-    expect(options(athlete())).toEqual(['Select student…', 'Bob', 'Unnamed student']);
+    // An athlete without a name is still offered, as « Athlete ».
+    expect(options(athlete())).toEqual(['Choose an athlete', 'Bob', 'Athlete']);
     unmount();
 
     // With the block being edited: a phase or a session can be copied within it.
     renderDialog({ currentProgramId: 'p-1' });
-    expect(options(athlete())).toEqual(['Select student…', 'Alice (this athlete)', 'Bob', 'Unnamed student']);
+    expect(options(athlete())).toEqual(['Choose an athlete', 'Alice, this athlete', 'Bob', 'Athlete']);
   });
 
   it('shows the copy as on its way and takes no second one meanwhile', async () => {
@@ -228,6 +231,26 @@ describe('CopyDialog', () => {
     expect(onCopy).not.toHaveBeenCalled();
   });
 
+  // A Parc sheet: the cross of its header closes it as Cancel does.
+  it('asks the parent to close on the cross of the sheet', async () => {
+    const user = userEvent.setup();
+    const { onClose, onCopy } = renderDialog();
+
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onCopy).not.toHaveBeenCalled();
+  });
+
+  it('is a sheet named by its title and described by what the copy does', () => {
+    renderDialog({ description: 'Copies 2 sessions to the end of the phase you choose.' });
+
+    const sheet = screen.getByRole('dialog', { name: 'Copy sessions' });
+    expect(sheet).toHaveAccessibleDescription('Copies 2 sessions to the end of the phase you choose.');
+    // Copy is the sheet's main action.
+    expect(copyButton()).toHaveClass('pk-btn', 'pk-btn-primary', 'pk-btn-lg');
+  });
+
   // Review item B28: a phase is a free-text name, never "Week 3", and an
   // unnamed one is drawn as the sheet draws it. What it holds tells two
   // phases of the same name apart.
@@ -257,11 +280,11 @@ describe('CopyDialog', () => {
     await user.selectOptions(block(), 'p-2');
 
     expect(options(phase())).toEqual([
-      'Select week…',
-      'Unnamed phase · Sessions 1–2',
-      'Unnamed phase · Sessions 3–4',
-      'Deload · No sessions yet',
-      'Peak · Session 5',
+      'Choose a phase',
+      'Unnamed phase, Sessions 1 to 2',
+      'Unnamed phase, Sessions 3 to 4',
+      'Deload, No session yet',
+      'Peak, Session 5',
     ]);
     expect(options(phase()).join(' ')).not.toMatch(/Week \d/);
   });
@@ -310,6 +333,7 @@ describe('CopyDialog', () => {
     renderDialog({ open: false });
 
     expect(readStudents).not.toHaveBeenCalled();
-    expect(screen.queryByLabelText('Student')).toBeNull();
+    expect(screen.queryByLabelText('Athlete')).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

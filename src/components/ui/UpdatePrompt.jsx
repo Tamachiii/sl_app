@@ -6,8 +6,9 @@ import { useI18n } from '../../hooks/useI18n';
 import { appUpdater } from '../../lib/appUpdate';
 import { fieldWatch } from '../../lib/fieldWatch';
 import { writesAreSafe } from '../../lib/pendingWrites';
+import { Button } from '../parc';
 
-// ui/Dialog keeps its <dialog> mounted and closed; only an open one counts.
+// A Parc Sheet keeps its <dialog> mounted and closed; only an open one counts.
 const dialogIsOpen = () =>
   document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]') !== null;
 
@@ -102,46 +103,31 @@ export default function UpdatePrompt({ updater = appUpdater }) {
 
   return (
     <div
-      className="fixed inset-x-0 z-50 flex justify-center px-3 pointer-events-none"
+      className="pointer-events-none fixed inset-x-0 z-50 flex justify-center px-4"
       style={{ bottom: 'calc(env(safe-area-inset-bottom) + 72px)' }}
     >
       <div
         role="status"
         aria-live="polite"
         data-testid="update-prompt"
-        className="sl-card px-4 py-3 shadow-lg pointer-events-auto"
-        style={{
-          borderLeft: '3px solid var(--color-accent)',
-          maxWidth: 'min(92vw, 420px)',
-        }}
+        className="pointer-events-auto w-full max-w-[420px] rounded-group border border-line bg-surface p-4 shadow-lg"
       >
         {updating ? (
-          <p className="text-[13px] text-gray-900">{t('appUpdate.updating')}</p>
+          <p className="pk-body m-0">{t('appUpdate.updating')}</p>
         ) : (
           // The text above, the two actions below it: side by side, "Mettre à
           // jour" and "Aktualisieren" leave the sentence a column of a few
           // words on a phone, and the card grows over the page it sits on.
           <>
-            <p className="text-[13px] text-gray-900">{message}</p>
-            {isResting(timer) && (
-              <p className="sl-mono text-[11px] text-ink-400 mt-0.5">{t('appUpdate.stopsRest')}</p>
-            )}
-            <div className="mt-1 flex items-center justify-end gap-1">
-              <button
-                type="button"
-                onClick={onLater}
-                className="min-h-[44px] px-3 text-[13px] text-ink-400 hover:text-gray-900"
-              >
+            <p className="pk-body m-0">{message}</p>
+            {isResting(timer) && <p className="pk-small m-0 mt-1">{t('appUpdate.stopsRest')}</p>}
+            <div className="mt-2 flex items-center justify-end gap-1">
+              <Button variant="text" onClick={onLater}>
                 {t('appUpdate.later')}
-              </button>
-              <button
-                type="button"
-                onClick={onUpdate}
-                className="sl-btn-primary text-[13px] min-h-[44px]"
-                style={{ padding: '10px 16px' }}
-              >
+              </Button>
+              <Button variant="primary" onClick={onUpdate}>
                 {t('appUpdate.update')}
-              </button>
+              </Button>
             </div>
           </>
         )}

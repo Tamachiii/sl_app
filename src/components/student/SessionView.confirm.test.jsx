@@ -312,7 +312,7 @@ const renderList = (client) => render(under(client, <StudentTraining />));
 async function atHome() {
   const client = makeClient();
   const view = renderList(client);
-  expect(await screen.findByText('Session 2 of 3')).toBeInTheDocument();
+  expect(await screen.findByText('Bloc 3, session 2 of 3')).toBeInTheDocument();
   await waitFor(() => expect(db.requestsTo('set_logs')).toHaveLength(1));
   view.unmount();
   return client;
@@ -333,38 +333,58 @@ const settle = () =>
   });
 
 const banner = () => screen.getByTestId('offline-banner');
-const confirmCta = () => screen.queryByRole('button', { name: /^confirm session$/i });
-const notesField = () => screen.queryByLabelText(/notes for your coach/i);
-const confirmedCard = () => screen.queryByText(/^session confirmed$/i)?.closest('.sl-card') ?? null;
+// "Confirm session" is a text button in the page while sets are still to do,
+// and the ActionBar's main button once every set is dealt with: one of the
+// two, never both — so one button by that name.
+const confirmCta = () => screen.queryByRole('button', { name: 'Confirm session' });
+// The sheet that confirms, and its field. A closed sheet is not shown: both
+// are null once it has closed.
+const confirmSheet = () => screen.queryByRole('dialog', { name: 'Confirm the session' });
+const notesField = () => {
+  const sheet = confirmSheet();
+  return sheet ? within(sheet).queryByRole('textbox', { name: 'Note for your coach' }) : null;
+};
+const confirmedCard = () => screen.queryByText('Session confirmed')?.closest('section') ?? null;
 const waitingLine = () => screen.queryByText(/saved on this device/i);
+// The facts under the title: « 2 exercises, 2 of 4 sets done ».
+const facts = () => screen.queryByText(/sets done$/);
 
 async function confirmWith(user, note) {
   await user.click(confirmCta());
   if (note) await user.type(notesField(), note);
-  await user.click(screen.getByRole('button', { name: /^confirm$/i }));
+  await user.click(within(confirmSheet()).getByRole('button', { name: 'Confirm' }));
+}
+
+// "Undo confirmation" on the page asks first, in a sheet; its answer undoes.
+async function undoConfirmation(user) {
+  await user.click(screen.getByRole('button', { name: 'Undo confirmation' }));
+  const sheet = screen.getByRole('dialog', { name: 'Undo the confirmation?' });
+  await user.click(within(sheet).getByRole('button', { name: 'Undo confirmation' }));
 }
 
 // The list after the confirmation of "Pull A": the block has moved on.
 async function expectListMovedOn(user) {
-  expect(screen.getByText('Session 3 of 3')).toBeInTheDocument();
-  const nextCard = screen.getByText('Next').closest('.rounded-2xl');
-  expect(within(nextCard).getByText('Legs A')).toBeInTheDocument();
-  expect(within(nextCard).queryByText('Pull A')).toBeNull();
+  expect(screen.getByText('Bloc 3, session 3 of 3')).toBeInTheDocument();
+  // The next session: the panel that holds « Start the session ».
+  const next = screen.getByRole('link', { name: 'Start the session' }).closest('section');
+  expect(within(next).getByRole('heading', { name: 'Legs A' })).toBeInTheDocument();
+  expect(within(next).queryByText('Pull A')).toBeNull();
 
-  // The drawer of finished sessions holds it, first — it is the one trained
+  // The row of finished sessions holds it, first — it is the one trained
   // last — and with its day.
-  const drawer = screen.getByRole('button', { name: /done/i });
-  expect(drawer).toHaveTextContent('2 sessions');
+  const history = screen.getByRole('region', { name: 'History' });
+  const drawer = within(history).getByRole('button', { name: /sessions? done/ });
+  expect(drawer).toHaveAccessibleName(/^2 sessions done,/);
   await user.click(drawer);
-  const section = drawer.closest('section');
-  const titles = within(section)
+  const titles = within(history)
     .getAllByText(/^(Pull A|Push A)$/)
     .map((el) => el.textContent);
   expect(titles).toEqual(['Pull A', 'Push A']);
-  // "Tue, Oct 13 · 2 EX": without its day the card says "2 EX" alone, and
+  // "Pull A, Tue, Oct 13": without its day the row says its title alone, and
   // sinks below the sessions that have one.
-  const pullCard = within(section).getByText('Pull A').closest('.min-w-0');
-  expect(pullCard).toHaveTextContent(/[A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2}\s*·\s*2 EX/);
+  expect(within(history).getByRole('link', { name: /^Pull A/ })).toHaveAccessibleName(
+    /^Pull A, [A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2}$/,
+  );
 }
 
 beforeEach(() => {
@@ -410,26 +430,26 @@ afterEach(() => {
 });
 
 describe('a session confirmed without a network', () => {
-  it('the dialog closes at the tap, the page says the confirmation is kept on the device, and the list has moved on', async () => {
+  it('the sheet closes at the tap, the page says the confirmation is kept on the device, and the list has moved on', async () => {
     const user = userEvent.setup();
     const gym = await atHome();
     setNetwork(false);
     const page = renderSession(gym);
-    expect(screen.getByText('2 of 4 sets')).toBeInTheDocument();
+    expect(facts()).toHaveTextContent('2 exercises, 2 of 4 sets done');
 
     await user.click(confirmCta());
-    expect(screen.getByText('Sets logged: 2 of 4')).toBeInTheDocument();
+    expect(within(confirmSheet()).getByText('2 of 4 sets logged')).toBeInTheDocument();
     await user.type(notesField(), 'felt strong');
-    await user.click(screen.getByRole('button', { name: /^confirm$/i }));
+    await user.click(within(confirmSheet()).getByRole('button', { name: 'Confirm' }));
 
-    // No "Confirming…", no dialog: the page behind it.
-    expect(notesField()).toBeNull();
+    // No "Confirming…", no sheet: the page behind it.
+    expect(confirmSheet()).toBeNull();
     await waitFor(() => expect(confirmedCard()).not.toBeNull());
     expect(within(confirmedCard()).getByText('felt strong')).toBeInTheDocument();
     expect(waitingLine()).toHaveAttribute('role', 'status');
     expect(confirmCta()).toBeNull();
     expect(screen.queryByText(/confirming…/i)).toBeNull();
-    expect(banner()).toHaveTextContent('Offline · 1 change waiting to sync');
+    expect(banner()).toHaveTextContent('Offline. 1 change waits for the connection.');
     // Nothing has left the device.
     expect(server.writes).toEqual([]);
     expect(server.confirmations.has('s-2')).toBe(false);
@@ -454,7 +474,7 @@ describe('a session confirmed without a network', () => {
     const relaunched = relaunch(gym);
     const list = renderList(relaunched);
     await expectListMovedOn(user);
-    expect(banner()).toHaveTextContent('Offline · 1 change waiting to sync');
+    expect(banner()).toHaveTextContent('Offline. 1 change waits for the connection.');
     list.unmount();
 
     renderSession(relaunched);
@@ -489,16 +509,14 @@ describe('a session confirmed without a network', () => {
     await confirmWith(user, 'first');
     await waitFor(() => expect(confirmedCard()).not.toBeNull());
 
-    await user.click(screen.getByRole('button', { name: /undo confirmation/i }));
-    const undoDialog = screen.getByText(/undo confirmation\?/i).closest('dialog');
-    await user.click(within(undoDialog).getByRole('button', { name: /undo confirmation/i }));
+    await undoConfirmation(user);
 
     await waitFor(() => expect(confirmCta()).not.toBeNull());
     expect(confirmCta()).toBeEnabled();
     expect(confirmedCard()).toBeNull();
     expect(screen.queryByText(/confirming…/i)).toBeNull();
     expect(waitingLine()).toBeNull();
-    expect(banner()).toHaveTextContent('Offline · 2 changes waiting to sync');
+    expect(banner()).toHaveTextContent('Offline. 2 changes wait for the connection.');
 
     // The note of the confirmation that has not been sent is still in the
     // field: it is written over.
@@ -506,11 +524,11 @@ describe('a session confirmed without a network', () => {
     expect(notesField()).toHaveValue('first');
     await user.clear(notesField());
     await user.type(notesField(), 'second');
-    await user.click(screen.getByRole('button', { name: /^confirm$/i }));
+    await user.click(within(confirmSheet()).getByRole('button', { name: 'Confirm' }));
     await waitFor(() => expect(confirmedCard()).not.toBeNull());
     expect(within(confirmedCard()).getByText('second')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /undo confirmation/i })).toBeEnabled();
-    expect(banner()).toHaveTextContent('Offline · 3 changes waiting to sync');
+    expect(screen.getByRole('button', { name: 'Undo confirmation' })).toBeEnabled();
+    expect(banner()).toHaveTextContent('Offline. 3 changes wait for the connection.');
 
     setNetwork(true);
     await waitFor(() => expect(server.writes).toEqual(['confirm', 'undo', 'confirm']));
@@ -521,7 +539,7 @@ describe('a session confirmed without a network', () => {
   });
 
   // The answer to a confirmation empties the field of its note. It can come
-  // hours after the tap, and find the dialog open again.
+  // hours after the tap, and find the sheet open again.
   it('confirmed and taken back: the note being written when the network returns stays in its field', async () => {
     const user = userEvent.setup();
     const gym = await atHome();
@@ -529,9 +547,7 @@ describe('a session confirmed without a network', () => {
     renderSession(gym);
     await confirmWith(user, 'first');
     await waitFor(() => expect(confirmedCard()).not.toBeNull());
-    await user.click(screen.getByRole('button', { name: /undo confirmation/i }));
-    const undoDialog = screen.getByText(/undo confirmation\?/i).closest('dialog');
-    await user.click(within(undoDialog).getByRole('button', { name: /undo confirmation/i }));
+    await undoConfirmation(user);
     await waitFor(() => expect(confirmCta()).not.toBeNull());
 
     await user.click(confirmCta());
@@ -546,17 +562,17 @@ describe('a session confirmed without a network', () => {
 });
 
 describe('a session confirmed on a network that is slow to answer', () => {
-  it('the dialog closes at the tap and the page shows the session as confirmed, without "kept on this device"', async () => {
+  it('the sheet closes at the tap and the page shows the session as confirmed, without "kept on this device"', async () => {
     const user = userEvent.setup();
     const client = makeClient();
     renderSession(client);
-    expect(await screen.findByText('2 of 4 sets')).toBeInTheDocument();
+    await waitFor(() => expect(facts()).toHaveTextContent('2 of 4 sets done'));
     await settle();
     server.hold();
 
     await confirmWith(user, 'felt strong');
 
-    expect(notesField()).toBeNull();
+    expect(confirmSheet()).toBeNull();
     await waitFor(() => expect(confirmedCard()).not.toBeNull());
     // Being sent is not waiting for a network.
     expect(waitingLine()).toBeNull();
@@ -572,11 +588,11 @@ describe('a session confirmed on a network that is slow to answer', () => {
     expect(server.confirmations.get('s-2')).toMatchObject({ notes: 'felt strong', performed_on: TRAINED_ON });
   });
 
-  it('a refusal brings "Confirm session" back, and the dialog opens on the note that was written', async () => {
+  it('a refusal brings "Confirm session" back, and the sheet opens on the note that was written', async () => {
     const user = userEvent.setup();
     const client = makeClient();
     renderSession(client);
-    expect(await screen.findByText('2 of 4 sets')).toBeInTheDocument();
+    await waitFor(() => expect(facts()).toHaveTextContent('2 of 4 sets done'));
     await settle();
     server.hold();
     server.refuse = REFUSED;
@@ -602,20 +618,28 @@ describe('a note written without a network', () => {
     setNetwork(false);
     renderSession(gym);
 
-    // The first exercise is open: its two sets are ticked and not rated yet.
-    await user.click(screen.getByRole('button', { name: /^add note for coach$/i }));
-    const field = screen.getByPlaceholderText(/note for your coach/i);
-    await user.type(field, 'left elbow');
+    // The screen opens on the first exercise with a set to do; the note is
+    // for the one before it, whose two sets are ticked and not rated yet —
+    // picked by its chip.
+    expect(screen.getByRole('heading', { level: 2, name: 'Weighted Dip' })).toBeInTheDocument();
+    const chips = screen.getByRole('navigation', { name: 'Exercises of the session' });
+    await user.click(within(chips).getByRole('button', { name: 'Bench Press' }));
+    expect(screen.getByRole('heading', { level: 2, name: 'Bench Press' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Add a note for the coach' }));
+    await user.type(screen.getByRole('textbox', { name: 'Note for your coach' }), 'left elbow');
     await user.tab();
 
-    expect(screen.queryByPlaceholderText(/note for your coach/i)).toBeNull();
-    expect(await screen.findByRole('button', { name: /^edit note for coach$/i })).toHaveTextContent('left elbow');
-    expect(banner()).toHaveTextContent('Offline · 1 change waiting to sync');
+    const note = () => screen.queryByRole('region', { name: 'Your note for the coach' });
+    expect(screen.queryByRole('textbox', { name: 'Note for your coach' })).toBeNull();
+    expect(await screen.findByRole('region', { name: 'Your note for the coach' })).toHaveTextContent('left elbow');
+    expect(within(note()).getByRole('button', { name: 'Edit the note' })).toBeInTheDocument();
+    expect(banner()).toHaveTextContent('Offline. 1 change waits for the connection.');
     expect(server.notes.size).toBe(0);
 
     setNetwork(true);
     await waitFor(() => expect(server.notes.get('sl-1')).toMatchObject({ body: 'left elbow', student_id: 'u-1' }));
     await settle();
-    expect(screen.getByRole('button', { name: /^edit note for coach$/i })).toHaveTextContent('left elbow');
+    expect(note()).toHaveTextContent('left elbow');
   });
 });

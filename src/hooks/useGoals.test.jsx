@@ -13,7 +13,6 @@ import {
   useDeleteGoal,
   useAddGoalProgress,
   useToggleGoalAchieved,
-  formatGoalTarget,
 } from './useGoals';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
@@ -179,24 +178,5 @@ describe('useToggleGoalAchieved', () => {
     result.current.mutate({ id: 'g-1', achieved: false });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(chain.update).toHaveBeenCalledWith({ achieved: false, achieved_at: null });
-  });
-});
-
-describe('formatGoalTarget', () => {
-  it('formats one_rm goals', () => {
-    expect(formatGoalTarget({ kind: 'one_rm', target_weight_kg: 120 })).toBe('1RM @ 120kg');
-  });
-  it('formats sets×reps goals', () => {
-    expect(
-      formatGoalTarget({
-        kind: 'sets_reps',
-        target_sets: 5,
-        target_reps: 5,
-        target_weight_kg: 100,
-      }),
-    ).toBe('5 × 5 @ 100kg');
-  });
-  it('returns "" for falsy goal', () => {
-    expect(formatGoalTarget(null)).toBe('');
   });
 });

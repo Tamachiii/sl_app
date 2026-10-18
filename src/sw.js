@@ -18,15 +18,13 @@
 // and `message` is in src/lib/swHandlers.js, where it is tested; this file
 // only wires those handlers to the events.
 //
-// Precaching, navigateFallback, and Google-Fonts runtime caching are kept
-// identical to the previous generateSW config so offline behavior is
-// unchanged.
+// Precaching and navigateFallback are kept identical to the previous
+// generateSW config so offline behavior is unchanged. The font is a file of
+// the build (Archivo, from @fontsource-variable/archivo), precached like the
+// rest: nothing is asked of Google Fonts any more.
 
 import { precacheAndRoute, cleanupOutdatedCaches, createHandlerBoundToURL } from 'workbox-precaching';
 import { registerRoute, NavigationRoute } from 'workbox-routing';
-import { CacheFirst, StaleWhileRevalidate } from 'workbox-strategies';
-import { ExpirationPlugin } from 'workbox-expiration';
-import { CacheableResponsePlugin } from 'workbox-cacheable-response';
 import {
   handleInstall,
   handleActivate,
@@ -56,22 +54,6 @@ precacheAndRoute(
 // SPA navigateFallback — every page route resolves to the precached
 // index.html so deep links survive offline cold loads.
 registerRoute(new NavigationRoute(createHandlerBoundToURL('/sl_app/index.html')));
-
-// Google Fonts — same runtime caching the previous workbox config had.
-registerRoute(
-  ({ url }) => url.origin === 'https://fonts.googleapis.com',
-  new StaleWhileRevalidate({ cacheName: 'google-fonts-stylesheets' }),
-);
-registerRoute(
-  ({ url }) => url.origin === 'https://fonts.gstatic.com',
-  new CacheFirst({
-    cacheName: 'google-fonts-webfonts',
-    plugins: [
-      new CacheableResponsePlugin({ statuses: [0, 200] }),
-      new ExpirationPlugin({ maxEntries: 30, maxAgeSeconds: 60 * 60 * 24 * 365 }),
-    ],
-  }),
-);
 
 // VAPID public key, injected at build time (see deploy.yml passing
 // VITE_VAPID_PUBLIC_KEY into the build). Needed so the SW can re-subscribe

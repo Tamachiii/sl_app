@@ -113,6 +113,18 @@ function useScrollRestoration(ref, pathname) {
   }, [ref, pathname]);
 }
 
+// The screens whose bottom is their ActionBar, not the tab bar
+// (design/parc/components/TabBar: « La TabBar disparaît sur les écrans de
+// détail, où l'ActionBar prend la place »).
+export function hasActionBar(pathname) {
+  return (
+    /^\/student\/session\/[^/]+\/?$/.test(pathname) ||
+    /^\/coach\/student\/[^/]+\/session\/[^/]+\/review\/?$/.test(pathname) ||
+    // A conversation: its composer is the bar at the bottom.
+    /^\/coach\/messages\/[^/]+\/?$/.test(pathname)
+  );
+}
+
 export default function AppShell() {
   const mainRef = useRef(null);
   const { pathname } = useLocation();
@@ -133,7 +145,7 @@ export default function AppShell() {
   useScrollRestoration(mainRef, pathname);
 
   return (
-    <div className="flex flex-col md:flex-row h-full bg-gray-50">
+    <div className="flex flex-col lg:flex-row h-full bg-ground">
       <SideNav />
       <main
         ref={mainRef}
@@ -150,11 +162,13 @@ export default function AppShell() {
             height budget instead of letting the wrapper grow with their
             content. Pages whose content is naturally taller still scroll
             via main, since main has overflow-y-auto. */}
-        <div className="mx-auto w-full max-w-5xl h-full flex flex-col">
+        <div className="mx-auto w-full max-w-content h-full flex flex-col">
           <Outlet />
         </div>
       </main>
-      <BottomNav />
+      {/* A screen with an ActionBar (design/parc: the session) has its main
+          action at the bottom instead of the tabs. */}
+      {!hasActionBar(pathname) && <BottomNav />}
       {/* The rest timer's beep, wake lock and push, for every page of a
           student: a change of tab in the middle of a rest no longer ends
           them. Unmounted with the shell, at sign-out. */}

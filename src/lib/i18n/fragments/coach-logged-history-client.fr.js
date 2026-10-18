@@ -13,21 +13,8 @@ export default {
       setLogged: 'Série {n} enregistrée',
       removeBlocked: 'Cet exercice contient des séries enregistrées et ne peut pas être retiré',
     },
-    sheet: {
-      openReview: 'Ouvrir la revue',
-      inProgress: 'Commencée par l’athlète, pas encore confirmée',
-    },
-    review: {
-      openEditor: 'éditeur',
-      openEditorAria: 'Ouvrir cette séance dans l’éditeur',
-    },
-    roster: {
-      reviewChipAria: '{n} à revoir — séances de {name}',
-    },
     athlete: {
       actionsLabel: 'Aller aux messages ou aux séances de {name}',
-      message: 'Message',
-      sessions: 'Séances',
     },
   },
 };

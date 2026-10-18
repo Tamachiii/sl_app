@@ -63,7 +63,12 @@ function renderDialog({ exercise = PULL_UP, qc = appLikeClient(), onArchive } = 
   return { onClose, onDelete, qc };
 }
 
-const deleteButton = () => screen.queryByRole('button', { name: 'Delete' });
+const deleteButton = () => screen.queryByRole('button', { name: 'Delete the exercise' });
+const keepButton = () => screen.queryByRole('button', { name: 'Keep the exercise' });
+// The way out written at the foot of the sheet once the exercise is known to
+// be in use — « Keep the exercise », as in every other state, so the sheet
+// never holds two buttons named « Close ».
+const footClose = () => screen.queryByText('Keep the exercise', { selector: 'button' });
 const status = () => screen.getByRole('status');
 // The number shown next to a label of the usage list.
 const usageCount = (label) => within(screen.getByText(label).closest('div')).getByRole('definition').textContent;
@@ -78,10 +83,13 @@ afterEach(() => {
 });
 
 describe('<ExerciseDeleteDialog />', () => {
-  it('asks the question with the exercise’s name', async () => {
+  it('asks the question with the exercise’s name, in a Parc sheet', async () => {
     renderDialog();
-    expect(screen.getByRole('heading', { name: 'Delete "Pull Up"?' })).toBeInTheDocument();
+    const sheet = screen.getByRole('dialog', { name: 'Delete Pull Up?' });
+    expect(sheet).toHaveClass('pk-sheet-dialog');
+    expect(within(sheet).getByRole('heading', { name: 'Delete Pull Up?' })).toBeInTheDocument();
     await waitFor(() => expect(deleteButton()).toBeEnabled());
+    expect(deleteButton()).toHaveClass('pk-btn', 'pk-btn-danger');
   });
 
   it('counts the slots, the goals and the swaps of THAT exercise, on the server', async () => {
@@ -125,10 +133,10 @@ describe('<ExerciseDeleteDialog />', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('Cancel closes without deleting', async () => {
+  it('"Keep the exercise" closes without deleting', async () => {
     const { onDelete, onClose } = renderDialog();
     await waitFor(() => expect(deleteButton()).toBeEnabled());
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(keepButton());
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onDelete).not.toHaveBeenCalled();
   });
@@ -143,9 +151,9 @@ describe('<ExerciseDeleteDialog />', () => {
       expect(usageCount('Goals set on it')).toBe('2');
       expect(screen.getByText(/Remove it from those sessions and goals first/)).toBeInTheDocument();
       expect(deleteButton()).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+      expect(screen.getAllByRole('button', { name: 'Close' })).toHaveLength(1);
 
-      fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+      fireEvent.click(footClose());
       expect(onClose).toHaveBeenCalledTimes(1);
       expect(onDelete).not.toHaveBeenCalled();
     });
@@ -177,9 +185,9 @@ describe('<ExerciseDeleteDialog />', () => {
     });
   });
 
-  // Review decision P18: "in use, cannot be deleted" ended on an OK. The
-  // exercise can leave the pickers by being archived, and the dialog offers
-  // that where it says it cannot delete.
+  // Review decision P18: "in use, cannot be deleted" ended on an OK (now
+  // "Close"). The exercise can leave the pickers by being archived, and the
+  // dialog offers that where it says it cannot delete.
   describe('archiving instead', () => {
     const archiveButton = () => screen.queryByRole('button', { name: 'Archive instead' });
 
@@ -191,7 +199,7 @@ describe('<ExerciseDeleteDialog />', () => {
       await waitFor(() => expect(status()).toHaveTextContent('It is in use'));
       expect(screen.getByText(/Archiving takes it out of your pickers/)).toBeInTheDocument();
       expect(deleteButton()).not.toBeInTheDocument();
-      expect(archiveButton()).toHaveClass('min-h-11');
+      expect(archiveButton()).toHaveClass('pk-btn', 'pk-btn-primary', 'pk-btn-lg');
 
       fireEvent.click(archiveButton());
       expect(onArchive).toHaveBeenCalledTimes(1);
@@ -200,7 +208,7 @@ describe('<ExerciseDeleteDialog />', () => {
       expect(onDelete).not.toHaveBeenCalled();
     });
 
-    it('takes the place the disabled Delete held, never a place Cancel held', async () => {
+    it('takes the place the disabled Delete held, never a place Keep held', async () => {
       let answer;
       const pending = new Promise((resolve) => {
         answer = resolve;
@@ -211,11 +219,11 @@ describe('<ExerciseDeleteDialog />', () => {
       };
       renderDialog({ onArchive: vi.fn() });
       const row = deleteButton().parentElement;
-      expect([...row.children].map((b) => b.textContent)).toEqual(['Delete', 'Cancel']);
+      expect([...row.children].map((b) => b.textContent)).toEqual(['Delete the exercise', 'Keep the exercise']);
 
       answer();
       await waitFor(() => expect(archiveButton()).toBeInTheDocument());
-      expect([...row.children].map((b) => b.textContent)).toEqual(['Archive instead', 'OK']);
+      expect([...row.children].map((b) => b.textContent)).toEqual(['Archive instead', 'Keep the exercise']);
     });
 
     it('is not offered while the usage is read, nor for an exercise nothing uses', async () => {
@@ -247,7 +255,7 @@ describe('<ExerciseDeleteDialog />', () => {
       await waitFor(() => expect(status()).toHaveTextContent('It is in use'));
       expect(archiveButton()).not.toBeInTheDocument();
       expect(screen.queryByText(/Archiving takes it out of your pickers/)).not.toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'OK' })).toBeInTheDocument();
+      expect(footClose()).toBeInTheDocument();
     });
 
     it('is not offered by a page that cannot archive', async () => {
@@ -341,7 +349,7 @@ describe('<ExerciseDeleteDialog />', () => {
       renderPage(appLikeClient());
       fireEvent.click(screen.getByRole('button', { name: 'open' }));
       await waitFor(() => expect(deleteButton()).toBeEnabled());
-      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      fireEvent.click(keepButton());
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
 
       server = counts({ slots: 1 });

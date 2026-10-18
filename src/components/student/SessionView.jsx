@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
 import { useIsRestoring } from '@tanstack/react-query';
 import { useSession } from '../../hooks/useSession';
-import { useSetLogs, useEnsureSetLogs } from '../../hooks/useSetLogs';
+import { useSetLogs, useEnsureSetLogs, useAddStudentSet } from '../../hooks/useSetLogs';
 import { useSlotComments } from '../../hooks/useSlotComments';
 import { useSlotDeviations } from '../../hooks/useSlotDeviations';
 import { useLastPerformance } from '../../hooks/useLastPerformance';
@@ -18,84 +18,118 @@ import { useSessionFeedback, formatMessageStamp } from '../../hooks/useMessages'
 import { useI18n } from '../../hooks/useI18n';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useBackOr } from '../../hooks/useBackOr';
+import { useRestTimer, extendRestTimer } from '../../hooks/useRestTimer';
 import { readState } from '../../lib/readState';
-import Spinner from '../ui/Spinner';
-import Dialog from '../ui/Dialog';
-import ConfirmDialog from '../ui/ConfirmDialog';
 import { groupSlotsBySuperset } from '../../lib/volume';
-import { DAY_FULL, performedOnFromLogs } from '../../lib/day';
-import SlotGroupCard from './SlotGroupCard';
+import { performedOnFromLogs } from '../../lib/day';
+import { dayName, formatDateTime, formatNumber, pluralKey } from '../../lib/i18n/format';
+import Spinner from '../ui/Spinner';
+import {
+  ActionBar,
+  Button,
+  CoachNote,
+  ConfirmSheet,
+  ExerciseSwitcher,
+  Icon,
+  LargeTitle,
+  RestCountdown,
+  Sheet,
+  formatRestClock,
+} from '../parc';
+import SessionExercise, { exerciseNameOf } from './SessionExercise';
+import SetSheet from './SetSheet';
+import RpeSheet from './RpeSheet';
 import Unavailable from './Unavailable';
-import RestTimerBanner from './RestTimerBanner';
+import { useSetActions } from './useSetActions';
+import {
+  capitalize,
+  currentLogOf,
+  deviationOf,
+  editorSeeds,
+  firstSlotToShow,
+  isDurationBased,
+  isLogResolved,
+  nextSlotToShow,
+} from './sessionModel';
 
 // The exercises of a session that is not read yet: one array, so that what is
 // derived from the exercises is not derived again on every render.
 const NO_SLOTS = [];
 
-// A set no longer needs the student's attention iff it was skipped, failed,
-// completed with an RPE, or belongs to an exercise the student skip-deviated
-// (those logs are hidden by SlotGroupCard, so they could otherwise never
-// resolve — pinning the accordion and capping progress below 100% for the
-// rest of the session). The RPE requirement pairs with SetRow's auto-expand
-// on the done transition — see the firstOpenIdx comment.
-function isLogResolved(log, skippedSlotIds) {
-  return (
-    log.skipped ||
-    log.failed ||
-    (log.done && log.rpe != null) ||
-    skippedSlotIds.has(log.exercise_slot_id)
-  );
-}
+// What « +30 s » adds to the rest that is running.
+const EXTEND_SECONDS = 30;
 
-function SessionTopBar({ title, meta, onBack }) {
-  return (
-    <div className="flex items-center justify-between gap-3 pt-3 pb-4">
-      <button
-        onClick={onBack}
-        aria-label="Go back"
-        className="w-11 h-11 rounded-full bg-ink-100 text-ink-700 flex items-center justify-center hover:bg-ink-200 active:scale-95 transition shrink-0"
-      >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
-        </svg>
-      </button>
-      <div className="min-w-0 text-center flex-1">
-        {meta && <div className="sl-label truncate">{meta}</div>}
-        <div className="sl-display text-[16px] text-gray-900 truncate">{title}</div>
-      </div>
-      {/* Right slot: the rest timer while a rest runs — its countdown, "+30 s"
-          and Skip, the slot growing for them — and an empty 44px placeholder
-          otherwise: the width of the back button, which keeps the title
-          centered between the two. */}
-      <div className="min-w-11 h-11 flex items-center justify-end shrink-0">
-        <RestTimerBanner />
-      </div>
-    </div>
-  );
-}
-
-// What stands where "Undo confirmation" would on a session the coach has
-// reviewed: why it can no longer be changed, and the one way to get something
-// corrected. There is no reopening in the app — the coach is asked, in the
-// thread.
+// What stands where « Annuler la confirmation » would on a session the coach
+// has reviewed: why it can no longer be changed, and the one way to get
+// something corrected. There is no reopening in the app — the coach is asked,
+// in the thread.
 function ReviewedLock({ children }) {
   const { t } = useI18n();
   return (
-    <div className="flex flex-col items-center gap-2 text-center">
-      <p className="sl-mono text-[11px] text-ink-400 leading-relaxed">{children}</p>
-      <Link
-        to="/student/messages"
-        className="sl-pill min-h-11 px-4 bg-ink-100 text-ink-700 hover:bg-ink-200"
-      >
-        {t('sessionReviewedLock.messageCoach')}
-      </Link>
+    <div className="flex flex-col items-start gap-3">
+      <p className="pk-body">{children}</p>
+      <Button as={Link} to="/student/messages" variant="secondary">
+        {t('parcSession.messageCoach')}
+      </Button>
     </div>
   );
+}
+
+// The rest that is running, at the left of the ActionBar: the time left and
+// « +30 s ». Nothing once it is over: the start and the end of a rest are
+// said by RestTimerHost's status region, in the student shell, never each
+// second.
+function RestControls() {
+  const { t } = useI18n();
+  const snap = useRestTimer();
+  if (snap.endsAt == null) return null;
+  // The store's snapshot changes every second so that this read is made again:
+  // the remaining time is the end time minus now, never a counter.
+  // eslint-disable-next-line react-hooks/purity -- the clock is what this renders
+  const remainingMs = snap.endsAt - Date.now();
+  if (remainingMs <= 0) return null;
+  const time = formatRestClock(remainingMs / 1000);
+  return (
+    <>
+      <RestCountdown label={t('parcSession.rest')} time={time} ariaLabel={t('parcSession.restAria', { time })} />
+      <Button aria-label={t('parcSession.addThirtyAria')} onClick={() => extendRestTimer(snap.logId, EXTEND_SECONDS)}>
+        {t('parcSession.addThirty')}
+      </Button>
+    </>
+  );
+}
+
+// « Valider la série n »: the set done through its own hooks, then the RPE
+// sheet — or the set's sheet for an extra set that does not say yet what was
+// done. Mounted per set (`key`), like the sheets.
+function ValidateSetButton({ log, exercise, onRpe, onValues }) {
+  const { t } = useI18n();
+  const actions = useSetActions(log, exercise);
+  return (
+    <Button
+      variant="primary"
+      size="lg"
+      className="flex-1"
+      onClick={() => {
+        if (actions.markDone() === 'values') onValues(log.id);
+        else onRpe(log.id);
+      }}
+    >
+      {t('parcSession.validateSet', { n: log.set_number })}
+    </Button>
+  );
+}
+
+// The set's sheet with that set's hooks: mounted per set (`key`), so that the
+// writes of a set go through its own scope and a skip remembered for its Undo
+// is the skip of this set.
+function SetSheetFor({ log, exercise, ...props }) {
+  const actions = useSetActions(log, exercise);
+  return <SetSheet log={log} actions={actions} {...props} />;
 }
 
 export default function SessionView() {
   const { sessionId } = useParams();
-  const navigate = useNavigate();
   // A session is opened from a push notification, a link or a cold start as
   // often as from the list: on the first entry of the tab, back goes to the
   // list instead of doing nothing (L31).
@@ -121,10 +155,10 @@ export default function SessionView() {
     deviationsFetched,
   );
   const { data: lastPerformance } = lastPerformanceRead;
-  // The "Last time" hints are on their way: their card keeps their place
-  // (N6). On their way is a read in flight, or one that waits for the swaps it
-  // is keyed on while those are read. A read paused without a network, or
-  // that failed, keeps no place: it would be kept for good.
+  // The "Last time" line is on its way: its place is kept (N6). On its way is
+  // a read in flight, or one that waits for the swaps it is keyed on while
+  // those are read. A read paused without a network, or that failed, keeps no
+  // place: it would be kept for good.
   const lastPerformanceLoading =
     !!lastPerformanceRead.isPending &&
     (lastPerformanceRead.fetchStatus === 'fetching' ||
@@ -138,22 +172,10 @@ export default function SessionView() {
     return m;
   }, [videos]);
   const slotGroups = useMemo(() => groupSlotsBySuperset(slots), [slots]);
-  // Per-group offset = cumulative slot count of all preceding groups. Lets
-  // SlotGroupCard label its rows with the global slot position (e.g. an
-  // entry after a 2-slot superset starts at 04, not 03 from the group
-  // index).
-  const groupSlotOffsets = useMemo(() => {
-    const offsets = [];
-    let acc = 0;
-    for (const g of slotGroups) {
-      offsets.push(acc);
-      acc += g.slots.length;
-    }
-    return offsets;
-  }, [slotGroups]);
   const { data: confirmation, isLoading: confLoading } = useSessionConfirmation(sessionId);
   const confirmSession = useConfirmSession();
   const unconfirmSession = useUnconfirmSession();
+  const addSet = useAddStudentSet();
   // The confirmation is on the device and waits for a network — asked of the
   // queue, so it is also true of one made before the app was last closed.
   const confirmWaiting = useConfirmationWaiting(sessionId);
@@ -169,24 +191,30 @@ export default function SessionView() {
   // RestTimerHost, in the student shell, so that leaving this page in the
   // middle of a rest does not end them.
 
+  const notesId = useId();
   const [notes, setNotes] = useState('');
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
-  // The dialog has asked, since it was opened, whether a session without a
+  // The sheet has asked, since it was opened, whether a session without a
   // single logged set is really to be confirmed.
   const [askedAgain, setAskedAgain] = useState(false);
   const [undoDialogOpen, setUndoDialogOpen] = useState(false);
-  // Accordion-style manual override:
-  //   null      → no manual override; defer to auto (firstOpenIdx).
-  //   string    → that group key is the only open one (closes any auto-open).
-  //   false     → user manually closed the auto-open group; nothing is open.
-  const [openKey, setOpenKey] = useState(null);
+  // The exercise shown: chosen by a chip, or by the screen moving on after a
+  // set. null until then: the first exercise with a set to do.
+  const [chosenSlotId, setChosenSlotId] = useState(null);
+  // The set whose sheet is open, and the last one opened: the sheet stays
+  // mounted on it while it closes, and its focus goes back to the row.
+  const [setSheet, setSetSheet] = useState({ open: false, logId: null });
+  // The set whose RPE is asked, and the exercise it belongs to: the screen
+  // moves on from there once the sheet closes.
+  const [rpeSheet, setRpeSheet] = useState({ open: false, logId: null, slotId: null });
+  const rpeOpenRef = useRef(false);
 
   // ── What can still be written ────────────────────────────────────────
   const hasSession = !!session;
   const isConfirmed = !!confirmation;
   const isArchived = !!session?.archived_at;
   // Sessions become read-only once the parent program is no longer the
-  // student's active block (so history viewed via the stats calendar can't
+  // athlete's active block (so history viewed via the stats calendar can't
   // be retroactively confirmed/undone) or once the coach has individually
   // archived the session. RLS enforces the same rule server-side; this is
   // the UI gate.
@@ -211,6 +239,9 @@ export default function SessionView() {
   // training list for good, with no way for the athlete to finish it.
   const isReadOnly = isClosed || isReviewed;
   const canUndo = isConfirmed && !isReadOnly;
+  // Sets lock once the session is confirmed, or read-only. Notes lock on
+  // read-only only: an athlete can still add one to a confirmed session.
+  const setsLocked = isConfirmed || isReadOnly;
 
   // The session row reaches the page through a cache — served without a
   // request while it is fresh, persisted for offline use — and nothing pushes
@@ -273,8 +304,8 @@ export default function SessionView() {
   const readingAgain = !!sessionRead.isFetching || !!logsRead.isFetching;
   useEnsureSetLogs(sessionId, slots, logs, { enabled: canMaterializeLogs && !readingAgain });
 
-  // Slot ids the student skip-deviated: every log under them counts as
-  // resolved (see isLogResolved).
+  // Slot ids the athlete skip-deviated: every set under them counts as
+  // resolved (see isLogResolved), and they have no set to do.
   const skippedSlotIds = useMemo(
     () =>
       new Set(
@@ -285,30 +316,16 @@ export default function SessionView() {
     [slotDeviations]
   );
 
-  // Auto-open only the first group that still has unresolved sets (see
-  // isLogResolved for the predicate). The RPE requirement pairs with
-  // SetRow's auto-expand on the done transition: without it, the last set's
-  // auto-expanded RPE panel would collapse before the student can record a
-  // value, because the group would advance the moment the set flips to done.
-  // Failed and skipped sets bypass — RPE is locked/meaningless there.
-  const firstOpenIdx = useMemo(() => {
-    for (let i = 0; i < slotGroups.length; i++) {
-      const gl = slotGroups[i].slots.flatMap((s) =>
-        (logs || []).filter((l) => l.exercise_slot_id === s.id)
-      );
-      if (gl.length === 0 || gl.some((l) => !isLogResolved(l, skippedSlotIds))) return i;
+  const logsBySlot = useMemo(() => {
+    const bySlot = new Map();
+    for (const log of logs || []) {
+      if (!bySlot.has(log.exercise_slot_id)) bySlot.set(log.exercise_slot_id, []);
+      bySlot.get(log.exercise_slot_id).push(log);
     }
-    return -1;
-  }, [slotGroups, logs, skippedSlotIds]);
-
-  // Manual open/close overrides are single-shot: once the natural auto-open
-  // target shifts (e.g. student cancels/undoes a set, or finishes the last
-  // set of the current group), drop the override so auto-open/close resumes.
-  // Without this reset, revisiting a completed group and then reverting state
-  // would leave `openKey` sticky and starve subsequent auto transitions.
-  useEffect(() => {
-    setOpenKey(null);
-  }, [firstOpenIdx]);
+    for (const list of bySlot.values()) list.sort((a, b) => a.set_number - b.set_number);
+    return bySlot;
+  }, [logs]);
+  const logsOf = useCallback((slotId) => logsBySlot.get(slotId) ?? NO_SLOTS, [logsBySlot]);
 
   if (pageState === 'loading') {
     return <div className="flex justify-center py-12"><Spinner /></div>;
@@ -320,38 +337,104 @@ export default function SessionView() {
   if (!ready) {
     const offline = pageState === 'offline';
     return (
-      <div className="p-4 pb-6 md:p-8 space-y-5">
-        <SessionTopBar
+      <div className="flex flex-col gap-4 px-4 pt-3 pb-6 md:px-8">
+        <LargeTitle
           title={session?.title || t('sessionUnavailable.title')}
-          onBack={goBack}
+          back={{ label: t('parcSession.back'), onClick: goBack }}
         />
         <Unavailable
-          title={t(offline ? 'sessionUnavailable.offlineTitle' : 'sessionUnavailable.errorTitle')}
-          body={t(offline ? 'sessionUnavailable.offlineBody' : 'sessionUnavailable.errorBody')}
+          title={t(offline ? 'parcSession.offlineTitle' : 'parcSession.errorTitle')}
+          body={t(offline ? 'parcSession.offlineBody' : 'parcSession.errorBody')}
           onRetry={retry}
         />
       </div>
     );
   }
 
-  function getLogsForSlot(slotId) {
-    return (logs || [])
-      .filter((l) => l.exercise_slot_id === slotId)
-      .sort((a, b) => a.set_number - b.set_number);
+  // ── The exercise shown ───────────────────────────────────────────────
+  const shownSlotId =
+    chosenSlotId && slots.some((s) => s.id === chosenSlotId)
+      ? chosenSlotId
+      : firstSlotToShow(slots, logsOf, skippedSlotIds);
+  const shownSlot = slots.find((s) => s.id === shownSlotId) ?? null;
+  const shownGroup = shownSlot ? slotGroups.find((g) => g.slots.some((s) => s.id === shownSlot.id)) : null;
+  const shown = shownSlot ? deviationOf(shownSlot, slotDeviations) : null;
+  const shownLogs = shownSlot ? logsOf(shownSlot.id) : NO_SLOTS;
+  const shownDuration = shownSlot ? isDurationBased(shownSlot, shownLogs) : false;
+  const shownEffectiveExerciseId = shown?.swapped ? shown.deviation.substitute_exercise_id : shownSlot?.exercise?.id;
+  const shownLastPerf = lastPerformance && shownEffectiveExerciseId ? lastPerformance[shownEffectiveExerciseId] : null;
+  const shownSeeds = editorSeeds(shownLogs, { swapped: !!shown?.swapped, lastPerf: shownLastPerf });
+  // A superset shares one note for the coach, anchored to its first exercise.
+  const noteSlotId = shownGroup?.slots[0]?.id ?? shownSlot?.id;
+  const currentLog = shownSlot && !shown.skipped ? currentLogOf(shownLogs) : null;
+  const nextSlotId =
+    shownSlot && !currentLog ? nextSlotToShow(shownSlot.id, slots, logsOf, skippedSlotIds) : null;
+  const nextSlot = nextSlotId && nextSlotId !== shownSlot?.id ? slots.find((s) => s.id === nextSlotId) : null;
+
+  function chipName(slot) {
+    const { swapped, deviation } = deviationOf(slot, slotDeviations);
+    if (swapped) {
+      const substitute = (exerciseLibrary || []).find((e) => e.id === deviation.substitute_exercise_id);
+      if (substitute) return substitute.name;
+    }
+    return exerciseNameOf(slot, t);
   }
 
-  function isGroupOpen(group, idx) {
-    // No manual override → auto behavior (only firstOpenIdx is open).
-    if (openKey === null) return idx === firstOpenIdx;
-    // Manual override → only the chosen key (or none, if `false`) is open.
-    return openKey === group.key;
+  // The editor context of a set of the exercise shown: whether it is swapped,
+  // what its fields open with, and its unit.
+  function exerciseContextOf(log) {
+    const seed = shownSeeds.get(log.id);
+    return {
+      swapped: !!shown?.swapped,
+      seedReps: seed?.reps ?? null,
+      seedWeightKg: seed?.weightKg ?? null,
+      durationBased: shownDuration,
+    };
   }
 
-  // Accordion: opening a group closes whichever was previously open. Tapping
-  // the currently-open group collapses it (mirrors the Sessions page).
-  function toggleGroup(group, idx) {
-    const wasOpen = isGroupOpen(group, idx);
-    setOpenKey(wasOpen ? false : group.key);
+  // The exercise shown stays the one the athlete is working on: once a
+  // gesture is made on it, the screen no longer follows "the first exercise
+  // with a set to do" — a set failed by a long press would otherwise take its
+  // exercise off the screen, and the set its toast's « Annuler » brings back
+  // with it. The screen moves on after the RPE, or by « Passer à ».
+  function pin() {
+    if (chosenSlotId == null && shownSlot) setChosenSlotId(shownSlot.id);
+  }
+
+  function openSet(logId) {
+    pin();
+    setSetSheet({ open: true, logId });
+  }
+
+  function closeSet() {
+    setSetSheet((current) => ({ ...current, open: false }));
+  }
+
+  function openRpe(logId) {
+    pin();
+    rpeOpenRef.current = true;
+    setRpeSheet({ open: true, logId, slotId: shownSlot?.id ?? null });
+  }
+
+  // Once the RPE is given or the sheet is closed, the screen moves on: the
+  // next exercise of a superset, or the next exercise with a set to do once
+  // this one is finished. Once per opening: the sheet tells its close more
+  // than once.
+  function closeRpe() {
+    if (!rpeOpenRef.current) return;
+    rpeOpenRef.current = false;
+    const from = rpeSheet.slotId;
+    setRpeSheet((current) => ({ ...current, open: false }));
+    if (!from) return;
+    const next = nextSlotToShow(from, slots, logsOf, skippedSlotIds);
+    if (next && next !== from) setChosenSlotId(next);
+  }
+
+  function handleAddSet() {
+    if (!shownSlot) return;
+    pin();
+    const maxNum = shownLogs.reduce((m, l) => Math.max(m, l.set_number), 0);
+    addSet.mutate({ slotId: shownSlot.id, setNumber: maxNum + 1 });
   }
 
   function closeConfirmDialog() {
@@ -376,13 +459,13 @@ export default function SessionView() {
     const written = notes;
     confirmSession.mutate({ sessionId, notes: written.trim() || null, performedOn }, {
       // The note stays in the field until the database has it: after a
-      // confirmation that is refused, the dialog opens on what was written.
+      // confirmation that is refused, the sheet opens on what was written.
       // And the answer takes out of the field what it carried, nothing else:
       // it can come hours after the tap, to an athlete who has taken the
       // confirmation back and is writing the note of the next one.
       onSuccess: () => setNotes((current) => (current === written ? '' : current)),
     });
-    // The dialog closes at the tap, not on the answer. The page behind it
+    // The sheet closes at the tap, not on the answer. The page behind it
     // shows the session as confirmed from this moment (the hook writes it into
     // the cache), and the answer can be hours away: a confirmation made
     // without a network is parked, which is not a failure and not a success,
@@ -396,258 +479,303 @@ export default function SessionView() {
     unconfirmSession.mutate({ sessionId });
   }
 
-  // Build total-sets progress numbers. The text counts only successfully
-  // completed sets (a quality signal), but the progress bar reflects every
-  // resolved set — failed, skipped, and skip-deviated included — so a
-  // deviated session can still reach 100%.
+  // What the confirm sheet counts before it is answered: the sets the athlete
+  // has dealt with — failed, skipped and skip-deviated included —, so a
+  // session with every set dealt with is not confirmed as "10 of 12". A
+  // session without a set has nothing to count.
   const allLogs = logs || [];
   const doneCount = allLogs.filter((l) => l.done).length;
-  // `l.done ||` is the bar's sole divergence from isLogResolved: the bar
-  // doesn't wait for an RPE on a done set.
-  const resolvedCount = allLogs.filter(
-    (l) => l.done || isLogResolved(l, skippedSlotIds)
-  ).length;
+  const resolvedCount = allLogs.filter((l) => l.done || isLogResolved(l, skippedSlotIds)).length;
   const totalCount = allLogs.length;
-  const progress = totalCount > 0 ? Math.round((resolvedCount / totalCount) * 100) : 0;
-  // What the confirm dialog says before it is answered: the sets the athlete
-  // has dealt with — the ones the bar counts, so a session at 100% is not
-  // confirmed as "10 of 12". A session without a set has nothing to count.
   const nothingLogged = totalCount > 0 && resolvedCount === 0;
+  // A set is still to do somewhere in the session.
+  const anySetLeft = slots.some((slot) => !skippedSlotIds.has(slot.id) && currentLogOf(logsOf(slot.id)));
+  const canConfirm = !confLoading && !isConfirmed && !isClosed;
 
-  // Top-bar metadata: weekday + exercise count.
-  const metaBits = [];
+  // The facts under the title: the day, the exercises, the sets done.
+  const facts = [];
   if (session?.scheduled_date) {
     const [y, m, d] = session.scheduled_date.split('-').map(Number);
     const jsDay = new Date(y, m - 1, d).getDay();
-    const dn = jsDay === 0 ? 7 : jsDay;
-    metaBits.push(DAY_FULL[dn - 1].toUpperCase());
+    facts.push(capitalize(dayName(lang, jsDay === 0 ? 7 : jsDay, 'long')));
   }
-  if (slots.length > 0) metaBits.push(`${slots.length} EX`);
+  if (slots.length > 0) {
+    facts.push(
+      t(pluralKey(lang, slots.length, 'parcSession.exercises'), {
+        n: formatNumber(lang, slots.length),
+      }),
+    );
+  }
+  if (totalCount > 0) {
+    facts.push(
+      t('parcSession.setsDone', { done: formatNumber(lang, doneCount), total: formatNumber(lang, totalCount) }),
+    );
+  }
+  const subtitle = facts.join(', ');
+
+  // ── The main action, in the ActionBar ────────────────────────────────
+  let mainAction = null;
+  if (!setsLocked && currentLog) {
+    mainAction = (
+      <ValidateSetButton
+        key={currentLog.id}
+        log={currentLog}
+        exercise={exerciseContextOf(currentLog)}
+        onRpe={openRpe}
+        onValues={openSet}
+      />
+    );
+  } else if (!setsLocked && nextSlot) {
+    mainAction = (
+      <Button variant="primary" size="lg" className="flex-1" onClick={() => setChosenSlotId(nextSlot.id)}>
+        {t('parcSession.goTo', { name: chipName(nextSlot) })}
+      </Button>
+    );
+  } else if (canConfirm && !anySetLeft) {
+    mainAction = (
+      <Button
+        variant="primary"
+        size="lg"
+        className="flex-1"
+        disabled={confirmInFlight}
+        onClick={() => setConfirmDialogOpen(true)}
+      >
+        {confirmInFlight ? t('parcSession.confirming') : t('parcSession.confirmCta')}
+      </Button>
+    );
+  }
+
+  const sheetLog = setSheet.logId ? allLogs.find((l) => l.id === setSheet.logId) ?? null : null;
+  const sheetSlot = sheetLog ? slots.find((s) => s.id === sheetLog.exercise_slot_id) ?? null : null;
+  const sheetRecordVideo = !!(sheetSlot && sheetLog && (sheetSlot.record_video_set_numbers || []).includes(sheetLog.set_number));
+  const rpeLog = rpeSheet.logId ? allLogs.find((l) => l.id === rpeSheet.logId) ?? null : null;
+
+  function setSheetTitle(log) {
+    const n = log.set_number;
+    if (log.skipped) return t('parcSession.setSkippedTitle', { n });
+    if (log.failed) return t('parcSession.setFailedTitle', { n });
+    if (log.is_student_added) return t('parcSession.setAddedTitle', { n });
+    if (log.done) return t('parcSession.setDoneTitle', { n });
+    return t('parcSession.setTitle', { n });
+  }
 
   return (
-    <div className="p-4 pb-6 md:p-8 space-y-5">
-      <SessionTopBar
-        title={session?.title || t('sessionUnavailable.title')}
-        meta={metaBits.join(' · ')}
-        onBack={goBack}
-      />
+    <div className="flex min-h-full flex-col">
+      <div className="flex flex-1 flex-col gap-4 px-4 pt-3 pb-6 md:px-8">
+        <LargeTitle
+          title={session?.title || t('sessionUnavailable.title')}
+          subtitle={subtitle}
+          back={{ label: t('parcSession.back'), onClick: goBack }}
+        />
 
-      {/* Progress bar */}
-      {totalCount > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="sl-mono text-[11px] text-ink-400">{doneCount} of {totalCount} sets</span>
-            <span className="sl-mono text-[11px]" style={{ color: 'var(--color-accent)' }}>{progress}%</span>
-          </div>
-          <div className="h-1 rounded-full bg-ink-100 overflow-hidden">
-            <div
-              className="h-full transition-[width] duration-300"
-              style={{ width: `${progress}%`, background: 'var(--color-accent)' }}
+        {feedback && (
+          <CoachNote title={t('parcSession.feedbackTitle')}>
+            {feedback.body}
+            <span className="pk-caption mt-1 block">{formatMessageStamp(feedback.created_at, lang)}</span>
+            <span className="mt-2 block">
+              <Button as={Link} to="/student/messages" variant="secondary">
+                {t('parcSession.replyInMessages')}
+              </Button>
+            </span>
+          </CoachNote>
+        )}
+
+        {slots.length > 1 && (
+          <ExerciseSwitcher
+            label={t('parcSession.exercisesLabel')}
+            items={slots.map((slot) => ({ id: slot.id, label: chipName(slot) }))}
+            currentId={shownSlotId}
+            onSelect={setChosenSlotId}
+          />
+        )}
+
+        {shownSlot && (
+          <SessionExercise
+            key={shownSlot.id}
+            slot={shownSlot}
+            slotLogs={shownLogs}
+            seeds={shownSeeds}
+            deviation={shown.deviation}
+            swapped={shown.swapped}
+            skipped={shown.skipped}
+            durationBased={shownDuration}
+            partners={(shownGroup?.slots ?? []).filter((s) => s.id !== shownSlot.id)}
+            noteSlotId={noteSlotId}
+            slotComment={(slotComments || []).find((c) => c.exercise_slot_id === noteSlotId)}
+            lastPerf={shownLastPerf}
+            lastPerfLoading={lastPerformanceLoading}
+            exerciseLibrary={exerciseLibrary}
+            sessionId={sessionId}
+            setsLocked={setsLocked}
+            isReadOnly={isReadOnly}
+            online={online}
+            getVideoForLog={(logId) => videosByLogId.get(logId) || null}
+            onOpenSet={openSet}
+            onGesture={pin}
+            onAddSet={handleAddSet}
+            addingSet={addSet.isPending}
+          />
+        )}
+
+        {/* Confirming before every set is dealt with: the sheet counts what
+            was logged, and asks twice when nothing was. Once every set is
+            dealt with, the ActionBar carries it. */}
+        {canConfirm && anySetLeft && (
+          <Button
+            variant="text"
+            className="self-start"
+            disabled={confirmInFlight}
+            onClick={() => setConfirmDialogOpen(true)}
+          >
+            {confirmInFlight ? t('parcSession.confirming') : t('parcSession.confirmCta')}
+          </Button>
+        )}
+
+        {!confLoading && isConfirmed && (
+          <section className="flex flex-col gap-3 rounded-group bg-surface p-4">
+            <div className="flex items-start gap-3">
+              <span className="pk-set-dot pk-set-dot-done" aria-hidden="true">
+                <Icon name="check" size={16} strokeWidth={3} />
+              </span>
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <p className="pk-headline">{t('parcSession.confirmed')}</p>
+                <p className="pk-caption">{formatDateTime(lang, confirmation.confirmed_at)}</p>
+                {confirmWaiting && (
+                  <p role="status" className="pk-caption">
+                    {t('parcSession.confirmWaiting')}
+                  </p>
+                )}
+                {confirmation.notes && (
+                  <p className="pk-body mt-1 whitespace-pre-wrap break-words">{confirmation.notes}</p>
+                )}
+              </div>
+            </div>
+            {isClosed ? (
+              <p className="pk-caption">
+                {isArchived ? t('parcSession.lockedArchived') : t('parcSession.lockedPast')}
+              </p>
+            ) : isReviewed ? (
+              <ReviewedLock>{t('parcSession.reviewedLocked')}</ReviewedLock>
+            ) : (
+              <Button
+                variant="text"
+                className="self-start"
+                disabled={undoInFlight}
+                onClick={() => {
+                  setUndoDialogOpen(true);
+                  // "Not reviewed" is as old as the cached row, and a review
+                  // without feedback sends nothing that would refresh it. Ask
+                  // again while the athlete reads the sheet: an answer that
+                  // says "reviewed" closes it (see `canUndo` on the sheet).
+                  refetchSession({ cancelRefetch: false });
+                }}
+              >
+                {t('parcSession.undoConfirmation')}
+              </Button>
+            )}
+          </section>
+        )}
+
+        {!confLoading && !isConfirmed && isClosed && (
+          <p className="rounded-group bg-surface p-4 pk-caption">
+            {isArchived ? t('parcSession.readOnlyArchived') : t('parcSession.readOnlyPast')}
+          </p>
+        )}
+
+        {!confLoading && !isConfirmed && !isClosed && isReviewed && (
+          <section className="rounded-group bg-surface p-4">
+            <ReviewedLock>{t('parcSession.reviewedLockedUnconfirmed')}</ReviewedLock>
+          </section>
+        )}
+      </div>
+
+      {(mainAction || !setsLocked) && (
+        <ActionBar className="sticky bottom-0 z-10 mt-auto">
+          {!setsLocked && <RestControls />}
+          {mainAction}
+        </ActionBar>
+      )}
+
+      {sheetLog && (
+        <SetSheetFor
+          key={sheetLog.id}
+          log={sheetLog}
+          exercise={exerciseContextOf(sheetLog)}
+          open={setSheet.open}
+          title={setSheetTitle(sheetLog)}
+          locked={setsLocked}
+          online={online}
+          recordVideo={sheetRecordVideo}
+          video={videosByLogId.get(sheetLog.id) || null}
+          onClose={closeSet}
+          onNeedRpe={() => {
+            closeSet();
+            openRpe(sheetLog.id);
+          }}
+        />
+      )}
+
+      {rpeLog && (
+        <RpeSheet
+          key={rpeLog.id}
+          open={rpeSheet.open}
+          log={rpeLog}
+          exercise={exerciseContextOf(rpeLog)}
+          setNumber={rpeLog.set_number}
+          onClose={closeRpe}
+        />
+      )}
+
+      <Sheet open={confirmDialogOpen} onClose={closeConfirmDialog} title={t('parcSession.confirmTitle')}>
+        <div className="flex flex-col gap-4">
+          {totalCount > 0 && (
+            <p className="pk-body">
+              {t('parcSession.confirmSummary', {
+                n: formatNumber(lang, resolvedCount),
+                total: formatNumber(lang, totalCount),
+              })}
+            </p>
+          )}
+          <div className="grid gap-1.5">
+            <label htmlFor={notesId} className="pk-small">
+              {t('parcSession.notesLabel')}
+            </label>
+            <textarea
+              id={notesId}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder={t('parcSession.notesPlaceholder')}
+              rows={3}
+              className="pk-field py-2.5"
             />
           </div>
-        </div>
-      )}
-
-      {feedback && (
-        <section
-          aria-labelledby="coach-feedback-heading"
-          className="sl-card p-4 space-y-3"
-          style={{ borderLeft: '3px solid var(--color-accent)' }}
-        >
-          <div className="flex items-center justify-between gap-3">
-            <h2
-              id="coach-feedback-heading"
-              className="sl-label flex items-center gap-2"
-              style={{ color: 'var(--color-accent)' }}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-              </svg>
-              {t('student.feedback.title')}
-            </h2>
-            <span className="sl-mono text-[11px] text-ink-400 shrink-0">
-              {formatMessageStamp(feedback.created_at, lang)}
-            </span>
-          </div>
-          <p className="text-[14px] text-gray-900 whitespace-pre-wrap leading-relaxed">
-            {feedback.body}
-          </p>
-          <button
-            type="button"
-            onClick={() => navigate('/student/messages')}
-            className="sl-pill sl-pill-btn bg-ink-100 text-ink-700 hover:bg-ink-200"
-          >
-            {t('student.feedback.replyInMessages')}
-          </button>
-        </section>
-      )}
-
-      {slotGroups.map((group, groupIdx) => (
-        <SlotGroupCard
-          key={group.key}
-          group={group}
-          slotOffset={groupSlotOffsets[groupIdx]}
-          open={isGroupOpen(group, groupIdx)}
-          onToggle={() => toggleGroup(group, groupIdx)}
-          getLogsForSlot={getLogsForSlot}
-          slotComments={slotComments}
-          slotDeviations={slotDeviations}
-          lastPerformance={lastPerformance}
-          lastPerformanceLoading={lastPerformanceLoading}
-          exerciseLibrary={exerciseLibrary}
-          sessionId={sessionId}
-          isConfirmed={isConfirmed}
-          isReadOnly={isReadOnly}
-          getVideoForLog={(logId) => videosByLogId.get(logId) || null}
-        />
-      ))}
-
-      {!confLoading && (isConfirmed ? (
-        <div
-          className="sl-card p-4 space-y-3 !bg-success/5"
-          style={{ borderLeft: '3px solid var(--color-success)' }}
-        >
-          <div className="flex items-start gap-3">
-            <div
-              className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-              style={{ background: 'var(--color-success)', color: 'var(--color-ink-900)' }}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="sl-display text-[16px] text-gray-900">{t('student.session.confirmed')}</p>
-              <p className="sl-mono text-[11px] text-ink-400 mt-0.5">
-                {new Date(confirmation.confirmed_at).toLocaleString()}
-              </p>
-              {confirmWaiting && (
-                <p role="status" className="sl-mono text-[11px] text-ink-400 mt-1 leading-relaxed">
-                  {t('sessionConfirm.waiting')}
-                </p>
-              )}
-              {confirmation.notes && (
-                <p className="mt-2 text-[13px] text-gray-700 whitespace-pre-wrap">
-                  {confirmation.notes}
-                </p>
-              )}
-            </div>
-          </div>
-          {isClosed ? (
-            <p className="sl-mono text-[11px] text-ink-400 text-center">
-              {isArchived
-                ? t('student.session.lockedArchived')
-                : t('student.session.lockedPast')}
+          {askedAgain && (
+            <p role="alert" className="pk-body">
+              {t('parcSession.nothingLogged')}
             </p>
-          ) : isReviewed ? (
-            <ReviewedLock>{t('sessionReviewedLock.locked')}</ReviewedLock>
-          ) : (
-            <button
-              onClick={() => {
-                setUndoDialogOpen(true);
-                // "Not reviewed" is as old as the cached row, and a review
-                // without feedback sends nothing that would refresh it. Ask
-                // again while the athlete reads the dialog: an answer that
-                // says "reviewed" closes it (see `canUndo` on the dialog).
-                refetchSession({ cancelRefetch: false });
-              }}
-              disabled={undoInFlight}
-              className="sl-mono text-[11px] text-ink-400 hover:text-danger underline w-full"
-            >
-              {t('student.session.undoConfirmation')}
-            </button>
           )}
+          <div className="flex flex-col gap-1">
+            <Button variant="primary" size="lg" onClick={handleConfirm}>
+              {askedAgain ? t('parcSession.confirmAnyway') : t('parcSession.confirm')}
+            </Button>
+            <Button variant="text" onClick={closeConfirmDialog}>
+              {t('common.cancel')}
+            </Button>
+          </div>
         </div>
-      ) : isClosed ? (
-        <div
-          className="sl-card p-4 text-center"
-          style={{ borderLeft: '3px solid var(--color-ink-300)' }}
-        >
-          <p className="sl-mono text-[11px] text-ink-400">
-            {isArchived
-              ? t('student.session.readOnlyArchived')
-              : t('student.session.readOnlyPast')}
-          </p>
-        </div>
-      ) : (
-        <>
-          {isReviewed && (
-            <div
-              className="sl-card p-4"
-              style={{ borderLeft: '3px solid var(--color-ink-300)' }}
-            >
-              <ReviewedLock>{t('sessionReviewedLock.lockedUnconfirmed')}</ReviewedLock>
-            </div>
-          )}
-          <button
-            onClick={() => setConfirmDialogOpen(true)}
-            disabled={confirmInFlight}
-            className="sl-btn-primary w-full text-[13px] disabled:opacity-50"
-            style={{ padding: '10px 16px' }}
-          >
-            {confirmInFlight
-              ? t('student.session.confirming')
-              : t('student.session.confirmCta')}
-          </button>
-        </>
-      ))}
-
-      <Dialog
-        open={confirmDialogOpen}
-        onClose={closeConfirmDialog}
-        title={t('student.session.confirmDialogTitle')}
-      >
-        {totalCount > 0 && (
-          <p className="sl-mono text-[12px] text-gray-900 mb-1">
-            {t('sessionConfirm.summary', { n: resolvedCount, total: totalCount })}
-          </p>
-        )}
-        <p className="sl-mono text-[12px] text-ink-400 mb-3 leading-relaxed">
-          {t('student.session.confirmDialogBody')}
-        </p>
-        <label htmlFor="confirm-notes" className="sr-only">
-          {t('student.session.notesLabel')}
-        </label>
-        <textarea
-          id="confirm-notes"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder={t('student.session.notesPlaceholder')}
-          rows={4}
-          className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[16px] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] mb-4"
-        />
-        {askedAgain && (
-          <p role="alert" className="text-[13px] text-gray-900 mb-4 leading-relaxed">
-            {t('sessionConfirm.nothingLogged')}
-          </p>
-        )}
-        <div className="flex gap-2">
-          <button
-            onClick={handleConfirm}
-            className="flex-1 rounded-lg py-2.5 sl-display text-[13px] text-white"
-            style={{ background: 'var(--color-accent)' }}
-          >
-            {askedAgain ? t('sessionConfirm.confirmAnyway') : t('common.confirm')}
-          </button>
-          <button
-            onClick={closeConfirmDialog}
-            className="flex-1 bg-ink-100 text-ink-700 rounded-lg py-2.5 sl-display text-[13px] hover:bg-ink-200"
-          >
-            {t('common.cancel')}
-          </button>
-        </div>
-      </Dialog>
+      </Sheet>
 
       {/* `canUndo` and not the tap alone: the session can become reviewed (or
-          archived) while this dialog is open, and its button must go with the
+          archived) while this sheet is open, and its button must go with the
           one that opened it. */}
-      <ConfirmDialog
+      <ConfirmSheet
         open={undoDialogOpen && canUndo}
         onClose={() => setUndoDialogOpen(false)}
         onConfirm={handleUnconfirm}
-        title={t('student.session.undoConfirmTitle')}
-        message={t('student.session.undoConfirmBody')}
-        confirmText={t('student.session.undoConfirmation')}
+        title={t('parcSession.undoTitle')}
+        message={t('parcSession.undoBody')}
+        confirmText={t('parcSession.undoConfirmation')}
+        cancelText={t('parcSession.keepConfirmation')}
       />
     </div>
   );

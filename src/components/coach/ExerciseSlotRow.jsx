@@ -1,17 +1,19 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import ConfirmDialog from '../ui/ConfirmDialog';
 import DecimalInput from '../ui/DecimalInput';
 import { isSlotUniform } from '../../lib/volume';
 import { isLoggedSet } from '../../lib/loggedSets';
 import { decimalText, parseDecimalInput } from '../../lib/number';
+import { formatNumber } from '../../lib/i18n/format';
+import { prescriptionText } from '../../lib/prescriptionText';
 import { useI18n } from '../../hooks/useI18n';
+import { Button, ConfirmSheet, Icon, IconButton } from '../parc';
 
-// `disabled:opacity-*`, not a `disabled:bg-*`: the dark theme is a class remap
-// and a disabled background variant does not pick it up (see INVARIANTS).
+// The fields of a target (design/parc/screens/Editeur.dc.html): a `pk-field`
+// in condensed digits, centred. A locked field reads as text on `fill`.
 const inputCls =
-  'w-full rounded-lg border border-ink-200 bg-white px-2 py-1.5 sl-mono text-[16px] text-center text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] disabled:opacity-60 disabled:cursor-not-allowed';
+  'pk-field pk-condensed pk-tnum min-w-0 px-1 text-center text-[20px] disabled:border-transparent disabled:bg-fill disabled:text-ink';
 
 // A target weight is read with `parseDecimalInput` under these rules: "62,5"
 // and "62.5" are 62.5 whatever the language of the browser. A number field
@@ -28,7 +30,7 @@ const TARGET_WEIGHT_RULES = { max: 9999.99 };
 // asked to do when they did it, so the row shows them and edits nothing.
 // `locked` also covers a whole session opened read-only.
 function PerSetRow({ log, isTimeBased, onUpdateSet, onRemoveSet, canRemove, logged, locked }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const [reps, setReps] = useState(log.target_reps ?? '');
   const [seconds, setSeconds] = useState(log.target_duration_seconds ?? '');
   const [weight, setWeight] = useState(decimalText(log.target_weight_kg));
@@ -64,47 +66,49 @@ function PerSetRow({ log, isTimeBased, onUpdateSet, onRemoveSet, canRemove, logg
 
   return (
     <tr ref={rowRef}>
-      <td className="sl-mono text-[11px] text-ink-400 pr-2 text-center w-8">{log.set_number}</td>
+      <td className="pk-condensed pk-tnum w-8 pr-1 text-center text-[20px] font-extrabold">
+        {formatNumber(lang, log.set_number)}
+      </td>
       {isTimeBased ? (
-        <td className="px-1">
+        <td className="px-1 py-1">
           <input
             type="number"
             min={1}
             value={seconds}
             onChange={(e) => setSeconds(e.target.value)}
             onBlur={() => commitField('duration_seconds', seconds, log.target_duration_seconds)}
-            aria-label={t('coach.slot.setSecondsAria', { n: log.set_number })}
+            aria-label={t('parcEditor.setSeconds', { n: log.set_number })}
             disabled={locked}
             className={inputCls}
           />
         </td>
       ) : (
-        <td className="px-1">
+        <td className="px-1 py-1">
           <input
             type="number"
             min={1}
             value={reps}
             onChange={(e) => setReps(e.target.value)}
             onBlur={() => commitField('reps', reps, log.target_reps)}
-            aria-label={t('coach.slot.setRepsAria', { n: log.set_number })}
+            aria-label={t('parcEditor.setReps', { n: log.set_number })}
             disabled={locked}
             className={inputCls}
           />
         </td>
       )}
-      <td className="px-1">
+      <td className="px-1 py-1">
         <DecimalInput
           {...TARGET_WEIGHT_RULES}
           value={weight}
           onChange={(e) => setWeight(e.target.value)}
           onBlur={commitWeight}
-          placeholder={t('coach.slot.bwPlaceholder')}
-          aria-label={t('coach.slot.setWeightAria', { n: log.set_number })}
+          placeholder={t('parcEditor.bodyweight')}
+          aria-label={t('parcEditor.setLoad', { n: log.set_number })}
           disabled={locked}
           className={inputCls}
         />
       </td>
-      <td className="px-1">
+      <td className="px-1 py-1">
         <input
           type="number"
           min={0}
@@ -112,38 +116,33 @@ function PerSetRow({ log, isTimeBased, onUpdateSet, onRemoveSet, canRemove, logg
           value={rest}
           onChange={(e) => setRest(e.target.value)}
           onBlur={() => commitField('rest_seconds', rest, log.target_rest_seconds)}
-          placeholder={t('coach.slot.restPlaceholder')}
-          aria-label={t('coach.slot.setRestAria', { n: log.set_number })}
+          placeholder="–"
+          aria-label={t('parcEditor.setRest', { n: log.set_number })}
           disabled={locked}
           className={inputCls}
         />
       </td>
-      <td className="pl-1 w-7">
+      <td className="w-11 pl-1">
         {logged ? (
           // Where the remove button would be: the reason there is none.
           <span
             role="img"
             aria-label={t('coachLoggedHistory.slot.setLogged', { n: log.set_number })}
             title={t('coachLoggedHistory.slot.setLogged', { n: log.set_number })}
-            className="w-7 h-7 flex items-center justify-center"
-            style={{ color: 'var(--color-success)' }}
+            className="flex h-11 w-11 items-center justify-center text-blue"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-            </svg>
+            <Icon name="check" size={18} />
           </span>
         ) : !locked && (
-          <button
-            type="button"
+          <IconButton
+            icon="close"
+            tone="none"
+            size={18}
             onClick={() => onRemoveSet(log.set_number)}
             disabled={!canRemove}
-            aria-label={t('coach.slot.removeSetAria', { n: log.set_number })}
-            className="w-7 h-7 rounded-md flex items-center justify-center text-ink-400 hover:bg-ink-100 hover:text-danger disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-ink-400 disabled:cursor-not-allowed"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+            label={t('parcEditor.removeSet', { n: log.set_number })}
+            className="disabled:opacity-40"
+          />
         )}
       </td>
     </tr>
@@ -161,7 +160,8 @@ export default function ExerciseSlotRow({
   readOnly = false,
   children,
 }) {
-  const { t } = useI18n();
+  const ctx = useI18n();
+  const { t, lang } = ctx;
   const ex = slot.exercise;
   const isTimeBased = slot.duration_seconds != null;
   const logs = useMemo(
@@ -336,97 +336,70 @@ export default function ExerciseSlotRow({
     setShowCustom(false);
   }
 
+  const labelCls = 'pk-small text-center';
+  const summary = prescriptionText({ ...slot, set_logs: logs }, ctx);
+
   return (
-    <div ref={setRefs} style={sortableStyle} className="sl-card p-4 space-y-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          {!readOnly && (
+    <section
+      ref={setRefs}
+      style={sortableStyle}
+      aria-label={ex.name}
+      className="flex flex-col gap-3 rounded-group bg-surface p-4"
+    >
+      <div className="flex items-start gap-1">
+        <div className="min-w-0 flex-1 py-1">
+          <h2 className="pk-headline">{ex.name}</h2>
+          <p className="pk-caption">
+            {[summary, t('parcEditor.level', { n: formatNumber(lang, ex.difficulty) })].filter(Boolean).join(', ')}
+          </p>
+        </div>
+        {!readOnly && (
+          <>
             <button
               type="button"
               {...attributes}
               {...listeners}
-              aria-label={t('coach.slot.reorderAria', { name: ex.name })}
-              className="shrink-0 px-1 text-ink-400 hover:text-gray-700 cursor-grab active:cursor-grabbing touch-none"
+              aria-label={t('parcProgram.moveItem', { name: ex.name })}
+              className="pk-icon-btn shrink-0 cursor-grab touch-none bg-transparent active:cursor-grabbing"
             >
-              <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true">
-                <circle cx="2.5" cy="3" r="1.25" />
-                <circle cx="7.5" cy="3" r="1.25" />
-                <circle cx="2.5" cy="8" r="1.25" />
-                <circle cx="7.5" cy="8" r="1.25" />
-                <circle cx="2.5" cy="13" r="1.25" />
-                <circle cx="7.5" cy="13" r="1.25" />
-              </svg>
+              <Icon name="drag" size={22} />
             </button>
-          )}
-          <span className="sl-display text-[16px] text-gray-900 truncate">{ex.name}</span>
-          <span className="sl-mono text-[10px] text-ink-400 shrink-0">
-            {t('coach.slot.difficultyShort', { n: ex.difficulty })}
-          </span>
-        </div>
-        {!readOnly && (
-          <div className="flex items-center gap-0.5 shrink-0">
             {/* Disabled rather than hidden while the exercise holds logged
                 sets: a button that vanished would read as a bug, and the
                 title says why it is off. */}
-            <button
+            <IconButton
+              icon="close"
+              tone="none"
               onClick={() => setConfirmDelete(true)}
               disabled={holdsTraining}
-              aria-label={t('coach.slot.removeExerciseAria')}
+              label={t('parcEditor.removeExercise', { name: ex.name })}
               title={holdsTraining ? t('coachLoggedHistory.slot.removeBlocked') : undefined}
-              className="w-7 h-7 rounded-md flex items-center justify-center text-ink-400 hover:bg-ink-100 hover:text-danger disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-ink-400 disabled:cursor-not-allowed"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-
-            <ConfirmDialog
+              className="disabled:opacity-40"
+            />
+            <ConfirmSheet
               open={confirmDelete}
               onClose={() => setConfirmDelete(false)}
               onConfirm={onDelete}
-              title={t('coach.slot.removeExerciseTitle')}
-              message={t('coach.slot.removeExerciseMessage', { name: ex.name })}
-              confirmText={t('coach.slot.remove')}
+              title={t('parcEditor.removeTitle', { name: ex.name })}
+              message={t('parcEditor.removeMessage')}
+              confirmText={t('parcEditor.removeAction')}
             />
-          </div>
+          </>
         )}
       </div>
 
       {perSet ? (
-        <div className="space-y-2">
-          {/* No way back to the compact view once a set is logged (see
-              `perSet` above), and nothing to reset in a read-only session. */}
-          {!readOnly && !hasLoggedSets && (
-            <div className="flex justify-end">
-              {uniform ? (
-                <button
-                  type="button"
-                  onClick={() => setShowCustom(false)}
-                  className="sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)] underline"
-                >
-                  {t('coach.slot.backToUniform')}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleResetToUniform}
-                  className="sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)] underline"
-                >
-                  {t('coach.slot.resetToUniform')}
-                </button>
-              )}
-            </div>
-          )}
-          <table className="w-full" aria-label={t('coach.slot.perSetTargetsAria', { name: ex.name })}>
+        <div className="flex flex-col gap-2">
+          <table className="w-full" aria-label={t('parcEditor.perSetLabel', { name: ex.name })}>
             <thead>
               <tr>
-                <th className="sl-label text-ink-400 pr-2 text-center w-8">{t('coach.slot.colSet')}</th>
-                <th className="sl-label text-ink-400">
-                  {isTimeBased ? t('coach.slot.colSec') : t('coach.slot.colReps')}
+                <th className={`${labelCls} w-8 pr-1 font-normal`}>{t('parcEditor.colSet')}</th>
+                <th className={`${labelCls} font-normal`}>
+                  {isTimeBased ? t('parcEditor.seconds') : t('parcEditor.reps')}
                 </th>
-                <th className="sl-label text-ink-400">{t('coach.slot.colWeight')}</th>
-                <th className="sl-label text-ink-400">{t('coach.slot.colRest')}</th>
-                <th className="w-7" aria-hidden="true" />
+                <th className={`${labelCls} font-normal`}>{t('parcEditor.load')}</th>
+                <th className={`${labelCls} font-normal`}>{t('parcEditor.rest')}</th>
+                <th className="w-11" aria-hidden="true" />
               </tr>
             </thead>
             <tbody>
@@ -448,20 +421,31 @@ export default function ExerciseSlotRow({
             </tbody>
           </table>
           {!readOnly && (
-            <button
-              type="button"
-              onClick={() => onAddSet?.()}
-              className="w-full border border-dashed border-ink-200 text-ink-400 rounded-lg py-1.5 sl-mono text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
-            >
-              {t('coach.slot.addSet')}
-            </button>
+            <div className="flex flex-wrap items-center gap-x-2">
+              <Button variant="text" onClick={() => onAddSet?.()}>
+                <Icon name="plus" size={18} />
+                {t('parcEditor.addSet')}
+              </Button>
+              {/* No way back to the compact view once a set is logged (see
+                  `perSet` above). */}
+              {!hasLoggedSets &&
+                (uniform ? (
+                  <Button variant="text" onClick={() => setShowCustom(false)}>
+                    {t('parcEditor.backToUniform')}
+                  </Button>
+                ) : (
+                  <Button variant="text" onClick={handleResetToUniform}>
+                    {t('parcEditor.resetToUniform')}
+                  </Button>
+                ))}
+            </div>
           )}
         </div>
       ) : (
         <>
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <label htmlFor={`sets-${slot.id}`} className="sl-label text-ink-400 block mb-1">{t('coach.slot.sets')}</label>
+          <div className="grid grid-cols-4 gap-2">
+            <div className="flex flex-col gap-1">
+              <label htmlFor={`sets-${slot.id}`} className={labelCls}>{t('parcEditor.sets')}</label>
               <input
                 id={`sets-${slot.id}`}
                 type="number"
@@ -474,8 +458,8 @@ export default function ExerciseSlotRow({
               />
             </div>
             {isTimeBased ? (
-              <div className="flex-1">
-                <label htmlFor={`seconds-${slot.id}`} className="sl-label text-ink-400 block mb-1">{t('coach.slot.seconds')}</label>
+              <div className="flex flex-col gap-1">
+                <label htmlFor={`seconds-${slot.id}`} className={labelCls}>{t('parcEditor.seconds')}</label>
                 <input
                   id={`seconds-${slot.id}`}
                   type="number"
@@ -488,8 +472,8 @@ export default function ExerciseSlotRow({
                 />
               </div>
             ) : (
-              <div className="flex-1">
-                <label htmlFor={`reps-${slot.id}`} className="sl-label text-ink-400 block mb-1">{t('coach.slot.reps')}</label>
+              <div className="flex flex-col gap-1">
+                <label htmlFor={`reps-${slot.id}`} className={labelCls}>{t('parcEditor.reps')}</label>
                 <input
                   id={`reps-${slot.id}`}
                   type="number"
@@ -502,21 +486,21 @@ export default function ExerciseSlotRow({
                 />
               </div>
             )}
-            <div className="flex-1">
-              <label htmlFor={`weight-${slot.id}`} className="sl-label text-ink-400 block mb-1">{t('coach.slot.weight')}</label>
+            <div className="flex flex-col gap-1">
+              <label htmlFor={`weight-${slot.id}`} className={labelCls}>{t('parcEditor.load')}</label>
               <DecimalInput
                 id={`weight-${slot.id}`}
                 {...TARGET_WEIGHT_RULES}
                 value={weight}
                 onChange={(e) => setWeight(e.target.value)}
                 onBlur={handleBlur}
-                placeholder={t('coach.slot.bwPlaceholder')}
+                placeholder={t('parcEditor.bodyweight')}
                 disabled={readOnly}
                 className={inputCls}
               />
             </div>
-            <div className="flex-1">
-              <label htmlFor={`rest-${slot.id}`} className="sl-label text-ink-400 block mb-1">{t('coach.slot.restSeconds')}</label>
+            <div className="flex flex-col gap-1">
+              <label htmlFor={`rest-${slot.id}`} className={labelCls}>{t('parcEditor.rest')}</label>
               <input
                 id={`rest-${slot.id}`}
                 type="number"
@@ -525,27 +509,23 @@ export default function ExerciseSlotRow({
                 value={rest}
                 onChange={(e) => setRest(e.target.value)}
                 onBlur={handleBlur}
-                placeholder={t('coach.slot.restPlaceholder')}
+                placeholder="–"
                 disabled={readOnly}
                 className={inputCls}
               />
             </div>
           </div>
           {!readOnly && (
-            <button
-              type="button"
-              onClick={() => setShowCustom(true)}
-              className="sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)]"
-            >
-              {t('coach.slot.customizeSets')}
-            </button>
+            <Button variant="text" className="self-start" onClick={() => setShowCustom(true)}>
+              {t('parcEditor.perSet')}
+            </Button>
           )}
         </>
       )}
 
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="sl-label text-ink-400">{t('coach.slot.record')}</span>
-        <div className="flex gap-1 flex-wrap">
+      <div className="flex flex-col gap-1.5">
+        <span className="pk-caption">{t('parcEditor.record')}</span>
+        <div className="flex flex-wrap items-center gap-1.5">
           {Array.from({ length: Number(sets) || 0 }, (_, i) => i + 1).map((n) => {
             const active = videoSets.includes(n);
             return (
@@ -554,64 +534,55 @@ export default function ExerciseSlotRow({
                 type="button"
                 onClick={() => toggleVideoSet(n)}
                 aria-pressed={active}
+                aria-label={t('parcEditor.recordSet', { n })}
                 disabled={readOnly}
-                className="sl-mono text-[11px] rounded-md w-7 h-6 flex items-center justify-center border transition-colors"
-                style={
-                  active
-                    ? {
-                        background: 'var(--color-warn)',
-                        borderColor: 'var(--color-warn)',
-                        color: 'var(--color-ink-900)',
-                      }
-                    : undefined
-                }
+                className={`pk-tnum h-11 w-11 rounded-control text-[16px] font-semibold ${
+                  active ? 'bg-ink text-surface' : 'bg-fill text-ink'
+                } disabled:opacity-60`}
               >
-                <span className={active ? '' : 'text-ink-500'}>{n}</span>
+                {formatNumber(lang, n)}
               </button>
             );
           })}
+          {Number(sets) > 1 && !readOnly && (
+            <Button
+              variant="text"
+              onClick={videoSets.length === Number(sets) ? clearVideoSets : selectAllVideoSets}
+              aria-label={t(videoSets.length === Number(sets) ? 'parcEditor.recordNoneLabel' : 'parcEditor.recordAllLabel', {
+                name: ex.name,
+              })}
+            >
+              {videoSets.length === Number(sets) ? t('parcEditor.recordNone') : t('parcEditor.recordAll')}
+            </Button>
+          )}
         </div>
-        {Number(sets) > 1 && !readOnly && (
-          <button
-            type="button"
-            onClick={videoSets.length === Number(sets) ? clearVideoSets : selectAllVideoSets}
-            className="sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)] underline"
-          >
-            {videoSets.length === Number(sets)
-              ? t('coach.slot.recordNone')
-              : t('coach.slot.recordAll')}
-          </button>
-        )}
       </div>
 
       {showNotes ? (
-        <div className="space-y-1">
-          <label htmlFor={`notes-${slot.id}`} className="sl-label text-ink-400 block">
-            {t('coach.slot.noteLabel')}
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor={`notes-${slot.id}`} className="pk-caption">
+            {t('parcEditor.note')}
           </label>
           <textarea
             id={`notes-${slot.id}`}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             onBlur={handleNotesBlur}
-            placeholder={t('coach.slot.notePlaceholder')}
+            placeholder={t('parcEditor.notePlaceholder')}
             rows={2}
             // readOnly, not disabled: a note is prose the coach may still want
             // to read in full and copy.
             readOnly={readOnly}
-            className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[16px] text-gray-900 resize-none focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+            className="pk-field resize-none py-2.5 leading-[1.45]"
           />
         </div>
       ) : !readOnly && (
-        <button
-          onClick={() => setShowNotes(true)}
-          className="sl-mono text-[11px] text-ink-400 hover:text-[var(--color-accent)]"
-        >
-          {t('coach.slot.addNote')}
-        </button>
+        <Button variant="text" className="self-start" onClick={() => setShowNotes(true)}>
+          {t('parcEditor.addNote')}
+        </Button>
       )}
 
       {children}
-    </div>
+    </section>
   );
 }

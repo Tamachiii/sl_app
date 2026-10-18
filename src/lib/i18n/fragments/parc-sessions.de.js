@@ -1,0 +1,28 @@
+// The coach's sessions feed in the Parc design (design/parc/screens/Seances.dc.html).
+export default {
+  parcSessions: {
+    title: 'Einheiten',
+    toReviewOne: '{n} Einheit zu prüfen',
+    toReviewMany: '{n} Einheiten zu prüfen',
+    nothingToReview: 'Nichts zu prüfen',
+    filterLabel: 'Einheiten filtern',
+    filterToReview: 'Zu prüfen',
+    filterDone: 'Erledigt',
+    athlete: 'Athlet',
+    allAthletes: 'Alle Athleten',
+    sessionOf: 'Einheit {n} von\u00a0{total}',
+    placeOf: 'Einheit {n} von\u00a0{total}',
+    untitled: 'Einheit',
+    unnamed: 'Athlet',
+    reviewed: 'Geprüft',
+    archived: 'Archiviert',
+    undated: 'Ohne Datum',
+    archivedTitle: 'Archiviert',
+    archivedCountOne: '{n} archivierte Einheit',
+    archivedCountMany: '{n} archivierte Einheiten',
+    noneYet: 'Noch keine bestätigte Einheit.',
+    noneForAthlete: 'Keine bestätigte Einheit für diesen Athleten.',
+    allArchived: 'Nichts zu prüfen: Alle bestätigten Einheiten sind archiviert.',
+    allReviewed: 'Alles geprüft, nichts wartet auf dich.',
+  },
+};

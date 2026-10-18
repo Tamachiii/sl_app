@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useI18n } from '../../hooks/useI18n';
+import { ActionBar, Button } from '../parc';
 
 /**
  * Stands where SessionFeedbackComposer would, at the bottom of SessionReview,
@@ -15,7 +16,8 @@ import { useI18n } from '../../hooks/useI18n';
  *   - `unverified`: the read failed or is waiting for the network. Nothing is
  *     known, so nothing is claimed; the coach can ask again.
  *
- * Same layout and neutral tone as SessionReviewedNoFeedback.
+ * The text where the composer would be, and its ways out in the ActionBar:
+ * « Vérifier à nouveau » first when nothing is known.
  */
 export default function SessionReviewNotConfirmed({
   unverified = false,
@@ -28,53 +30,45 @@ export default function SessionReviewNotConfirmed({
   const navigate = useNavigate();
 
   return (
-    <div className="rounded-xl p-4 space-y-3 bg-ink-100 border border-ink-200">
-      <div>
-        <div className="sl-label text-ink-400">{t('feedback.sectionLabel')}</div>
-        <h2 className="sl-display text-[16px] text-gray-900 leading-tight mt-0.5">
-          {unverified
-            ? t('coachReviewConfirmation.unverified.title')
-            : t('coachReviewConfirmation.feedback.title')}
-        </h2>
+    <>
+      <div className="px-4 pb-6 md:px-8">
+        <section className="rounded-group bg-surface p-4">
+          <h2 className="pk-headline">
+            {unverified
+              ? t('coachReviewConfirmation.unverified.title')
+              : t('coachReviewConfirmation.feedback.title')}
+          </h2>
+          <p className="pk-body mt-1.5">
+            {unverified
+              ? t('coachReviewConfirmation.unverified.body')
+              : t('coachReviewConfirmation.feedback.body')}
+          </p>
+        </section>
       </div>
-
-      <p className="text-[13px] text-ink-600">
-        {unverified
-          ? t('coachReviewConfirmation.unverified.body')
-          : t('coachReviewConfirmation.feedback.body')}
-      </p>
-
-      <div className="flex flex-wrap gap-2 pt-1">
+      <ActionBar className="sticky bottom-0 z-10 mt-auto flex-col items-stretch gap-1">
         {unverified && (
-          <button
-            type="button"
-            onClick={onRetry}
-            disabled={retrying}
-            className="sl-btn-primary text-[12px] disabled:opacity-50"
-            style={{ padding: '8px 12px' }}
-          >
+          <Button variant="primary" size="lg" onClick={onRetry} disabled={retrying}>
             {retrying
               ? t('coachReviewConfirmation.unverified.checking')
               : t('coachReviewConfirmation.unverified.retry')}
-          </button>
+          </Button>
+        )}
+        {!unverified && (
+          <Button variant="primary" size="lg" onClick={onFinish}>
+            {t('parcReview.close')}
+          </Button>
         )}
         {studentProfileId && (
-          <button
-            type="button"
-            onClick={() => navigate(`/coach/messages/${studentProfileId}`)}
-            className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200"
-          >
-            {t('feedback.openThread')}
-          </button>
+          <Button variant="text" onClick={() => navigate(`/coach/messages/${studentProfileId}`)}>
+            {t('parcReview.openThread')}
+          </Button>
         )}
-        <button
-          type="button"
-          onClick={onFinish}
-          className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200"
-        >
-          {t('feedback.backToSessions')}
-        </button>
-      </div>
-    </div>
+        {unverified && (
+          <Button variant="text" onClick={onFinish}>
+            {t('parcReview.close')}
+          </Button>
+        )}
+      </ActionBar>
+    </>
   );
 }

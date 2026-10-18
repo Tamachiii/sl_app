@@ -13,6 +13,5 @@ export default {
     failed: 'Where this exercise is used could not be checked, so it is not deleted. Check your connection and try again.',
     retry: 'Check again',
     retrying: 'Checking…',
-    ok: 'OK',
   },
 };

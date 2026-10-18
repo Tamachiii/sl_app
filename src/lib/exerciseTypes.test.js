@@ -5,27 +5,20 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { EXERCISE_TYPES, exerciseType, exerciseTypeLabel } from './exerciseTypes';
 import { LANGUAGES, getMessage } from './i18n';
-import {
-  AA_TEXT,
-  contrastRatio,
-  declared,
-  mixOver,
-  readStylesheet,
-  readTokens,
-  resolveColour,
-} from '../test/contrast.js';
+import { contrastRatio } from '../test/contrast.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const css = readStylesheet();
-const { light, dark } = readTokens(css);
 
-// `bg-pull/15 text-pull` → { token: 'pull', alpha: 0.15 }
-function tintOf(className) {
-  const match = /^bg-([a-z]+)\/(\d+) text-([a-z]+)$/.exec(className);
-  if (!match) throw new Error(`not a "bg-<token>/<n> text-<token>" pair: ${className}`);
-  if (match[1] !== match[3]) throw new Error(`tint and text of two tokens: ${className}`);
-  return { token: match[1], alpha: Number(match[2]) / 100 };
+// The colour of a Parc token, following `var(--x)` to its hex
+// (src/styles/parc-tokens.css, a copy of design/parc/tokens.json).
+const parc = readFileSync(resolve(root, 'src/styles/parc-tokens.css'), 'utf8');
+function token(name) {
+  const value = new RegExp(`--${name}:\\s*([^;]+);`).exec(parc)?.[1]?.trim();
+  const ref = /^var\(--([\w-]+)\)$/.exec(value ?? '');
+  return ref ? token(ref[1]) : value;
 }
+// A mark is a graphic, not text: 3:1 against what it sits on (WCAG 1.4.11).
+const AA_GRAPHIC = 3;
 
 describe('EXERCISE_TYPES', () => {
   it('lists pull and push, each under one id', () => {
@@ -66,35 +59,19 @@ describe('EXERCISE_TYPES', () => {
     expect([name('de', 'pull'), name('de', 'push')]).toEqual(['Zug', 'Druck']);
   });
 
-  it.each(EXERCISE_TYPES.map((type) => [type.id, type]))('%s is drawn in a colour token of its own', (_id, type) => {
-    const { token } = tintOf(type.className);
-    // In @theme, so that Tailwind writes `bg-<token>/15` and `text-<token>`…
-    expect(light[token]).toMatch(/^#[0-9a-f]{6}$/i);
-    // …the same in the dark theme, with no remap that would move the text
-    // and leave the tint…
-    expect(dark[token]).toBe(light[token]);
-    expect(declared(css, `.dark .text-${token}`, 'color')).toBeUndefined();
-    // …and the one the entry hands to a chart.
-    expect(type.color).toBe(`var(--color-${token})`);
+  it.each(EXERCISE_TYPES.map((type) => [type.id, type]))('%s is marked in the colour of its charts', (id, type) => {
+    // A Parc token of its own, the one its columns are drawn in…
+    expect(type.mark).toBe(`bg-chart-${id}`);
+    expect(type.color).toBe(`var(--chart-${id})`);
+    expect(token(`chart-${id}`)).toMatch(/^#[0-9a-f]{6}$/i);
+    // …that stands out of the `surface` a mark sits on — a row, a sheet. The
+    // mark is never alone: the type's name is written beside it.
+    expect(contrastRatio(token(`chart-${id}`), token('surface'))).toBeGreaterThanOrEqual(AA_GRAPHIC);
   });
 
-  // A badge sits on a card (the library, the review) or on a row of a dialog,
-  // hovered or not (the pickers): ink-850; and the page behind is ink-900.
-  const surfaces = [
-    ['a card', resolveColour(declared(css, '.dark .sl-card', 'background-color', 'background'), dark)],
-    ['a dialog', resolveColour(declared(css, '.dark .bg-white', 'background-color'), dark)],
-    ['a hovered row', resolveColour(declared(css, '.dark .hover\\:bg-ink-50:hover', 'background-color'), dark)],
-    ['the page', resolveColour(declared(css, '.dark body', 'background-color'), dark)],
-  ];
-
-  it.each(EXERCISE_TYPES.flatMap((type) => surfaces.map(([name, surface]) => [type.id, name, type, surface])))(
-    '%s reaches AA on its own tint over %s',
-    (_id, _name, type, surface) => {
-      const { token, alpha } = tintOf(type.className);
-      const tint = mixOver(dark[token], alpha, surface);
-      expect(contrastRatio(dark[token], tint)).toBeGreaterThanOrEqual(AA_TEXT);
-    },
-  );
+  it('gives two types two colours', () => {
+    expect(new Set(EXERCISE_TYPES.map((type) => token(`chart-${type.id}`))).size).toBe(EXERCISE_TYPES.length);
+  });
 });
 
 describe('exerciseType', () => {
@@ -105,17 +82,11 @@ describe('exerciseType', () => {
 
   it('gives a neutral entry for a type the list does not have — not push', () => {
     const legs = exerciseType('legs');
-    expect(legs).toEqual({ id: 'legs', labelKey: null, className: 'bg-ink-100 text-ink-500', color: 'var(--color-ink-400)' });
+    expect(legs).toEqual({ id: 'legs', labelKey: null, mark: 'bg-ink-3', color: 'var(--ink-3)' });
     for (const type of EXERCISE_TYPES) {
-      expect(legs.className).not.toBe(type.className);
+      expect(legs.mark).not.toBe(type.mark);
       expect(legs.color).not.toBe(type.color);
     }
-  });
-
-  it('draws the neutral entry readably', () => {
-    const text = resolveColour(declared(css, '.dark .text-ink-500', 'color'), dark);
-    const fill = resolveColour(declared(css, '.dark .bg-ink-100', 'background-color'), dark);
-    expect(contrastRatio(text, fill)).toBeGreaterThanOrEqual(AA_TEXT);
   });
 
   it('gives the neutral entry for no type', () => {
@@ -125,8 +96,8 @@ describe('exerciseType', () => {
   });
 
   it('does not let a caller change the neutral entry for the next one', () => {
-    exerciseType('legs').className = 'bg-push/15 text-push';
-    expect(exerciseType('core').className).toBe('bg-ink-100 text-ink-500');
+    exerciseType('legs').mark = 'bg-chart-push';
+    expect(exerciseType('core').mark).toBe('bg-ink-3');
   });
 });
 

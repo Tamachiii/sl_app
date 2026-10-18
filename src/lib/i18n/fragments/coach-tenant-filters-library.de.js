@@ -13,6 +13,5 @@ export default {
     failed: 'Es konnte nicht geprüft werden, wo diese Übung verwendet wird. Sie wird deshalb nicht gelöscht. Prüfe deine Verbindung und versuche es erneut.',
     retry: 'Erneut prüfen',
     retrying: 'Wird geprüft…',
-    ok: 'OK',
   },
 };

@@ -2,8 +2,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { inTimeZone, ZONES } from '../test/inTimeZone';
 import {
   todayDayNumber,
-  DAY_LABELS,
-  DAY_FULL,
   sessionDayNumber,
   parseISODate,
   isoDate,
@@ -21,11 +19,6 @@ describe('day.js', () => {
   });
   afterEach(() => {
     vi.useRealTimers();
-  });
-
-  it('exports the M..S labels and Mon..Sun full labels', () => {
-    expect(DAY_LABELS).toEqual(['M', 'T', 'W', 'T', 'F', 'S', 'S']);
-    expect(DAY_FULL).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
   });
 
   it.each([

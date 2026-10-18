@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildLastPerformance, formatLastPerformance, daysSince } from './lastPerformance';
+import { buildLastPerformance, daysSince } from './lastPerformance';
 
 // Build a flattened set_log row the way useLastPerformance feeds buildLastPerformance.
 function row(over = {}) {
@@ -295,57 +295,6 @@ describe('buildLastPerformance — the order of training', () => {
     expect(out).toEqual({
       'ex-1': { performedAt: '2026-07-01T10:00:00Z', scheduledDate: '2026-07-01', sets: [{ weight: 100, reps: 8 }] },
     });
-  });
-});
-
-describe('formatLastPerformance', () => {
-  it('collapses a uniform set of sets', () => {
-    expect(
-      formatLastPerformance({ sets: [
-        { weight: 100, reps: 8 },
-        { weight: 100, reps: 8 },
-        { weight: 100, reps: 8 },
-      ] })
-    ).toBe('3 × 8 @ 100kg');
-  });
-
-  it('lists distinct groups separated by a middot', () => {
-    expect(
-      formatLastPerformance({ sets: [
-        { weight: 100, reps: 8 },
-        { weight: 100, reps: 8 },
-        { weight: 100, reps: 6 },
-      ] })
-    ).toBe('2 × 8 @ 100kg · 6 @ 100kg');
-  });
-
-  it('renders reps only for bodyweight sets', () => {
-    expect(
-      formatLastPerformance({ sets: [
-        { weight: 0, reps: 10 },
-        { weight: 0, reps: 8 },
-      ] })
-    ).toBe('10 · 8');
-  });
-
-  it('caps the number of groups with a +N overflow', () => {
-    expect(
-      formatLastPerformance(
-        { sets: [
-          { weight: 100, reps: 5 },
-          { weight: 95, reps: 5 },
-          { weight: 90, reps: 5 },
-          { weight: 85, reps: 5 },
-          { weight: 80, reps: 5 },
-        ] },
-        { maxGroups: 3 }
-      )
-    ).toBe('5 @ 100kg · 5 @ 95kg · 5 @ 90kg · +2');
-  });
-
-  it('returns empty string for no sets', () => {
-    expect(formatLastPerformance(null)).toBe('');
-    expect(formatLastPerformance({ sets: [] })).toBe('');
   });
 });
 

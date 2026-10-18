@@ -1,0 +1,20 @@
+<!-- @dsCard group="Saisie" height=250 subtitle="Charge et répétitions, puis saisie refusée" -->
+<div style="padding:16px;max-width:390px;box-sizing:border-box">
+  <div style="background:var(--surface);border-radius:var(--radius-group);padding:16px;display:grid;gap:16px">
+    <div style="display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));gap:12px">
+      <label style="display:grid;gap:6px">
+        <span class="pk-small">Répétitions</span>
+        <input type="text" inputmode="numeric" value="5" class="pk-field pk-condensed pk-tnum" style="font-size:28px;font-weight:800;min-height:56px">
+      </label>
+      <label style="display:grid;gap:6px">
+        <span class="pk-small">Charge en kg</span>
+        <input type="text" inputmode="decimal" value="22,5" class="pk-field pk-condensed pk-tnum" style="font-size:28px;font-weight:800;min-height:56px">
+      </label>
+    </div>
+    <label style="display:grid;gap:6px">
+      <span class="pk-small">Poids de corps en kg</span>
+      <input type="text" inputmode="decimal" value="0" aria-invalid="true" aria-describedby="pk-num-err" class="pk-field pk-tnum">
+      <span id="pk-num-err" role="alert" style="font-size:13px;color:var(--red)">Saisis un nombre de 20 à 250.</span>
+    </label>
+  </div>
+</div>

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import ExerciseProgressChart, {
   pointPositions,
   thinTicks,
@@ -14,11 +14,19 @@ describe('<ExerciseProgressChart />', () => {
     window.localStorage.clear();
   });
 
+  const exercisePicker = () => screen.getByRole('combobox', { name: 'Exercise' });
+  // The chart is drawn for the eye; a screen reader reads the same sessions
+  // from a table named like the chart.
+  const sessionRows = () =>
+    within(screen.getByRole('table', { name: 'Tonnage per session' }))
+      .getAllByRole('cell')
+      .map((cell) => cell.textContent);
+  const chartSvg = (container) => container.querySelector('svg');
+
   it('renders an empty placeholder when there are no exercises', () => {
     render(<ExerciseProgressChart exercises={[]} byExercise={{}} />);
-    expect(
-      screen.getByText(/no weighted exercises in your program yet/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText('No exercise with a load yet.')).toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).toBeNull();
   });
 
   it('renders the SVG chart with the first exercise selected by default', () => {
@@ -32,11 +40,14 @@ describe('<ExerciseProgressChart />', () => {
         { week_id: 'w-2', week_number: 2, label: null, program_id: 'p-1', program_name: 'A', tonnage: 1500, key: 'p-1:w-2' },
       ],
     };
-    render(<ExerciseProgressChart exercises={exercises} byExercise={byExercise} />);
-    const select = screen.getByRole('combobox');
-    expect(select.value).toBe('e-1');
-    const svg = document.querySelector('svg[role="img"]');
-    expect(svg).toBeTruthy();
+    const { container } = render(<ExerciseProgressChart exercises={exercises} byExercise={byExercise} />);
+    expect(exercisePicker().value).toBe('e-1');
+    // Drawn for the eye only: the table and the caption say it in words.
+    expect(chartSvg(container)).toHaveAttribute('aria-hidden', 'true');
+    const rows = sessionRows();
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatch(/1,000\u00a0kg$/);
+    expect(rows[1]).toMatch(/1,500\u00a0kg$/);
   });
 
   it('changing the select switches the visible exercise', () => {
@@ -49,14 +60,17 @@ describe('<ExerciseProgressChart />', () => {
       'e-2': [{ week_number: 1, tonnage: 200, program_id: 'p', key: 'p:1' }],
     };
     render(<ExerciseProgressChart exercises={exercises} byExercise={byExercise} />);
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'e-2' } });
-    expect(screen.getByRole('combobox').value).toBe('e-2');
+    expect(sessionRows()).toEqual(['100\u00a0kg']);
+    fireEvent.change(exercisePicker(), { target: { value: 'e-2' } });
+    expect(exercisePicker().value).toBe('e-2');
+    expect(sessionRows()).toEqual(['200\u00a0kg']);
   });
 
-  it('shows "No data for this exercise yet" when the selected exercise has no points', () => {
+  it('says so when the selected exercise has no points', () => {
     const exercises = [{ id: 'e-1', name: 'Squat' }];
-    render(<ExerciseProgressChart exercises={exercises} byExercise={{ 'e-1': [] }} />);
-    expect(screen.getByText(/no data for this exercise yet/i)).toBeInTheDocument();
+    const { container } = render(<ExerciseProgressChart exercises={exercises} byExercise={{ 'e-1': [] }} />);
+    expect(screen.getByText('No session of this exercise yet.')).toBeInTheDocument();
+    expect(chartSvg(container)).toBeNull();
   });
 
   it('does NOT render the line path when only 1 data point', () => {
@@ -64,11 +78,10 @@ describe('<ExerciseProgressChart />', () => {
     const byExercise = {
       'e-1': [{ week_number: 1, tonnage: 100, program_id: 'p', key: 'p:1' }],
     };
-    render(<ExerciseProgressChart exercises={exercises} byExercise={byExercise} />);
-    const svg = document.querySelector('svg[role="img"]');
-    // No <path> element means no line; check there's no `d=` starting with M.
-    const paths = svg.querySelectorAll('path');
-    expect(paths.length).toBe(0);
+    const { container } = render(<ExerciseProgressChart exercises={exercises} byExercise={byExercise} />);
+    // No <path> element means no line; the single session is a dot.
+    expect(chartSvg(container).querySelectorAll('path')).toHaveLength(0);
+    expect(chartSvg(container).querySelectorAll('circle')).toHaveLength(1);
   });
 
   it('persists the selected exercise to localStorage when storageKey is set', () => {
@@ -87,7 +100,7 @@ describe('<ExerciseProgressChart />', () => {
         storageKey="sl_test_chart"
       />,
     );
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'e-2' } });
+    fireEvent.change(exercisePicker(), { target: { value: 'e-2' } });
     expect(window.localStorage.getItem('sl_test_chart')).toBe('e-2');
   });
 
@@ -108,7 +121,7 @@ describe('<ExerciseProgressChart />', () => {
         storageKey="sl_test_chart"
       />,
     );
-    expect(screen.getByRole('combobox').value).toBe('e-2');
+    expect(exercisePicker().value).toBe('e-2');
   });
 
   it('falls back to the first exercise when the saved id is no longer in the list', () => {
@@ -127,7 +140,7 @@ describe('<ExerciseProgressChart />', () => {
         storageKey="sl_test_chart"
       />,
     );
-    expect(screen.getByRole('combobox').value).toBe('e-1');
+    expect(exercisePicker().value).toBe('e-1');
   });
 
   // The x-axis is a real timeline now — one point per session on the day it
@@ -154,8 +167,141 @@ describe('<ExerciseProgressChart />', () => {
       ],
     };
     render(<ExerciseProgressChart exercises={exercises} byExercise={byExercise} />);
-    // Both points produce "BLO·7/8" because both program names start with "Block ".
-    expect(screen.getAllByText('BLO·7/8').length).toBeGreaterThanOrEqual(1);
+    // Both points produce "Blo, 7/8" because both program names start with "Block ".
+    expect(screen.getAllByText('Blo, 7/8').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('keeps the date alone on x-labels when every point is of one program', () => {
+    const exercises = [{ id: 'e-1', name: 'Squat' }];
+    const byExercise = {
+      'e-1': [
+        { session_id: 's-1', date: '2026-07-08', tonnage: 100, program_id: 'p-1', program_name: 'Block A', key: 's-1' },
+        { session_id: 's-2', date: '2026-07-11', tonnage: 200, program_id: 'p-1', program_name: 'Block A', key: 's-2' },
+      ],
+    };
+    render(<ExerciseProgressChart exercises={exercises} byExercise={byExercise} />);
+    expect(screen.getByText('7/8')).toBeInTheDocument();
+    expect(screen.queryByText(/^Blo, /)).toBeNull();
+  });
+
+  // What a dot says on hover is what the table says: the block, the day, the
+  // session, the tonnage and a swap.
+  it('says each session in words, on its dot and in the table', () => {
+    const exercises = [{ id: 'e-1', name: 'Squat' }];
+    const byExercise = {
+      'e-1': [
+        { session_id: 's-1', date: '2026-07-08', title: 'Heavy', tonnage: 1250, program_id: 'p-1', program_name: 'Block A', key: 's-1' },
+        { session_id: 's-2', date: '2026-07-11', tonnage: 900, program_id: 'p-1', program_name: 'Block A', key: 's-2', swappedFrom: 'Front squat' },
+        { session_id: 's-3', date: '2026-07-14', tonnage: 950, program_id: 'p-1', program_name: 'Block A', key: 's-3', swappedTo: 'Leg press' },
+      ],
+    };
+    const { container } = render(<ExerciseProgressChart exercises={exercises} byExercise={byExercise} />);
+    const said = [
+      'Block A, Jul 8, 2026, Heavy, 1,250\u00a0kg',
+      'Block A, Jul 11, 2026, 900\u00a0kg, in place of Front squat',
+      'Block A, Jul 14, 2026, 950\u00a0kg, replaced by Leg press',
+    ];
+    expect(sessionRows()).toEqual(said);
+    expect([...chartSvg(container).querySelectorAll('circle > title')].map((n) => n.textContent)).toEqual(said);
+  });
+
+  // The caption's highest figure is the PERFORMED peak: planned may be
+  // higher, and the caption would then overstate what the athlete did.
+  it('captions the performed peak, and the planned line only when one is drawn', () => {
+    const exercises = [{ id: 'e-1', name: 'Squat' }];
+    const point = (date, tonnage, plannedTonnage) => ({
+      session_id: `s-${date}`, date, tonnage, plannedTonnage, program_id: 'p-1', key: `s-${date}`,
+    });
+    const dashed = (container) => chartSvg(container).querySelectorAll('path[stroke-dasharray]');
+
+    const { container, unmount } = render(
+      <ExerciseProgressChart
+        exercises={exercises}
+        byExercise={{ 'e-1': [point('2026-07-08', 1000, 1400), point('2026-07-11', 1200, 1200)] }}
+      />,
+    );
+    expect(screen.getByText(/Highest, 1,200 kg\./)).toHaveTextContent(
+      'Tonnage done: reps times load of the sets done, 1 kg at bodyweight. Highest, 1,200 kg. Dashed, the tonnage planned.',
+    );
+    expect(dashed(container)).toHaveLength(1);
+    unmount();
+
+    // As planned: no dashed line, and the caption does not mention one.
+    const asPlanned = render(
+      <ExerciseProgressChart
+        exercises={exercises}
+        byExercise={{ 'e-1': [point('2026-07-08', 1000, 1000), point('2026-07-11', 1200, 1200)] }}
+      />,
+    );
+    expect(dashed(asPlanned.container)).toHaveLength(0);
+    expect(screen.queryByText(/Dashed/)).toBeNull();
+    asPlanned.unmount();
+
+    // One session: no line of either kind, whatever was planned.
+    const one = render(
+      <ExerciseProgressChart exercises={exercises} byExercise={{ 'e-1': [point('2026-07-08', 1000, 1400)] }} />,
+    );
+    expect(dashed(one.container)).toHaveLength(0);
+    expect(screen.queryByText(/Dashed/)).toBeNull();
+  });
+
+  // The Progression list of the athlete's stats opens the chart of the row
+  // that was tapped: the exercise is the list's, and the chart has no
+  // choice of its own.
+  describe('given its exercise (`exerciseId`)', () => {
+    const exercises = [
+      { id: 'e-1', name: 'Squat' },
+      { id: 'e-2', name: 'Pull' },
+    ];
+    const byExercise = {
+      'e-1': [{ session_id: 's-1', date: '2026-07-08', tonnage: 100, program_id: 'p', key: 's-1' }],
+      'e-2': [{ session_id: 's-2', date: '2026-07-09', tonnage: 200, program_id: 'p', key: 's-2' }],
+    };
+
+    it('draws that exercise, and offers no select', () => {
+      render(<ExerciseProgressChart exercises={exercises} byExercise={byExercise} exerciseId="e-2" />);
+      expect(screen.queryByRole('combobox')).toBeNull();
+      expect(sessionRows()).toEqual(['Jul 9, 2026, 200\u00a0kg']);
+    });
+
+    it('follows the exercise it is given', () => {
+      const view = render(<ExerciseProgressChart exercises={exercises} byExercise={byExercise} exerciseId="e-2" />);
+      view.rerender(<ExerciseProgressChart exercises={exercises} byExercise={byExercise} exerciseId="e-1" />);
+      expect(sessionRows()).toEqual(['Jul 8, 2026, 100\u00a0kg']);
+    });
+
+    it('neither reads nor writes a saved choice', () => {
+      window.localStorage.setItem('sl_test_chart', 'e-1');
+      render(
+        <ExerciseProgressChart
+          exercises={exercises}
+          byExercise={byExercise}
+          storageKey="sl_test_chart"
+          exerciseId="e-2"
+        />,
+      );
+      expect(sessionRows()).toEqual(['Jul 9, 2026, 200\u00a0kg']);
+      expect(window.localStorage.getItem('sl_test_chart')).toBe('e-1');
+    });
+
+    it('says so when that exercise has no session', () => {
+      render(<ExerciseProgressChart exercises={exercises} byExercise={{ 'e-1': byExercise['e-1'] }} exerciseId="e-2" />);
+      expect(screen.getByText('No session of this exercise yet.')).toBeInTheDocument();
+      expect(screen.queryByRole('table')).toBeNull();
+    });
+  });
+
+  // `bare` is the chart drawn inside a row of a list, which is already white.
+  it('draws its own white box unless it is `bare`', () => {
+    const exercises = [{ id: 'e-1', name: 'Squat' }];
+    const byExercise = { 'e-1': [{ session_id: 's-1', date: '2026-07-08', tonnage: 100, program_id: 'p', key: 's-1' }] };
+    const boxed = render(<ExerciseProgressChart exercises={exercises} byExercise={byExercise} />);
+    expect(boxed.container.firstChild).toHaveClass('bg-surface');
+    boxed.unmount();
+
+    const bare = render(<ExerciseProgressChart exercises={exercises} byExercise={byExercise} exerciseId="e-1" bare />);
+    expect(bare.container.firstChild).not.toHaveClass('bg-surface');
+    expect(bare.container.querySelector('svg')).not.toBeNull();
   });
 
   // B40: the points were spaced by their index, so two sessions two days
@@ -167,7 +313,7 @@ describe('<ExerciseProgressChart />', () => {
     });
     const chart = (points) => {
       const view = render(<ExerciseProgressChart exercises={exercises} byExercise={{ 'e-1': points }} />);
-      const svg = view.container.querySelector('svg[role="img"]');
+      const svg = view.container.querySelector('svg');
       return {
         cx: [...svg.querySelectorAll('circle')].map((c) => Number(c.getAttribute('cx'))),
         bars: [...svg.querySelectorAll('rect')].map((r) => Number(r.getAttribute('width'))),
@@ -197,7 +343,8 @@ describe('<ExerciseProgressChart />', () => {
 
     it('centres a single point', () => {
       const one = chart([point('2026-07-01')]);
-      const centre = (one.width + 32 - 8) / 2;
+      // Halfway between the value axis (40 wide) and the right margin (8).
+      const centre = (one.width + 40 - 8) / 2;
       expect(one.cx).toEqual([centre]);
     });
 
@@ -241,8 +388,8 @@ describe('<ExerciseProgressChart />', () => {
       const { ticks } = chart(points);
       expect(ticks.length).toBeGreaterThanOrEqual(2);
       expect(ticks.length).toBeLessThanOrEqual(6);
-      expect(ticks[0].text).toBe('BLO·6/1');
-      expect(ticks.at(-1).text).toBe('PEA·8/20');
+      expect(ticks[0].text).toBe('Blo, 6/1');
+      expect(ticks.at(-1).text).toBe('Pea, 8/20');
       ticks.slice(1).forEach((tick, i) => {
         const before = ticks[i];
         expect(before.x + tickWidth(before.text) / 2).toBeLessThan(tick.x - tickWidth(tick.text) / 2);

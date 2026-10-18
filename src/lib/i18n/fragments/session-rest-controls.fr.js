@@ -3,11 +3,8 @@
 export default {
   sessionRestControls: {
     restStarted: 'Repos {time}',
-    timerGroup: 'Minuteur de repos',
-    addThirty: '+30 s',
-    addThirtyAria: 'Ajouter 30 secondes de repos',
-    skip: 'Passer le repos',
-    addNoteOn: 'Ajouter une note pour le coach : {name}',
-    editNoteOn: 'Modifier la note pour le coach : {name}',
+    // The tab's title while the app is in the background.
+    tabTitle: 'Repos {time} – {title}',
+    tabTitleDone: 'Repos terminé – {title}',
   },
 };

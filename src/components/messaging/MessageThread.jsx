@@ -13,8 +13,7 @@ import {
 import { useStudents } from '../../hooks/useStudents';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import Spinner from '../ui/Spinner';
-import EmptyState from '../ui/EmptyState';
-import ConfirmDialog from '../ui/ConfirmDialog';
+import { ConfirmSheet } from '../parc';
 import MessageComposer from './MessageComposer';
 import SessionReferenceCard from './SessionReferenceCard';
 
@@ -191,6 +190,12 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
     });
   }, [messages, me]);
 
+  const name = (otherFullName || '').trim();
+  const note = (text) => <p className="pk-body py-6 text-center text-ink-2">{text}</p>;
+
+  // The conversation (design/parc/screens/Conversation.dc.html): their
+  // messages on `surface` at the left, mine on `blue` at the right, each run
+  // of one sender with its time under it.
   return (
     <div className={`flex flex-col min-h-0 flex-1 ${className}`}>
       {headerSlot && (
@@ -200,31 +205,27 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
       <div
         ref={scrollerRef}
         onScroll={handleScroll}
-        className="flex-1 min-h-0 overflow-y-auto px-4 md:px-8"
+        className="flex-1 min-h-0 overflow-y-auto px-4 py-3 md:px-8"
         role="log"
         aria-live="polite"
-        aria-label={t('messaging.threadLabel', { name: otherFullName || '—' })}
+        aria-label={name ? t('parcMessages.threadLabel', { name }) : t('parcMessages.title')}
       >
         {isLoading && (
           <div className="flex justify-center py-6"><Spinner /></div>
         )}
 
-        {isError && (
-          <EmptyState message={t('messaging.loadError')} />
-        )}
+        {isError && note(t('parcMessages.loadError'))}
 
-        {!isLoading && !isError && (!messages || messages.length === 0) && (
-          <EmptyState message={t('messaging.empty')} />
-        )}
+        {!isLoading && !isError && (!messages || messages.length === 0) && note(t('parcMessages.empty'))}
 
         {!isLoading && !isError && messages && messages.length > 0 && (
-          <div className="space-y-3 pb-2">
+          <div className="flex flex-col gap-4 pb-2">
             {groups.map((group, gi) => {
               const fromMe = group.senderId === me;
               return (
                 <div
                   key={`${group.senderId}-${gi}`}
-                  className={`flex flex-col gap-1 ${fromMe ? 'items-end' : 'items-start'}`}
+                  className={`flex flex-col gap-2 ${fromMe ? 'items-end' : 'items-start'}`}
                 >
                   {group.messages.map((m, mi) => {
                     const isLastInGroup = mi === group.messages.length - 1;
@@ -235,7 +236,6 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
                     const pressHandlers = canDelete
                       ? {
                           onPointerDown: (e) => {
-                            // Skip non-primary buttons (right/middle click) — those go through onContextMenu.
                             if (e.button !== 0) return;
                             startPress(m.id, e);
                           },
@@ -252,53 +252,36 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
                         }
                       : null;
                     return (
-                      <div key={m.id} className={`flex flex-col gap-1 max-w-[80%] md:max-w-[70%] ${fromMe ? 'items-end' : 'items-start'}`}>
+                      <div key={m.id} className={`flex max-w-[80%] flex-col gap-1 md:max-w-[70%] ${fromMe ? 'items-end' : 'items-start'}`}>
                         {m.session_id && (
                           <SessionReferenceCard
                             sessionId={m.session_id}
                             session={sessionRef}
-                            fromMe={fromMe}
                             onOpen={() => openSessionRef(m.session_id)}
-                            lang={lang}
                           />
                         )}
-                        <div
+                        <p
                           {...pressHandlers}
-                          // wrap-anywhere, not break-words: a long URL must not set
-                          // the bubble's smallest width, or it overflows the
-                          // 80% column and the thread scrolls sideways.
-                          className={`rounded-2xl px-3.5 py-2 text-[14px] leading-snug whitespace-pre-wrap wrap-anywhere transition-transform duration-150 ${
+                          className={`m-0 px-3.5 py-2.5 text-[16px] leading-[1.4] whitespace-pre-wrap wrap-anywhere transition-transform duration-150 ${
                             fromMe
-                              ? 'bg-[var(--color-accent)] text-[var(--color-ink-900)]'
-                              : 'bg-ink-100 text-ink-800'
+                              ? 'rounded-[20px_20px_6px_20px] bg-blue text-on-blue'
+                              : 'rounded-[20px_20px_20px_6px] bg-surface text-ink'
                           } ${isPressing ? 'scale-95 opacity-80' : ''} ${canDelete ? 'cursor-pointer select-none' : ''}`}
-                          style={{
-                            ...(fromMe ? { borderBottomRightRadius: 6 } : { borderBottomLeftRadius: 6 }),
-                            // Suppress iOS long-press callout (text-selection menu) so
-                            // our 450ms timer wins the gesture.
-                            ...(canDelete ? { WebkitTouchCallout: 'none' } : null),
-                          }}
+                          style={canDelete ? { WebkitTouchCallout: 'none' } : undefined}
                         >
                           {m.body}
-                          {isLastInGroup && (
-                            <div
-                              className={`sl-mono text-[10px] mt-1 tabular-nums ${
-                                fromMe ? 'opacity-70' : 'text-ink-400'
-                              }`}
-                            >
-                              {formatMessageStamp(m.created_at, lang)}
-                            </div>
-                          )}
-                        </div>
+                        </p>
+                        {isLastInGroup && (
+                          <p className="pk-small pk-tnum m-0">
+                            {formatMessageStamp(m.created_at, lang)}
+                          </p>
+                        )}
                         {showReceipt && (
-                          <div
-                            className="sl-mono text-[10px] tabular-nums text-ink-400"
-                            aria-live="polite"
-                          >
+                          <p className="pk-small pk-tnum m-0" aria-live="polite">
                             {m.read_at
-                              ? t('messaging.readReceipt', { when: formatMessageStamp(m.read_at, lang) })
-                              : t('messaging.sentReceipt')}
-                          </div>
+                              ? t('parcMessages.read', { when: formatMessageStamp(m.read_at, lang) })
+                              : t('parcMessages.sent')}
+                          </p>
                         )}
                       </div>
                     );
@@ -311,10 +294,10 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
       </div>
 
       <div className="shrink-0" style={{ paddingBottom: 'var(--kb-inset, 0px)' }}>
-        <MessageComposer recipientProfileId={otherProfileId} />
+        <MessageComposer recipientProfileId={otherProfileId} recipientName={otherFullName} />
       </div>
 
-      <ConfirmDialog
+      <ConfirmSheet
         open={!!pendingDeleteId}
         onClose={() => setPendingDeleteId(null)}
         onConfirm={() => {
@@ -322,13 +305,13 @@ export default function MessageThread({ otherProfileId, otherFullName, headerSlo
           deleteMessage.mutate(pendingDeleteId);
           setPendingDeleteId(null);
         }}
-        title={t('messaging.deleteTitle')}
+        title={t('parcMessages.deleteTitle')}
         message={
           pendingMessage
-            ? t('messaging.deleteConfirm', { preview: pendingMessage.body.slice(0, 80) })
-            : t('messaging.deleteConfirmFallback')
+            ? t('parcMessages.deleteMessage', { preview: pendingMessage.body.slice(0, 80) })
+            : t('parcMessages.deleteMessageFallback')
         }
-        confirmText={t('messaging.delete')}
+        confirmText={t('parcMessages.delete')}
       />
     </div>
   );

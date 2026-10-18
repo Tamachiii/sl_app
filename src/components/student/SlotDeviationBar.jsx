@@ -1,35 +1,28 @@
 import { useMemo, useState } from 'react';
-import Dialog from '../ui/Dialog';
-import ConfirmDialog from '../ui/ConfirmDialog';
 import TypeBadge from '../ui/TypeBadge';
+import { Button, ConfirmSheet, Row, SearchField, Sheet } from '../parc';
 import { useSaveSlotDeviation, useRequestPromote } from '../../hooks/useSlotDeviations';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useI18n } from '../../hooks/useI18n';
 import { isActiveExercise } from '../../hooks/useExerciseLibrary';
 
 /**
- * Per-slot off-script controls: swap the prescribed exercise for another from
- * the coach's library, or skip the exercise entirely. One slot_deviations row
- * per slot (swap XOR skip). Renders the current state with an undo, or the
- * Swap / Skip actions when the slot is still on-plan.
+ * The athlete's way off the plan on one exercise: replace it by another of the
+ * coach's library, or skip it. One slot_deviations row per slot (swap XOR
+ * skip). Shows the current state with its way back, or « Remplacer » and
+ * « Sauter » while the exercise is as planned.
  *
- * The substitute is library-only (no free-text) so every swap stays a known
- * exercise. `exerciseLibrary` is the coach's catalogue (students have read
- * access); we resolve the substitute's name from it for display.
+ * The substitute is library-only (no free text) so every swap stays a known
+ * exercise. `exerciseLibrary` is the coach's catalogue (athletes have read
+ * access); the substitute's name is read from it.
  *
  * Skip asks first (L12): a new deviation notifies the coach, bell and push, as
- * soon as it is written (`notify_coach_on_slot_deviation`, AFTER INSERT), and
- * the pill sat next to Swap. The dialog says the coach will be told. Undo
- * deletes the row, which takes back the coach's unread notification
+ * soon as it is written (`notify_coach_on_slot_deviation`, AFTER INSERT). The
+ * sheet says the coach will be told. « Revenir au plan » deletes the row,
+ * which takes back the coach's unread notification
  * (`retract_slot_deviation_notifications`) — not a push already delivered.
  */
-export default function SlotDeviationBar({
-  sessionId,
-  slot,
-  deviation,
-  exerciseLibrary,
-  locked = false,
-}) {
+export default function SlotDeviationBar({ sessionId, slot, deviation, exerciseLibrary, locked = false }) {
   const { t } = useI18n();
   const saveDeviation = useSaveSlotDeviation();
   const requestPromote = useRequestPromote();
@@ -43,8 +36,8 @@ export default function SlotDeviationBar({
   const substituteName = useMemo(() => {
     if (kind !== 'swap' || !deviation?.substitute_exercise_id) return null;
     const ex = (exerciseLibrary || []).find((e) => e.id === deviation.substitute_exercise_id);
-    return ex?.name || 'another exercise';
-  }, [kind, deviation, exerciseLibrary]);
+    return ex?.name || t('parcSession.anotherExercise');
+  }, [kind, deviation, exerciseLibrary, t]);
 
   // An exercise the coach archived is not offered for new work. One already
   // swapped in keeps its name above: `substituteName` reads the whole library.
@@ -70,155 +63,97 @@ export default function SlotDeviationBar({
     saveDeviation.mutate({ sessionId, slotId: slot.id, kind: null });
   }
 
-  // Active swap/skip — show the state + undo (and, for swaps, change).
+  const picker = (
+    <Sheet
+      open={pickerOpen}
+      onClose={() => setPickerOpen(false)}
+      title={t('parcSession.swapTitle')}
+      description={t('parcSession.swapHint')}
+    >
+      <div className="flex flex-col gap-3">
+        <SearchField
+          label={t('parcSession.swapSearch')}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        {candidates.length === 0 ? (
+          <p className="pk-caption py-4 text-center">{t('parcSession.swapEmpty')}</p>
+        ) : (
+          <ul className="pk-group p-0">
+            {candidates.map((ex) => (
+              <Row
+                key={ex.id}
+                onClick={() => applySwap(ex.id)}
+                title={ex.name}
+                trailing={<TypeBadge type={ex.type} className="shrink-0" />}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
+    </Sheet>
+  );
+
+  // A swap or a skip: what it is, and the way back.
   if (kind) {
     const isSwap = kind === 'swap';
     return (
-      <div
-        className="rounded-lg px-3 py-2 flex items-center gap-2 flex-wrap"
-        style={{
-          background: 'color-mix(in srgb, var(--color-warn) 14%, transparent)',
-          border: '1px solid color-mix(in srgb, var(--color-warn) 35%, transparent)',
-        }}
-      >
-        {/* text-ink-900 (not inline style): the warn tint follows the dark
-            card surface, and only the class remap flips the text with it. */}
-        <span className="sl-label shrink-0 text-ink-900">
-          {isSwap ? 'Swapped' : 'Skipped'}
-        </span>
-        <span className="text-[13px] text-gray-800 flex-1 min-w-0">
-          {isSwap ? (
-            <>Doing <span className="font-semibold">{substituteName}</span> instead</>
-          ) : (
-            'You skipped this exercise'
-          )}
-        </span>
+      <section className="flex flex-col gap-3 rounded-group bg-amber-soft p-4">
+        <p className="pk-body text-ink">
+          {isSwap ? t('parcSession.swappedTo', { name: substituteName }) : t('parcSession.exerciseSkippedByYou')}
+        </p>
         {!locked && (
-          <span className="flex items-center gap-1.5 shrink-0">
+          <div className="flex flex-wrap gap-2">
             {isSwap && (
-              <button
-                type="button"
-                onClick={() => setPickerOpen(true)}
-                className="sl-pill sl-pill-btn bg-ink-100 text-ink-700 hover:bg-ink-200"
-              >
-                Change
-              </button>
+              <Button variant="on-ground" onClick={() => setPickerOpen(true)}>
+                {t('parcSession.changeSwap')}
+              </Button>
             )}
-            <button
-              type="button"
-              onClick={clearDeviation}
-              className="sl-pill sl-pill-btn bg-ink-100 text-ink-700 hover:bg-ink-200"
-            >
-              Undo
-            </button>
-          </span>
+            <Button variant="on-ground" onClick={clearDeviation}>
+              {t('parcSession.backToPlan')}
+            </Button>
+          </div>
         )}
         {/* Phase 3.3: ask the coach to make this deviation the standing plan. */}
         {promoteRequested ? (
-          <span className="sl-mono text-[11px] text-ink-600 basis-full">
-            ✓ Asked your coach to make this permanent
-          </span>
+          <p className="pk-caption text-ink">{t('parcSession.promoteAsked')}</p>
         ) : !locked && online ? (
-          <button
-            type="button"
+          <Button
+            variant="text"
+            className="self-start text-left"
             onClick={() => requestPromote.mutate({ sessionId, slotId: slot.id })}
             disabled={requestPromote.isPending}
-            className="sl-pill sl-pill-btn bg-ink-100 text-ink-600 hover:bg-ink-200 basis-full sm:basis-auto disabled:opacity-50"
           >
-            Ask coach to make this permanent
-          </button>
+            {t('parcSession.promoteAsk')}
+          </Button>
         ) : null}
-        {isSwap && (
-          <SwapPicker
-            open={pickerOpen}
-            onClose={() => setPickerOpen(false)}
-            candidates={candidates}
-            query={query}
-            setQuery={setQuery}
-            onPick={applySwap}
-          />
-        )}
-      </div>
+        {isSwap && picker}
+      </section>
     );
   }
 
   if (locked) return null;
 
-  // On-plan — offer the actions.
+  const name = slot.exercise?.name;
   return (
-    <div className="flex items-center gap-2">
-      <span className="sl-mono text-[11px] text-ink-400">Can't do this exercise?</span>
-      <button
-        type="button"
-        onClick={() => setPickerOpen(true)}
-        className="sl-pill sl-pill-btn bg-ink-100 text-ink-600 hover:bg-ink-200"
-      >
-        Swap
-      </button>
-      <button
-        type="button"
-        onClick={() => setSkipAsked(true)}
-        className="sl-pill sl-pill-btn bg-ink-100 text-ink-600 hover:bg-ink-200"
-      >
-        Skip
-      </button>
-      <SwapPicker
-        open={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        candidates={candidates}
-        query={query}
-        setQuery={setQuery}
-        onPick={applySwap}
-      />
-      <ConfirmDialog
+    <div className="flex flex-wrap gap-2">
+      <Button variant="on-ground" onClick={() => setPickerOpen(true)}>
+        {t('parcSession.swap')}
+      </Button>
+      <Button variant="on-ground" onClick={() => setSkipAsked(true)}>
+        {t('parcSession.skipExercise')}
+      </Button>
+      {picker}
+      <ConfirmSheet
         open={skipAsked}
         onClose={() => setSkipAsked(false)}
         onConfirm={applySkip}
-        title={
-          slot.exercise?.name
-            ? t('sessionTouchUndo.skipExerciseTitle', { name: slot.exercise.name })
-            : t('sessionTouchUndo.skipExerciseTitleNoName')
-        }
-        message={t('sessionTouchUndo.skipExerciseMessage')}
-        confirmText={t('sessionTouchUndo.skipExerciseConfirm')}
+        title={name ? t('parcSession.skipExerciseTitle', { name }) : t('parcSession.skipExerciseTitleNoName')}
+        message={t('parcSession.skipExerciseMessage')}
+        confirmText={t('parcSession.skipExerciseConfirm')}
+        cancelText={t('parcSession.skipExerciseKeep')}
         isDestructive={false}
       />
     </div>
-  );
-}
-
-function SwapPicker({ open, onClose, candidates, query, setQuery, onPick }) {
-  return (
-    <Dialog open={open} onClose={onClose} title="Swap exercise">
-      <p className="sl-mono text-[12px] text-ink-400 mb-3 leading-relaxed">
-        Pick a replacement from your coach's library.
-      </p>
-      <label htmlFor="swap-search" className="sr-only">Search exercises</label>
-      <input
-        id="swap-search"
-        type="text"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search…"
-        className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[16px] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] mb-3"
-      />
-      <div className="max-h-64 overflow-y-auto -mx-1 px-1 space-y-1">
-        {candidates.length === 0 ? (
-          <p className="sl-mono text-[12px] text-ink-400 py-4 text-center">No exercises found.</p>
-        ) : (
-          candidates.map((ex) => (
-            <button
-              key={ex.id}
-              type="button"
-              onClick={() => onPick(ex.id)}
-              className="w-full min-h-11 flex items-center gap-2 rounded-lg px-3 py-2.5 text-left hover:bg-ink-50"
-            >
-              <span className="sl-display text-[15px] text-gray-900 flex-1 min-w-0 truncate">{ex.name}</span>
-              <TypeBadge type={ex.type} className="shrink-0" />
-            </button>
-          ))
-        )}
-      </div>
-    </Dialog>
   );
 }

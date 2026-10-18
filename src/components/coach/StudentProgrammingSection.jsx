@@ -7,7 +7,7 @@ import {
   useEnsureProgram,
 } from '../../hooks/useProgram';
 import Spinner from '../ui/Spinner';
-import EmptyState from '../ui/EmptyState';
+import { Button } from '../parc';
 import ProgramSheet from './ProgramSheet';
 import ProgramSwitcher from './ProgramSwitcher';
 import { CoachNotFound, CoachReadProblem } from './CoachPageState';
@@ -75,7 +75,7 @@ export default function StudentProgrammingSection() {
   const listState = programs ? 'ready' : readState([programsRead], { online, restoring });
   if (listState === 'offline' || listState === 'failed') {
     return (
-      <div className="sl-card p-3 md:p-4">
+      <div className="rounded-group bg-surface p-4">
         <CoachReadProblem
           compact
           state={listState}
@@ -108,31 +108,21 @@ export default function StudentProgrammingSection() {
   // The coach creates the first block explicitly.
   if (isSuccess && !hasPrograms) {
     return (
-      <div className="sl-card p-3 md:p-4 space-y-3">
-        <EmptyState message="No program yet for this athlete." />
-        <button
-          type="button"
+      <div className="flex flex-col items-start gap-3 rounded-group bg-surface p-4">
+        <p className="pk-body">{t('parcProgram.noBlock')}</p>
+        <Button
+          variant="primary"
           onClick={() => ensureProgram.mutate({ studentId })}
           disabled={ensureProgram.isPending}
-          className="w-full sl-btn-primary text-[13px] disabled:opacity-50"
-          style={{ padding: '10px 16px' }}
         >
-          Create first program
-        </button>
+          {t('parcProgram.createFirst')}
+        </Button>
       </div>
     );
   }
 
-  // The two `key`s below are what keeps a queued reorder alive. The switcher's
-  // reorder waits in a queue per athlete and the sheet's three in a queue per
-  // block (`mutationScope`), and a hook that is re-rendered with another id
-  // hands its new options — the queue's name with them — to the write it still
-  // has waiting: TanStack Query then looks for that write's turn in a queue it
-  // was never put in, and it is not sent. Mounted per athlete and per block, a
-  // hook keeps one queue for as long as it lives; the writes it leaves behind
-  // when it unmounts go out as they were made.
   return (
-    <div className="sl-card p-3 md:p-4 space-y-3">
+    <div className="flex flex-col gap-4">
       {hasPrograms && (
         <ProgramSwitcher
           key={studentId}
@@ -144,24 +134,15 @@ export default function StudentProgrammingSection() {
         />
       )}
 
-      {hasPrograms && selectedProgram && <div className="sl-hairline -mx-3 md:-mx-4" />}
-
       {programState === 'ready' ? (
         <>
           {/* An athlete's draft is theirs until the coach approves it (review
               item P53): the editor opens its sessions read-only, and this says
               why and where the approval is. */}
           {selectedProgram.status === 'draft' && (
-            <div
-              role="note"
-              className="rounded-xl p-3 text-[13px] text-ink-900"
-              style={{
-                background: 'color-mix(in srgb, var(--color-accent) 10%, transparent)',
-                border: '1px solid color-mix(in srgb, var(--color-accent) 35%, transparent)',
-              }}
-            >
+            <p role="note" className="rounded-group bg-blue-soft p-4 pk-body">
               {t('coachEditorNavErrors.draft.sheet')}
-            </div>
+            </p>
           )}
           <ProgramSheet key={selectedProgram.id} studentId={studentId} program={selectedProgram} />
         </>

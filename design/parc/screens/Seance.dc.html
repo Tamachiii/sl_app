@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Séance en cours, athlète</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="parc-tokens.css">
+<link rel="stylesheet" href="ds/slcoachparc/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1E4FBF}a:hover{color:#163C93}
+button{font-family:inherit}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 1180px; box-sizing: border-box; background: var(--ground); color: var(--ink); font-family: var(--font-sans); overflow: hidden">
+  <main style="padding: 12px 16px 120px; display: flex; flex-direction: column; gap: 16px">
+
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+      <a href="Entrainement.dc.html" class="pk-icon-btn" aria-label="Retour à l'entraînement">
+        <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M15 19l-7-7 7-7"></path></svg>
+      </a>
+      <button type="button" class="pk-icon-btn" aria-label="Options de la séance">
+        <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 12h.01M12 12h.01M19 12h.01"></path></svg>
+      </button>
+    </div>
+
+    <div>
+      <h1 class="pk-large-title">Haut 1</h1>
+      <p class="pk-subhead" style="margin: 6px 0 0">{{ progress }}</p>
+    </div>
+
+    <nav aria-label="Exercices de la séance" style="display: flex; gap: 8px; margin: 0 -16px; padding: 0 16px; overflow-x: auto">
+      <sc-for list="{{ chips }}" as="c" hint-placeholder-count="3">
+        <button type="button" class="pk-chip" aria-current="{{ c.cur }}" onClick="{{ c.pick }}">{{ c.label }}</button>
+      </sc-for>
+    </nav>
+
+    <section aria-label="Série en cours" class="pk-panel">
+      <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px">
+        <h2 class="pk-title">{{ exName }}</h2>
+        <span class="pk-subhead" style="white-space: nowrap">{{ setLabel }}</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 12px">
+        <div>
+          <div class="pk-numeral-hero">{{ heroA }}</div>
+          <div class="pk-subhead" style="margin-top: 6px">{{ heroALabel }}</div>
+        </div>
+        <div>
+          <div class="pk-numeral-hero">{{ heroB }}</div>
+          <div class="pk-subhead" style="margin-top: 6px">{{ heroBLabel }}</div>
+        </div>
+      </div>
+      <p class="pk-subhead" style="margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--line)">{{ lastTime }}</p>
+    </section>
+
+    <section aria-labelledby="coach-note" style="background: var(--surface); border-radius: var(--radius-group); padding: 16px">
+      <h3 id="coach-note" style="margin: 0; font-size: 15px; line-height: 1.4; font-weight: 700; color: var(--blue)">Note du coach</h3>
+      <p class="pk-body" style="margin: 6px 0 0">{{ note }}</p>
+    </section>
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <ol aria-label="Séries" class="pk-group">
+        <sc-for list="{{ sets }}" as="s" hint-placeholder-count="5">
+          <li>
+            <sc-if value="{{ s.isDone }}" hint-placeholder-val="{{ false }}">
+              <div class="pk-row">
+                <span class="pk-set-dot pk-set-dot-done" aria-hidden="true"><svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg></span>
+                <div style="flex: 1; min-width: 0"><div class="pk-body" style="font-weight: 600">{{ s.title }}</div><div class="pk-caption">{{ s.caption }}</div></div>
+                <span style="font-size: 15px; font-weight: 600; white-space: nowrap">{{ s.right }}</span>
+              </div>
+            </sc-if>
+            <sc-if value="{{ s.isFailed }}" hint-placeholder-val="{{ false }}">
+              <div class="pk-row" style="margin: 0 -16px; padding-left: 16px; padding-right: 16px; background: var(--red-soft)">
+                <span class="pk-set-dot pk-set-dot-failed" aria-hidden="true"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 6l12 12M18 6L6 18"></path></svg></span>
+                <div style="flex: 1; min-width: 0"><div class="pk-body" style="font-weight: 600; color: var(--red)">{{ s.title }}</div><div class="pk-caption">{{ s.caption }}</div></div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ s.isCurrent }}" hint-placeholder-val="{{ false }}">
+              <button type="button" class="pk-row" aria-describedby="hold-hint" onPointerDown="{{ s.down }}" onPointerUp="{{ s.up }}" onPointerLeave="{{ s.up }}" onContextMenu="{{ s.menu }}" style="width: 100%; border-top: 0; border-left: 0; border-right: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; user-select: none; -webkit-user-select: none">
+                <span class="pk-set-dot pk-set-dot-current" aria-hidden="true">{{ s.num }}</span>
+                <span style="flex: 1; min-width: 0; display: flex; flex-direction: column"><span class="pk-body" style="font-weight: 600">{{ s.title }}</span><span class="pk-caption">{{ s.caption }}</span></span>
+                <span style="font-size: 15px; font-weight: 600; color: var(--blue); white-space: nowrap">En cours</span>
+              </button>
+            </sc-if>
+            <sc-if value="{{ s.isPending }}" hint-placeholder-val="{{ true }}">
+              <button type="button" class="pk-row" aria-describedby="hold-hint" onPointerDown="{{ s.down }}" onPointerUp="{{ s.up }}" onPointerLeave="{{ s.up }}" onContextMenu="{{ s.menu }}" style="width: 100%; border-top: 0; border-left: 0; border-right: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; user-select: none; -webkit-user-select: none">
+                <span class="pk-set-dot pk-set-dot-pending" aria-hidden="true">{{ s.num }}</span>
+                <span style="flex: 1; min-width: 0; display: flex; flex-direction: column"><span class="pk-body" style="font-weight: 600">{{ s.title }}</span><span class="pk-caption">{{ s.caption }}</span></span>
+              </button>
+            </sc-if>
+          </li>
+        </sc-for>
+      </ol>
+      <p id="hold-hint" class="pk-caption" style="margin: 0">Maintiens appuyé une série pour la marquer ratée.</p>
+    </div>
+
+    <button type="button" class="pk-btn pk-btn-text" style="align-self: flex-start">
+      <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M12 5v14M5 12h14"></path></svg>
+      Ajouter une série
+    </button>
+  </main>
+
+  <sc-if value="{{ toastVisible }}" hint-placeholder-val="{{ false }}">
+    <div role="status" style="position: absolute; left: 16px; right: 16px; bottom: 108px; display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 8px 8px 8px 16px; box-sizing: border-box; background: var(--ink); color: var(--surface); border-radius: var(--radius-control); box-shadow: var(--shadow-toast)">
+      <p style="margin: 0; flex: 1; font-size: 15px">{{ toastText }}</p>
+      <sc-if value="{{ toastUndo }}" hint-placeholder-val="{{ false }}">
+        <button type="button" class="pk-btn" style="background: none; color: #9DB8F5" onClick="{{ undo }}">Annuler</button>
+      </sc-if>
+    </div>
+  </sc-if>
+
+  <div class="pk-actionbar" style="position: absolute; left: 0; right: 0; bottom: 0">
+    <sc-if value="{{ resting }}" hint-placeholder-val="{{ true }}">
+      <div role="timer" aria-label="{{ restAria }}" style="display: flex; flex-direction: column; min-width: 64px">
+        <span class="pk-small">Repos</span>
+        <span class="pk-numeral-md" style="color: var(--blue)">{{ restText }}</span>
+      </div>
+      <button type="button" class="pk-btn pk-btn-secondary" aria-label="Ajouter 30 secondes de repos" onClick="{{ addRest }}">+30 s</button>
+    </sc-if>
+    <button type="button" class="pk-btn pk-btn-primary pk-btn-lg" style="flex: 1" onClick="{{ main }}" disabled="{{ mainDisabled }}">{{ mainLabel }}</button>
+  </div>
+
+  <sc-if value="{{ rpeOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; justify-content: flex-end; background: var(--overlay)">
+      <section role="dialog" aria-modal="true" aria-labelledby="rpe-title" class="pk-sheet">
+        <div class="pk-sheet-handle" aria-hidden="true"></div>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+          <h2 id="rpe-title" class="pk-title">{{ rpeTitle }}</h2>
+          <button type="button" class="pk-icon-btn" aria-label="Fermer sans RPE" onClick="{{ closeRpe }}" style="background: var(--fill)">
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M6 6l12 12M18 6L6 18"></path></svg>
+          </button>
+        </div>
+        <p class="pk-caption" style="margin: 4px 0 16px">De 6, facile, à 10, maximal</p>
+        <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px">
+          <sc-for list="{{ rpeValues }}" as="r" hint-placeholder-count="9">
+            <button type="button" class="pk-btn pk-condensed" onClick="{{ r.pick }}" style="padding: 0; min-height: 52px; background: var(--fill); color: var(--ink); font-size: 22px; font-weight: 800">{{ r.label }}</button>
+          </sc-for>
+        </div>
+      </section>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1180}}'>
+class Component extends DCLogic {
+  constructor(...args) {
+    super(...args);
+    this.exercises = [
+      { chip: 'Tractions lestées', name: 'Tractions lestées', a: '5', aLabel: 'répétitions', b: '20', bLabel: 'kg de lest', caption: '5 répétitions, 20 kg', last: 'Il y a 7 jours, 5 × 5 à 17,5 kg.', note: 'Arrêt d’une seconde en haut, descente en trois temps.', count: 5 },
+      { chip: 'Dips lestés', name: 'Dips lestés', a: '6', aLabel: 'répétitions', b: '25', bLabel: 'kg de lest', caption: '6 répétitions, 25 kg', last: 'Il y a 7 jours, 4 × 6 à 22,5 kg.', note: 'Épaules basses, descends jusqu’à 90 degrés.', count: 4 },
+      { chip: 'Front lever', name: 'Front lever tuck', a: '8', aLabel: 'secondes de tenue', b: '0', bLabel: 'kg de lest', caption: 'Tenue de 8 s', last: 'Il y a 7 jours, 5 tenues de 7 s.', note: 'Bassin aligné avec les épaules, bras verrouillés.', count: 5 }
+    ];
+    const todo = (n) => Array.from({ length: n }, () => ({ s: 'todo', rpe: '' }));
+    const first = todo(5);
+    first[0] = { s: 'done', rpe: '7,5' };
+    first[1] = { s: 'done', rpe: '8' };
+    this.state = {
+      ex: 0,
+      sets: [first, todo(4), todo(5)],
+      rest: 90,
+      running: true,
+      rpeFor: null,
+      toast: null,
+      confirmed: false
+    };
+  }
+  componentDidMount() {
+    this.tick = setInterval(() => {
+      if (!this.state.running) return;
+      const r = this.state.rest - 1;
+      this.setState(r <= 0 ? { rest: 0, running: false } : { rest: r });
+    }, 1000);
+  }
+  componentWillUnmount() {
+    clearInterval(this.tick);
+    clearTimeout(this.hold);
+    clearTimeout(this.toastTimer);
+  }
+  updateSet(ex, i, value) {
+    const sets = this.state.sets.map((list) => list.slice());
+    sets[ex][i] = value;
+    return sets;
+  }
+  toast(text, undo) {
+    clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => this.setState({ toast: null }), undo ? 8000 : 6000);
+    return { text: text, undo: undo || null };
+  }
+  renderVals() {
+    const st = this.state;
+    const ex = this.exercises[st.ex];
+    const list = st.sets[st.ex];
+    const current = list.findIndex((x) => x.s === 'todo');
+    const doneTotal = st.sets.reduce((n, l) => n + l.filter((x) => x.s === 'done').length, 0);
+    const total = st.sets.reduce((n, l) => n + l.length, 0);
+    const nextEx = st.sets.findIndex((l, k) => k !== st.ex && l.some((x) => x.s === 'todo'));
+
+    const sets = list.map((x, i) => {
+      const n = i + 1;
+      const isCurrent = x.s === 'todo' && i === current;
+      return {
+        num: String(n),
+        isDone: x.s === 'done',
+        isFailed: x.s === 'failed',
+        isCurrent: isCurrent,
+        isPending: x.s === 'todo' && !isCurrent,
+        title: x.s === 'done' ? 'Série ' + n + ', faite' : (x.s === 'failed' ? 'Série ' + n + ', ratée' : 'Série ' + n),
+        caption: ex.caption,
+        right: x.rpe ? 'RPE ' + x.rpe : '',
+        down: () => {
+          clearTimeout(this.hold);
+          const exIndex = this.state.ex;
+          this.hold = setTimeout(() => {
+            this.setState({
+              sets: this.updateSet(exIndex, i, { s: 'failed', rpe: '' }),
+              toast: this.toast('Série ' + n + ' marquée ratée.', { ex: exIndex, i: i })
+            });
+          }, 600);
+        },
+        up: () => clearTimeout(this.hold),
+        menu: (e) => { if (e && e.preventDefault) e.preventDefault(); }
+      };
+    });
+
+    let mainLabel = 'Confirmer la séance';
+    let main = () => this.setState({ confirmed: true, running: false, rest: 0, toast: this.toast('Séance envoyée à Tony.', null) });
+    if (st.confirmed) {
+      mainLabel = 'Séance confirmée';
+    } else if (current >= 0) {
+      mainLabel = 'Valider la série ' + (current + 1);
+      main = () => {
+        const exIndex = this.state.ex;
+        this.setState({
+          sets: this.updateSet(exIndex, current, { s: 'done', rpe: '' }),
+          rpeFor: { ex: exIndex, i: current },
+          rest: 90,
+          running: true
+        });
+      };
+    } else if (nextEx >= 0) {
+      mainLabel = 'Passer à ' + this.exercises[nextEx].chip;
+      main = () => this.setState({ ex: nextEx });
+    }
+
+    const rpeFor = st.rpeFor;
+    const rpeValues = ['6', '6,5', '7', '7,5', '8', '8,5', '9', '9,5', '10'].map((v) => ({
+      label: v,
+      pick: () => {
+        const f = this.state.rpeFor;
+        this.setState({ sets: this.updateSet(f.ex, f.i, { s: 'done', rpe: v }), rpeFor: null });
+      }
+    }));
+
+    const r = st.rest;
+    return {
+      progress: 'Séance 7, ' + doneTotal + ' séries faites sur ' + total,
+      chips: this.exercises.map((x, k) => ({ label: x.chip, cur: k === st.ex ? 'true' : 'false', pick: () => this.setState({ ex: k }) })),
+      exName: ex.name,
+      setLabel: current >= 0 ? 'Série ' + (current + 1) + ' sur ' + ex.count : 'Exercice terminé',
+      heroA: ex.a,
+      heroALabel: ex.aLabel,
+      heroB: ex.b,
+      heroBLabel: ex.bLabel,
+      lastTime: ex.last,
+      note: ex.note,
+      sets: sets,
+      resting: r > 0,
+      restText: Math.floor(r / 60) + ':' + String(r % 60).padStart(2, '0'),
+      restAria: 'Repos, ' + r + ' secondes restantes',
+      addRest: () => this.setState({ rest: this.state.rest + 30, running: true }),
+      main: main,
+      mainLabel: mainLabel,
+      mainDisabled: st.confirmed,
+      rpeOpen: !!rpeFor,
+      rpeTitle: rpeFor ? 'RPE de la série ' + (rpeFor.i + 1) : '',
+      rpeValues: rpeValues,
+      closeRpe: () => this.setState({ rpeFor: null }),
+      toastVisible: !!st.toast,
+      toastText: st.toast ? st.toast.text : '',
+      toastUndo: !!(st.toast && st.toast.undo),
+      undo: () => {
+        const t = this.state.toast;
+        if (!t || !t.undo) return;
+        clearTimeout(this.toastTimer);
+        this.setState({ sets: this.updateSet(t.undo.ex, t.undo.i, { s: 'todo', rpe: '' }), toast: null });
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>

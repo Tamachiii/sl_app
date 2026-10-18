@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useId, useMemo, useState } from 'react';
+import { Link, useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router-dom';
 import { useIsRestoring } from '@tanstack/react-query';
 import {
   DndContext,
@@ -30,11 +30,13 @@ import { useSessionConfirmation } from '../../hooks/useSessionConfirmation';
 import { useExerciseLibrary, isActiveExercise } from '../../hooks/useExerciseLibrary';
 import { groupSlotsBySuperset } from '../../lib/volume';
 import { isLoggedSet } from '../../lib/loggedSets';
+import { exerciseTypeLabel } from '../../lib/exerciseTypes';
+import { formatNumber } from '../../lib/i18n/format';
 import ExerciseSlotRow from './ExerciseSlotRow';
 import PreviousSessionPanel from './PreviousSessionPanel';
 import Spinner from '../ui/Spinner';
 import EditableText from '../ui/EditableText';
-import ConfirmDialog from '../ui/ConfirmDialog';
+import { Button, ConfirmSheet, Icon, IconButton, LargeTitle, SelectField, Sheet } from '../parc';
 import { useI18n } from '../../hooks/useI18n';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useForgetCoachStudentsPath } from '../../hooks/useRememberCoachStudentsPath';
@@ -45,12 +47,10 @@ import { CoachNotFound, CoachReadProblem } from './CoachPageState';
 // Where ExerciseSlotRow would be, for a slot whose exercise cannot be read.
 function UnavailableExerciseCard({ t }) {
   return (
-    <div className="sl-card p-4 space-y-1">
-      <p className="sl-display text-[16px] text-ink-600">
-        {t('coachEditorNavErrors.exercise.unavailableTitle')}
-      </p>
-      <p className="text-[12px] text-ink-400">{t('coachEditorNavErrors.exercise.unavailableBody')}</p>
-    </div>
+    <section className="rounded-group bg-surface p-4">
+      <h2 className="pk-headline text-ink-2">{t('coachEditorNavErrors.exercise.unavailableTitle')}</h2>
+      <p className="pk-caption mt-1">{t('coachEditorNavErrors.exercise.unavailableBody')}</p>
+    </section>
   );
 }
 
@@ -67,7 +67,10 @@ function SessionEditorPage() {
   const { sessionId, studentId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
+  // The athlete, from the page this editor stands in (CoachHome's outlet).
+  const { student } = useOutletContext() || {};
+  const titleHintId = useId();
   const sessionRead = useSession(sessionId);
   const session = sessionRead.data;
   const online = useOnlineStatus();
@@ -89,6 +92,7 @@ function SessionEditorPage() {
   const [addUnit, setAddUnit] = useState('reps');
   const [pairAsSuperset, setPairAsSuperset] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
 
   // Memoised so the `|| []` fallback is not a new array on every render —
   // it feeds the two memos below.
@@ -164,27 +168,39 @@ function SessionEditorPage() {
   // the athlete's page must not open the editor again.
   const leaveEditor = () => navigate(athletePath, { replace: true });
 
+  const back = { label: t('parcEditor.back'), onClick: leaveEditor };
   if (pageState === 'loading') {
-    return <div className="flex justify-center py-12"><Spinner /></div>;
+    return (
+      <div className="flex flex-col gap-6">
+        <LargeTitle back={back} title={t('parcEditor.untitled')} />
+        <div className="flex justify-center py-12"><Spinner /></div>
+      </div>
+    );
   }
   if (pageState === 'notFound') {
     return (
-      <CoachNotFound
-        title={t('coachEditorNavErrors.session.notFoundTitle')}
-        body={t('coachEditorNavErrors.session.notFoundBody')}
-        to={athletePath}
-        replace
-        linkLabel={t('coachEditorNavErrors.session.backToAthlete')}
-      />
+      <div className="flex flex-col gap-6">
+        <LargeTitle back={back} title={t('parcEditor.untitled')} />
+        <CoachNotFound
+          title={t('coachEditorNavErrors.session.notFoundTitle')}
+          body={t('coachEditorNavErrors.session.notFoundBody')}
+          to={athletePath}
+          replace
+          linkLabel={t('coachEditorNavErrors.session.backToAthlete')}
+        />
+      </div>
     );
   }
   if (pageState !== 'ready') {
     return (
-      <CoachReadProblem
-        state={pageState}
-        onRetry={() => sessionRead.refetch({ cancelRefetch: false })}
-        retrying={sessionRead.isFetching}
-      />
+      <div className="flex flex-col gap-6">
+        <LargeTitle back={back} title={t('parcEditor.untitled')} />
+        <CoachReadProblem
+          state={pageState}
+          onRetry={() => sessionRead.refetch({ cancelRefetch: false })}
+          retrying={sessionRead.isFetching}
+        />
+      </div>
     );
   }
 
@@ -237,100 +253,78 @@ function SessionEditorPage() {
     if (plan) reorderSlots.mutate(plan);
   }
 
-  const inputCls =
-    'w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
+  const athleteName = (student?.profile?.full_name || '').trim() || null;
+  const canDelete = !trained && !isDraft;
 
-  // No page padding: this renders inside the athlete shell (CoachHome already
-  // applies p-4 pb-6 md:p-8), under the athlete header and tab strip. The
-  // header below is a breadcrumb back to the sheet, not a page header.
+  // The page of the session (design/parc/screens/Editeur.dc.html): back to
+  // the athlete's sheet, the session's options, its name as the title — a
+  // tap renames it — and the athlete under it. It stands in the athlete's
+  // shell, which draws no header of its own over it (CoachHome).
   return (
-    <div className="space-y-4">
-      {/* One row, everything on the same baseline: back, the session name, the
-          recommended date. "Copy to…" and "Duplicate" used to sit here too, but
-          the sheet carries both now — a duplicate button on every row and copy
-          behind its selection bar — so they were a second door onto the same
-          actions. The "SESSION" kicker went with them: the athlete header
-          directly above already says where you are, and a label naming the kind
-          of thing you are looking at costs a line to state the obvious. */}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={leaveEditor}
-          aria-label={t('common.back')}
-          // 44px, the smallest thing a thumb hits (review item L15).
-          className="w-11 h-11 rounded-lg bg-ink-100 flex items-center justify-center text-ink-700 hover:bg-ink-200 shrink-0"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-        <div className="flex-1 min-w-0 sl-display text-[20px] text-gray-900 leading-tight">
-          {readOnly ? (
-            <span className="block truncate">
-              {session?.title || t('coach.editor.titlePlaceholder')}
-            </span>
+    <div className="flex flex-col gap-6">
+      <LargeTitle
+        back={back}
+        actions={
+          canDelete ? (
+            <IconButton icon="more" label={t('parcEditor.options')} onClick={() => setOptionsOpen(true)} />
+          ) : null
+        }
+        title={
+          readOnly ? (
+            session?.title || t('parcEditor.untitled')
           ) : (
-            <EditableText
-              value={session?.title || ''}
-              onSave={(title) => updateSession.mutate({ id: sessionId, title })}
-              placeholder={t('coach.editor.titlePlaceholder')}
-              ariaLabel={t('coach.editor.editTitleAria')}
-              // Hold the heading's own size while editing. Left alone the field
-              // falls back to the 16px iOS-zoom floor, so tapping the title
-              // shrank it — the same twitch the box's width used to cause.
-              inputClassName="sl-display text-[20px]"
-            />
-          )}
-        </div>
+            <>
+              <EditableText
+                value={session?.title || ''}
+                onSave={(title) => updateSession.mutate({ id: sessionId, title })}
+                placeholder={t('parcEditor.untitled')}
+                ariaLabel={false}
+                describedBy={titleHintId}
+                // Hold the title's own size while editing: left alone the
+                // field falls back to 16px, and tapping the title shrank it.
+                inputClassName="pk-large-title !text-[44px] !leading-none"
+              />
+              <span id={titleHintId} hidden>
+                {t('parcEditor.rename')}
+              </span>
+            </>
+          )
+        }
+        subtitle={athleteName}
+      />
+
+      <label className="flex flex-col gap-1.5 sm:max-w-xs">
+        <span className="pk-caption">{t('parcEditor.date')}</span>
         <input
           id="session-date"
           type="date"
-          aria-label={t('coach.editor.scheduled')}
-          title={t('coach.editor.scheduled')}
           value={session?.scheduled_date || ''}
           onChange={(e) =>
             updateSession.mutate({ id: sessionId, scheduled_date: e.target.value || null })
           }
           disabled={readOnly}
-          className="shrink-0 rounded-lg border border-ink-200 bg-white px-2 py-1.5 sl-mono text-[16px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] disabled:opacity-60 disabled:cursor-not-allowed"
+          className="pk-field disabled:bg-fill"
         />
-      </div>
+      </label>
 
       {isDraft && (
-        <div
-          role="note"
-          className="rounded-xl p-3 text-[13px] text-ink-900"
-          style={{
-            background: 'color-mix(in srgb, var(--color-accent) 10%, transparent)',
-            border: '1px solid color-mix(in srgb, var(--color-accent) 35%, transparent)',
-          }}
-        >
+        <p role="note" className="rounded-group bg-blue-soft p-4 pk-body">
           {t('coachEditorNavErrors.draft.editor')}
-        </div>
+        </p>
       )}
 
       {trained && (
-        <div
-          role="note"
-          className="rounded-xl p-3 flex flex-wrap items-center gap-x-3 gap-y-2"
-          style={{
-            background: 'color-mix(in srgb, var(--color-warn) 12%, transparent)',
-            border: '1px solid color-mix(in srgb, var(--color-warn) 35%, transparent)',
-          }}
-        >
-          <p className="flex-1 min-w-[12rem] text-[13px] text-ink-900">
+        <div role="note" className="flex flex-col items-start gap-3 rounded-group bg-amber-soft p-4">
+          <p className="pk-body">
             {confirmed
               ? t('coachLoggedHistory.editor.confirmedBanner')
               : t('coachLoggedHistory.editor.loggedBanner')}
           </p>
           {/* `from` is how the review's back button returns here instead of
               to the sessions feed. */}
-          <Link
-            to={reviewPath}
-            state={{ from: editorPath }}
-            className="sl-pill bg-ink-100 text-ink-700 hover:bg-ink-200 shrink-0"
-          >
+          <Button as={Link} to={reviewPath} state={{ from: editorPath }}>
             {t('coachLoggedHistory.editor.openReview')}
-          </Link>
+          </Button>
         </div>
       )}
 
@@ -353,7 +347,7 @@ function SessionEditorPage() {
           items={slots.map((s) => s.id)}
           strategy={verticalListSortingStrategy}
         >
-          <div className="space-y-3">
+          <div className="flex flex-col gap-4">
             {slotGroups.map((group) => {
               // A slot whose exercise this coach cannot read — one of a former
               // coach's library, until the library read follows the program
@@ -385,25 +379,17 @@ function SessionEditorPage() {
               ));
               if (group.slots.length > 1) {
                 return (
-                  <div
-                    key={group.key}
-                    className="rounded-xl border p-2 space-y-2"
-                    style={{
-                      borderColor: 'color-mix(in srgb, var(--color-accent) 35%, transparent)',
-                      background: 'color-mix(in srgb, var(--color-accent) 6%, transparent)',
-                    }}
-                  >
-                    <div className="flex items-center justify-between px-2 pt-1">
-                      <span className="sl-label" style={{ color: 'var(--color-accent)' }}>
-                        {t('coach.editor.superset')}
-                      </span>
+                  <div key={group.key} className="flex flex-col gap-2 border-l-4 border-blue pl-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="pk-caption font-semibold text-blue">{t('parcReview.superset')}</span>
                       {!readOnly && (
-                        <button
+                        <Button
+                          variant="text"
                           onClick={() => handleUnlinkSuperset(group.key)}
-                          className="sl-mono text-[11px] text-ink-400 hover:text-danger underline"
+                          aria-label={t('parcEditor.unlinkLabel')}
                         >
-                          {t('coach.editor.unlink')}
-                        </button>
+                          {t('parcEditor.unlink')}
+                        </Button>
                       )}
                     </div>
                     {group.slots.map(renderRow)}
@@ -417,113 +403,105 @@ function SessionEditorPage() {
       </DndContext>
 
       {readOnly ? null : showAdd ? (
-        <div className="sl-card p-4 space-y-3">
-          <select
+        <section className="flex flex-col gap-4 rounded-group bg-surface p-4">
+          <SelectField
+            label={t('parcEditor.exercise')}
             value={selectedExercise}
             onChange={(e) => setSelectedExercise(e.target.value)}
-            className={inputCls}
           >
-            <option value="">{t('coach.editor.selectExercise')}</option>
+            <option value="">{t('parcEditor.chooseExercise')}</option>
             {/* An archived exercise is not offered for new work; the slots
                 that already hold one still show it (their `exercise` is
                 embedded by the session read, not looked up here). */}
             {(library || []).filter(isActiveExercise).map((ex) => (
               <option key={ex.id} value={ex.id}>
-                {t('coach.editor.exerciseOption', {
+                {t('parcEditor.exerciseOption', {
                   name: ex.name,
-                  type: ex.type,
-                  difficulty: ex.difficulty,
+                  type: exerciseTypeLabel(ex.type, t),
+                  difficulty: formatNumber(lang, ex.difficulty),
                 })}
               </option>
             ))}
-          </select>
-          <fieldset className="flex gap-4 sl-mono text-[12px] text-ink-600">
-            <label className="flex items-center gap-1.5">
-              <input
-                type="radio"
-                name="add-unit"
-                value="reps"
-                checked={addUnit === 'reps'}
-                onChange={(e) => setAddUnit(e.target.value)}
-              />
-              {t('coach.editor.unitReps')}
-            </label>
-            <label className="flex items-center gap-1.5">
-              <input
-                type="radio"
-                name="add-unit"
-                value="seconds"
-                checked={addUnit === 'seconds'}
-                onChange={(e) => setAddUnit(e.target.value)}
-              />
-              {t('coach.editor.unitSeconds')}
-            </label>
+          </SelectField>
+          <fieldset className="flex flex-col gap-1.5">
+            <legend className="pk-caption mb-1.5">{t('parcEditor.unit')}</legend>
+            <div className="flex flex-wrap gap-2">
+              {[
+                ['reps', t('parcEditor.unitReps')],
+                ['seconds', t('parcEditor.unitSeconds')],
+              ].map(([value, label]) => (
+                <label key={value} className="pk-chip cursor-pointer has-[:checked]:bg-ink has-[:checked]:text-surface">
+                  <input
+                    type="radio"
+                    name="add-unit"
+                    value={value}
+                    checked={addUnit === value}
+                    onChange={(e) => setAddUnit(e.target.value)}
+                    className="sr-only"
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
           </fieldset>
           {slots.length > 0 && (
-            <label className="flex items-center gap-2 sl-mono text-[12px] text-ink-600">
+            <label className="flex min-h-11 items-center gap-3 pk-body">
               <input
                 type="checkbox"
                 checked={pairAsSuperset}
                 onChange={(e) => setPairAsSuperset(e.target.checked)}
+                className="h-5 w-5 accent-[var(--blue)]"
               />
-              {t('coach.editor.pairSuperset')}
+              {t('parcEditor.pairSuperset')}
             </label>
           )}
-          <div className="flex gap-2">
-            <button
-              onClick={handleAddExercise}
-              disabled={!selectedExercise || addSlot.isPending}
-              className="flex-1 sl-btn-primary text-[13px] disabled:opacity-50"
-              style={{ padding: '10px 16px' }}
-            >
-              {t('coach.editor.add')}
-            </button>
-            <button
-              onClick={() => setShowAdd(false)}
-              className="flex-1 bg-ink-100 text-ink-700 rounded-lg py-2 sl-display text-[13px] hover:bg-ink-200"
-            >
+          <div className="flex flex-col gap-1">
+            <Button variant="primary" size="lg" onClick={handleAddExercise} disabled={!selectedExercise || addSlot.isPending}>
+              {t('parcEditor.add')}
+            </Button>
+            <Button variant="text" onClick={() => setShowAdd(false)}>
               {t('common.cancel')}
-            </button>
+            </Button>
           </div>
-        </div>
+        </section>
       ) : (
-        <button
-          onClick={() => setShowAdd(true)}
-          className="w-full border border-dashed border-ink-200 text-ink-400 rounded-xl py-3 sl-mono text-[12px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
-        >
-          {t('coach.editor.addExercise')}
-        </button>
+        <Button variant="text" className="self-start" onClick={() => setShowAdd(true)}>
+          <Icon name="plus" size={18} />
+          {t('parcEditor.addExercise')}
+        </Button>
       )}
 
-      {/* Deleting still lives in the editor, not on the sheet: by this point
-          the coach has opened this one session, so it can't be a stray thumb
-          on a list. But it sits at the BOTTOM now — a red button pinned beside
-          the title was the most prominent thing on a screen whose job is
-          writing exercises, and it is the rarest action here. Archiving from
+      {/* Deleting lives in the editor's options, not on the sheet: by this
+          point the coach has opened this one session, so it can't be a stray
+          thumb on a list — and it is the rarest action here. Archiving from
           the sheet is the everyday way to clear a session; this is the escape
           hatch for one created by mistake.
 
           Not offered at all once the session is trained: the database refuses
-          to delete a session that carries logged sets, so the button could
+          to delete a session that carries logged sets, so the action could
           only ever answer "archive it instead". Nor on an athlete's draft,
           which is read-only. */}
-      {!trained && !isDraft && (
-        <div className="pt-2 flex justify-end">
-          <button
-            onClick={() => setConfirmDelete(true)}
-            disabled={deleteSession.isPending}
-            className="sl-mono text-[11px] text-ink-400 hover:text-danger disabled:opacity-50 py-2 px-1 transition-colors"
-          >
-            {t('coach.editor.deleteSession')}
-          </button>
-        </div>
-      )}
+      <Sheet open={optionsOpen} onClose={() => setOptionsOpen(false)} title={t('parcEditor.options')}>
+        <Button
+          variant="danger"
+          size="lg"
+          className="w-full"
+          disabled={deleteSession.isPending}
+          onClick={() => {
+            setOptionsOpen(false);
+            setConfirmDelete(true);
+          }}
+        >
+          {t('parcEditor.deleteSession')}
+        </Button>
+      </Sheet>
 
-      <ConfirmDialog
+      <ConfirmSheet
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
-        title={t('coach.week.deleteSessionTitle')}
-        message={t('coach.week.deleteSessionMessage')}
+        title={t('parcEditor.deleteTitle')}
+        message={t('parcEditor.deleteMessage')}
+        confirmText={t('parcEditor.deleteSession')}
         onConfirm={() =>
           deleteSession.mutate(sessionId, {
             // The editor's own subject is gone — return to the sheet rather

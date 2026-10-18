@@ -10,13 +10,17 @@ import {
   formatNotificationStamp,
 } from '../../hooks/useNotifications';
 import Spinner from '../ui/Spinner';
+import { Button, Count } from '../parc';
 
+// The bell, drawn as the Parc icons are — a 2px stroke in a 24px box, in the
+// colour of the text around it. The design system's set has none: it is the
+// one icon of the app outside it.
 const BellIcon = (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+  <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
     <path
       strokeLinecap="round"
       strokeLinejoin="round"
-      strokeWidth={1.75}
+      strokeWidth={2}
       d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 0 0-4-5.66V5a2 2 0 1 0-4 0v.34A6 6 0 0 0 6 11v3.2a2 2 0 0 1-.6 1.4L4 17h5m6 0a3 3 0 1 1-6 0"
     />
   </svg>
@@ -33,24 +37,18 @@ function NotificationRow({ notif, onSelect }) {
       type="button"
       role="menuitem"
       onClick={() => onSelect(notif)}
-      className={`w-full flex items-start gap-2 px-3 py-2.5 text-left hover:bg-ink-50 dark:hover:bg-ink-800 transition-colors ${
-        isUnread ? '' : 'opacity-70'
-      }`}
+      className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-fill"
     >
-      {isUnread && (
-        <span
-          aria-hidden="true"
-          className="mt-1.5 w-2 h-2 rounded-full shrink-0"
-          style={{ background: 'var(--color-accent)' }}
-        />
-      )}
-      {!isUnread && <span aria-hidden="true" className="mt-1.5 w-2 shrink-0" />}
-      <div className="min-w-0 flex-1">
-        <p className="text-[13px] text-gray-900 leading-snug">
+      <span
+        aria-hidden="true"
+        className={`mt-2 h-2 w-2 shrink-0 rounded-full ${isUnread ? 'bg-blue' : 'bg-transparent'}`}
+      />
+      <span className="min-w-0 flex-1">
+        <span className={`block text-[15px] leading-[1.4] ${isUnread ? 'font-semibold text-ink' : 'text-ink-2'}`}>
           {t(i18nKey, params)}
-        </p>
-        <p className="sl-mono text-[10px] text-ink-400 mt-0.5">{stamp}</p>
-      </div>
+        </span>
+        <span className="pk-small mt-0.5 block">{stamp}</span>
+      </span>
     </button>
   );
 }
@@ -97,12 +95,6 @@ export default function NotificationBell() {
     if (path) navigate(path);
   }
 
-  const badgeLabel = unreadCount > 9 ? '9+' : String(unreadCount);
-
-  // The wrapper is NOT positioned: the popover anchors to the right edge of
-  // the UserMenu group — the avatar's, at the page's padding — so its 320px
-  // fit a 360px screen. Anchored to the bell, an avatar further in, it ran
-  // off the left edge, in a main that does not scroll sideways.
   return (
     <div ref={ref} className="shrink-0">
       <button
@@ -116,22 +108,11 @@ export default function NotificationBell() {
             ? t('notifications.openWithUnread', { n: unreadCount })
             : t('notifications.open')
         }
-        className="relative w-11 h-11 rounded-full bg-ink-100 flex items-center justify-center text-ink-700 cursor-pointer hover:bg-ink-200 active:scale-95 transition-transform"
+        className="pk-icon-btn relative text-ink"
       >
         {BellIcon}
-        {unreadCount > 0 && (
-          <span
-            aria-hidden="true"
-            className="absolute -top-0.5 -right-0.5 sl-mono text-[9px] tabular-nums px-1.5 py-0.5 rounded-full leading-none"
-            style={{
-              background: 'var(--color-accent)',
-              color: 'var(--color-ink-900)',
-              border: '1.5px solid var(--color-ink-0)',
-            }}
-          >
-            {badgeLabel}
-          </span>
-        )}
+        {/* The number is said by the button's name. */}
+        <Count count={unreadCount} className="absolute -top-1 -right-1" />
       </button>
 
       {open && (
@@ -139,22 +120,17 @@ export default function NotificationBell() {
           id={menuId}
           role="menu"
           aria-label={t('notifications.title')}
-          className="absolute right-0 top-12 z-30 w-[320px] max-w-[calc(100vw-2rem)] rounded-xl bg-white shadow-lg border border-ink-100 overflow-hidden"
+          className="absolute top-12 right-0 z-30 w-[340px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-group border border-line bg-surface shadow-lg"
         >
           {/* 52px with or without "Mark all read": the button is 44px high. It
-              may shrink: its German label takes two lines rather than
-              pushing the row past a 320px popover. */}
-          <div className="flex items-center justify-between gap-2 min-h-13 pl-3 pr-1 py-1 border-b border-ink-100">
-            <span className="sl-label">{t('notifications.title')}</span>
+              may shrink: its German label takes two lines rather than pushing
+              the row past the popover. */}
+          <div className="flex min-h-13 items-center justify-between gap-2 border-b border-line py-1 pr-1 pl-4">
+            <span className="pk-headline">{t('notifications.title')}</span>
             {unreadCount > 0 && (
-              <button
-                type="button"
-                onClick={() => markAll.mutate()}
-                disabled={markAll.isPending}
-                className="sl-pill sl-pill-btn text-ink-400 hover:text-[var(--color-accent)] disabled:opacity-50"
-              >
+              <Button variant="text" onClick={() => markAll.mutate()} disabled={markAll.isPending}>
                 {t('notifications.markAllRead')}
-              </button>
+              </Button>
             )}
           </div>
 
@@ -164,13 +140,11 @@ export default function NotificationBell() {
             )}
 
             {!isLoading && (!notifications || notifications.length === 0) && (
-              <p className="sl-mono text-[12px] text-ink-400 text-center px-4 py-6">
-                {t('notifications.empty')}
-              </p>
+              <p className="pk-caption m-0 px-4 py-6 text-center">{t('notifications.empty')}</p>
             )}
 
             {!isLoading && notifications && notifications.length > 0 && (
-              <ul className="list-none p-0 m-0 divide-y divide-ink-100">
+              <ul className="m-0 list-none divide-y divide-line p-0">
                 {notifications.map((n) => (
                   <li key={n.id}>
                     <NotificationRow notif={n} onSelect={handleSelect} />

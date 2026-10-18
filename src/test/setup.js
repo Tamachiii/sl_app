@@ -15,7 +15,7 @@ if (typeof HTMLDialogElement !== 'undefined') {
   }
 }
 
-// jsdom lacks matchMedia — polyfill for ThemeProvider
+// jsdom lacks matchMedia — polyfill for the code that asks it (the composer, the stats)
 if (typeof window !== 'undefined' && !window.matchMedia) {
   window.matchMedia = (query) => ({
     matches: false,

@@ -50,12 +50,11 @@ export default defineConfig({
         display: 'standalone',
         // An INSTALLED iOS web app colours its status-bar / Dynamic Island
         // strip from the manifest, not from index.html's `theme-color` metas —
-        // the metas only govern in-browser tabs. A manifest is static, so this
-        // single value cannot follow the in-app theme toggle: it is ink-900
-        // because the app is dark-first. A coach running the light theme gets
-        // a dark strip and splash, which is the deliberate trade of the two.
-        theme_color: '#111110',
-        background_color: '#111110',
+        // the metas only govern in-browser tabs. A manifest is static, and the
+        // app is light-only: the strip is Parc's `surface`, the splash its
+        // `ground` (design/parc/tokens.json).
+        theme_color: '#FFFFFF',
+        background_color: '#E3E6E4',
         icons: [
           { src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
           { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
@@ -67,8 +66,8 @@ export default defineConfig({
         // Static assets only — no Supabase REST/Storage runtime caching.
         // The React Query persisted cache (IndexedDB) is the source of truth
         // for offline reads; runtime caching of authed API responses risks
-        // serving cross-user data on shared devices. Runtime caching for
-        // Google Fonts is wired up directly in src/sw.js.
+        // serving cross-user data on shared devices. The font (Archivo,
+        // woff2) is a file of the build and is precached with the rest.
         //
         // '**/*.js' deliberately precaches EVERY lazy route chunk, including
         // the tree for the role this device will never use. That is the price

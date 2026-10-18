@@ -1,65 +1,51 @@
-import { NavLink, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useI18n } from '../../hooks/useI18n';
+import { SideNav as ParcSideNav, SideNavItem } from '../parc';
 import { getNavItems, reselectOnClick } from './navItems';
 import UnreadMessagesBadge from '../messaging/UnreadMessagesBadge';
 import ReviewCountBadge from './ReviewCountBadge';
 
-function SideNavItem({ to, label, icon, end = false, matches, badge, onReselect }) {
+function NavItem({ to, label, icon, end = false, matches, badge, onReselect }) {
   const { pathname } = useLocation();
-  const customActive = matches ? matches(pathname) : null;
+  const active = matches ? matches(pathname) : undefined;
   return (
-    <NavLink
+    <SideNavItem
       to={to}
       end={end}
-      onClick={(event) => reselectOnClick(event, customActive, onReselect)}
-      className={({ isActive }) => {
-        const active = customActive ?? isActive;
-        return `relative flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-          active
-            ? 'text-[var(--color-accent)]'
-            : 'text-ink-500 hover:text-ink-800 hover:bg-ink-50'
-        }`;
-      }}
-      style={({ isActive }) => {
-        const active = customActive ?? isActive;
-        return active
-          ? { background: 'color-mix(in srgb, var(--color-accent) 10%, transparent)' }
-          : undefined;
-      }}
-    >
-      {icon}
-      <span className="sl-display text-[14px] tracking-tight">{label}</span>
-      {badge === 'unread-messages' && <UnreadMessagesBadge variant="count" />}
-      {badge === 'to-review' && <ReviewCountBadge variant="count" />}
-    </NavLink>
+      active={active}
+      icon={icon}
+      label={label}
+      onClick={(event) => reselectOnClick(event, active, onReselect)}
+      badge={
+        badge === 'unread-messages' ? (
+          <UnreadMessagesBadge variant="count" />
+        ) : badge === 'to-review' ? (
+          <ReviewCountBadge variant="count" />
+        ) : null
+      }
+    />
   );
 }
 
+/**
+ * The navigation of a large screen, from 1024px (design/parc/screens/
+ * Roster.dc.html): the same tabs as the tab bar, in a white column at the
+ * left under the app's name.
+ */
 export default function SideNav() {
   const { role } = useAuth();
   const { t } = useI18n();
   const items = getNavItems(role, t);
-
   return (
-    <aside
-      aria-label="Main navigation"
-      className="hidden md:flex md:flex-col w-56 shrink-0 border-r border-ink-100 bg-white px-3 py-6"
+    <ParcSideNav
+      label={t('parcShell.navLabel')}
+      brand={t('parcShell.brand')}
+      className="hidden w-60 shrink-0 lg:flex"
     >
-      <div className="px-3 pb-6">
-        <div
-          aria-hidden="true"
-          className="sl-display text-[22px] leading-none"
-          style={{ color: 'var(--color-accent)' }}
-        >
-          SL
-        </div>
-      </div>
-      <nav className="flex flex-col gap-1">
-        {items.map((item) => (
-          <SideNavItem key={item.to} {...item} />
-        ))}
-      </nav>
-    </aside>
+      {items.map((item) => (
+        <NavItem key={item.to} {...item} />
+      ))}
+    </ParcSideNav>
   );
 }

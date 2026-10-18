@@ -2,8 +2,7 @@ import { useI18n } from '../../hooks/useI18n';
 import { decimalPattern, decimalText, parseDecimalInput } from '../../lib/number';
 
 // The look of the app's number fields, for a caller that passes no className.
-const DEFAULT_CLASS =
-  'w-full rounded-lg border border-ink-200 bg-white px-3 py-2 sl-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] disabled:opacity-60 disabled:cursor-not-allowed';
+const DEFAULT_CLASS = 'pk-field pk-tnum disabled:bg-fill disabled:text-ink-2';
 
 /**
  * The field for a number a person types: a weight, a number of reps.
@@ -74,7 +73,7 @@ export default function DecimalInput({
       aria-invalid={flagged ? 'true' : undefined}
       title={title ?? (flagged ? explanation : undefined)}
       // 16px is not a style choice: iOS Safari zooms the page on a focused
-      // field under it (DESIGN_SYSTEM, "iOS 16px input rule").
+      // field under it (docs/INVARIANTS.md, "Shell, routing, viewport").
       className={`text-[16px] ${className}`}
     />
   );

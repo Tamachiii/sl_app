@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   DndContext,
@@ -33,19 +33,25 @@ import { useProgramLoggedSessionIds } from '../../hooks/useSession';
 import { useI18n } from '../../hooks/useI18n';
 import { compareSessions } from '../../lib/day';
 import { planSessionDrag } from '../../lib/sessionMove';
+import { formatNumber, pluralKey } from '../../lib/i18n/format';
 import SessionRow, { SortableSessionRow } from './SessionRow';
-import PhaseDivider, { SortablePhaseDivider } from './PhaseDivider';
+import PhaseDivider, { SortablePhaseDivider, phaseRangeText } from './PhaseDivider';
 import CopyDialog from '../ui/CopyDialog';
-import ConfirmDialog from '../ui/ConfirmDialog';
-import EmptyState from '../ui/EmptyState';
+import { ActionBar, Button, ConfirmSheet, Icon, ListGroup, Row } from '../parc';
 
 function activeSessions(week) {
   return (week.sessions || []).filter((s) => !s.archived_at).sort(compareSessions);
 }
 
+// The sessions a phase opens with that are all done: shown as one row that
+// opens them (design/parc/screens/Programme.dc.html, « Séances 1 à 6, toutes
+// faites »), from two on. What is left to train comes first to the eye.
+const DONE_RUN_MIN = 2;
+
 /**
  * The Programming tab's body: the whole training block as ONE continuous,
- * reorderable list.
+ * reorderable list (design/parc/screens/Programme.dc.html): a section per
+ * phase — its name, the places its sessions hold — and a row per session.
  *
  * It used to be a stack of week cards with one expanded at a time, plus a
  * separate flat layout when a block had a single week — so the surface changed
@@ -60,7 +66,8 @@ function activeSessions(week) {
  * thing the page exists to show.
  */
 export default function ProgramSheet({ studentId, program }) {
-  const { t } = useI18n();
+  const ctx = useI18n();
+  const { t, lang } = ctx;
   const navigate = useNavigate();
   const location = useLocation();
   const createWeek = useCreateWeek();
@@ -102,6 +109,8 @@ export default function ProgramSheet({ studentId, program }) {
   const [showCopySelection, setShowCopySelection] = useState(false);
   const [copyPhaseId, setCopyPhaseId] = useState(null);
   const [deletePhaseId, setDeletePhaseId] = useState(null);
+  // The phases whose run of done sessions the coach opened.
+  const [openRuns, setOpenRuns] = useState(() => new Set());
 
   // One pass builds everything the list renders, including a position that runs
   // ACROSS phases: with a single list that is the number the coach reads, and
@@ -219,291 +228,303 @@ export default function ProgramSheet({ studentId, program }) {
   const deletingPhase = weeks.find((w) => w.id === deletePhaseId) || null;
   const copyingPhase = weeks.find((w) => w.id === copyPhaseId) || null;
   const idle = !reorderingPhases && !reorderingSessions && !selecting;
+  // `performed_at` is the confirmation mirrored on the session row: it comes
+  // with the sheet's own query, so a confirmed row never opens the editor
+  // while the confirmations are still loading.
+  const isConfirmed = (s) => !!confirmedIds?.has(s.id) || !!s.performed_at;
+  const n = (value) => formatNumber(lang, value);
+
+  function renderRow(s, position) {
+    if (reorderingSessions) {
+      return (
+        <SortableSessionRow
+          key={s.id}
+          session={s}
+          position={position}
+          confirmed={isConfirmed(s)}
+          trained={!!loggedIds?.has(s.id)}
+        />
+      );
+    }
+    return (
+      <SessionRow
+        key={s.id}
+        session={s}
+        studentId={studentId}
+        confirmed={isConfirmed(s)}
+        trained={!!loggedIds?.has(s.id)}
+        position={position}
+        onSetDay={(day) => updateSession.mutate({ id: s.id, day_number: day })}
+        onDuplicate={() => duplicateSession.mutate({
+          sessionId: s.id,
+          // The copy's title in the coach's language. An untitled session
+          // gets no suffix, so its copy stays untitled and is named by its
+          // position too: the function would write "Session (copy)", in
+          // English and frozen.
+          titleSuffix: s.title?.trim() ? ` ${t('coachSheetUx.copySuffix')}` : '',
+        })}
+        // Only the row being copied waits: one copy on its way used to grey
+        // out the button of every row.
+        duplicating={duplicateSession.isPending && duplicateSession.variables?.sessionId === s.id}
+        selecting={selecting}
+        selected={selectedIds.has(s.id)}
+        onToggleSelect={() => toggleSelected(s.id)}
+        readOnly={readOnly}
+      />
+    );
+  }
+
+  const selectedCount = selectedIds.size;
+  const selectedLabel =
+    selectedCount === 0
+      ? t('parcProgram.selectedNone')
+      : t(pluralKey(lang, selectedCount, 'parcProgram.selected'), { n: n(selectedCount) });
 
   return (
-    <div className="space-y-2">
-      {(reorderingPhases || reorderingSessions) && (
-        <div className="flex items-center justify-between gap-2">
-          <span className="sl-mono text-[11px] text-ink-400">
-            {reorderingSessions && phaseCount > 1
-              ? t('coach.sheet.reorderSessionsHint')
-              : t('coach.sheet.reorderHint')}
-          </span>
-          <button
-            type="button"
-            onClick={() => { setReorderingPhases(false); setReorderingSessions(false); }}
-            className="sl-pill sl-pill-btn shrink-0"
-            style={{ background: 'var(--color-accent)', color: 'var(--color-ink-900)' }}
+    <div className="flex flex-col gap-6">
+      {(reorderingPhases || reorderingSessions || selecting) && (
+        <div className="flex items-center justify-between gap-3">
+          <p className="pk-caption">
+            {selecting
+              ? t('parcProgram.selectHint')
+              : reorderingSessions && phaseCount > 1
+                ? t('parcProgram.reorderSessionsHint')
+                : t('parcProgram.reorderHint')}
+          </p>
+          <Button
+            variant="on-ground"
+            className="shrink-0"
+            onClick={() => {
+              setReorderingPhases(false);
+              setReorderingSessions(false);
+              exitSelect();
+            }}
           >
-            {t('common.done')}
-          </button>
+            {t('parcProgram.finish')}
+          </Button>
         </div>
       )}
 
       {phaseCount === 0 && readOnly ? (
-        <EmptyState message={t('coachSheetUx.draftEmpty')} />
+        <p className="rounded-group bg-surface p-4 pk-body">{t('coachSheetUx.draftEmpty')}</p>
       ) : phaseCount === 0 ? (
-        <>
-          <EmptyState message={t('coach.sheet.noSessionsYet')} />
-          <button
-            type="button"
+        <div className="flex flex-col items-start gap-3 rounded-group bg-surface p-4">
+          <p className="pk-body">{t('parcProgram.emptyBlock')}</p>
+          <Button
+            variant="primary"
             onClick={handleAddFirstSession}
             disabled={createWeek.isPending || createSession.isPending}
-            className="w-full min-h-11 border border-dashed border-ink-200 text-ink-400 rounded-xl py-3 sl-mono text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
           >
-            {t('coach.week.addSession')}
-          </button>
-        </>
+            <Icon name="plus" size={18} />
+            {t('parcProgram.addSession')}
+          </Button>
+        </div>
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <div className="sl-card overflow-hidden">
-            {reorderingPhases ? (
-              <SortableContext items={weeks.map((w) => w.id)} strategy={verticalListSortingStrategy}>
+          {reorderingPhases ? (
+            <SortableContext items={weeks.map((w) => w.id)} strategy={verticalListSortingStrategy}>
+              <ul className="pk-group" aria-label={t('parcProgram.reorderPhases')}>
                 {model.phases.map(({ week, sessions }) => (
-                  <SortablePhaseDivider
-                    key={week.id}
-                    week={week}
-                    sessionCount={sessions.length}
-                    t={t}
-                  />
+                  <SortablePhaseDivider key={week.id} week={week} sessionCount={sessions.length} />
                 ))}
-              </SortableContext>
-            ) : (
-              <SortableContext
-                items={model.phases.flatMap((p) => p.sessions.map((s) => s.id))}
-                strategy={verticalListSortingStrategy}
-              >
-                {model.phases.map(({ week, sessions, positions, exCount }) => (
-                  <div key={week.id}>
-                    {/* Rendered even for a lone unnamed phase: it is where the
-                        name is set, and keeping it makes a one-phase block the
-                        same shape as a six-phase one. */}
-                    <PhaseDivider
-                      week={week}
-                      sessionCount={sessions.length}
-                      exCount={exCount}
-                      quiet={phaseCount === 1}
-                      canReorder={phaseCount > 1}
-                      onRename={(label) => updateWeek.mutate({ id: week.id, label })}
-                      onAddSession={() => addSessionTo(week)}
-                      onDuplicate={() => duplicateWeek.mutate({ weekId: week.id })}
-                      onCopy={() => setCopyPhaseId(week.id)}
-                      onDelete={() => setDeletePhaseId(week.id)}
-                      onReorder={() => {
-                        exitSelect();
-                        setReorderingSessions(false);
-                        setReorderingPhases(true);
-                      }}
-                      readOnly={readOnly}
-                      t={t}
-                    />
-
-                    {sessions.length === 0 && (
-                      <p className="sl-mono text-[11px] text-ink-400 px-3 py-3 border-t border-ink-100">
-                        {t('coach.week.noSessions')}
-                      </p>
-                    )}
-
-                    {sessions.map((s, i) =>
-                      reorderingSessions ? (
-                        <SortableSessionRow key={s.id} session={s} position={positions[i]} t={t} />
-                      ) : (
-                        <SessionRow
-                          key={s.id}
-                          session={s}
-                          studentId={studentId}
-                          // `performed_at` is the confirmation mirrored on
-                          // the session row: it comes with the sheet's own
-                          // query, so a confirmed row never opens the editor
-                          // while the confirmations are still loading.
-                          confirmed={!!confirmedIds?.has(s.id) || !!s.performed_at}
-                          trained={!!loggedIds?.has(s.id)}
-                          position={positions[i]}
-                          onSetDay={(day) => updateSession.mutate({ id: s.id, day_number: day })}
-                          onDuplicate={() => duplicateSession.mutate({
-                            sessionId: s.id,
-                            // The copy's title in the coach's language. An
-                            // untitled session gets no suffix, so its copy
-                            // stays untitled and is named by its position
-                            // too: the function would write "Session (copy)",
-                            // in English and frozen.
-                            titleSuffix: s.title?.trim() ? ` ${t('coachSheetUx.copySuffix')}` : '',
-                          })}
-                          // Only the row being copied waits: one copy on its
-                          // way used to grey out the button of every row.
-                          duplicating={
-                            duplicateSession.isPending && duplicateSession.variables?.sessionId === s.id
-                          }
-                          selecting={selecting}
-                          selected={selectedIds.has(s.id)}
-                          onToggleSelect={() => toggleSelected(s.id)}
+              </ul>
+            </SortableContext>
+          ) : (
+            <SortableContext
+              items={model.phases.flatMap((p) => p.sessions.map((s) => s.id))}
+              strategy={verticalListSortingStrategy}
+            >
+              {model.phases.map(({ week, sessions, positions }) => {
+                // The run of done sessions the phase opens with, folded while
+                // nothing is being chosen or moved.
+                let run = 0;
+                while (run < sessions.length && isConfirmed(sessions[run])) run += 1;
+                const folded = idle && run >= DONE_RUN_MIN && !openRuns.has(week.id);
+                const range = sessions.length > 0
+                  ? { from: positions[0], to: positions[positions.length - 1] }
+                  : null;
+                return (
+                  <PhaseSection key={week.id}>
+                    {(titleId) => (
+                      <>
+                        <PhaseDivider
+                          week={week}
+                          titleId={titleId}
+                          range={range}
+                          canReorder={phaseCount > 1}
+                          onRename={(label) => updateWeek.mutate({ id: week.id, label })}
+                          onAddSession={() => addSessionTo(week)}
+                          onDuplicate={() => duplicateWeek.mutate({ weekId: week.id })}
+                          onCopy={() => setCopyPhaseId(week.id)}
+                          onDelete={() => setDeletePhaseId(week.id)}
+                          onReorder={() => {
+                            exitSelect();
+                            setReorderingSessions(false);
+                            setReorderingPhases(true);
+                          }}
                           readOnly={readOnly}
-                          t={t}
                         />
-                      ),
+                        {sessions.length > 0 && (
+                          <ul className="pk-group">
+                            {folded ? (
+                              <>
+                                <li>
+                                  <button
+                                    type="button"
+                                    aria-expanded={false}
+                                    onClick={() => {
+                                      setOpenRuns((prev) => new Set(prev).add(week.id));
+                                      // The row that was pressed goes away: the
+                                      // focus moves to the first session it held.
+                                      const first = sessions[0].id;
+                                      requestAnimationFrame(() =>
+                                        document.querySelector(`[data-session-open="${first}"]`)?.focus(),
+                                      );
+                                    }}
+                                    className="pk-row w-full bg-transparent text-left"
+                                  >
+                                    <span className="pk-set-dot pk-set-dot-done" aria-hidden="true">
+                                      <Icon name="check" size={16} />
+                                    </span>
+                                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                                      <span className="pk-headline">
+                                        {phaseRangeText({ from: positions[0], to: positions[run - 1] }, ctx)}
+                                      </span>
+                                      <span className="pk-caption">
+                                        <span className="sr-only">,</span> {t('parcProgram.allDone')}
+                                      </span>
+                                    </span>
+                                    <Icon name="chevron-down" size={18} className="shrink-0 text-ink-2" />
+                                  </button>
+                                </li>
+                                {sessions.slice(run).map((s, i) => renderRow(s, positions[run + i]))}
+                              </>
+                            ) : (
+                              sessions.map((s, i) => renderRow(s, positions[i]))
+                            )}
+                          </ul>
+                        )}
+                      </>
                     )}
-                  </div>
-                ))}
-              </SortableContext>
-            )}
-
-            {/* One drawer for the whole block rather than one per phase: an
-                archived session is out of the plan, and which phase it used to
-                sit in is not what the coach is looking for when restoring it. */}
-            {model.archived.length > 0 && idle && (
-              <div className="border-t border-ink-100">
-                <button
-                  type="button"
-                  onClick={() => setShowArchived((v) => !v)}
-                  className="w-full min-h-11 text-ink-400 sl-mono text-[10px] hover:text-ink-700 underline"
-                >
-                  {showArchived
-                    ? t('coach.week.hideArchived', { n: model.archived.length })
-                    : t('coach.week.showArchived', { n: model.archived.length })}
-                </button>
-                {showArchived && model.archived.map((s) => (
-                  <div
-                    key={s.id}
-                    className="flex items-center gap-2 border-t border-ink-100 opacity-75 hover:opacity-100"
-                  >
-                    <button
-                      type="button"
-                      onClick={() =>
-                        navigate(`/coach/student/${studentId}/session/${s.id}/review`, {
-                          // So the review's back button returns here — it used
-                          // to hardcode the sessions feed.
-                          state: { from: location.pathname + location.search },
-                        })
-                      }
-                      aria-label={t('coach.week.openArchivedSession')}
-                      className="flex-1 min-w-0 min-h-11 flex items-center gap-2 px-3 text-left"
-                    >
-                      <span className="sl-display text-[13px] text-ink-600 flex-1 truncate">
-                        {/* Not "Session n": an archived session has no
-                            place in the block, and its place in this drawer
-                            is not one. The editor names it the same way. */}
-                        {s.title || <span className="text-ink-400">{t('coach.editor.titlePlaceholder')}</span>}
-                      </span>
-                      <span
-                        className="sl-pill text-ink-900 shrink-0"
-                        style={{ background: 'color-mix(in srgb, var(--color-warn) 18%, transparent)' }}
-                      >
-                        {t('common.archived')}
-                      </span>
-                    </button>
-                    {/* Restoring used to mean opening the session's review page —
-                        a full-page route, so a trip out of Programming for a
-                        one-tap action. */}
-                    {!readOnly && (
-                      <button
-                        type="button"
-                        onClick={() => archiveSession.mutate({ sessionId: s.id, archived: false })}
-                        disabled={archiveSession.isPending}
-                        aria-label={t('coach.sheet.unarchiveSession')}
-                        title={t('coach.sheet.unarchiveSession')}
-                        className="shrink-0 min-h-11 px-3 sl-mono text-[10px] text-ink-400 hover:text-[var(--color-accent)] transition-colors"
-                      >
-                        {t('coach.sheet.unarchive')}
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* One footer for the block. Selection and reorder now span every
-                phase, so archiving or resequencing a whole mesocycle is one
-                gesture instead of one per week card. */}
-            {selecting ? (
-              <div className="flex items-center gap-1 pl-3 border-t border-ink-100 bg-ink-50">
-                <span className="sl-mono text-[11px] text-ink-400 flex-1">
-                  {t('coach.sheet.nSelected', { n: selectedIds.size })}
-                </span>
-                <button
-                  type="button"
-                  disabled={selectedIds.size === 0 || archiveSessions.isPending}
-                  onClick={() =>
-                    archiveSessions.mutate(
-                      { sessionIds: [...selectedIds], archived: true },
-                      { onSuccess: exitSelect },
-                    )
-                  }
-                  className="min-h-11 px-3 sl-mono text-[11px] text-ink-700 hover:text-[var(--color-accent)] disabled:opacity-40 transition-colors"
-                >
-                  {t('coach.sheet.archiveSelected')}
-                </button>
-                <button
-                  type="button"
-                  disabled={selectedIds.size === 0}
-                  onClick={() => setShowCopySelection(true)}
-                  className="min-h-11 px-3 sl-mono text-[11px] text-ink-700 hover:text-[var(--color-accent)] disabled:opacity-40 transition-colors"
-                >
-                  {t('coach.week.copyTo')}
-                </button>
-                <button
-                  type="button"
-                  onClick={exitSelect}
-                  aria-label={t('common.cancel')}
-                  className="w-11 h-11 shrink-0 flex items-center justify-center sl-mono text-[13px] text-ink-400 hover:text-gray-900 transition-colors"
-                >
-                  &times;
-                </button>
-              </div>
-            ) : idle && !readOnly && (
-              /* Both reorder modes hide this bar: the banner above already
-                 carries the only way out, and two buttons reading "Done" on one
-                 screen is one too many to aim at. */
-              <div className="flex items-stretch border-t border-ink-100">
-                <button
-                  type="button"
-                  onClick={() => addSessionTo(weeks[weeks.length - 1])}
-                  disabled={createSession.isPending}
-                  className="flex-1 min-h-11 text-ink-400 sl-mono text-[11px] hover:text-[var(--color-accent)] transition-colors"
-                >
-                  {t('coach.week.addSession')}
-                </button>
-                {model.total > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setSelecting(true)}
-                    className="min-h-11 px-4 sl-mono text-[11px] text-ink-400 border-l border-ink-100 hover:text-[var(--color-accent)] transition-colors"
-                  >
-                    {t('coach.sheet.select')}
-                  </button>
-                )}
-                {model.total > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => setReorderingSessions(true)}
-                    className="min-h-11 px-4 sl-mono text-[11px] text-ink-400 border-l border-ink-100 hover:text-[var(--color-accent)] transition-colors"
-                  >
-                    {t('coach.sheet.reorderSessions')}
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+                  </PhaseSection>
+                );
+              })}
+            </SortableContext>
+          )}
         </DndContext>
       )}
 
-      {/* Opting into phases stays available but never headline: most blocks are
-          a single run of sessions and never need a divider at all. */}
+      {/* One drawer for the whole block rather than one per phase: an
+          archived session is out of the plan, and which phase it used to sit
+          in is not what the coach is looking for when restoring it. */}
+      {model.archived.length > 0 && idle && (
+        <ListGroup title={t('parcProgram.archivedTitle')}>
+          <Row
+            onClick={() => setShowArchived((v) => !v)}
+            aria-expanded={showArchived}
+            chevron={showArchived ? 'chevron-up' : 'chevron-down'}
+            title={t(pluralKey(lang, model.archived.length, 'parcSessions.archivedCount'), {
+              n: n(model.archived.length),
+            })}
+          />
+          {showArchived &&
+            model.archived.map((s) => {
+              // Not "Session n": an archived session has no place in the
+              // block, and its place in this drawer is not one.
+              const name = s.title || t('parcSessions.untitled');
+              return (
+                <li key={s.id} className="pk-row">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      navigate(`/coach/student/${studentId}/session/${s.id}/review`, {
+                        // So the review's back button returns here.
+                        state: { from: location.pathname + location.search },
+                      })
+                    }
+                    className="flex min-h-11 min-w-0 flex-1 items-center bg-transparent text-left"
+                  >
+                    <span className="pk-headline truncate text-ink-2">{name}</span>
+                  </button>
+                  {/* Restoring used to mean opening the session's review page —
+                      a trip out of Programming for a one-tap action. */}
+                  {!readOnly && (
+                    <Button
+                      variant="text"
+                      onClick={() => archiveSession.mutate({ sessionId: s.id, archived: false })}
+                      disabled={archiveSession.isPending}
+                      aria-label={t('parcProgram.restoreSession', { name })}
+                    >
+                      {t('parcProgram.restore')}
+                    </Button>
+                  )}
+                </li>
+              );
+            })}
+        </ListGroup>
+      )}
+
+      {/* One set of actions for the block. Selection and reorder span every
+          phase, so archiving or resequencing a whole mesocycle is one gesture
+          instead of one per phase. Both reorder modes hide it: the bar above
+          carries the only way out. */}
       {phaseCount > 0 && idle && !readOnly && (
-        <button
-          type="button"
-          onClick={handleAddPhase}
-          disabled={createWeek.isPending}
-          className="w-full min-h-11 text-ink-400 sl-mono text-[11px] hover:text-[var(--color-accent)] transition-colors"
-        >
-          {t('coach.sheet.addPhase')}
-        </button>
+        <div className="flex flex-wrap items-center gap-x-2">
+          <Button
+            variant="text"
+            onClick={() => addSessionTo(weeks[weeks.length - 1])}
+            disabled={createSession.isPending}
+          >
+            <Icon name="plus" size={18} />
+            {t('parcProgram.addSession')}
+          </Button>
+          {/* Opting into phases stays available but never headline: most
+              blocks are a single run of sessions. */}
+          <Button variant="text" onClick={handleAddPhase} disabled={createWeek.isPending}>
+            {t('parcProgram.addPhase')}
+          </Button>
+          {model.total > 0 && (
+            <Button variant="text" onClick={() => setSelecting(true)}>
+              {t('parcProgram.select')}
+            </Button>
+          )}
+          {model.total > 1 && (
+            <Button variant="text" onClick={() => setReorderingSessions(true)}>
+              {t('parcProgram.reorder')}
+            </Button>
+          )}
+        </div>
+      )}
+
+      {selecting && (
+        <ActionBar className="sticky bottom-0 z-10 -mx-4 md:-mx-8">
+          <p role="status" className="pk-caption min-w-0 flex-1">
+            {selectedLabel}
+          </p>
+          <Button size="lg" disabled={selectedCount === 0} onClick={() => setShowCopySelection(true)}>
+            {t('parcProgram.copySelected')}
+          </Button>
+          <Button
+            variant="primary"
+            size="lg"
+            disabled={selectedCount === 0 || archiveSessions.isPending}
+            onClick={() =>
+              archiveSessions.mutate(
+                { sessionIds: [...selectedIds], archived: true },
+                { onSuccess: exitSelect },
+              )
+            }
+          >
+            {t('parcProgram.archiveSelected')}
+          </Button>
+        </ActionBar>
       )}
 
       <CopyDialog
         open={showCopySelection}
         onClose={() => setShowCopySelection(false)}
-        title={t('coach.sheet.copySessionsTitle')}
-        description={t('coach.sheet.copySessionsDescription', { n: selectedIds.size })}
+        title={t('parcProgram.copySessionsTitle')}
+        description={t(pluralKey(lang, selectedCount, 'parcProgram.copySessions'), { n: n(selectedCount) })}
         currentStudentId={studentId}
         currentProgramId={program.id}
         showWeekSelect
@@ -525,8 +546,8 @@ export default function ProgramSheet({ studentId, program }) {
       <CopyDialog
         open={!!copyingPhase}
         onClose={() => setCopyPhaseId(null)}
-        title={t('coach.sheet.copyPhaseTitle')}
-        description={t('coach.week.copyDescription')}
+        title={t('parcProgram.copyPhaseTitle')}
+        description={t('parcProgram.copyPhaseDescription')}
         currentStudentId={studentId}
         currentProgramId={program.id}
         onCopy={({ programId }) => {
@@ -539,20 +560,30 @@ export default function ProgramSheet({ studentId, program }) {
         isPending={duplicateWeek.isPending}
       />
 
-      <ConfirmDialog
+      <ConfirmSheet
         open={!!deletingPhase}
         onClose={() => setDeletePhaseId(null)}
-        title={t('coach.sheet.deletePhaseTitle')}
-        message={
+        title={
           deletingPhase?.label
-            ? t('coach.sheet.deletePhaseNamed', { name: deletingPhase.label })
-            : t('coach.sheet.deletePhaseMessage')
+            ? t('parcProgram.deletePhaseNamed', { name: deletingPhase.label })
+            : t('parcProgram.deletePhaseTitle')
         }
+        message={t('parcProgram.deletePhaseMessage')}
+        confirmText={t('parcProgram.deletePhase')}
         onConfirm={() => {
           if (deletingPhase) deleteWeek.mutate(deletingPhase.id);
-          setDeletePhaseId(null);
         }}
       />
     </div>
+  );
+}
+
+// A phase of the sheet: a section named by its heading.
+function PhaseSection({ children }) {
+  const titleId = useId();
+  return (
+    <section aria-labelledby={titleId} className="flex flex-col gap-2.5">
+      {children(titleId)}
+    </section>
   );
 }

@@ -1,21 +1,24 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useId, useRef, useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { phaseDropId } from '../../lib/sessionMove';
+import { useI18n } from '../../hooks/useI18n';
+import { formatNumber, pluralKey } from '../../lib/i18n/format';
 import EditableText from '../ui/EditableText';
+import { Icon, IconButton } from '../parc';
 import PortalMenu, { anchorOf, MENU_PADDING } from './PortalMenu';
 
 /**
- * A phase boundary inside the block's single list.
+ * The head of a phase in the block's list (design/parc/screens/
+ * Programme.dc.html): its name as a heading, the places its sessions hold in
+ * the block (« Séances 9 à 16 »), and its ⋯.
  *
  * This is what a `weeks` row became. It carries NO number: the coach asked for
- * free names, and a number was the thing that made a week feel like a container
- * with a fixed length — the very idea the queue refactor removed. An unnamed
- * phase still draws its rule, because the boundary is real (it is a different
- * `week_id`, and it is what a session is dragged across); it simply says
- * nothing. Half the phases in production are unnamed, so hiding those dividers
- * would silently merge them into their neighbours.
+ * free names, and a number was the thing that made a week feel like a
+ * container with a fixed length. An unnamed phase is still drawn — « Phase
+ * sans nom » — because the boundary is real: it is a different `week_id`, and
+ * it is what a session is dragged across.
  *
  * It is also a drop target, which is the only way to reach a phase with no
  * sessions to aim at.
@@ -24,40 +27,44 @@ import PortalMenu, { anchorOf, MENU_PADDING } from './PortalMenu';
 // One item of a menu: 44px tall, on one line — the menu's height is counted
 // from it (`PortalMenu`), so an item must not wrap.
 const ITEM_HEIGHT = 44;
-const MENU_WIDTH = 180;
+const MENU_WIDTH = 240;
 
-function PhaseMenu({ onAddSession, onDuplicate, onCopy, onDelete, onReorder, canReorder, t }) {
+// « Séances 9 à 16 », « Séance 9 », « Pas encore de séance ».
+export function phaseRangeText(range, { t, lang }) {
+  if (!range) return t('parcProgram.phaseEmpty');
+  if (range.from === range.to) return t('parcProgram.phaseOne', { n: formatNumber(lang, range.from) });
+  return t('parcProgram.phaseRange', { from: formatNumber(lang, range.from), to: formatNumber(lang, range.to) });
+}
+
+function PhaseMenu({ onAddSession, onDuplicate, onCopy, onDelete, onReorder, canReorder }) {
+  const { t } = useI18n();
   const [anchor, setAnchor] = useState(null);
   const triggerRef = useRef(null);
   const close = useCallback(() => setAnchor(null), []);
 
   const items = [
-    { label: t('coach.week.addSession'), fn: onAddSession, danger: false },
-    { label: t('coach.week.duplicate'), fn: onDuplicate, danger: false },
-    { label: t('coach.week.copyTo'), fn: onCopy, danger: false },
-    ...(canReorder ? [{ label: t('coach.sheet.reorderPhases'), fn: onReorder, danger: false }] : []),
-    { label: t('coach.sheet.deletePhase'), fn: onDelete, danger: true },
+    { label: t('parcProgram.addSession'), fn: onAddSession, danger: false },
+    { label: t('parcProgram.duplicatePhase'), fn: onDuplicate, danger: false },
+    { label: t('parcProgram.copyTo'), fn: onCopy, danger: false },
+    ...(canReorder ? [{ label: t('parcProgram.reorderPhases'), fn: onReorder, danger: false }] : []),
+    { label: t('parcProgram.deletePhase'), fn: onDelete, danger: true },
   ];
 
   return (
     <>
-      <button
+      <IconButton
         ref={triggerRef}
-        type="button"
+        icon="more"
+        tone="none"
+        label={t('parcProgram.phaseMenu')}
+        aria-expanded={!!anchor}
         onClick={(e) => {
           e.stopPropagation();
           // Read here, at the tap: where the trigger is decides where the
           // menu goes, and nothing is measured once it is drawn.
           setAnchor(anchor ? null : anchorOf(e.currentTarget));
         }}
-        aria-label={t('coach.sheet.phaseMenu')}
-        aria-expanded={!!anchor}
-        className="w-11 h-11 -mr-2 shrink-0 rounded-lg text-ink-400 hover:bg-ink-100 hover:text-ink-700 flex items-center justify-center transition-colors"
-      >
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
-          <circle cx="3" cy="7" r="1.4" /><circle cx="7" cy="7" r="1.4" /><circle cx="11" cy="7" r="1.4" />
-        </svg>
-      </button>
+      />
       {anchor && (
         <PortalMenu
           anchor={anchor}
@@ -66,16 +73,16 @@ function PhaseMenu({ onAddSession, onDuplicate, onCopy, onDelete, onReorder, can
           align="end"
           onClose={close}
           returnFocus={triggerRef}
-          label={t('coach.sheet.phaseMenu')}
-          className="flex flex-col min-w-[180px]"
+          label={t('parcProgram.phaseMenu')}
+          className="flex min-w-[240px] flex-col"
         >
           {items.map(({ label, fn, danger }) => (
             <button
               key={label}
               type="button"
               onClick={(e) => { e.stopPropagation(); close(); fn(); }}
-              className={`min-h-11 text-left px-3 rounded sl-mono text-[11px] truncate hover:bg-ink-100 transition-colors ${
-                danger ? 'text-danger' : 'text-ink-700'
+              className={`min-h-11 truncate rounded-control px-3 text-left text-[15px] font-semibold hover:bg-fill ${
+                danger ? 'text-red' : 'text-ink'
               }`}
             >
               {label}
@@ -87,94 +94,84 @@ function PhaseMenu({ onAddSession, onDuplicate, onCopy, onDelete, onReorder, can
   );
 }
 
-// While phases are being reordered the divider becomes the draggable row and
-// its sessions are hidden: dragging a header that carries its whole phase with
-// it is legible, dragging it past twenty rows of that phase is not.
-export function SortablePhaseDivider({ week, sessionCount, t }) {
+// While phases are being reordered a phase is one row — its name, how many
+// sessions it holds, the handle — and its sessions are hidden: dragging a
+// header that carries its whole phase with it is legible, dragging it past
+// twenty rows of that phase is not.
+export function SortablePhaseDivider({ week, sessionCount }) {
+  const { t, lang } = useI18n();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: week.id });
+  const name = week.label || t('parcProgram.phaseUnnamed');
 
   return (
-    <div
+    <li
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
-      className="flex items-center gap-2 min-h-11 px-3 border-t border-ink-100 first:border-t-0 bg-ink-50"
+      className="pk-row bg-surface"
     >
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className={`pk-headline truncate ${week.label ? '' : 'text-ink-2'}`}>{name}</span>
+        <span className="pk-caption">
+          {t(pluralKey(lang, sessionCount, 'parcProgram.sessionsCount'), { n: formatNumber(lang, sessionCount) })}
+        </span>
+      </span>
       <button
+        type="button"
         {...attributes}
         {...listeners}
-        aria-label={t('coach.sheet.reorderPhase', { name: week.label || t('coach.sheet.unnamedPhase') })}
-        className="w-11 h-11 -ml-3 flex items-center justify-center text-ink-400 hover:text-ink-700 cursor-grab active:cursor-grabbing touch-none shrink-0"
+        aria-label={t('parcProgram.moveItem', { name })}
+        className="pk-icon-btn shrink-0 cursor-grab touch-none bg-transparent active:cursor-grabbing"
       >
-        <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true">
-          <circle cx="2.5" cy="3" r="1.25" /><circle cx="7.5" cy="3" r="1.25" />
-          <circle cx="2.5" cy="8" r="1.25" /><circle cx="7.5" cy="8" r="1.25" />
-          <circle cx="2.5" cy="13" r="1.25" /><circle cx="7.5" cy="13" r="1.25" />
-        </svg>
+        <Icon name="drag" size={22} />
       </button>
-      <span className="sl-display text-[13px] text-gray-900 truncate flex-1">
-        {week.label || <span className="text-ink-400">{t('coach.sheet.unnamedPhase')}</span>}
-      </span>
-      <span className="sl-mono text-[10px] text-ink-400 shrink-0">
-        {t('coach.week.sessionCount', { n: sessionCount })}
-      </span>
-    </div>
+    </li>
   );
 }
 
-// `readOnly` — the block is an athlete's draft: the divider shows the name
-// and the size, and offers no rename and no menu (every item of it writes,
-// or copies into a block the dialog could pick as this very draft).
+// `readOnly` — the block is an athlete's draft: the head shows the name and
+// the places, and offers no rename and no menu (every item of it writes, or
+// copies into a block the sheet could pick as this very draft).
 export default function PhaseDivider({
-  week, sessionCount, exCount, quiet, canReorder, onRename,
-  onAddSession, onDuplicate, onCopy, onDelete, onReorder, readOnly = false, t,
+  week, titleId, range, canReorder, onRename,
+  onAddSession, onDuplicate, onCopy, onDelete, onReorder, readOnly = false,
 }) {
+  const ctx = useI18n();
+  const { t } = ctx;
   const { setNodeRef, isOver } = useDroppable({ id: phaseDropId(week.id) });
+  const hintId = useId();
 
   return (
     <div
       ref={setNodeRef}
-      className="flex items-center gap-2 min-h-11 px-3 border-t border-ink-100 first:border-t-0 transition-colors"
-      style={isOver ? { background: 'color-mix(in srgb, var(--color-accent) 12%, transparent)' } : undefined}
+      className={`flex items-center gap-2 rounded-control transition-colors ${isOver ? 'bg-blue-soft' : ''}`}
     >
-      {/* A NAMED phase is a heading and reads like one. An unnamed one is just
-          a boundary, so its invitation drops out of `sl-label` — three stacked
-          "NAME THIS PHASE" in caps shout louder than the sessions do. */}
-      <div className="flex-1 min-w-0">
-        {readOnly ? (
-          <span
-            className={
-              week.label
-                ? 'block sl-label text-ink-500 truncate'
-                : 'block sl-mono text-[10px] text-ink-300 truncate'
-            }
-          >
-            {week.label || t('coach.sheet.unnamedPhase')}
-          </span>
-        ) : (
-          <EditableText
-            value={week.label || ''}
-            onSave={onRename}
-            placeholder={t('coach.sheet.phaseNamePlaceholder')}
-            ariaLabel={t('coach.week.editLabelAria')}
-            className={
-              week.label
-                ? 'sl-label text-ink-500 truncate max-w-full min-h-11'
-                : 'sl-mono text-[10px] text-ink-300 truncate max-w-full min-h-11'
-            }
-          />
-        )}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <h2 id={titleId} className="pk-headline min-w-0">
+          {readOnly ? (
+            <span className={week.label ? '' : 'text-ink-2'}>{week.label || t('parcProgram.phaseUnnamed')}</span>
+          ) : (
+            <>
+              {/* The heading is named by the phase; what a tap does is its
+                  description, and the field's name once it is open. */}
+              <EditableText
+                value={week.label || ''}
+                onSave={onRename}
+                placeholder={t('parcProgram.phaseUnnamed')}
+                ariaLabel={false}
+                describedBy={hintId}
+                className="min-h-11 max-w-full truncate"
+              />
+              <span id={hintId} hidden>
+                {t('parcProgram.phaseRename')}
+              </span>
+            </>
+          )}
+        </h2>
+        <span className="pk-caption">{phaseRangeText(range, ctx)}</span>
       </div>
-      {/* A lone phase doesn't need its size announced — the list below IS the
-          size. With several, the meta is how a coach compares them at a glance. */}
-      {!quiet && (
-        <span className="sl-mono text-[10px] text-ink-400 shrink-0">
-          {t('coach.sheet.weekMeta', { s: sessionCount, e: exCount })}
-        </span>
-      )}
       {!readOnly && (
         <PhaseMenu
-          t={t}
           canReorder={canReorder}
           onReorder={onReorder}
           onAddSession={onAddSession}

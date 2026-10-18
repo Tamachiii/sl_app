@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Librairie d'exercices, coach</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="parc-tokens.css">
+<link rel="stylesheet" href="ds/slcoachparc/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1E4FBF}a:hover{color:#163C93}
+button,input{font-family:inherit}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 1420px; box-sizing: border-box; background: var(--ground); color: var(--ink); font-family: var(--font-sans); overflow: hidden">
+  <main style="padding: 12px 16px 112px; display: flex; flex-direction: column; gap: 24px">
+
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <div>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+          <h1 class="pk-large-title">Librairie</h1>
+          <div style="display: flex; gap: 8px">
+            <button type="button" class="pk-icon-btn" aria-label="Ajouter un exercice" onClick="{{ openCreate }}">
+              <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M12 5v14M5 12h14"></path></svg>
+            </button>
+            <button type="button" class="pk-icon-btn" aria-label="Menu du compte" style="font-size: 16px; font-weight: 700">T</button>
+          </div>
+        </div>
+        <p class="pk-subhead" style="margin: 6px 0 0">{{ countLabel }}</p>
+      </div>
+
+      <label style="position: relative; display: block; margin-top: 4px">
+        <span class="sr-only">Rechercher un exercice</span>
+        <svg width="18" height="18" fill="none" stroke="var(--ink-2)" viewBox="0 0 24 24" aria-hidden="true" style="position: absolute; left: 14px; top: 13px"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 10.5a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z"></path></svg>
+        <input type="search" placeholder="Rechercher un exercice" value="{{ query }}" onChange="{{ onQuery }}" class="pk-field" style="padding-left: 42px">
+      </label>
+
+      <div role="group" aria-label="Filtrer par type" style="display: flex; gap: 8px">
+        <sc-for list="{{ filters }}" as="f" hint-placeholder-count="3">
+          <button type="button" class="pk-chip" aria-current="{{ f.cur }}" onClick="{{ f.pick }}">{{ f.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+
+    <section aria-label="Exercices" style="display: flex; flex-direction: column; gap: 10px">
+      <sc-if value="{{ hasRows }}" hint-placeholder-val="{{ true }}">
+        <ul class="pk-group">
+          <sc-for list="{{ rows }}" as="x" hint-placeholder-count="10">
+            <li>
+              <div class="pk-row" style="gap: 4px">
+                <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                  <span class="pk-headline">{{ x.name }}</span>
+                  <span class="pk-caption" style="display: flex; align-items: center; gap: 6px; min-width: 0">
+                    <sc-if value="{{ x.isPull }}" hint-placeholder-val="{{ true }}">
+                      <span aria-hidden="true" style="width: 10px; height: 10px; flex-shrink: 0; border-radius: 3px; background: var(--chart-pull)"></span>
+                    </sc-if>
+                    <sc-if value="{{ x.isPush }}" hint-placeholder-val="{{ false }}">
+                      <span aria-hidden="true" style="width: 10px; height: 10px; flex-shrink: 0; border-radius: 3px; background: var(--chart-push)"></span>
+                    </sc-if>
+                    <span style="min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ x.caption }}</span>
+                  </span>
+                </span>
+                <button type="button" class="pk-icon-btn" aria-label="{{ x.moreLabel }}" onClick="{{ x.more }}" style="background: none; color: var(--ink-2)">
+                  <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 12h.01M12 12h.01M19 12h.01"></path></svg>
+                </button>
+              </div>
+            </li>
+          </sc-for>
+        </ul>
+      </sc-if>
+      <sc-if value="{{ noRows }}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 24px 16px; background: var(--surface); border-radius: var(--radius-group); text-align: center">
+          <p class="pk-headline">Aucun exercice ne correspond</p>
+          <p class="pk-caption" style="margin: 4px 0 0">Change la recherche ou le filtre, ou crée l'exercice avec le bouton plus.</p>
+        </div>
+      </sc-if>
+    </section>
+
+    <sc-if value="{{ hasArchived }}" hint-placeholder-val="{{ true }}">
+      <section aria-label="Exercices archivés" style="display: flex; flex-direction: column; gap: 10px">
+        <ul class="pk-group">
+          <li>
+            <button type="button" class="pk-row" aria-expanded="{{ drawerExpanded }}" onClick="{{ toggleDrawer }}" style="width: 100%; border-top: 0; border-left: 0; border-right: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer">
+              <span class="pk-headline" style="flex: 1">{{ drawerLabel }}</span>
+              <sc-if value="{{ drawerOpen }}" hint-placeholder-val="{{ true }}">
+                <svg width="20" height="20" fill="none" stroke="var(--ink-2)" viewBox="0 0 24 24" aria-hidden="true" style="flex-shrink: 0"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M5 15l7-7 7 7"></path></svg>
+              </sc-if>
+              <sc-if value="{{ drawerClosed }}" hint-placeholder-val="{{ false }}">
+                <svg width="20" height="20" fill="none" stroke="var(--ink-2)" viewBox="0 0 24 24" aria-hidden="true" style="flex-shrink: 0"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M19 9l-7 7-7-7"></path></svg>
+              </sc-if>
+            </button>
+          </li>
+          <sc-if value="{{ drawerOpen }}" hint-placeholder-val="{{ true }}">
+            <sc-for list="{{ archivedRows }}" as="a" hint-placeholder-count="3">
+              <li>
+                <div class="pk-row">
+                  <span class="pk-body" style="flex: 1; min-width: 0; font-weight: 600; color: var(--ink-2)">{{ a.name }}</span>
+                  <button type="button" class="pk-btn pk-btn-text" aria-label="{{ a.label }}" onClick="{{ a.restore }}">Restaurer</button>
+                </div>
+              </li>
+            </sc-for>
+          </sc-if>
+        </ul>
+        <sc-if value="{{ drawerOpen }}" hint-placeholder-val="{{ true }}">
+          <p class="pk-caption" style="margin: 0">Ils ne sont plus proposés dans les nouvelles séances ni les nouveaux objectifs. L'historique qui les utilise les garde.</p>
+        </sc-if>
+      </section>
+    </sc-if>
+  </main>
+
+  <sc-if value="{{ toastVisible }}" hint-placeholder-val="{{ false }}">
+    <div role="status" style="position: absolute; left: 16px; right: 16px; bottom: 97px; display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 8px 8px 8px 16px; box-sizing: border-box; background: var(--ink); color: var(--surface); border-radius: var(--radius-control); box-shadow: var(--shadow-toast)">
+      <p style="margin: 0; flex: 1; font-size: 15px">{{ toastText }}</p>
+      <sc-if value="{{ toastUndo }}" hint-placeholder-val="{{ false }}">
+        <button type="button" class="pk-btn" style="background: none; color: #9DB8F5" onClick="{{ undo }}">Annuler</button>
+      </sc-if>
+    </div>
+  </sc-if>
+
+  <nav aria-label="Navigation principale" class="pk-tabbar" style="position: absolute; left: 0; right: 0; bottom: 0">
+    <a href="#" class="pk-tab">
+      <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+      <span>Athlètes</span>
+    </a>
+    <a href="Seances.dc.html" class="pk-tab">
+      <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>
+      <span>Séances</span>
+      <span class="pk-count" style="position: absolute; top: 0; left: 50%; margin-left: 6px"><span aria-hidden="true">3</span><span class="sr-only">3 séances à revoir</span></span>
+    </a>
+    <a href="MessagesCoach.dc.html" class="pk-tab">
+      <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+      <span>Messages</span>
+      <span class="pk-count" style="position: absolute; top: 0; left: 50%; margin-left: 6px"><span aria-hidden="true">1</span><span class="sr-only">1 message non lu</span></span>
+    </a>
+    <a href="#" class="pk-tab" aria-current="page">
+      <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
+      <span>Librairie</span>
+    </a>
+  </nav>
+
+  <sc-if value="{{ actionsOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; justify-content: flex-end; background: var(--overlay)">
+      <section role="dialog" aria-modal="true" aria-labelledby="lib-actions-title" class="pk-sheet">
+        <div class="pk-sheet-handle" aria-hidden="true"></div>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+          <div style="min-width: 0">
+            <h2 id="lib-actions-title" class="pk-title">{{ targetName }}</h2>
+            <p class="pk-caption" style="margin: 2px 0 0">{{ targetCaption }}</p>
+          </div>
+          <button type="button" class="pk-icon-btn" aria-label="Fermer" onClick="{{ closeSheet }}" style="background: var(--fill)">
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M6 6l12 12M18 6L6 18"></path></svg>
+          </button>
+        </div>
+        <ul class="pk-group" style="padding: 0; margin-top: 8px">
+          <li><button type="button" class="pk-row" onClick="{{ closeSheet }}" style="width: 100%; border-top: 0; border-left: 0; border-right: 0; background: none; color: inherit; font: inherit; font-size: 17px; font-weight: 600; text-align: left; cursor: pointer">Modifier l'exercice</button></li>
+          <li><button type="button" class="pk-row" onClick="{{ archiveTarget }}" style="width: 100%; border-top: 0; border-left: 0; border-right: 0; background: none; color: inherit; font: inherit; font-size: 17px; font-weight: 600; text-align: left; cursor: pointer">Archiver</button></li>
+          <li><button type="button" class="pk-row" onClick="{{ askDelete }}" style="width: 100%; border-top: 0; border-left: 0; border-right: 0; background: none; color: var(--red); font: inherit; font-size: 17px; font-weight: 600; text-align: left; cursor: pointer">Supprimer</button></li>
+        </ul>
+      </section>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ deleteOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; justify-content: flex-end; background: var(--overlay)">
+      <section role="dialog" aria-modal="true" aria-labelledby="lib-delete-title" class="pk-sheet">
+        <div class="pk-sheet-handle" aria-hidden="true"></div>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+          <h2 id="lib-delete-title" class="pk-title">{{ deleteTitle }}</h2>
+          <button type="button" class="pk-icon-btn" aria-label="Fermer" onClick="{{ closeSheet }}" style="background: var(--fill)">
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M6 6l12 12M18 6L6 18"></path></svg>
+          </button>
+        </div>
+        <p class="pk-body" style="margin: 8px 0 20px">{{ deleteBody }}</p>
+        <div style="display: flex; flex-direction: column; gap: 4px">
+          <sc-if value="{{ inUse }}" hint-placeholder-val="{{ true }}">
+            <button type="button" class="pk-btn pk-btn-primary pk-btn-lg" onClick="{{ archiveTarget }}">Archiver à la place</button>
+            <button type="button" class="pk-btn pk-btn-text" onClick="{{ closeSheet }}">Fermer</button>
+          </sc-if>
+          <sc-if value="{{ unused }}" hint-placeholder-val="{{ false }}">
+            <button type="button" class="pk-btn pk-btn-danger pk-btn-lg" onClick="{{ deleteTarget }}">Supprimer l'exercice</button>
+            <button type="button" class="pk-btn pk-btn-text" onClick="{{ closeSheet }}">Garder l'exercice</button>
+          </sc-if>
+        </div>
+      </section>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ createOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; justify-content: flex-end; background: var(--overlay)">
+      <section role="dialog" aria-modal="true" aria-labelledby="lib-create-title" class="pk-sheet" style="display: flex; flex-direction: column; gap: 16px">
+        <div>
+          <div class="pk-sheet-handle" aria-hidden="true"></div>
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+            <h2 id="lib-create-title" class="pk-title">Nouvel exercice</h2>
+            <button type="button" class="pk-icon-btn" aria-label="Fermer" onClick="{{ closeSheet }}" style="background: var(--fill)">
+              <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M6 6l12 12M18 6L6 18"></path></svg>
+            </button>
+          </div>
+        </div>
+
+        <label style="display: grid; gap: 6px">
+          <span class="pk-small">Nom de l'exercice</span>
+          <input type="text" placeholder="Muscle-up lesté" value="{{ formName }}" onChange="{{ onName }}" class="pk-field">
+        </label>
+
+        <div style="display: grid; gap: 6px">
+          <span id="lib-seg-type" class="pk-small">Type</span>
+          <div role="group" aria-labelledby="lib-seg-type" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; background: var(--fill); border-radius: var(--radius-control)">
+            <sc-for list="{{ segType }}" as="o" hint-placeholder-count="2">
+              <sc-if value="{{ o.on }}" hint-placeholder-val="{{ false }}">
+                <button type="button" aria-pressed="true" onClick="{{ o.pick }}" class="pk-btn" style="padding: 0 8px; background: var(--surface); color: var(--ink); font-weight: 700; border-radius: 10px">{{ o.label }}</button>
+              </sc-if>
+              <sc-if value="{{ o.off }}" hint-placeholder-val="{{ true }}">
+                <button type="button" aria-pressed="false" onClick="{{ o.pick }}" class="pk-btn" style="padding: 0 8px; background: none; color: var(--ink-2); border-radius: 10px">{{ o.label }}</button>
+              </sc-if>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="display: grid; gap: 6px">
+          <span id="lib-seg-diff" class="pk-small">Difficulté</span>
+          <div role="group" aria-labelledby="lib-seg-diff" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; background: var(--fill); border-radius: var(--radius-control)">
+            <sc-for list="{{ segDiff }}" as="o" hint-placeholder-count="3">
+              <sc-if value="{{ o.on }}" hint-placeholder-val="{{ false }}">
+                <button type="button" aria-pressed="true" onClick="{{ o.pick }}" class="pk-btn" style="padding: 0 8px; background: var(--surface); color: var(--ink); font-weight: 700; border-radius: 10px">{{ o.label }}</button>
+              </sc-if>
+              <sc-if value="{{ o.off }}" hint-placeholder-val="{{ true }}">
+                <button type="button" aria-pressed="false" onClick="{{ o.pick }}" class="pk-btn" style="padding: 0 8px; background: none; color: var(--ink-2); border-radius: 10px">{{ o.label }}</button>
+              </sc-if>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="display: grid; gap: 6px">
+          <span id="lib-seg-load" class="pk-small">Charge enregistrée</span>
+          <div role="group" aria-labelledby="lib-seg-load" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; background: var(--fill); border-radius: var(--radius-control)">
+            <sc-for list="{{ segLoad }}" as="o" hint-placeholder-count="3">
+              <sc-if value="{{ o.on }}" hint-placeholder-val="{{ false }}">
+                <button type="button" aria-pressed="true" onClick="{{ o.pick }}" class="pk-btn" style="padding: 0 4px; background: var(--surface); color: var(--ink); font-size: 14px; font-weight: 700; border-radius: 10px">{{ o.label }}</button>
+              </sc-if>
+              <sc-if value="{{ o.off }}" hint-placeholder-val="{{ true }}">
+                <button type="button" aria-pressed="false" onClick="{{ o.pick }}" class="pk-btn" style="padding: 0 4px; background: none; color: var(--ink-2); font-size: 14px; border-radius: 10px">{{ o.label }}</button>
+              </sc-if>
+            </sc-for>
+          </div>
+        </div>
+
+        <label style="display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; column-gap: 12px; row-gap: 6px">
+          <span class="pk-small" style="grid-column: 1 / -1">Poids de volume</span>
+          <input type="text" inputmode="decimal" value="{{ formVolume }}" onChange="{{ onVolume }}" class="pk-field pk-condensed pk-tnum" style="font-size: 22px; font-weight: 800; text-align: center">
+          <span class="pk-small">Une répétition compte pour 1 dans le volume. Mets 0,5 pour un exercice plus facile.</span>
+        </label>
+
+        <button type="button" class="pk-btn pk-btn-primary pk-btn-lg" onClick="{{ create }}" disabled="{{ cannotCreate }}">Créer l'exercice</button>
+      </section>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1420}}'>
+class Component extends DCLogic {
+  constructor(...args) {
+    super(...args);
+    this.nextId = 100;
+    this.blankForm = { name: '', type: 'pull', difficulty: 2, load: '', volume: '1' };
+    this.state = {
+      query: '',
+      filter: 'all',
+      drawerOpen: true,
+      sheet: null,
+      target: null,
+      toast: null,
+      form: Object.assign({}, this.blankForm),
+      exercises: [
+        { id: 1, name: 'Dips aux anneaux', type: 'push', difficulty: 3, load: 'added', volume: '1', slots: 4, goals: 0 },
+        { id: 2, name: 'Dips lestés', type: 'push', difficulty: 2, load: 'added', volume: '1', slots: 18, goals: 1 },
+        { id: 3, name: 'Front lever tuck', type: 'pull', difficulty: 2, load: '', volume: '0,5', slots: 9, goals: 1 },
+        { id: 4, name: 'Muscle-up', type: 'pull', difficulty: 3, load: '', volume: '1,5', slots: 12, goals: 1 },
+        { id: 5, name: 'Pompes lestées', type: 'push', difficulty: 1, load: 'added', volume: '0,5', slots: 0, goals: 0 },
+        { id: 6, name: 'Rowing australien', type: 'pull', difficulty: 1, load: '', volume: '0,5', slots: 3, goals: 0 },
+        { id: 7, name: 'Squat', type: 'push', difficulty: 2, load: 'full', volume: '1', slots: 8, goals: 0 },
+        { id: 8, name: 'Suspension', type: 'pull', difficulty: 1, load: '', volume: '0,5', slots: 5, goals: 0 },
+        { id: 9, name: 'Tractions lestées', type: 'pull', difficulty: 2, load: 'added', volume: '1', slots: 22, goals: 2 },
+        { id: 10, name: 'Tractions lourdes', type: 'pull', difficulty: 3, load: 'added', volume: '1', slots: 6, goals: 1 }
+      ],
+      archived: [
+        { id: 11, name: 'Dips au banc', type: 'push', difficulty: 1, load: '', volume: '0,5', slots: 2, goals: 0 },
+        { id: 12, name: 'L-sit', type: 'push', difficulty: 2, load: '', volume: '0,5', slots: 1, goals: 0 },
+        { id: 13, name: 'Tractions larges', type: 'pull', difficulty: 2, load: 'added', volume: '1', slots: 3, goals: 0 }
+      ]
+    };
+  }
+  componentWillUnmount() {
+    clearTimeout(this.toastTimer);
+  }
+  toast(text, undo) {
+    clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => this.setState({ toast: null }), undo ? 8000 : 6000);
+    return { text: text, undo: undo || null };
+  }
+  caption(x) {
+    const parts = [x.type === 'pull' ? 'Tirer' : 'Pousser', 'difficulté ' + x.difficulty];
+    if (x.volume !== '1') parts.push('volume ×' + x.volume);
+    if (x.load === 'added') parts.push('lest ajouté');
+    if (x.load === 'full') parts.push('charge totale');
+    return parts.join(', ');
+  }
+  move(id, from, to) {
+    const source = this.state[from];
+    const item = source.find((x) => x.id === id);
+    if (!item) return {};
+    const out = {};
+    out[from] = source.filter((x) => x.id !== id);
+    out[to] = this.state[to].concat([item]);
+    return out;
+  }
+  renderVals() {
+    const st = this.state;
+    const norm = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const plural = (n, one, many) => n + ' ' + (n > 1 ? many : one);
+    const byName = (a, b) => a.name.localeCompare(b.name, 'fr');
+    const q = norm((st.query || '').trim());
+    const visible = st.exercises
+      .filter((x) => (st.filter === 'all' || x.type === st.filter) && (!q || norm(x.name).includes(q)))
+      .slice()
+      .sort(byName);
+    const target = st.exercises.find((x) => x.id === st.target);
+    const inUse = !!target && (target.slots + target.goals) > 0;
+
+    const archiveTarget = () => {
+      const t = this.state.exercises.find((x) => x.id === this.state.target);
+      if (!t) return;
+      this.setState(Object.assign(this.move(t.id, 'exercises', 'archived'), {
+        sheet: null,
+        target: null,
+        toast: this.toast('« ' + t.name + ' » archivé.', { kind: 'archive', id: t.id })
+      }));
+    };
+
+    let deleteBody = '';
+    if (target && inUse) {
+      deleteBody = target.name + ' est prescrit dans ' + plural(target.slots, 'séance', 'séances')
+        + (target.goals ? ' et sert à ' + plural(target.goals, 'objectif', 'objectifs') : '')
+        + ', il ne peut donc pas être supprimé. Archive-le pour le retirer de tes listes de choix, sans rien perdre.';
+    } else if (target) {
+      deleteBody = 'Aucune séance, aucun objectif et aucun remplacement ne l’utilise. La suppression est définitive.';
+    }
+
+    const seg = (options, key) => options.map((o) => {
+      const on = st.form[key] === o[0];
+      return {
+        label: o[1],
+        on: on,
+        off: !on,
+        pick: () => {
+          const form = Object.assign({}, this.state.form);
+          form[key] = o[0];
+          this.setState({ form: form });
+        }
+      };
+    });
+    const setForm = (key) => (e) => {
+      const form = Object.assign({}, this.state.form);
+      form[key] = e.target.value;
+      this.setState({ form: form });
+    };
+
+    return {
+      countLabel: plural(st.exercises.length, 'exercice', 'exercices') + ', ' + plural(st.archived.length, 'archivé', 'archivés'),
+      query: st.query,
+      onQuery: (e) => this.setState({ query: e.target.value }),
+      filters: [['all', 'Tous'], ['pull', 'Tirer'], ['push', 'Pousser']].map((f) => ({
+        label: f[1],
+        cur: st.filter === f[0] ? 'true' : 'false',
+        pick: () => this.setState({ filter: f[0] })
+      })),
+      rows: visible.map((x) => ({
+        name: x.name,
+        caption: this.caption(x),
+        isPull: x.type === 'pull',
+        isPush: x.type === 'push',
+        moreLabel: 'Options de ' + x.name,
+        more: () => this.setState({ sheet: 'actions', target: x.id })
+      })),
+      hasRows: visible.length > 0,
+      noRows: visible.length === 0,
+      hasArchived: st.archived.length > 0,
+      drawerOpen: st.drawerOpen,
+      drawerClosed: !st.drawerOpen,
+      drawerExpanded: st.drawerOpen ? 'true' : 'false',
+      drawerLabel: 'Archivés, ' + st.archived.length,
+      toggleDrawer: () => this.setState({ drawerOpen: !this.state.drawerOpen }),
+      archivedRows: st.archived.slice().sort(byName).map((x) => ({
+        name: x.name,
+        label: 'Restaurer ' + x.name,
+        restore: () => this.setState(Object.assign(this.move(x.id, 'archived', 'exercises'), {
+          toast: this.toast('« ' + x.name + ' » restauré.', null)
+        }))
+      })),
+      openCreate: () => this.setState({ sheet: 'create', form: Object.assign({}, this.blankForm) }),
+      closeSheet: () => this.setState({ sheet: null, target: null }),
+      actionsOpen: st.sheet === 'actions' && !!target,
+      deleteOpen: st.sheet === 'delete' && !!target,
+      createOpen: st.sheet === 'create',
+      targetName: target ? target.name : '',
+      targetCaption: target ? this.caption(target) : '',
+      archiveTarget: archiveTarget,
+      askDelete: () => this.setState({ sheet: 'delete' }),
+      deleteTitle: target ? 'Supprimer ' + target.name + ' ?' : '',
+      deleteBody: deleteBody,
+      inUse: inUse,
+      unused: !!target && !inUse,
+      deleteTarget: () => {
+        const id = this.state.target;
+        this.setState({
+          exercises: this.state.exercises.filter((x) => x.id !== id),
+          sheet: null,
+          target: null,
+          toast: this.toast('Exercice supprimé.', null)
+        });
+      },
+      formName: st.form.name,
+      formVolume: st.form.volume,
+      onName: setForm('name'),
+      onVolume: setForm('volume'),
+      segType: seg([['pull', 'Tirer'], ['push', 'Pousser']], 'type'),
+      segDiff: seg([[1, '1'], [2, '2'], [3, '3']], 'difficulty'),
+      segLoad: seg([['', 'Non définie'], ['added', 'Lest ajouté'], ['full', 'Charge totale']], 'load'),
+      cannotCreate: !(st.form.name || '').trim(),
+      create: () => {
+        const f = this.state.form;
+        const name = (f.name || '').trim();
+        if (!name) return;
+        const id = this.nextId++;
+        const item = { id: id, name: name, type: f.type, difficulty: f.difficulty, load: f.load, volume: (f.volume || '1').trim() || '1', slots: 0, goals: 0 };
+        this.setState({
+          exercises: this.state.exercises.concat([item]),
+          sheet: null,
+          filter: 'all',
+          query: '',
+          form: Object.assign({}, this.blankForm),
+          toast: this.toast('« ' + name + ' » ajouté à la librairie.', { kind: 'create', id: id })
+        });
+      },
+      toastVisible: !!st.toast,
+      toastText: st.toast ? st.toast.text : '',
+      toastUndo: !!(st.toast && st.toast.undo),
+      undo: () => {
+        const t = this.state.toast;
+        if (!t || !t.undo) return;
+        clearTimeout(this.toastTimer);
+        if (t.undo.kind === 'archive') {
+          this.setState(Object.assign(this.move(t.undo.id, 'archived', 'exercises'), { toast: null }));
+        } else {
+          this.setState({ exercises: this.state.exercises.filter((x) => x.id !== t.undo.id), toast: null });
+        }
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>

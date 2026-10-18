@@ -1,0 +1,26 @@
+// Les athlètes du coach dans le design Parc (design/parc/screens/RosterTelephone.dc.html, Roster.dc.html).
+export default {
+  parcRoster: {
+    athletesCountOne: '{n} athlète',
+    athletesCountMany: '{n} athlètes',
+    sessionsToReviewOne: '{n} séance à revoir',
+    sessionsToReviewMany: '{n} séances à revoir',
+    search: 'Rechercher un athlète',
+    toFollow: 'À suivre',
+    upToDate: 'À jour',
+    others: 'Autres athlètes',
+    sessionOf: 'Séance {n} sur\u00a0{total}',
+    toReview: '{n} à revoir',
+    toReviewAria: '{n} séances de {name} à revoir',
+    quiet: 'Silencieux {n} j',
+    noProgram: 'Sans programme',
+    today: 'Aujourd’hui',
+    allAthletes: 'Tous les athlètes',
+    unnamed: 'Athlète sans nom',
+    empty: 'Aucun athlète pour l’instant. Ils te sont rattachés depuis le tableau de bord de Supabase.',
+    noMatches: 'Aucun athlète ne correspond à ta recherche.',
+    appErrors: 'Erreurs de l’app',
+    errorsCountOne: '{n} erreur',
+    errorsCountMany: '{n} erreurs',
+  },
+};
