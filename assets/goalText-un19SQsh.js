@@ -1,0 +1,1 @@
+import{j as e}from"./index-Co8JFART.js";function a(r,{t:s,lang:t}){if(!r)return"";const m=e(t,Number(r.target_weight_kg));return r.kind==="one_rm"?s("parcGoals.oneRm",{kg:m}):s("parcGoals.format",{sets:e(t,r.target_sets),reps:e(t,r.target_reps),kg:m})}export{a as g};
