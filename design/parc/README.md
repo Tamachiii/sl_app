@@ -4,7 +4,7 @@ SL Coach Parc est le design de l'application de coaching de street lifting. Il e
 
 - **Le chiffre d'abord.** Sur l'écran de séance, la série en cours se lit à bout de bras : répétitions et charge en `numeral-hero`, condensé. Tout le reste est plus petit et plus calme.
 - **Le pouce en bas.** L'action principale vit dans la barre d'action (ActionBar), en bas de l'écran. Rien d'important ne se trouve en haut d'un écran d'athlète.
-- **Un exercice à la fois.** La séance montre un exercice, pas une pile de cartes. Son nom ne s'écrit qu'une fois, dans le SetPanel. Au-dessus de l'action principale, l'ActionBar nomme l'exercice d'avant et celui d'après, et un point par exercice entre eux dit où on en est (ExerciseSteps).
+- **Un exercice à la fois.** La séance montre un exercice, pas une pile de cartes. Son nom ne s'écrit qu'une fois, dans le SetPanel. Au-dessus de l'action principale, l'ActionBar nomme l'exercice d'avant et celui d'après, et un point par exercice entre eux dit où on en est (ExerciseSteps). Un superset compte pour une étape : son panneau dit « Superset » et le tour, passe d'un exercice à l'autre (C1, C2 : la lettre de l'étape, la place dans le superset), et ses séries se lisent en tours.
 - **Des listes, pas des cartes.** Le contenu se range en listes groupées blanches (ListGroup) sur le fond `ground`. Un seul panneau par écran (SetPanel).
 - **Une seule couleur.** `blue` désigne ce qui avance : l'action principale, l'onglet actif, la série validée. Il ne décore jamais.
 

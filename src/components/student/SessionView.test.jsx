@@ -219,6 +219,12 @@ async function goToExercise(user, name) {
   }
   expect(shownExercise()).toBe(name);
 }
+// The switch of a superset's panel, and a choice in it by its exercise.
+const supersetSwitch = () => screen.queryByRole('group', { name: 'Exercises of the superset' });
+async function pickInSuperset(user, name) {
+  await user.click(within(supersetSwitch()).getByRole('button', { name: new RegExp(`^[A-Z]\\d ${name}$`) }));
+  expect(shownExercise()).toBe(name);
+}
 // The exercises in the order the arrows go through them, from the first.
 async function exerciseOrder(user) {
   while (previousArrow() && !previousArrow().disabled) await user.click(previousArrow());
@@ -944,9 +950,9 @@ describe('SessionView: one exercise at a time', () => {
   });
 
   // The neighbours replace the chips, which replaced the numbered headers of
-  // the accordion: every exercise in the session's order, a superset's
-  // included.
-  it("steps through every exercise in the session's order, a superset's exercises included", async () => {
+  // the accordion: the steps in the session's order, a superset one step,
+  // named by its exercises and entered on its first.
+  it("steps through the session's order, a superset as one step", async () => {
     const user = userEvent.setup();
     mockSessionData = loaded([
       slot('slot-1', 'Dips'),
@@ -962,8 +968,10 @@ describe('SessionView: one exercise at a time', () => {
     ]);
     renderSessionView();
 
-    expect(steps()).toHaveAccessibleName('Exercise 1 of 4, 0 done');
-    expect(await exerciseOrder(user)).toEqual(['Dips', 'Pull-up', 'Push-up', 'Bench Press']);
+    expect(steps()).toHaveAccessibleName('Exercise 1 of 3, 0 done');
+    expect(nextArrow()).toHaveAccessibleName('Next exercise: superset Pull-up + Push-up');
+    expect(nextArrow()).toHaveTextContent('Pull-up + Push-up');
+    expect(await exerciseOrder(user)).toEqual(['Dips', 'Pull-up', 'Bench Press']);
   });
 
   it('a session of one exercise has no arrows and no dots', () => {
@@ -976,7 +984,7 @@ describe('SessionView: one exercise at a time', () => {
     expect(shownExercise()).toBe('Squat');
   });
 
-  it('a superset says its partner, and shares one note for the coach, kept on its first exercise', async () => {
+  it('a superset is one panel: its exercises in a switch, its sets in rounds, one note for the coach', async () => {
     const user = userEvent.setup();
     mockSessionData = loaded([
       slot('slot-a', 'Curl', { superset_group: 1 }),
@@ -985,12 +993,30 @@ describe('SessionView: one exercise at a time', () => {
     mockSetLogsData = logsRead([setLog('l-a1', 'slot-a', 1), setLog('l-b1', 'slot-b', 1)]);
     renderSessionView();
 
-    expect(within(panel()).getByText('In a superset with Skullcrusher')).toBeInTheDocument();
+    // The panel says « Superset » and the round; the switch names both
+    // exercises, the one shown pressed.
+    expect(shownExercise()).toBe('Curl');
+    expect(within(panel()).getByText('Superset')).toBeInTheDocument();
+    expect(within(panel()).getByText('Round 1 of 1')).toBeInTheDocument();
+    expect(within(supersetSwitch()).getByRole('button', { name: 'A1 Curl' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(supersetSwitch()).getByRole('button', { name: 'A2 Skullcrusher' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    // The sets in rounds, both exercises in each, named.
+    const round = screen.getByRole('list', { name: 'Round 1' });
+    expect(within(round).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(round).getByText('Curl')).toBeInTheDocument();
+    expect(within(round).getByText('Skullcrusher')).toBeInTheDocument();
+    expect(inBar().getByRole('button', { name: 'Validate A1' })).toBeInTheDocument();
+
+    // The other exercise, from the switch, which keeps the focus.
+    await pickInSuperset(user, 'Skullcrusher');
+    expect(within(supersetSwitch()).getByRole('button', { name: 'A2 Skullcrusher' })).toHaveFocus();
+    expect(inBar().getByRole('button', { name: 'Validate A2' })).toBeInTheDocument();
 
     // Without one note per superset, the athlete would be asked for a note
     // once per exercise of it: the note of the second exercise is the first's.
-    await goToExercise(user, 'Skullcrusher');
-    expect(within(panel()).getByText('In a superset with Curl')).toBeInTheDocument();
     const menu = await openExerciseMenu(user);
     await user.click(within(menu).getByRole('button', { name: 'Add a note for the coach' }));
     await user.type(screen.getByLabelText('Note for your coach'), 'Elbows hurt');
@@ -1012,7 +1038,7 @@ describe('SessionView: one exercise at a time', () => {
     renderSessionView();
 
     expect(screen.getByRole('region', { name: 'Your note for the coach' })).toHaveTextContent('Elbows hurt');
-    await goToExercise(user, 'Skullcrusher');
+    await pickInSuperset(user, 'Skullcrusher');
     expect(screen.getByRole('region', { name: 'Your note for the coach' })).toHaveTextContent('Elbows hurt');
   });
 
@@ -1071,7 +1097,7 @@ describe('SessionView: the main action', () => {
   // A tap on « Validate set n », then the cache written as the hook writes it,
   // then the RPE sheet answered with `answer` — a rating, or its close button.
   async function validateAndAnswer(user, view, logsAfter, answer) {
-    await user.click(inBar().getByRole('button', { name: /^validate set \d+$/i }));
+    await user.click(inBar().getByRole('button', { name: /^validate (set \d+|[A-Z]\d)$/i }));
     settle(view, logsAfter);
     await user.click(within(rpeSheet()).getByRole('button', { name: answer }));
   }
@@ -1183,16 +1209,18 @@ describe('SessionView: the main action', () => {
     await validateAndAnswer(user, view, [done(a1), a2, b1, b2, c1], 'RPE 8');
     expect(mockToggleDone).toHaveBeenLastCalledWith({ logId: 'a-1', done: true });
     expect(shownExercise()).toBe('Skullcrusher');
-    expect(inBar().getByRole('button', { name: 'Validate set 1' })).toBeInTheDocument();
+    expect(within(panel()).getByText('Round 1 of 2')).toBeInTheDocument();
+    expect(inBar().getByRole('button', { name: 'Validate A2' })).toBeInTheDocument();
 
     await validateAndAnswer(user, view, [done(a1), a2, done(b1), b2, c1], 'Close without RPE');
     expect(mockToggleDone).toHaveBeenLastCalledWith({ logId: 'b-1', done: true });
     expect(shownExercise()).toBe('Curl');
-    expect(inBar().getByRole('button', { name: 'Validate set 2' })).toBeInTheDocument();
+    expect(within(panel()).getByText('Round 2 of 2')).toBeInTheDocument();
+    expect(inBar().getByRole('button', { name: 'Validate A1' })).toBeInTheDocument();
 
     await validateAndAnswer(user, view, [done(a1), done(a2), done(b1), b2, c1], 'RPE 8');
     expect(shownExercise()).toBe('Skullcrusher');
-    expect(inBar().getByRole('button', { name: 'Validate set 2' })).toBeInTheDocument();
+    expect(inBar().getByRole('button', { name: 'Validate A2' })).toBeInTheDocument();
 
     await validateAndAnswer(user, view, [done(a1), done(a2), done(b1), done(b2), c1], 'RPE 9');
     expect(shownExercise()).toBe('Row');

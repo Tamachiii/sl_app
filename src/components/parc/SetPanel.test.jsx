@@ -89,4 +89,24 @@ describe('SetPanel', () => {
     const { container } = render(<SetPanel title="Dips" primary={{ value: '6', unit: 'répétitions' }} />);
     expect(container.querySelector('.border-t')).toBeNull();
   });
+  // An exercise of a superset: the tag stands where the title was, which stays
+  // the heading for a screen reader, and the switch goes under that row.
+  it('draws a tag in place of the title, and the switcher under its row', () => {
+    render(
+      <SetPanel
+        title="Dips"
+        position="Tour 1 sur 3"
+        tag={<span>Superset</span>}
+        switcher={<div data-testid="switcher" />}
+        action={<button type="button">Options</button>}
+        primary={{ value: '3', unit: 'répétitions' }}
+      />,
+    );
+    const title = screen.getByRole('heading', { level: 2, name: 'Dips' });
+    expect(title).toHaveClass('sr-only');
+    expect(screen.getByText('Superset').nextElementSibling).toBe(title);
+    const row = title.parentElement.parentElement;
+    expect(row.nextElementSibling).toContainElement(screen.getByTestId('switcher'));
+    expect(screen.getByTestId('switcher').compareDocumentPosition(screen.getByText('3')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });

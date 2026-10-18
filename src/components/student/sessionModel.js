@@ -66,6 +66,45 @@ export function nextSlotToShow(slotId, slots, logsOf, skippedSlotIds) {
   return null;
 }
 
+// The exercise a step of the session opens on — an exercise alone, or the
+// exercises of a superset (`stepSlots`, in their order). In a superset, the
+// one whose next set comes first in the rounds, the first of them on a tie:
+// after A1 and B1, A2 — and after A1 alone, B1. The first exercise when
+// nothing is left to do.
+export function stepEntry(stepSlots, logsOf, skippedSlotIds) {
+  let entry = null;
+  for (const slot of stepSlots) {
+    if (skippedSlotIds.has(slot.id)) continue;
+    const slotLogs = logsOf(slot.id);
+    const current = currentLogOf(slotLogs);
+    if (!current) continue;
+    const round = slotLogs.indexOf(current);
+    if (!entry || round < entry.round) entry = { slot, round };
+  }
+  return (entry?.slot ?? stepSlots[0])?.id ?? null;
+}
+
+// Whether every set of a step is dealt with: each of its exercises skipped,
+// or with sets and none still to do.
+export function stepFinished(stepSlots, logsOf, skippedSlotIds) {
+  return stepSlots.every((slot) => {
+    if (skippedSlotIds.has(slot.id)) return true;
+    const slotLogs = logsOf(slot.id);
+    return slotLogs.length > 0 && !currentLogOf(slotLogs);
+  });
+}
+
+// The sets of a superset in rounds: round k holds the k-th set of each of its
+// exercises, in their order, an exercise with fewer sets missing from the last
+// rounds. `members` are `{ logs, ... }` in the superset's order; each entry of
+// a round is `{ member, log }`.
+export function supersetRounds(members) {
+  const longest = Math.max(0, ...members.map((member) => member.logs.length));
+  return Array.from({ length: longest }, (_, k) =>
+    members.filter((member) => member.logs[k]).map((member) => ({ member, log: member.logs[k] })),
+  );
+}
+
 // The rest the coach prescribed after the sets of an exercise, when it is one
 // value: a number, or null when no set has one. `undefined` when the sets
 // differ (N5) — Dips with 3:00 after sets 1 to 3 and 2:00 after 4 to 6 — and

@@ -840,3 +840,83 @@ describe('what stands beside the sets', () => {
     expect(menu()).toHaveAttribute('data-note', 'no');
   });
 });
+
+// The exercise shown is one of a superset: the panel says so and switches
+// between its exercises, and the sets are listed in rounds, named.
+describe('an exercise of a superset', () => {
+  const PRESS = { id: 'slot-2', exercise: DIPS, sets: 2, reps: 8, weight_kg: 20, notes: null, record_video_set_numbers: null };
+  const partnerSet = (n, extra = {}) =>
+    prescribed(n, { id: `p-${n}`, exercise_slot_id: 'slot-2', target_reps: 10, target_weight_kg: 20, ...extra });
+
+  function renderSuperset({ logs, partnerLogs, onSelect = vi.fn(), ...rest }) {
+    const superset = {
+      members: [
+        { slot: SLOT, logs, name: 'Bench press', code: 'A1', durationBased: false, skipped: false },
+        { slot: PRESS, logs: partnerLogs, name: 'Weighted dip', code: 'A2', durationBased: false, skipped: false },
+      ],
+      onSelect,
+    };
+    return { ...renderExercise({ logs, superset, partners: [PRESS], ...rest }), onSelect };
+  }
+
+  it('says « Superset » and the round, with its exercises in a switch, the one shown pressed', () => {
+    const { onSelect } = renderSuperset({
+      logs: [prescribed(1, { done: true, rpe: 8 }), prescribed(2)],
+      partnerLogs: [partnerSet(1), partnerSet(2)],
+    });
+    expect(within(panel()).getByText('Superset')).toBeInTheDocument();
+    expect(within(panel()).getByText('Round 2 of 2')).toBeInTheDocument();
+    // The heading still names the exercise shown, for a screen reader.
+    expect(within(panel()).getByRole('heading', { level: 2, name: 'Bench press' })).toHaveClass('sr-only');
+    // The partner is in the switch, not in a sentence.
+    expect(screen.queryByText(/In a superset with/)).toBeNull();
+
+    const switcher = screen.getByRole('group', { name: 'Exercises of the superset' });
+    expect(within(switcher).getByRole('button', { name: 'A1 Bench press' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(within(switcher).getByRole('button', { name: 'A2 Weighted dip' }));
+    expect(onSelect).toHaveBeenCalledWith('slot-2');
+  });
+
+  it('lists the sets in rounds, each row named for its exercise and coded in its indicator', () => {
+    renderSuperset({
+      logs: [prescribed(1, { done: true, rpe: 8 }), prescribed(2)],
+      partnerLogs: [partnerSet(1), partnerSet(2), partnerSet(3)],
+    });
+    const list = setList();
+    const rounds = within(list).getAllByRole('list');
+    expect(rounds.map((round) => round.getAttribute('aria-label'))).toEqual(['Round 1', 'Round 2', 'Round 3']);
+    expect(within(rounds[0]).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(rounds[2]).getAllByRole('listitem')).toHaveLength(1);
+    // A done set says so with its exercise; a set to do shows its code.
+    expect(within(rounds[0]).getByText('Bench press, set done')).toBeInTheDocument();
+    const partnerRow = within(rounds[0]).getByText('Weighted dip').closest('li');
+    expect(partnerRow.querySelector('.pk-set-dot')).toHaveTextContent('A2');
+    // The set in progress is the shown exercise's, in round 2.
+    expect(within(rounds[1]).getByText('In progress')).toBeInTheDocument();
+  });
+
+  it('a tap on a set of the partner asks the screen for that set', () => {
+    const { props } = renderSuperset({ logs: [prescribed(1)], partnerLogs: [partnerSet(1)] });
+    fireEvent.click(within(setList()).getByText('Weighted dip').closest('button'));
+    expect(props.onOpenSet).toHaveBeenCalledWith('p-1');
+  });
+
+  it('adds a set to the exercise shown, and says which', () => {
+    const { props } = renderSuperset({ logs: [prescribed(1)], partnerLogs: [partnerSet(1)] });
+    fireEvent.click(screen.getByRole('button', { name: 'Add a set to Bench press' }));
+    expect(props.onAddSet).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the sets of a skipped exercise out of the rounds', () => {
+    const superset = {
+      members: [
+        { slot: SLOT, logs: [prescribed(1)], name: 'Bench press', code: 'A1', durationBased: false, skipped: false },
+        { slot: PRESS, logs: [partnerSet(1)], name: 'Weighted dip', code: 'A2', durationBased: false, skipped: true },
+      ],
+      onSelect: vi.fn(),
+    };
+    renderExercise({ logs: [prescribed(1)], superset });
+    expect(within(setList()).queryByText('Weighted dip')).toBeNull();
+    expect(within(setList()).getByText('Bench press')).toBeInTheDocument();
+  });
+});

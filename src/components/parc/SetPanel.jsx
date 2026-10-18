@@ -70,19 +70,43 @@ function useFiguresHold(figures, columns) {
  * `primary` and `secondary` are `{ value, unit }`; `footer` the line of last
  * time; `label` the name of the panel (« Série en cours »); `action` a round
  * button at the right of the title (the exercise's « ⋯ »).
+ *
+ * For the exercises of a superset, `tag` stands where the title was
+ * (« Superset »), the title staying the panel's heading for a screen reader,
+ * and `switcher` — the exercises of the superset, the one shown pressed —
+ * goes under that row: it names the exercise shown.
  */
-export default function SetPanel({ title, position, primary, secondary, footer, label, action, children }) {
+export default function SetPanel({
+  title,
+  position,
+  primary,
+  secondary,
+  footer,
+  label,
+  action,
+  tag,
+  switcher,
+  children,
+}) {
   const figures = `${primary?.value ?? ''}|${secondary?.value ?? ''}`;
   const [rowRef, hold] = useFiguresHold(figures, `${!!primary}${!!secondary}`);
   return (
     <section aria-label={label} className="pk-panel">
       <div className="flex items-center gap-3">
-        <div className="flex min-w-0 flex-1 items-baseline justify-between gap-3">
-          <h2 className="pk-title min-w-0">{title}</h2>
+        <div className={`flex min-w-0 flex-1 justify-between gap-3 ${tag ? 'items-center' : 'items-baseline'}`}>
+          {tag ? (
+            <>
+              {tag}
+              <h2 className="sr-only">{title}</h2>
+            </>
+          ) : (
+            <h2 className="pk-title min-w-0">{title}</h2>
+          )}
           {position && <span className="pk-subhead whitespace-nowrap">{position}</span>}
         </div>
         {action}
       </div>
+      {switcher && <div className="mt-3">{switcher}</div>}
       {(primary || secondary) && (
         // Two equal columns while both figures hold in one, the wider figure
         // taking what it needs otherwise (`min-content`).

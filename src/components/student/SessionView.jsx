@@ -51,6 +51,8 @@ import {
   isDurationBased,
   isLogResolved,
   nextSlotToShow,
+  stepEntry,
+  stepFinished,
 } from './sessionModel';
 
 // The exercises of a session that is not read yet: one array, so that what is
@@ -102,8 +104,9 @@ function RestControls() {
 
 // « Valider la série n »: the set done through its own hooks, then the RPE
 // sheet — or the set's sheet for an extra set that does not say yet what was
-// done. Mounted per set (`key`), like the sheets.
-function ValidateSetButton({ log, exercise, onRpe, onValues }) {
+// done. Mounted per set (`key`), like the sheets. In a superset it names the
+// exercise by its code, « Valider C1 »: the round is in the panel.
+function ValidateSetButton({ log, exercise, code, onRpe, onValues }) {
   const { t } = useI18n();
   const actions = useSetActions(log, exercise);
   return (
@@ -116,7 +119,7 @@ function ValidateSetButton({ log, exercise, onRpe, onValues }) {
         else onRpe(log.id);
       }}
     >
-      {t('parcSession.validateSet', { n: log.set_number })}
+      {code ? t('sessionSuperset.validate', { code }) : t('parcSession.validateSet', { n: log.set_number })}
     </Button>
   );
 }
@@ -397,24 +400,27 @@ export default function SessionView() {
     return exerciseNameOf(slot, t);
   }
 
-  // The exercises in the session's order, from the ActionBar: a row over the
-  // main action with the exercise before at its left and the one after at
-  // its right, each named, and a dot per exercise between them — the one
-  // shown, the finished ones (every set dealt with, or the exercise skipped).
-  // A session of one exercise has none of it.
+  // The steps of the session, from the ActionBar: an exercise alone, or the
+  // exercises of a superset as one step. A row over the main action with the
+  // step before at its left and the one after at its right, each named — a
+  // superset by its exercises —, and a dot per step between them: the one
+  // shown, the finished ones. A session of one step has none of it.
+  const stepName = (group) =>
+    group.slots.length > 1
+      ? t('sessionSuperset.stepName', { names: group.slots.map(chipName).join(' + ') })
+      : chipName(group.slots[0]);
+  const stepLabel = (group) => (group.slots.length > 1 ? group.slots.map(chipName).join(' + ') : chipName(group.slots[0]));
   let neighbours = null;
-  const shownIndex = shownSlot ? slots.indexOf(shownSlot) : -1;
-  if (slots.length > 1 && shownIndex >= 0) {
-    const before = slots[shownIndex - 1] ?? null;
-    const after = slots[shownIndex + 1] ?? null;
-    const finished = slots.flatMap((slot, index) => {
-      const slotLogs = logsOf(slot.id);
-      const isFinished = skippedSlotIds.has(slot.id) || (slotLogs.length > 0 && !currentLogOf(slotLogs));
-      return isFinished ? [index] : [];
-    });
-    const goTo = (which, target) => {
+  const shownIndex = shownGroup ? slotGroups.indexOf(shownGroup) : -1;
+  if (slotGroups.length > 1 && shownIndex >= 0) {
+    const before = slotGroups[shownIndex - 1] ?? null;
+    const after = slotGroups[shownIndex + 1] ?? null;
+    const finished = slotGroups.flatMap((group, index) =>
+      stepFinished(group.slots, logsOf, skippedSlotIds) ? [index] : [],
+    );
+    const goTo = (which, group) => {
       stepFocus.current = which;
-      setChosenSlotId(target.id);
+      setChosenSlotId(stepEntry(group.slots, logsOf, skippedSlotIds));
     };
     neighbours = (
       <div className="flex items-center gap-2">
@@ -424,21 +430,21 @@ export default function SessionView() {
               ref={previousStepRef}
               variant="text"
               className="min-w-0 text-ink"
-              aria-label={t('sessionStepper.previous', { name: chipName(before) })}
+              aria-label={t('sessionStepper.previous', { name: stepName(before) })}
               onClick={() => goTo('previous', before)}
             >
               <Icon name="chevron-left" size={18} />
-              <span className="min-w-0 truncate">{chipName(before)}</span>
+              <span className="min-w-0 truncate">{stepLabel(before)}</span>
             </Button>
           )}
         </div>
         <ExerciseSteps
-          count={slots.length}
+          count={slotGroups.length}
           current={shownIndex}
           done={finished}
           label={t(pluralKey(lang, finished.length, 'sessionStepper.steps'), {
             n: formatNumber(lang, shownIndex + 1),
-            total: formatNumber(lang, slots.length),
+            total: formatNumber(lang, slotGroups.length),
             done: formatNumber(lang, finished.length),
           })}
         />
@@ -448,10 +454,10 @@ export default function SessionView() {
               ref={nextStepRef}
               variant="text"
               className="min-w-0 text-ink"
-              aria-label={t('sessionStepper.next', { name: chipName(after) })}
+              aria-label={t('sessionStepper.next', { name: stepName(after) })}
               onClick={() => goTo('next', after)}
             >
-              <span className="min-w-0 truncate">{chipName(after)}</span>
+              <span className="min-w-0 truncate">{stepLabel(after)}</span>
               <Icon name="chevron-right" size={18} />
             </Button>
           )}
@@ -460,9 +466,47 @@ export default function SessionView() {
     );
   }
 
-  // The editor context of a set of the exercise shown: whether it is swapped,
-  // what its fields open with, and its unit.
+  // The exercises of the superset shown, for its panel and its rounds: each
+  // with its sets, its name, its code (« C1 »: the letter of its step, its
+  // place in the superset) and its unit.
+  const superset =
+    shownGroup && shownGroup.slots.length > 1
+      ? {
+          members: shownGroup.slots.map((slot, index) => {
+            const slotLogs = logsOf(slot.id);
+            return {
+              slot,
+              logs: slotLogs,
+              name: chipName(slot),
+              code: `${String.fromCharCode(65 + shownIndex)}${index + 1}`,
+              durationBased: isDurationBased(slot, slotLogs),
+              skipped: skippedSlotIds.has(slot.id),
+            };
+          }),
+          onSelect: setChosenSlotId,
+        }
+      : null;
+
+  // The editor context of a set: whether its exercise is swapped, what its
+  // fields open with, and its unit — of the exercise shown, or of the other
+  // exercise of its superset, whose sets are listed in the same rounds.
   function exerciseContextOf(log) {
+    if (log.exercise_slot_id !== shownSlot?.id) {
+      const slot = slots.find((s) => s.id === log.exercise_slot_id);
+      if (slot) {
+        const { swapped, deviation } = deviationOf(slot, slotDeviations);
+        const slotLogs = logsOf(slot.id);
+        const exerciseId = swapped ? deviation.substitute_exercise_id : slot.exercise?.id;
+        const lastPerf = lastPerformance && exerciseId ? lastPerformance[exerciseId] : null;
+        const seed = editorSeeds(slotLogs, { swapped, lastPerf }).get(log.id);
+        return {
+          swapped,
+          seedReps: seed?.reps ?? null,
+          seedWeightKg: seed?.weightKg ?? null,
+          durationBased: isDurationBased(slot, slotLogs),
+        };
+      }
+    }
     const seed = shownSeeds.get(log.id);
     return {
       swapped: !!shown?.swapped,
@@ -481,8 +525,12 @@ export default function SessionView() {
     if (chosenSlotId == null && shownSlot) setChosenSlotId(shownSlot.id);
   }
 
+  // A set of the other exercise of a superset, tapped in the rounds, shows
+  // its exercise as it opens.
   function openSet(logId) {
-    pin();
+    const log = (logs || []).find((l) => l.id === logId);
+    if (log && shownSlot && log.exercise_slot_id !== shownSlot.id) setChosenSlotId(log.exercise_slot_id);
+    else pin();
     setSetSheet({ open: true, logId });
   }
 
@@ -621,6 +669,7 @@ export default function SessionView() {
         key={currentLog.id}
         log={currentLog}
         exercise={exerciseContextOf(currentLog)}
+        code={superset?.members.find((member) => member.slot.id === shownSlot.id)?.code}
         onRpe={openRpe}
         onValues={openSet}
       />
@@ -689,7 +738,7 @@ export default function SessionView() {
 
         {shownSlot && (
           <SessionExercise
-            key={shownSlot.id}
+            key={shownGroup?.key ?? shownSlot.id}
             slot={shownSlot}
             slotLogs={shownLogs}
             seeds={shownSeeds}
@@ -712,6 +761,7 @@ export default function SessionView() {
             onGesture={pin}
             onAddSet={handleAddSet}
             addingSet={addSet.isPending}
+            superset={superset}
           />
         )}
 
